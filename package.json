@@ -10,13 +10,17 @@
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
-    "lint": "bun run --filter '*' lint",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "bunx oxfmt .",
+    "format:check": "bunx oxfmt --check .",
     "dev:bot": "bun run --filter @household/bot dev",
     "dev:miniapp": "bun run --filter @household/miniapp dev"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@typescript/native-preview": "7.0.0-dev.20260304.1",
+    "oxlint": "^1.51.0",
     "typescript": "^5.8.2"
   }
 }

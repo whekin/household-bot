@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "unicorn"],
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2026": true
+  },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/.git/**", "**/coverage/**", "docs/**"],
+  "rules": {
+    "no-unused-vars": "error",
+    "import/no-unresolved": "off",
+    "unicorn/prefer-node-protocol": "error"
+  }
+}

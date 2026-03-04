@@ -7,7 +7,7 @@
     "build": "vite build",
     "typecheck": "tsgo --project tsconfig.json --noEmit",
     "test": "bun test --pass-with-no-tests",
-    "lint": "echo 'WHE-16 will add oxlint rules'"
+    "lint": "oxlint \"src\""
   },
   "dependencies": {
     "solid-js": "^1.9.9"
