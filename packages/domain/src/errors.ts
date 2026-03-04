@@ -1,0 +1,19 @@
+export class DomainError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'DomainError'
+    this.code = code
+  }
+}
+
+export const DOMAIN_ERROR_CODE = {
+  INVALID_MONEY_AMOUNT: 'INVALID_MONEY_AMOUNT',
+  INVALID_MONEY_MAJOR_FORMAT: 'INVALID_MONEY_MAJOR_FORMAT',
+  CURRENCY_MISMATCH: 'CURRENCY_MISMATCH',
+  INVALID_SPLIT_PARTS: 'INVALID_SPLIT_PARTS',
+  INVALID_SPLIT_WEIGHTS: 'INVALID_SPLIT_WEIGHTS',
+  INVALID_BILLING_PERIOD: 'INVALID_BILLING_PERIOD',
+  INVALID_ENTITY_ID: 'INVALID_ENTITY_ID'
+} as const
