@@ -4,6 +4,7 @@
 
 - Bun 1.3+
 - Node.js 22+
+- Terraform 1.8+ (for IaC checks/plans)
 
 ## First-time setup
 
@@ -21,6 +22,8 @@ bun run format:check
 bun run typecheck
 bun run test
 bun run build
+bun run infra:fmt:check
+bun run infra:validate
 ```
 
 ## App commands
@@ -47,8 +50,13 @@ bun run review:coderabbit
 
 - CI runs in parallel matrix jobs on push/PR to `main`:
   - `format:check`, `lint`, `typecheck`, `test`, `build`
+  - `terraform fmt -check`, `terraform validate`
 - CD deploys on successful `main` CI completion (or manual dispatch).
 - CD is enabled when GitHub secrets are configured:
   - `GCP_PROJECT_ID`
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT`
+
+## IaC Runbook
+
+- See `docs/runbooks/iac-terraform.md` for provisioning flow.

@@ -1,0 +1,37 @@
+locals {
+  name_prefix = "${var.service_prefix}-${var.environment}"
+
+  common_labels = merge(
+    {
+      environment = var.environment
+      managed_by  = "terraform"
+      project     = "household-bot"
+    },
+    var.labels
+  )
+
+  artifact_location = coalesce(var.artifact_repository_location, var.region)
+
+  runtime_secret_ids = toset(compact([
+    var.telegram_webhook_secret_id,
+    var.scheduler_shared_secret_id,
+    var.supabase_url_secret_id,
+    var.supabase_publishable_key_secret_id
+  ]))
+
+  api_services = toset([
+    "artifactregistry.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "run.googleapis.com",
+    "secretmanager.googleapis.com",
+    "sts.googleapis.com"
+  ])
+
+  github_deploy_roles = toset([
+    "roles/artifactregistry.writer",
+    "roles/iam.serviceAccountUser",
+    "roles/run.admin"
+  ])
+}
