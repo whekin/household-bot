@@ -4,6 +4,9 @@
 
 Accepted
 
+Decision Date: 2026-03-05
+Owners: Stanislav Kalishin
+
 ## Context
 
 The project needs to be modern, modular, and scalable while still delivering v1 quickly.

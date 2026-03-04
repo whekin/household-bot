@@ -4,6 +4,9 @@
 
 Accepted
 
+Decision Date: 2026-03-05
+Owners: Stanislav Kalishin
+
 ## Context
 
 The project combines domain-heavy finance logic, Telegram integration, mini-app APIs, and scheduled jobs. Without strict boundaries, framework and infrastructure concerns will leak into core logic.
