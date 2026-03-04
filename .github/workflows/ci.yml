@@ -29,6 +29,7 @@ jobs:
           - typecheck
           - test
           - build
+          - db-check
 
     steps:
       - name: Checkout
@@ -69,6 +70,9 @@ jobs:
               ;;
             build)
               bun run build
+              ;;
+            db-check)
+              bun run db:check
               ;;
             *)
               echo "Unknown task: ${{ matrix.task }}"

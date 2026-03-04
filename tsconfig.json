@@ -7,6 +7,8 @@
     { "path": "./packages/application" },
     { "path": "./packages/ports" },
     { "path": "./packages/contracts" },
-    { "path": "./packages/observability" }
+    { "path": "./packages/observability" },
+    { "path": "./packages/config" },
+    { "path": "./packages/db" }
   ]
 }
