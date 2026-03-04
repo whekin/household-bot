@@ -42,4 +42,13 @@ bun run review:coderabbit
 - Linting uses `oxlint`.
 - Formatting uses `oxfmt` with no-semicolon style.
 - AI review uses CodeRabbit CLI in `--prompt-only` mode against `main`.
-- `WHE-19` will add CI checks for the same root commands.
+
+## CI/CD
+
+- CI runs in parallel matrix jobs on push/PR to `main`:
+  - `format:check`, `lint`, `typecheck`, `test`, `build`
+- CD deploys on successful `main` CI completion (or manual dispatch).
+- CD is enabled when GitHub secrets are configured:
+  - `GCP_PROJECT_ID`
+  - `GCP_WORKLOAD_IDENTITY_PROVIDER`
+  - `GCP_SERVICE_ACCOUNT`
