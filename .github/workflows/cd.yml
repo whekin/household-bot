@@ -25,6 +25,7 @@ jobs:
     outputs:
       eligible_event: ${{ steps.check.outputs.eligible_event }}
       secrets_ok: ${{ steps.check.outputs.secrets_ok }}
+      db_secret_ok: ${{ steps.check.outputs.db_secret_ok }}
 
     steps:
       - name: Evaluate trigger and required secrets
@@ -33,6 +34,7 @@ jobs:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           eligible_event=false
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -46,8 +48,14 @@ jobs:
             secrets_ok=true
           fi
 
+          db_secret_ok=false
+          if [[ -n "$DATABASE_URL" ]]; then
+            db_secret_ok=true
+          fi
+
           echo "eligible_event=$eligible_event" >> "$GITHUB_OUTPUT"
           echo "secrets_ok=$secrets_ok" >> "$GITHUB_OUTPUT"
+          echo "db_secret_ok=$db_secret_ok" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy Cloud Run
@@ -67,6 +75,22 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Bun
+        if: ${{ needs.check-secrets.outputs.db_secret_ok == 'true' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install dependencies for migrations
+        if: ${{ needs.check-secrets.outputs.db_secret_ok == 'true' }}
+        run: bun install --frozen-lockfile
+
+      - name: Run database migrations
+        if: ${{ needs.check-secrets.outputs.db_secret_ok == 'true' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun run db:migrate
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -91,3 +115,4 @@ jobs:
         run: |
           echo "CD skipped: configure required GitHub secrets."
           echo "Required: GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT"
+          echo "Optional for auto-migrations: DATABASE_URL"

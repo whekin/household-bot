@@ -22,6 +22,9 @@ bun run format:check
 bun run typecheck
 bun run test
 bun run build
+bun run db:generate
+bun run db:check
+bun run db:migrate
 bun run infra:fmt:check
 bun run infra:validate
 ```
@@ -45,6 +48,10 @@ bun run review:coderabbit
 - Linting uses `oxlint`.
 - Formatting uses `oxfmt` with no-semicolon style.
 - AI review uses CodeRabbit CLI in `--prompt-only` mode against `main`.
+- Drizzle config is in `packages/db/drizzle.config.ts`.
+- Typed environment validation lives in `packages/config/src/env.ts`.
+- Copy `.env.example` to `.env` before running app/database commands.
+- Migration workflow is documented in `docs/runbooks/migrations.md`.
 
 ## CI/CD
 
@@ -56,6 +63,7 @@ bun run review:coderabbit
   - `GCP_PROJECT_ID`
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT`
+  - optional for automated migrations: `DATABASE_URL`
 
 ## IaC Runbook
 
