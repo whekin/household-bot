@@ -70,4 +70,8 @@ jobs:
             build)
               bun run build
               ;;
+            *)
+              echo "Unknown task: ${{ matrix.task }}"
+              exit 1
+              ;;
           esac

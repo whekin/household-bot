@@ -19,20 +19,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-secrets:
+    name: Check deploy prerequisites
+    runs-on: ubuntu-latest
+    outputs:
+      eligible_event: ${{ steps.check.outputs.eligible_event }}
+      secrets_ok: ${{ steps.check.outputs.secrets_ok }}
+
+    steps:
+      - name: Evaluate trigger and required secrets
+        id: check
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          eligible_event=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            eligible_event=true
+          elif [[ "${{ github.event_name }}" == "workflow_run" && "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            eligible_event=true
+          fi
+
+          secrets_ok=false
+          if [[ -n "$GCP_PROJECT_ID" && -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" && -n "$GCP_SERVICE_ACCOUNT" ]]; then
+            secrets_ok=true
+          fi
+
+          echo "eligible_event=$eligible_event" >> "$GITHUB_OUTPUT"
+          echo "secrets_ok=$secrets_ok" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy Cloud Run
     runs-on: ubuntu-latest
+    needs: check-secrets
     timeout-minutes: 30
-    if: >-
-      ${{
-        (
-          github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-        ) &&
-        secrets.GCP_PROJECT_ID != '' &&
-        secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' &&
-        secrets.GCP_SERVICE_ACCOUNT != ''
-      }}
+    if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' }}
 
     steps:
       - name: Checkout deployment ref
@@ -61,18 +83,8 @@ jobs:
   deploy-skipped:
     name: Deploy skipped (missing config)
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        (
-          github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-        ) &&
-        (
-          secrets.GCP_PROJECT_ID == '' ||
-          secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' ||
-          secrets.GCP_SERVICE_ACCOUNT == ''
-        )
-      }}
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'false' }}
 
     steps:
       - name: Print configuration hint
