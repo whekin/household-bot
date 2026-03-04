@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsgo --project tsconfig.json --noEmit",
     "test": "bun test --pass-with-no-tests",
     "lint": "echo 'WHE-16 will add oxlint rules'"
   },

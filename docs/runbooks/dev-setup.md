@@ -24,5 +24,6 @@ bun run dev:miniapp
 ```
 
 ## Notes
+- Type checking uses `tsgo` (`@typescript/native-preview`).
 - `WHE-16` will replace temporary lint placeholders with Oxlint rules.
 - `WHE-19` will add CI checks for the same root commands.
