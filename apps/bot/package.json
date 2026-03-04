@@ -1,0 +1,12 @@
+{
+  "name": "@household/bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "typecheck": "tsgo --project tsconfig.json --noEmit",
+    "test": "bun test --pass-with-no-tests",
+    "lint": "oxlint \"src\""
+  }
+}

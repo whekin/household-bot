@@ -1,0 +1,27 @@
+{
+  "name": "kojori-tg-bot",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "bunx oxfmt .",
+    "format:check": "bunx oxfmt --check .",
+    "review:coderabbit": "coderabbit --prompt-only --base main || ~/.local/bin/coderabbit --prompt-only --base main",
+    "dev:bot": "bun run --filter @household/bot dev",
+    "dev:miniapp": "bun run --filter @household/miniapp dev"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.10",
+    "@typescript/native-preview": "7.0.0-dev.20260304.1",
+    "oxlint": "^1.51.0",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,24 +1,29 @@
 # HOUSEBOT-001: Monorepo Bootstrap and Quality Gates
 
 ## Summary
+
 Initialize the repository as a Bun workspace monorepo with strict TypeScript, Oxlint, CI quality gates, and architecture-oriented package layout.
 
 ## Goals
+
 - Establish baseline folder structure for hexagonal architecture.
 - Add root scripts for lint, typecheck, test, and build.
 - Enforce no-semicolon formatting style and strict linting.
 - Ensure CI runs on every push/PR.
 
 ## Non-goals
+
 - Implement business logic.
 - Implement Telegram handlers.
 - Create production cloud resources.
 
 ## Scope
+
 - In: repo skeleton, workspace config, root tooling config, CI workflow.
 - Out: feature code, database schema, external service integration.
 
 ## Interfaces and Contracts
+
 - Root scripts exposed via `package.json`:
   - `lint`
   - `typecheck`
@@ -27,6 +32,7 @@ Initialize the repository as a Bun workspace monorepo with strict TypeScript, Ox
 - Workspace packages must compile under shared TS config.
 
 ## Architecture Constraints
+
 - Workspace must include:
   - `apps/bot`
   - `apps/miniapp`
@@ -38,6 +44,7 @@ Initialize the repository as a Bun workspace monorepo with strict TypeScript, Ox
 - No cross-import from domain to adapters/apps.
 
 ## File Plan
+
 - Root:
   - `package.json`
   - `bunfig.toml`
@@ -53,11 +60,13 @@ Initialize the repository as a Bun workspace monorepo with strict TypeScript, Ox
   - `packages/*/src/index.ts`
 
 ## Security and Safety
+
 - No secrets in repo.
 - Add `.env.example` templates only.
 - CI must fail on type/lint/test failure.
 
 ## Test Plan
+
 - Unit: not applicable in this ticket.
 - Integration: not applicable.
 - Validation checks:
@@ -66,6 +75,7 @@ Initialize the repository as a Bun workspace monorepo with strict TypeScript, Ox
   - CI workflow executes all checks.
 
 ## Acceptance Criteria
+
 - [ ] Bun workspace initialized with declared workspaces.
 - [ ] Oxlint config present and root lint script works.
 - [ ] TypeScript strict base config is shared across workspaces.
@@ -74,5 +84,6 @@ Initialize the repository as a Bun workspace monorepo with strict TypeScript, Ox
 - [ ] Docs updated with local bootstrap commands.
 
 ## Rollout Plan
+
 - Merge to default branch.
 - Use as mandatory baseline for all subsequent tickets.
