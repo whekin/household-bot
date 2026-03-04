@@ -4,5 +4,5 @@
   "trailingComma": "none",
   "printWidth": 100,
   "sortPackageJson": false,
-  "ignorePatterns": ["node_modules", "bun.lock", "apps/*/dist", "packages/*/dist", "docs/**"]
+  "ignorePatterns": ["node_modules", "bun.lock", "apps/*/dist", "packages/*/dist"]
 }

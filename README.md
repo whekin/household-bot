@@ -2,24 +2,5 @@
 
 Telegram household finance bot and mini app built with Bun workspaces.
 
-## Setup
-
-```bash
-bun install
-```
-
-## Quality checks
-
-```bash
-bun run lint
-bun run typecheck
-bun run test
-bun run build
-```
-
-## Local development
-
-```bash
-bun run dev:bot
-bun run dev:miniapp
-```
+See the [development setup runbook](docs/runbooks/dev-setup.md) for full setup,
+quality-check, and local development commands.
