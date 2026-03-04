@@ -1,0 +1,21 @@
+{
+  "name": "kojori-tg-bot",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "lint": "bun run --filter '*' lint",
+    "dev:bot": "bun run --filter @household/bot dev",
+    "dev:miniapp": "bun run --filter @household/miniapp dev"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}

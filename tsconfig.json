@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/bot" },
+    { "path": "./apps/miniapp" },
+    { "path": "./packages/domain" },
+    { "path": "./packages/application" },
+    { "path": "./packages/ports" },
+    { "path": "./packages/contracts" },
+    { "path": "./packages/observability" }
+  ]
+}
