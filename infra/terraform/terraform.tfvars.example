@@ -1,0 +1,16 @@
+project_id   = "my-gcp-project"
+region       = "europe-west1"
+environment  = "dev"
+service_prefix = "household"
+
+artifact_repository_id = "household-bot"
+
+bot_api_image   = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/bot-api:latest"
+mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/mini-app:latest"
+
+scheduler_cron     = "0 9 * * *"
+scheduler_timezone = "Asia/Tbilisi"
+scheduler_paused   = true
+
+create_workload_identity = true
+github_repository        = "whekin/household-bot"

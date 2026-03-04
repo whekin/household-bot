@@ -20,6 +20,9 @@
     "db:push": "bunx drizzle-kit push --config packages/db/drizzle.config.ts",
     "db:studio": "bunx drizzle-kit studio --config packages/db/drizzle.config.ts",
     "review:coderabbit": "coderabbit --prompt-only --base main || ~/.local/bin/coderabbit --prompt-only --base main",
+    "infra:fmt": "terraform -chdir=infra/terraform fmt -recursive",
+    "infra:fmt:check": "terraform -chdir=infra/terraform fmt -check -recursive",
+    "infra:validate": "terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate",
     "dev:bot": "bun run --filter @household/bot dev",
     "dev:miniapp": "bun run --filter @household/miniapp dev"
   },
