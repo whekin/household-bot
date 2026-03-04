@@ -44,7 +44,7 @@ Adopt hexagonal architecture with explicit layers:
 Positive:
 
 - High maintainability and clear ownership of concerns.
-- Better interview-readability of architecture.
+- Easier to explain architecture decisions in interviews.
 
 Negative:
 

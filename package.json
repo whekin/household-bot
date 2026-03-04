@@ -14,6 +14,7 @@
     "lint:fix": "oxlint --fix .",
     "format": "bunx oxfmt .",
     "format:check": "bunx oxfmt --check .",
+    "review:coderabbit": "coderabbit --prompt-only --base main || ~/.local/bin/coderabbit --prompt-only --base main",
     "dev:bot": "bun run --filter @household/bot dev",
     "dev:miniapp": "bun run --filter @household/miniapp dev"
   },

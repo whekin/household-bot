@@ -30,9 +30,16 @@ bun run dev:bot
 bun run dev:miniapp
 ```
 
+## Review commands
+
+```bash
+bun run review:coderabbit
+```
+
 ## Notes
 
 - Type checking uses `tsgo` (`@typescript/native-preview`).
 - Linting uses `oxlint`.
 - Formatting uses `oxfmt` with no-semicolon style.
+- AI review uses CodeRabbit CLI in `--prompt-only` mode against `main`.
 - `WHE-19` will add CI checks for the same root commands.
