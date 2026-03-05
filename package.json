@@ -10,6 +10,7 @@
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
+    "prepare": "lefthook install",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "format": "bunx oxfmt .",
@@ -29,12 +30,14 @@
     "docker:build:bot": "docker build -f apps/bot/Dockerfile -t household-bot:local .",
     "docker:build:miniapp": "docker build -f apps/miniapp/Dockerfile -t household-miniapp:local .",
     "docker:build": "bun run docker:build:bot && bun run docker:build:miniapp",
-    "docker:smoke": "docker compose up --build"
+    "docker:smoke": "docker compose up --build",
+    "test:e2e": "bun run scripts/e2e/billing-flow.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.10",
     "@typescript/native-preview": "7.0.0-dev.20260304.1",
     "drizzle-kit": "^0.31.4",
+    "lefthook": "2.1.2",
     "oxlint": "^1.51.0",
     "typescript": "^5.9.2"
   }
