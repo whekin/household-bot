@@ -1,0 +1,12 @@
+{
+  "name": "@household/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "drizzle-orm": "*",
+    "@household/db": "workspace:*"
+  }
+}

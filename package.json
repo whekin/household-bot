@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "scripts"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",

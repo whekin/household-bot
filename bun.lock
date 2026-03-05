@@ -69,6 +69,13 @@
     "packages/ports": {
       "name": "@household/ports",
     },
+    "scripts": {
+      "name": "@household/scripts",
+      "devDependencies": {
+        "@household/db": "workspace:*",
+        "drizzle-orm": "*",
+      },
+    },
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
@@ -186,6 +193,8 @@
     "@household/observability": ["@household/observability@workspace:packages/observability"],
 
     "@household/ports": ["@household/ports@workspace:packages/ports"],
+
+    "@household/scripts": ["@household/scripts@workspace:scripts"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
