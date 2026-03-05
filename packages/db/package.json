@@ -6,7 +6,8 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsgo --project tsconfig.json --noEmit",
     "test": "bun test --pass-with-no-tests",
-    "lint": "oxlint \"src\""
+    "lint": "oxlint \"src\"",
+    "seed": "bun run src/seed.ts"
   },
   "dependencies": {
     "@household/config": "workspace:*",
