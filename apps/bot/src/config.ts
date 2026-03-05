@@ -8,6 +8,8 @@ export interface BotRuntimeConfig {
   telegramHouseholdChatId?: string
   telegramPurchaseTopicId?: number
   purchaseTopicIngestionEnabled: boolean
+  openaiApiKey?: string
+  parserModel: string
 }
 
 function parsePort(raw: string | undefined): number {
@@ -66,7 +68,8 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramBotToken: requireValue(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
     telegramWebhookSecret: requireValue(env.TELEGRAM_WEBHOOK_SECRET, 'TELEGRAM_WEBHOOK_SECRET'),
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
-    purchaseTopicIngestionEnabled
+    purchaseTopicIngestionEnabled,
+    parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'
   }
 
   if (databaseUrl !== undefined) {
@@ -80,6 +83,10 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   }
   if (telegramPurchaseTopicId !== undefined) {
     runtime.telegramPurchaseTopicId = telegramPurchaseTopicId
+  }
+  const openaiApiKey = parseOptionalValue(env.OPENAI_API_KEY)
+  if (openaiApiKey !== undefined) {
+    runtime.openaiApiKey = openaiApiKey
   }
 
   return runtime

@@ -198,6 +198,13 @@ export const purchaseMessages = pgTable(
     telegramThreadId: text('telegram_thread_id').notNull(),
     telegramUpdateId: text('telegram_update_id').notNull(),
     messageSentAt: timestamp('message_sent_at', { withTimezone: true }),
+    parsedAmountMinor: bigint('parsed_amount_minor', { mode: 'bigint' }),
+    parsedCurrency: text('parsed_currency'),
+    parsedItemDescription: text('parsed_item_description'),
+    parserMode: text('parser_mode'),
+    parserConfidence: integer('parser_confidence'),
+    needsReview: integer('needs_review').default(1).notNull(),
+    parserError: text('parser_error'),
     processingStatus: text('processing_status').default('pending').notNull(),
     ingestedAt: timestamp('ingested_at', { withTimezone: true }).defaultNow().notNull()
   },

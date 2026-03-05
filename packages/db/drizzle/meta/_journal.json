@@ -22,6 +22,13 @@
       "when": 1772670548136,
       "tag": "0002_tough_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772671128084,
+      "tag": "0003_mature_roulette",
+      "breakpoints": true
     }
   ]
 }

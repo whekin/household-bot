@@ -1,0 +1,119 @@
+import type { PurchaseParserLlmFallback } from '@household/application'
+
+interface OpenAiStructuredResult {
+  amountMinor: string
+  currency: 'GEL' | 'USD'
+  itemDescription: string
+  confidence: number
+  needsReview: boolean
+}
+
+function asBigInt(value: string): bigint | null {
+  if (!/^[0-9]+$/.test(value)) {
+    return null
+  }
+
+  const parsed = BigInt(value)
+  return parsed > 0n ? parsed : null
+}
+
+export function createOpenAiParserFallback(
+  apiKey: string | undefined,
+  model: string
+): PurchaseParserLlmFallback | undefined {
+  if (!apiKey) {
+    return undefined
+  }
+
+  return async (rawText: string) => {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: 'system',
+            content:
+              'Extract a shared household purchase from text. Return only valid JSON with amountMinor, currency, itemDescription, confidence, needsReview.'
+          },
+          {
+            role: 'user',
+            content: rawText
+          }
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'purchase_parse',
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                amountMinor: {
+                  type: 'string'
+                },
+                currency: {
+                  type: 'string',
+                  enum: ['GEL', 'USD']
+                },
+                itemDescription: {
+                  type: 'string'
+                },
+                confidence: {
+                  type: 'number',
+                  minimum: 0,
+                  maximum: 100
+                },
+                needsReview: {
+                  type: 'boolean'
+                }
+              },
+              required: ['amountMinor', 'currency', 'itemDescription', 'confidence', 'needsReview']
+            }
+          }
+        }
+      })
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    const payload = (await response.json()) as {
+      output_text?: string
+    }
+
+    if (!payload.output_text) {
+      return null
+    }
+
+    let parsedJson: OpenAiStructuredResult
+    try {
+      parsedJson = JSON.parse(payload.output_text) as OpenAiStructuredResult
+    } catch {
+      return null
+    }
+
+    const amountMinor = asBigInt(parsedJson.amountMinor)
+    if (!amountMinor) {
+      return null
+    }
+
+    if (parsedJson.itemDescription.trim().length === 0) {
+      return null
+    }
+
+    return {
+      amountMinor,
+      currency: parsedJson.currency,
+      itemDescription: parsedJson.itemDescription,
+      confidence: Math.max(0, Math.min(100, Math.round(parsedJson.confidence))),
+      parserMode: 'llm',
+      needsReview: parsedJson.needsReview
+    }
+  }
+}
