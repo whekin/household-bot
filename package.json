@@ -25,7 +25,11 @@
     "infra:fmt:check": "terraform -chdir=infra/terraform fmt -check -recursive",
     "infra:validate": "terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate",
     "dev:bot": "bun run --filter @household/bot dev",
-    "dev:miniapp": "bun run --filter @household/miniapp dev"
+    "dev:miniapp": "bun run --filter @household/miniapp dev",
+    "docker:build:bot": "docker build -f apps/bot/Dockerfile -t household-bot:local .",
+    "docker:build:miniapp": "docker build -f apps/miniapp/Dockerfile -t household-miniapp:local .",
+    "docker:build": "bun run docker:build:bot && bun run docker:build:miniapp",
+    "docker:smoke": "docker compose up --build"
   },
   "devDependencies": {
     "@types/bun": "1.3.10",

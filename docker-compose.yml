@@ -1,0 +1,19 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: apps/bot/Dockerfile
+    environment:
+      PORT: '8080'
+      TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN:-000000:dev-token}'
+      TELEGRAM_WEBHOOK_SECRET: '${TELEGRAM_WEBHOOK_SECRET:-dev-secret}'
+      TELEGRAM_WEBHOOK_PATH: '${TELEGRAM_WEBHOOK_PATH:-/webhook/telegram}'
+    ports:
+      - '8080:8080'
+
+  miniapp:
+    build:
+      context: .
+      dockerfile: apps/miniapp/Dockerfile
+    ports:
+      - '8081:8080'
