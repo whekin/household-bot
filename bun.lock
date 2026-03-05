@@ -72,8 +72,9 @@
     "scripts": {
       "name": "@household/scripts",
       "devDependencies": {
+        "@household/config": "workspace:*",
         "@household/db": "workspace:*",
-        "drizzle-orm": "*",
+        "drizzle-orm": "^0.44.5",
       },
     },
   },

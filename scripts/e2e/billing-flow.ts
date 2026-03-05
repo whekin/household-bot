@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 import { eq } from 'drizzle-orm'
 
+import { e2eEnv } from '@household/config'
 import { createDbClient, schema } from '@household/db'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
@@ -12,10 +13,11 @@ import {
   registerPurchaseTopicIngestion
 } from '../../apps/bot/src/purchase-topic-ingestion'
 
-const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
-  throw new Error('DATABASE_URL is required for e2e smoke test')
+if (!e2eEnv.E2E_SMOKE_ALLOW_WRITE) {
+  throw new Error('Set E2E_SMOKE_ALLOW_WRITE=true to run e2e smoke test')
 }
+
+const databaseUrl: string = e2eEnv.DATABASE_URL
 
 const chatId = '-100123456'
 const purchaseTopicId = 77
@@ -118,15 +120,9 @@ async function run(): Promise<void> {
     carol: '900003'
   }
 
-  const coreClient = createDbClient(databaseUrl as string, {
-    max: 2,
-    prepare: false
-  })
-
-  const ingestionClient = createPurchaseMessageRepository(databaseUrl as string)
-  const financeService = createFinanceCommandsService(databaseUrl as string, {
-    householdId: ids.household
-  })
+  let coreClient: ReturnType<typeof createDbClient> | undefined
+  let ingestionClient: ReturnType<typeof createPurchaseMessageRepository> | undefined
+  let financeService: ReturnType<typeof createFinanceCommandsService> | undefined
 
   const bot = createTelegramBot('000000:test-token')
   const replies: string[] = []
@@ -154,19 +150,29 @@ async function run(): Promise<void> {
     return { ok: true, result: true } as any
   })
 
-  registerPurchaseTopicIngestion(
-    bot,
-    {
-      householdId: ids.household,
-      householdChatId: chatId,
-      purchaseTopicId
-    },
-    ingestionClient.repository
-  )
-
-  financeService.register(bot)
-
   try {
+    coreClient = createDbClient(databaseUrl, {
+      max: 2,
+      prepare: false
+    })
+
+    ingestionClient = createPurchaseMessageRepository(databaseUrl)
+    financeService = createFinanceCommandsService(databaseUrl, {
+      householdId: ids.household
+    })
+
+    registerPurchaseTopicIngestion(
+      bot,
+      {
+        householdId: ids.household,
+        householdChatId: chatId,
+        purchaseTopicId
+      },
+      ingestionClient.repository
+    )
+
+    financeService.register(bot)
+
     await coreClient.db.insert(schema.households).values({
       id: ids.household,
       name: 'E2E Smoke Household'
@@ -303,12 +309,13 @@ async function run(): Promise<void> {
       'E2E smoke passed: purchase ingestion, utility updates, and statements are deterministic'
     )
   } finally {
-    await coreClient.db.delete(schema.households).where(eq(schema.households.id, ids.household))
-
-    await Promise.all([
-      coreClient.queryClient.end({ timeout: 5 }),
-      ingestionClient.close(),
-      financeService.close()
+    await Promise.allSettled([
+      coreClient
+        ? coreClient.db.delete(schema.households).where(eq(schema.households.id, ids.household))
+        : undefined,
+      coreClient?.queryClient.end({ timeout: 5 }),
+      ingestionClient?.close(),
+      financeService?.close()
     ])
   }
 }
