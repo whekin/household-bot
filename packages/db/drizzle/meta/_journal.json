@@ -8,6 +8,13 @@
       "when": 1772663250726,
       "tag": "0000_modern_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772669239939,
+      "tag": "0001_spicy_sersi",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,7 @@ bun run build
 bun run db:generate
 bun run db:check
 bun run db:migrate
+bun run db:seed
 bun run infra:fmt:check
 bun run infra:validate
 ```

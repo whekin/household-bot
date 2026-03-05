@@ -58,3 +58,12 @@ bun run build
   2. Data backfill/cutover
   3. Cleanup migration
 - Never run `db:push` in production pipelines.
+
+## Rollback notes
+
+- If a migration fails mid-run, stop deploy and inspect `drizzle.__drizzle_migrations` state first.
+- For additive migrations in v1, rollback by:
+  1. Reverting application code to previous release.
+  2. Leaving additive schema in place (safe default).
+- For destructive migrations, require explicit rollback SQL script in the same PR before deploy approval.
+- Keep one database backup/snapshot before production migration windows.
