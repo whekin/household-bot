@@ -2,6 +2,7 @@ import { webhookCallback } from 'grammy'
 
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
+import { createOpenAiParserFallback } from './openai-parser-fallback'
 import {
   createPurchaseMessageRepository,
   registerPurchaseTopicIngestion
@@ -17,6 +18,7 @@ let closePurchaseRepository: (() => Promise<void>) | undefined
 if (runtime.purchaseTopicIngestionEnabled) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
   closePurchaseRepository = purchaseRepositoryClient.close
+  const llmFallback = createOpenAiParserFallback(runtime.openaiApiKey, runtime.parserModel)
 
   registerPurchaseTopicIngestion(
     bot,
@@ -25,7 +27,12 @@ if (runtime.purchaseTopicIngestionEnabled) {
       householdChatId: runtime.telegramHouseholdChatId!,
       purchaseTopicId: runtime.telegramPurchaseTopicId!
     },
-    purchaseRepositoryClient.repository
+    purchaseRepositoryClient.repository,
+    llmFallback
+      ? {
+          llmFallback
+        }
+      : {}
   )
 } else {
   console.warn(
