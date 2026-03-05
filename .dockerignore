@@ -1,0 +1,13 @@
+.git
+.github
+.linear
+.codex
+node_modules
+**/node_modules
+**/dist
+infra/terraform/.terraform
+infra/terraform/.terraform.lock.hcl
+.env
+.env.*
+!.env.example
+.DS_Store

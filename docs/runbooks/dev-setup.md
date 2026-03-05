@@ -37,6 +37,13 @@ bun run dev:bot
 bun run dev:miniapp
 ```
 
+## Docker smoke commands
+
+```bash
+bun run docker:build
+bun run docker:smoke
+```
+
 ## Review commands
 
 ```bash
@@ -59,12 +66,18 @@ bun run review:coderabbit
 - CI runs in parallel matrix jobs on push/PR to `main`:
   - `format:check`, `lint`, `typecheck`, `test`, `build`
   - `terraform fmt -check`, `terraform validate`
+  - docker image builds for `apps/bot` and `apps/miniapp`
 - CD deploys on successful `main` CI completion (or manual dispatch).
 - CD is enabled when GitHub secrets are configured:
   - `GCP_PROJECT_ID`
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT`
   - optional for automated migrations: `DATABASE_URL`
+- Optional GitHub variables for deploy:
+  - `GCP_REGION` (default `europe-west1`)
+  - `ARTIFACT_REPOSITORY` (default `household-bot`)
+  - `CLOUD_RUN_SERVICE_BOT` (default `household-dev-bot-api`)
+  - `CLOUD_RUN_SERVICE_MINI` (default `household-dev-mini-app`)
 
 ## IaC Runbook
 

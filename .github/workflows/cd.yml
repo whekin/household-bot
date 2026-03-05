@@ -63,6 +63,11 @@ jobs:
     needs: check-secrets
     timeout-minutes: 30
     if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' }}
+    env:
+      GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+      ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
+      CLOUD_RUN_SERVICE_BOT: ${{ vars.CLOUD_RUN_SERVICE_BOT || 'household-dev-bot-api' }}
+      CLOUD_RUN_SERVICE_MINI: ${{ vars.CLOUD_RUN_SERVICE_MINI || 'household-dev-mini-app' }}
 
     steps:
       - name: Checkout deployment ref
@@ -95,11 +100,43 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Configure Artifact Registry auth
+        run: |
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Resolve image tags
+        id: images
+        run: |
+          bot_image="${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}/bot:${GITHUB_SHA}"
+          mini_image="${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}/miniapp:${GITHUB_SHA}"
+
+          echo "bot_image=$bot_image" >> "$GITHUB_OUTPUT"
+          echo "mini_image=$mini_image" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push bot image
+        run: |
+          docker build -f apps/bot/Dockerfile -t "${{ steps.images.outputs.bot_image }}" .
+          docker push "${{ steps.images.outputs.bot_image }}"
+
+      - name: Build and push mini app image
+        run: |
+          docker build -f apps/miniapp/Dockerfile -t "${{ steps.images.outputs.mini_image }}" .
+          docker push "${{ steps.images.outputs.mini_image }}"
+
       - name: Deploy bot service
         run: |
-          gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE_BOT || 'household-bot' }}" \
-            --source . \
-            --region "${{ vars.GCP_REGION || 'europe-west1' }}" \
+          gcloud run deploy "${CLOUD_RUN_SERVICE_BOT}" \
+            --image "${{ steps.images.outputs.bot_image }}" \
+            --region "${GCP_REGION}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Deploy mini app service
+        run: |
+          gcloud run deploy "${CLOUD_RUN_SERVICE_MINI}" \
+            --image "${{ steps.images.outputs.mini_image }}" \
+            --region "${GCP_REGION}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
             --quiet
@@ -116,3 +153,4 @@ jobs:
           echo "CD skipped: configure required GitHub secrets."
           echo "Required: GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT"
           echo "Optional for auto-migrations: DATABASE_URL"
+          echo "Optional repo/service vars: GCP_REGION, ARTIFACT_REPOSITORY, CLOUD_RUN_SERVICE_BOT, CLOUD_RUN_SERVICE_MINI"
