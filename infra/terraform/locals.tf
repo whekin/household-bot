@@ -16,7 +16,11 @@ locals {
     var.telegram_webhook_secret_id,
     var.scheduler_shared_secret_id,
     var.supabase_url_secret_id,
-    var.supabase_publishable_key_secret_id
+    var.supabase_publishable_key_secret_id,
+    var.database_url_secret_id,
+    var.telegram_bot_token_secret_id,
+    var.telegram_bot_username_secret_id,
+    var.openai_api_key_secret_id
   ]))
 
   api_services = toset([

@@ -91,6 +91,18 @@ module "bot_api_service" {
     },
     var.supabase_publishable_key_secret_id == null ? {} : {
       SUPABASE_PUBLISHABLE_KEY = var.supabase_publishable_key_secret_id
+    },
+    var.database_url_secret_id == null ? {} : {
+      DATABASE_URL = var.database_url_secret_id
+    },
+    var.telegram_bot_token_secret_id == null ? {} : {
+      TELEGRAM_BOT_TOKEN = var.telegram_bot_token_secret_id
+    },
+    var.telegram_bot_username_secret_id == null ? {} : {
+      TELEGRAM_BOT_USERNAME = var.telegram_bot_username_secret_id
+    },
+    var.openai_api_key_secret_id == null ? {} : {
+      OPENAI_API_KEY = var.openai_api_key_secret_id
     }
   )
 

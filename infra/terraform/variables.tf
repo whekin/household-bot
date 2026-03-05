@@ -70,6 +70,35 @@ variable "supabase_publishable_key_secret_id" {
   nullable    = true
 }
 
+variable "database_url_secret_id" {
+  description = "Optional Secret Manager ID for DATABASE_URL"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "telegram_bot_token_secret_id" {
+  description = "Optional Secret Manager ID for TELEGRAM_BOT_TOKEN"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "telegram_bot_username_secret_id" {
+  description = "Optional Secret Manager ID for TELEGRAM_BOT_USERNAME"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "openai_api_key_secret_id" {
+  description = "Optional Secret Manager ID for OPENAI_API_KEY"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+
 variable "scheduler_path" {
   description = "Reminder endpoint path on bot API"
   type        = string
