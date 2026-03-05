@@ -2,6 +2,7 @@ import { webhookCallback } from 'grammy'
 
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
+import { createFinanceCommandsService } from './finance-commands'
 import { createOpenAiParserFallback } from './openai-parser-fallback'
 import {
   createPurchaseMessageRepository,
@@ -13,11 +14,11 @@ const runtime = getBotRuntimeConfig()
 const bot = createTelegramBot(runtime.telegramBotToken)
 const webhookHandler = webhookCallback(bot, 'std/http')
 
-let closePurchaseRepository: (() => Promise<void>) | undefined
+const shutdownTasks: Array<() => Promise<void>> = []
 
 if (runtime.purchaseTopicIngestionEnabled) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
-  closePurchaseRepository = purchaseRepositoryClient.close
+  shutdownTasks.push(purchaseRepositoryClient.close)
   const llmFallback = createOpenAiParserFallback(runtime.openaiApiKey, runtime.parserModel)
 
   registerPurchaseTopicIngestion(
@@ -40,6 +41,17 @@ if (runtime.purchaseTopicIngestionEnabled) {
   )
 }
 
+if (runtime.financeCommandsEnabled) {
+  const financeCommands = createFinanceCommandsService(runtime.databaseUrl!, {
+    householdId: runtime.householdId!
+  })
+
+  financeCommands.register(bot)
+  shutdownTasks.push(financeCommands.close)
+} else {
+  console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
+}
+
 const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
@@ -57,7 +69,9 @@ if (import.meta.main) {
   )
 
   process.on('SIGTERM', () => {
-    void closePurchaseRepository?.()
+    for (const close of shutdownTasks) {
+      void close()
+    }
   })
 }
 

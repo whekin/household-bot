@@ -8,6 +8,7 @@ export interface BotRuntimeConfig {
   telegramHouseholdChatId?: string
   telegramPurchaseTopicId?: number
   purchaseTopicIngestionEnabled: boolean
+  financeCommandsEnabled: boolean
   openaiApiKey?: string
   parserModel: string
 }
@@ -63,12 +64,15 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramHouseholdChatId !== undefined &&
     telegramPurchaseTopicId !== undefined
 
+  const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
+
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
     telegramBotToken: requireValue(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
     telegramWebhookSecret: requireValue(env.TELEGRAM_WEBHOOK_SECRET, 'TELEGRAM_WEBHOOK_SECRET'),
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
     purchaseTopicIngestionEnabled,
+    financeCommandsEnabled,
     parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'
   }
 
