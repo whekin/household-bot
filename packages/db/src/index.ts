@@ -1,2 +1,2 @@
-export { db, queryClient } from './client'
+export { createDbClient } from './client'
 export * as schema from './schema'
