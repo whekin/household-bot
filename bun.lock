@@ -31,6 +31,9 @@
     },
     "packages/application": {
       "name": "@household/application",
+      "dependencies": {
+        "@household/domain": "workspace:*",
+      },
     },
     "packages/config": {
       "name": "@household/config",
