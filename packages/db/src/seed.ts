@@ -1,7 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import postgres from 'postgres'
-
+import { createDbClient } from './client'
 import {
   billingCycles,
   households,
@@ -20,12 +18,10 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL is required for db seed')
 }
 
-const queryClient = postgres(databaseUrl, {
-  prepare: false,
-  max: 2
+const { db, queryClient } = createDbClient(databaseUrl, {
+  max: 2,
+  prepare: false
 })
-
-const db = drizzle(queryClient)
 
 const FIXTURE_IDS = {
   household: '11111111-1111-4111-8111-111111111111',

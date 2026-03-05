@@ -3,6 +3,11 @@ export interface BotRuntimeConfig {
   telegramBotToken: string
   telegramWebhookSecret: string
   telegramWebhookPath: string
+  databaseUrl?: string
+  householdId?: string
+  telegramHouseholdChatId?: string
+  telegramPurchaseTopicId?: number
+  purchaseTopicIngestionEnabled: boolean
 }
 
 function parsePort(raw: string | undefined): number {
@@ -26,11 +31,56 @@ function requireValue(value: string | undefined, key: string): string {
   return value
 }
 
+function parseOptionalTopicId(raw: string | undefined): number | undefined {
+  if (!raw) {
+    return undefined
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid TELEGRAM_PURCHASE_TOPIC_ID value: ${raw}`)
+  }
+
+  return parsed
+}
+
+function parseOptionalValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed && trimmed.length > 0 ? trimmed : undefined
+}
+
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
-  return {
+  const databaseUrl = parseOptionalValue(env.DATABASE_URL)
+  const householdId = parseOptionalValue(env.HOUSEHOLD_ID)
+  const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
+  const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
+
+  const purchaseTopicIngestionEnabled =
+    databaseUrl !== undefined &&
+    householdId !== undefined &&
+    telegramHouseholdChatId !== undefined &&
+    telegramPurchaseTopicId !== undefined
+
+  const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
     telegramBotToken: requireValue(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
     telegramWebhookSecret: requireValue(env.TELEGRAM_WEBHOOK_SECRET, 'TELEGRAM_WEBHOOK_SECRET'),
-    telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram'
+    telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
+    purchaseTopicIngestionEnabled
   }
+
+  if (databaseUrl !== undefined) {
+    runtime.databaseUrl = databaseUrl
+  }
+  if (householdId !== undefined) {
+    runtime.householdId = householdId
+  }
+  if (telegramHouseholdChatId !== undefined) {
+    runtime.telegramHouseholdChatId = telegramHouseholdChatId
+  }
+  if (telegramPurchaseTopicId !== undefined) {
+    runtime.telegramPurchaseTopicId = telegramPurchaseTopicId
+  }
+
+  return runtime
 }

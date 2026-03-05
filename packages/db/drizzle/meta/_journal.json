@@ -15,6 +15,13 @@
       "when": 1772669239939,
       "tag": "0001_spicy_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772670548136,
+      "tag": "0002_tough_sandman",
+      "breakpoints": true
     }
   ]
 }

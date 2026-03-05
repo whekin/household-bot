@@ -1,12 +1,21 @@
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 
-import { env } from '@household/config'
+export interface DbClientOptions {
+  max?: number
+  prepare?: boolean
+}
 
-const queryClient = postgres(env.DATABASE_URL, {
-  prepare: false,
-  max: 5
-})
+export function createDbClient(databaseUrl: string, options: DbClientOptions = {}) {
+  const queryClient = postgres(databaseUrl, {
+    max: options.max ?? 5,
+    prepare: options.prepare ?? false
+  })
 
-export const db = drizzle(queryClient)
-export { queryClient }
+  const db = drizzle(queryClient)
+
+  return {
+    db,
+    queryClient
+  }
+}

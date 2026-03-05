@@ -2,6 +2,9 @@
   "name": "@household/db",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsgo --project tsconfig.json --noEmit",
@@ -10,7 +13,6 @@
     "seed": "bun run src/seed.ts"
   },
   "dependencies": {
-    "@household/config": "workspace:*",
     "drizzle-orm": "^0.44.5",
     "postgres": "^3.4.7"
   }

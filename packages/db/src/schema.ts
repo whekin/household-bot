@@ -180,6 +180,45 @@ export const purchaseEntries = pgTable(
   })
 )
 
+export const purchaseMessages = pgTable(
+  'purchase_messages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    senderMemberId: uuid('sender_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    senderTelegramUserId: text('sender_telegram_user_id').notNull(),
+    senderDisplayName: text('sender_display_name'),
+    rawText: text('raw_text').notNull(),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramMessageId: text('telegram_message_id').notNull(),
+    telegramThreadId: text('telegram_thread_id').notNull(),
+    telegramUpdateId: text('telegram_update_id').notNull(),
+    messageSentAt: timestamp('message_sent_at', { withTimezone: true }),
+    processingStatus: text('processing_status').default('pending').notNull(),
+    ingestedAt: timestamp('ingested_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdThreadIdx: index('purchase_messages_household_thread_idx').on(
+      table.householdId,
+      table.telegramThreadId
+    ),
+    senderIdx: index('purchase_messages_sender_idx').on(table.senderTelegramUserId),
+    tgMessageUnique: uniqueIndex('purchase_messages_household_tg_message_unique').on(
+      table.householdId,
+      table.telegramChatId,
+      table.telegramMessageId
+    ),
+    tgUpdateUnique: uniqueIndex('purchase_messages_household_tg_update_unique').on(
+      table.householdId,
+      table.telegramUpdateId
+    )
+  })
+)
+
 export const processedBotMessages = pgTable(
   'processed_bot_messages',
   {
@@ -261,4 +300,5 @@ export type Member = typeof members.$inferSelect
 export type BillingCycle = typeof billingCycles.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseEntry = typeof purchaseEntries.$inferSelect
+export type PurchaseMessage = typeof purchaseMessages.$inferSelect
 export type Settlement = typeof settlements.$inferSelect
