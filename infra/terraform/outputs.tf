@@ -23,9 +23,9 @@ output "mini_app_service_url" {
   value       = module.mini_app_service.uri
 }
 
-output "scheduler_job_name" {
-  description = "Cloud Scheduler job for reminders"
-  value       = google_cloud_scheduler_job.reminders.name
+output "scheduler_job_names" {
+  description = "Cloud Scheduler jobs for reminders"
+  value       = { for name, job in google_cloud_scheduler_job.reminders : name => job.name }
 }
 
 output "runtime_secret_ids" {

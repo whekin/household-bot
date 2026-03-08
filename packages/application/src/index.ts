@@ -1,5 +1,16 @@
 export { calculateMonthlySettlement } from './settlement-engine'
 export {
+  createAnonymousFeedbackService,
+  type AnonymousFeedbackService,
+  type AnonymousFeedbackSubmitResult
+} from './anonymous-feedback-service'
+export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
+export {
+  createReminderJobService,
+  type ReminderJobResult,
+  type ReminderJobService
+} from './reminder-job-service'
+export {
   parsePurchaseMessage,
   type ParsedPurchaseResult,
   type ParsePurchaseInput,

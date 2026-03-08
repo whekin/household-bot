@@ -9,7 +9,8 @@ export function createTelegramBot(token: string): Bot {
         'Household bot scaffold is live.',
         'Available commands:',
         '/help - Show command list',
-        '/household_status - Show placeholder household status'
+        '/household_status - Show placeholder household status',
+        '/anon <message> - Send anonymous household feedback in a private chat'
       ].join('\n')
     )
   })

@@ -1,20 +1,57 @@
 import { webhookCallback } from 'grammy'
 
+import {
+  createAnonymousFeedbackService,
+  createFinanceCommandService,
+  createReminderJobService
+} from '@household/application'
+import {
+  createDbAnonymousFeedbackRepository,
+  createDbFinanceRepository,
+  createDbReminderDispatchRepository
+} from '@household/adapters-db'
+
+import { registerAnonymousFeedback } from './anonymous-feedback'
+import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
-import { createFinanceCommandsService } from './finance-commands'
 import { createOpenAiParserFallback } from './openai-parser-fallback'
 import {
   createPurchaseMessageRepository,
   registerPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
+import { createReminderJobsHandler } from './reminder-jobs'
+import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
+import { createMiniAppAuthHandler } from './miniapp-auth'
+import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 
 const runtime = getBotRuntimeConfig()
 const bot = createTelegramBot(runtime.telegramBotToken)
 const webhookHandler = webhookCallback(bot, 'std/http')
 
 const shutdownTasks: Array<() => Promise<void>> = []
+const financeRepositoryClient =
+  runtime.financeCommandsEnabled || runtime.miniAppAuthEnabled
+    ? createDbFinanceRepository(runtime.databaseUrl!, runtime.householdId!)
+    : null
+const financeService = financeRepositoryClient
+  ? createFinanceCommandService(financeRepositoryClient.repository)
+  : null
+const anonymousFeedbackRepositoryClient = runtime.anonymousFeedbackEnabled
+  ? createDbAnonymousFeedbackRepository(runtime.databaseUrl!, runtime.householdId!)
+  : null
+const anonymousFeedbackService = anonymousFeedbackRepositoryClient
+  ? createAnonymousFeedbackService(anonymousFeedbackRepositoryClient.repository)
+  : null
+
+if (financeRepositoryClient) {
+  shutdownTasks.push(financeRepositoryClient.close)
+}
+
+if (anonymousFeedbackRepositoryClient) {
+  shutdownTasks.push(anonymousFeedbackRepositoryClient.close)
+}
 
 if (runtime.purchaseTopicIngestionEnabled) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
@@ -42,20 +79,81 @@ if (runtime.purchaseTopicIngestionEnabled) {
 }
 
 if (runtime.financeCommandsEnabled) {
-  const financeCommands = createFinanceCommandsService(runtime.databaseUrl!, {
-    householdId: runtime.householdId!
-  })
+  const financeCommands = createFinanceCommandsService(financeService!)
 
   financeCommands.register(bot)
-  shutdownTasks.push(financeCommands.close)
 } else {
   console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
+}
+
+const reminderJobs = runtime.reminderJobsEnabled
+  ? (() => {
+      const reminderRepositoryClient = createDbReminderDispatchRepository(runtime.databaseUrl!)
+      const reminderService = createReminderJobService(reminderRepositoryClient.repository)
+
+      shutdownTasks.push(reminderRepositoryClient.close)
+
+      return createReminderJobsHandler({
+        householdId: runtime.householdId!,
+        reminderService
+      })
+    })()
+  : null
+
+if (!runtime.reminderJobsEnabled) {
+  console.warn(
+    'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
+  )
+}
+
+if (anonymousFeedbackService) {
+  registerAnonymousFeedback({
+    bot,
+    anonymousFeedbackService,
+    householdChatId: runtime.telegramHouseholdChatId!,
+    feedbackTopicId: runtime.telegramFeedbackTopicId!
+  })
+} else {
+  console.warn(
+    'Anonymous feedback is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_FEEDBACK_TOPIC_ID to enable.'
+  )
 }
 
 const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
-  webhookHandler
+  webhookHandler,
+  miniAppAuth: financeRepositoryClient
+    ? createMiniAppAuthHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        repository: financeRepositoryClient.repository
+      })
+    : undefined,
+  miniAppDashboard: financeService
+    ? createMiniAppDashboardHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        financeService
+      })
+    : undefined,
+  scheduler:
+    reminderJobs && runtime.schedulerSharedSecret
+      ? {
+          authorize: createSchedulerRequestAuthorizer({
+            sharedSecret: runtime.schedulerSharedSecret,
+            oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
+          }).authorize,
+          handler: reminderJobs.handle
+        }
+      : reminderJobs
+        ? {
+            authorize: createSchedulerRequestAuthorizer({
+              oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
+            }).authorize,
+            handler: reminderJobs.handle
+          }
+        : undefined
 })
 
 if (import.meta.main) {

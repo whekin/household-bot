@@ -247,6 +247,46 @@ export const processedBotMessages = pgTable(
   })
 )
 
+export const anonymousMessages = pgTable(
+  'anonymous_messages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    submittedByMemberId: uuid('submitted_by_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    rawText: text('raw_text').notNull(),
+    sanitizedText: text('sanitized_text'),
+    moderationStatus: text('moderation_status').notNull(),
+    moderationReason: text('moderation_reason'),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramMessageId: text('telegram_message_id').notNull(),
+    telegramUpdateId: text('telegram_update_id').notNull(),
+    postedChatId: text('posted_chat_id'),
+    postedThreadId: text('posted_thread_id'),
+    postedMessageId: text('posted_message_id'),
+    failureReason: text('failure_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true })
+  },
+  (table) => ({
+    householdUpdateUnique: uniqueIndex('anonymous_messages_household_tg_update_unique').on(
+      table.householdId,
+      table.telegramUpdateId
+    ),
+    memberCreatedIdx: index('anonymous_messages_member_created_idx').on(
+      table.submittedByMemberId,
+      table.createdAt
+    ),
+    statusCreatedIdx: index('anonymous_messages_status_created_idx').on(
+      table.moderationStatus,
+      table.createdAt
+    )
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {
@@ -308,4 +348,5 @@ export type BillingCycle = typeof billingCycles.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseEntry = typeof purchaseEntries.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect
+export type AnonymousMessage = typeof anonymousMessages.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

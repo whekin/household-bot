@@ -11,11 +11,18 @@ mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/mini
 bot_household_id       = "11111111-1111-4111-8111-111111111111"
 bot_household_chat_id  = "-1001234567890"
 bot_purchase_topic_id  = 777
+bot_feedback_topic_id  = 778
 bot_parser_model       = "gpt-4.1-mini"
+bot_mini_app_allowed_origins = [
+  "https://household-dev-mini-app-abc123-ew.a.run.app"
+]
 
-scheduler_cron     = "0 9 * * *"
-scheduler_timezone = "Asia/Tbilisi"
-scheduler_paused   = true
+scheduler_utilities_cron    = "0 9 4 * *"
+scheduler_rent_warning_cron = "0 9 17 * *"
+scheduler_rent_due_cron     = "0 9 20 * *"
+scheduler_timezone          = "Asia/Tbilisi"
+scheduler_paused            = true
+scheduler_dry_run           = true
 
 create_workload_identity = true
 github_repository        = "whekin/household-bot"

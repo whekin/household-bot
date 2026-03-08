@@ -12,6 +12,21 @@ locals {
 
   artifact_location = coalesce(var.artifact_repository_location, var.region)
 
+  reminder_jobs = {
+    utilities = {
+      schedule = var.scheduler_utilities_cron
+      path     = "/jobs/reminder/utilities"
+    }
+    rent-warning = {
+      schedule = var.scheduler_rent_warning_cron
+      path     = "/jobs/reminder/rent-warning"
+    }
+    rent-due = {
+      schedule = var.scheduler_rent_due_cron
+      path     = "/jobs/reminder/rent-due"
+    }
+  }
+
   runtime_secret_ids = toset(compact([
     var.telegram_webhook_secret_id,
     var.scheduler_shared_secret_id,

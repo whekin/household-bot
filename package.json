@@ -32,7 +32,9 @@
     "docker:build:miniapp": "docker build -f apps/miniapp/Dockerfile -t household-miniapp:local .",
     "docker:build": "bun run docker:build:bot && bun run docker:build:miniapp",
     "docker:smoke": "docker compose up --build",
-    "test:e2e": "bun run scripts/e2e/billing-flow.ts"
+    "test:e2e": "bun run scripts/e2e/billing-flow.ts",
+    "ops:deploy:smoke": "bun run scripts/ops/deploy-smoke.ts",
+    "ops:telegram:webhook": "bun run scripts/ops/telegram-webhook.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.10",

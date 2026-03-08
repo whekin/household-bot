@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 
 import { eq } from 'drizzle-orm'
 
+import { createFinanceCommandService } from '@household/application'
+import { createDbFinanceRepository } from '@household/adapters-db'
 import { createDbClient, schema } from '@household/db'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
@@ -129,7 +131,7 @@ async function run(): Promise<void> {
 
   let coreClient: ReturnType<typeof createDbClient> | undefined
   let ingestionClient: ReturnType<typeof createPurchaseMessageRepository> | undefined
-  let financeService: ReturnType<typeof createFinanceCommandsService> | undefined
+  let financeRepositoryClient: ReturnType<typeof createDbFinanceRepository> | undefined
 
   const bot = createTelegramBot('000000:test-token')
   const replies: string[] = []
@@ -178,9 +180,9 @@ async function run(): Promise<void> {
     })
 
     ingestionClient = createPurchaseMessageRepository(databaseUrl)
-    financeService = createFinanceCommandsService(databaseUrl, {
-      householdId: ids.household
-    })
+    financeRepositoryClient = createDbFinanceRepository(databaseUrl, ids.household)
+    const financeService = createFinanceCommandService(financeRepositoryClient.repository)
+    const financeCommands = createFinanceCommandsService(financeService)
 
     registerPurchaseTopicIngestion(
       bot,
@@ -192,7 +194,7 @@ async function run(): Promise<void> {
       ingestionClient.repository
     )
 
-    financeService.register(bot)
+    financeCommands.register(bot)
 
     await coreClient.db.insert(schema.households).values({
       id: ids.household,
@@ -336,7 +338,7 @@ async function run(): Promise<void> {
         : undefined,
       coreClient?.queryClient.end({ timeout: 5 }),
       ingestionClient?.close(),
-      financeService?.close()
+      financeRepositoryClient?.close()
     ])
   }
 }

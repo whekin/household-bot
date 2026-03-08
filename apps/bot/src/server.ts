@@ -2,6 +2,25 @@ export interface BotWebhookServerOptions {
   webhookPath: string
   webhookSecret: string
   webhookHandler: (request: Request) => Promise<Response> | Response
+  miniAppAuth?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppDashboard?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  scheduler?:
+    | {
+        pathPrefix?: string
+        authorize: (request: Request) => Promise<boolean>
+        handler: (request: Request, reminderType: string) => Promise<Response>
+      }
+    | undefined
 }
 
 function json(body: object, status = 200): Response {
@@ -25,6 +44,11 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const normalizedWebhookPath = options.webhookPath.startsWith('/')
     ? options.webhookPath
     : `/${options.webhookPath}`
+  const miniAppAuthPath = options.miniAppAuth?.path ?? '/api/miniapp/session'
+  const miniAppDashboardPath = options.miniAppDashboard?.path ?? '/api/miniapp/dashboard'
+  const schedulerPathPrefix = options.scheduler
+    ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
+    : null
 
   return {
     fetch: async (request: Request) => {
@@ -34,7 +58,28 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
         return json({ ok: true })
       }
 
+      if (options.miniAppAuth && url.pathname === miniAppAuthPath) {
+        return await options.miniAppAuth.handler(request)
+      }
+
+      if (options.miniAppDashboard && url.pathname === miniAppDashboardPath) {
+        return await options.miniAppDashboard.handler(request)
+      }
+
       if (url.pathname !== normalizedWebhookPath) {
+        if (schedulerPathPrefix && url.pathname.startsWith(`${schedulerPathPrefix}/`)) {
+          if (request.method !== 'POST') {
+            return new Response('Method Not Allowed', { status: 405 })
+          }
+
+          if (!(await options.scheduler!.authorize(request))) {
+            return new Response('Unauthorized', { status: 401 })
+          }
+
+          const reminderType = url.pathname.slice(`${schedulerPathPrefix}/`.length)
+          return await options.scheduler!.handler(request, reminderType)
+        }
+
         return new Response('Not Found', { status: 404 })
       }
 
