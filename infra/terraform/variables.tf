@@ -78,14 +78,34 @@ variable "database_url_secret_id" {
 }
 
 variable "telegram_bot_token_secret_id" {
-  description = "Optional Secret Manager ID for TELEGRAM_BOT_TOKEN"
+  description = "Secret Manager ID for TELEGRAM_BOT_TOKEN"
+  type        = string
+  default     = "telegram-bot-token"
+}
+
+variable "bot_household_id" {
+  description = "Optional HOUSEHOLD_ID value for bot runtime"
   type        = string
   default     = null
   nullable    = true
 }
 
-variable "telegram_bot_username_secret_id" {
-  description = "Optional Secret Manager ID for TELEGRAM_BOT_USERNAME"
+variable "bot_household_chat_id" {
+  description = "Optional TELEGRAM_HOUSEHOLD_CHAT_ID value for bot runtime"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "bot_purchase_topic_id" {
+  description = "Optional TELEGRAM_PURCHASE_TOPIC_ID value for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_parser_model" {
+  description = "Optional PARSER_MODEL override for bot runtime"
   type        = string
   default     = null
   nullable    = true

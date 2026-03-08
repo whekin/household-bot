@@ -19,7 +19,6 @@ locals {
     var.supabase_publishable_key_secret_id,
     var.database_url_secret_id,
     var.telegram_bot_token_secret_id,
-    var.telegram_bot_username_secret_id,
     var.openai_api_key_secret_id
   ]))
 

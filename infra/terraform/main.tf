@@ -77,9 +77,23 @@ module "bot_api_service" {
   max_instance_count    = var.bot_max_instances
   labels                = local.common_labels
 
-  env = {
-    NODE_ENV = var.environment
-  }
+  env = merge(
+    {
+      NODE_ENV = var.environment
+    },
+    var.bot_household_id == null ? {} : {
+      HOUSEHOLD_ID = var.bot_household_id
+    },
+    var.bot_household_chat_id == null ? {} : {
+      TELEGRAM_HOUSEHOLD_CHAT_ID = var.bot_household_chat_id
+    },
+    var.bot_purchase_topic_id == null ? {} : {
+      TELEGRAM_PURCHASE_TOPIC_ID = tostring(var.bot_purchase_topic_id)
+    },
+    var.bot_parser_model == null ? {} : {
+      PARSER_MODEL = var.bot_parser_model
+    }
+  )
 
   secret_env = merge(
     {
@@ -97,9 +111,6 @@ module "bot_api_service" {
     },
     var.telegram_bot_token_secret_id == null ? {} : {
       TELEGRAM_BOT_TOKEN = var.telegram_bot_token_secret_id
-    },
-    var.telegram_bot_username_secret_id == null ? {} : {
-      TELEGRAM_BOT_USERNAME = var.telegram_bot_username_secret_id
     },
     var.openai_api_key_secret_id == null ? {} : {
       OPENAI_API_KEY = var.openai_api_key_secret_id
