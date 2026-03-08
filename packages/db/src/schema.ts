@@ -18,6 +18,54 @@ export const households = pgTable('households', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 })
 
+export const householdTelegramChats = pgTable(
+  'household_telegram_chats',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramChatType: text('telegram_chat_type').notNull(),
+    title: text('title'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdUnique: uniqueIndex('household_telegram_chats_household_unique').on(table.householdId),
+    chatUnique: uniqueIndex('household_telegram_chats_chat_unique').on(table.telegramChatId)
+  })
+)
+
+export const householdTopicBindings = pgTable(
+  'household_topic_bindings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    telegramThreadId: text('telegram_thread_id').notNull(),
+    topicName: text('topic_name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdRoleUnique: uniqueIndex('household_topic_bindings_household_role_unique').on(
+      table.householdId,
+      table.role
+    ),
+    householdThreadUnique: uniqueIndex('household_topic_bindings_household_thread_unique').on(
+      table.householdId,
+      table.telegramThreadId
+    ),
+    householdRoleIdx: index('household_topic_bindings_household_role_idx').on(
+      table.householdId,
+      table.role
+    )
+  })
+)
+
 export const members = pgTable(
   'members',
   {
@@ -343,6 +391,8 @@ export const settlementLines = pgTable(
 )
 
 export type Household = typeof households.$inferSelect
+export type HouseholdTelegramChat = typeof householdTelegramChats.$inferSelect
+export type HouseholdTopicBinding = typeof householdTopicBindings.$inferSelect
 export type Member = typeof members.$inferSelect
 export type BillingCycle = typeof billingCycles.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect

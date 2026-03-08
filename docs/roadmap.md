@@ -63,6 +63,25 @@ Exit criteria:
 - Purchase messages are ingested and persisted.
 - Monthly statement can be produced via command.
 
+## Phase 2.5 - Multi-Household Setup
+
+Goal: remove single-household deploy assumptions and support real Telegram group
+onboarding.
+
+Deliverables:
+
+- Database-backed Telegram group and topic configuration.
+- Group bootstrap command (`/setup`).
+- Topic binding commands executed inside the target topic.
+- Member DM onboarding and household linkage flow.
+- Removal of household-specific runtime env requirements.
+
+Exit criteria:
+
+- One bot deployment can support multiple household groups.
+- New households can be configured without Terraform edits or redeploy.
+- Purchase and anonymous feedback topics are bound from real Telegram updates.
+
 ## Phase 3 - Reminders and Scheduling
 
 Goal: automate key payment reminders.

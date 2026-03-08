@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   extractPurchaseTopicCandidate,
+  resolveConfiguredPurchaseTopicRecord,
   type PurchaseTopicCandidate
 } from './purchase-topic-ingestion'
 
@@ -56,6 +57,31 @@ describe('extractPurchaseTopicCandidate', () => {
       candidate({ rawText: '/statement 2026-03' }),
       config
     )
+
+    expect(record).toBeNull()
+  })
+})
+
+describe('resolveConfiguredPurchaseTopicRecord', () => {
+  test('returns record when the configured topic role is purchase', () => {
+    const record = resolveConfiguredPurchaseTopicRecord(candidate(), {
+      householdId: 'household-1',
+      role: 'purchase',
+      telegramThreadId: '777',
+      topicName: 'Общие покупки'
+    })
+
+    expect(record).not.toBeNull()
+    expect(record?.householdId).toBe('household-1')
+  })
+
+  test('skips non-purchase topic bindings', () => {
+    const record = resolveConfiguredPurchaseTopicRecord(candidate(), {
+      householdId: 'household-1',
+      role: 'feedback',
+      telegramThreadId: '777',
+      topicName: 'Feedback'
+    })
 
     expect(record).toBeNull()
   })

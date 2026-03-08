@@ -2,6 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import { createDbClient } from './client'
 import {
   billingCycles,
+  householdTelegramChats,
+  householdTopicBindings,
   households,
   members,
   presenceOverrides,
@@ -64,6 +66,34 @@ async function seed(): Promise<void> {
         telegramUserId: '10003',
         displayName: 'Carol',
         isAdmin: 0
+      }
+    ])
+    .onConflictDoNothing()
+
+  await db
+    .insert(householdTelegramChats)
+    .values({
+      householdId: FIXTURE_IDS.household,
+      telegramChatId: '-1001234567890',
+      telegramChatType: 'supergroup',
+      title: 'Kojori Demo Household'
+    })
+    .onConflictDoNothing()
+
+  await db
+    .insert(householdTopicBindings)
+    .values([
+      {
+        householdId: FIXTURE_IDS.household,
+        role: 'purchase',
+        telegramThreadId: '777',
+        topicName: 'Общие покупки'
+      },
+      {
+        householdId: FIXTURE_IDS.household,
+        role: 'feedback',
+        telegramThreadId: '778',
+        topicName: 'Anonymous feedback'
       }
     ])
     .onConflictDoNothing()
@@ -211,6 +241,16 @@ async function seed(): Promise<void> {
 
   if (seededCycle.length === 0) {
     throw new Error('Seed verification failed: billing cycle not found')
+  }
+
+  const seededChat = await db
+    .select({ telegramChatId: householdTelegramChats.telegramChatId })
+    .from(householdTelegramChats)
+    .where(eq(householdTelegramChats.householdId, FIXTURE_IDS.household))
+    .limit(1)
+
+  if (seededChat.length === 0) {
+    throw new Error('Seed verification failed: Telegram household chat not found')
   }
 }
 

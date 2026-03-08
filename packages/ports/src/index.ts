@@ -5,6 +5,15 @@ export {
   type ReminderDispatchRepository,
   type ReminderType
 } from './reminders'
+export {
+  HOUSEHOLD_TOPIC_ROLES,
+  type HouseholdConfigurationRepository,
+  type HouseholdTelegramChatRecord,
+  type HouseholdTopicBindingRecord,
+  type HouseholdTopicRole,
+  type RegisterTelegramHouseholdChatInput,
+  type RegisterTelegramHouseholdChatResult
+} from './household-config'
 export type {
   AnonymousFeedbackMemberRecord,
   AnonymousFeedbackModerationStatus,

@@ -5,6 +5,7 @@ export {
   type AnonymousFeedbackSubmitResult
 } from './anonymous-feedback-service'
 export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
+export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
 export {
   createReminderJobService,
   type ReminderJobResult,

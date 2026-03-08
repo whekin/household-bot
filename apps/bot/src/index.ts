@@ -3,11 +3,13 @@ import { webhookCallback } from 'grammy'
 import {
   createAnonymousFeedbackService,
   createFinanceCommandService,
+  createHouseholdSetupService,
   createReminderJobService
 } from '@household/application'
 import {
   createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
+  createDbHouseholdConfigurationRepository,
   createDbReminderDispatchRepository
 } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
@@ -16,10 +18,11 @@ import { registerAnonymousFeedback } from './anonymous-feedback'
 import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
+import { registerHouseholdSetupCommands } from './household-setup'
 import { createOpenAiParserFallback } from './openai-parser-fallback'
 import {
   createPurchaseMessageRepository,
-  registerPurchaseTopicIngestion
+  registerConfiguredPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
 import { createReminderJobsHandler } from './reminder-jobs'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
@@ -38,6 +41,9 @@ const bot = createTelegramBot(runtime.telegramBotToken, getLogger('telegram'))
 const webhookHandler = webhookCallback(bot, 'std/http')
 
 const shutdownTasks: Array<() => Promise<void>> = []
+const householdConfigurationRepositoryClient = runtime.databaseUrl
+  ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
+  : null
 const financeRepositoryClient =
   runtime.financeCommandsEnabled || runtime.miniAppAuthEnabled
     ? createDbFinanceRepository(runtime.databaseUrl!, runtime.householdId!)
@@ -56,22 +62,22 @@ if (financeRepositoryClient) {
   shutdownTasks.push(financeRepositoryClient.close)
 }
 
+if (householdConfigurationRepositoryClient) {
+  shutdownTasks.push(householdConfigurationRepositoryClient.close)
+}
+
 if (anonymousFeedbackRepositoryClient) {
   shutdownTasks.push(anonymousFeedbackRepositoryClient.close)
 }
 
-if (runtime.purchaseTopicIngestionEnabled) {
+if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
   shutdownTasks.push(purchaseRepositoryClient.close)
   const llmFallback = createOpenAiParserFallback(runtime.openaiApiKey, runtime.parserModel)
 
-  registerPurchaseTopicIngestion(
+  registerConfiguredPurchaseTopicIngestion(
     bot,
-    {
-      householdId: runtime.householdId!,
-      householdChatId: runtime.telegramHouseholdChatId!,
-      purchaseTopicId: runtime.telegramPurchaseTopicId!
-    },
+    householdConfigurationRepositoryClient.repository,
     purchaseRepositoryClient.repository,
     {
       ...(llmFallback
@@ -88,7 +94,7 @@ if (runtime.purchaseTopicIngestionEnabled) {
       event: 'runtime.feature_disabled',
       feature: 'purchase-topic-ingestion'
     },
-    'Purchase topic ingestion is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_PURCHASE_TOPIC_ID to enable.'
+    'Purchase topic ingestion is disabled. Set DATABASE_URL to enable Telegram topic lookups.'
   )
 }
 
@@ -103,6 +109,24 @@ if (runtime.financeCommandsEnabled) {
       feature: 'finance-commands'
     },
     'Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.'
+  )
+}
+
+if (householdConfigurationRepositoryClient) {
+  registerHouseholdSetupCommands({
+    bot,
+    householdSetupService: createHouseholdSetupService(
+      householdConfigurationRepositoryClient.repository
+    ),
+    logger: getLogger('household-setup')
+  })
+} else {
+  logger.warn(
+    {
+      event: 'runtime.feature_disabled',
+      feature: 'household-setup'
+    },
+    'Household setup commands are disabled. Set DATABASE_URL to enable.'
   )
 }
 

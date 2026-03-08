@@ -2,6 +2,10 @@ import { parsePurchaseMessage, type PurchaseParserLlmFallback } from '@household
 import { and, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
+import type {
+  HouseholdConfigurationRepository,
+  HouseholdTopicBindingRecord
+} from '@household/ports'
 
 import { createDbClient, schema } from '@household/db'
 
@@ -58,6 +62,30 @@ export function extractPurchaseTopicCandidate(
     ...value,
     rawText: normalizedText,
     householdId: config.householdId
+  }
+}
+
+export function resolveConfiguredPurchaseTopicRecord(
+  value: PurchaseTopicCandidate,
+  binding: HouseholdTopicBindingRecord
+): PurchaseTopicRecord | null {
+  if (value.rawText.trim().startsWith('/')) {
+    return null
+  }
+
+  if (binding.role !== 'purchase') {
+    return null
+  }
+
+  const normalizedText = value.rawText.trim()
+  if (normalizedText.length === 0) {
+    return null
+  }
+
+  return {
+    ...value,
+    rawText: normalizedText,
+    householdId: binding.householdId
   }
 }
 
@@ -234,6 +262,72 @@ export function registerPurchaseTopicIngestion(
       options.logger?.error(
         {
           event: 'purchase.ingest_failed',
+          chatId: record.chatId,
+          threadId: record.threadId,
+          messageId: record.messageId,
+          updateId: record.updateId,
+          error
+        },
+        'Failed to ingest purchase topic message'
+      )
+    }
+  })
+}
+
+export function registerConfiguredPurchaseTopicIngestion(
+  bot: Bot,
+  householdConfigurationRepository: HouseholdConfigurationRepository,
+  repository: PurchaseMessageIngestionRepository,
+  options: {
+    llmFallback?: PurchaseParserLlmFallback
+    logger?: Logger
+  } = {}
+): void {
+  bot.on('message:text', async (ctx, next) => {
+    const candidate = toCandidateFromContext(ctx)
+    if (!candidate) {
+      await next()
+      return
+    }
+
+    const binding = await householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+      telegramChatId: candidate.chatId,
+      telegramThreadId: candidate.threadId
+    })
+
+    if (!binding) {
+      await next()
+      return
+    }
+
+    const record = resolveConfiguredPurchaseTopicRecord(candidate, binding)
+    if (!record) {
+      await next()
+      return
+    }
+
+    try {
+      const status = await repository.save(record, options.llmFallback)
+
+      if (status === 'created') {
+        options.logger?.info(
+          {
+            event: 'purchase.ingested',
+            householdId: record.householdId,
+            chatId: record.chatId,
+            threadId: record.threadId,
+            messageId: record.messageId,
+            updateId: record.updateId,
+            senderTelegramUserId: record.senderTelegramUserId
+          },
+          'Purchase topic message ingested'
+        )
+      }
+    } catch (error) {
+      options.logger?.error(
+        {
+          event: 'purchase.ingest_failed',
+          householdId: record.householdId,
           chatId: record.chatId,
           threadId: record.threadId,
           messageId: record.messageId,
