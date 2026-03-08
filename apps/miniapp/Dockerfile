@@ -13,6 +13,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/observability/package.json packages/observability/package.json
 COPY packages/ports/package.json packages/ports/package.json
+COPY scripts/package.json scripts/package.json
 
 RUN bun install --frozen-lockfile
 

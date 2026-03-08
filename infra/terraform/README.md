@@ -29,7 +29,7 @@ This directory contains baseline IaC for deploying the household bot platform on
 1. Initialize:
 
 ```bash
-terraform -chdir=infra/terraform init
+terraform -chdir=infra/terraform init -backend-config="bucket=<terraform-state-bucket>"
 ```
 
 2. Prepare variables:
@@ -53,9 +53,13 @@ terraform -chdir=infra/terraform apply
 5. Add secret values (after apply):
 
 ```bash
+echo -n "<telegram-bot-token>" | gcloud secrets versions add telegram-bot-token --data-file=- --project <project_id>
 echo -n "<value>" | gcloud secrets versions add telegram-webhook-secret --data-file=- --project <project_id>
 echo -n "<value>" | gcloud secrets versions add scheduler-shared-secret --data-file=- --project <project_id>
 ```
+
+If you configure optional secret IDs such as `database_url_secret_id` or
+`openai_api_key_secret_id`, add versions for those secrets as well.
 
 ## Environments
 
@@ -64,6 +68,11 @@ Recommended approach:
 - Keep one state per environment (dev/prod) using separate backend configs or workspaces
 - Use `terraform.tfvars` per environment (`dev.tfvars`, `prod.tfvars`)
 - Keep `project_id` separate for dev/prod when possible
+- Keep non-secret bot config in `*.tfvars`:
+  - `bot_household_id`
+  - `bot_household_chat_id`
+  - `bot_purchase_topic_id`
+  - optional `bot_parser_model`
 
 ## CI validation
 
