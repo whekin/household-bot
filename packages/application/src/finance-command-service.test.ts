@@ -20,6 +20,14 @@ class FinanceRepositoryStub implements FinanceRepository {
   rentRule: FinanceRentRuleRecord | null = null
   utilityTotal: bigint = 0n
   purchases: readonly FinanceParsedPurchaseRecord[] = []
+  utilityBills: readonly {
+    id: string
+    billName: string
+    amountMinor: bigint
+    currency: 'USD' | 'GEL'
+    createdByMemberId: string | null
+    createdAt: Date
+  }[] = []
 
   lastSavedRentRule: {
     period: string
@@ -93,6 +101,10 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.utilityTotal
   }
 
+  async listUtilityBillsForCycle() {
+    return this.utilityBills
+  }
+
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
     return this.purchases
   }
@@ -161,17 +173,33 @@ describe('createFinanceCommandService', () => {
       currency: 'USD'
     }
     repository.utilityTotal = 12000n
+    repository.utilityBills = [
+      {
+        id: 'utility-1',
+        billName: 'Electricity',
+        amountMinor: 12000n,
+        currency: 'USD',
+        createdByMemberId: 'alice',
+        createdAt: new Date('2026-03-12T12:00:00.000Z')
+      }
+    ]
     repository.purchases = [
       {
         id: 'purchase-1',
         payerMemberId: 'alice',
-        amountMinor: 3000n
+        amountMinor: 3000n,
+        description: 'Soap',
+        occurredAt: new Date('2026-03-12T11:00:00.000Z')
       }
     ]
 
     const service = createFinanceCommandService(repository)
+    const dashboard = await service.generateDashboard()
     const statement = await service.generateStatement()
 
+    expect(dashboard).not.toBeNull()
+    expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([39500n, 42500n])
+    expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity'])
     expect(statement).toBe(
       [
         'Statement for 2026-03',

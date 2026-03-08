@@ -16,6 +16,15 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppDashboard: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, dashboard: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     scheduler: {
       authorize: async (request) =>
         request.headers.get('x-household-scheduler-secret') === 'scheduler-secret',
@@ -92,6 +101,22 @@ describe('createBotWebhookServer', () => {
     expect(await response.json()).toEqual({
       ok: true,
       authorized: true
+    })
+  })
+
+  test('accepts mini app dashboard request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/dashboard', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      dashboard: {}
     })
   })
 

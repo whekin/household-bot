@@ -18,6 +18,7 @@ import { createReminderJobsHandler } from './reminder-jobs'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
 import { createMiniAppAuthHandler } from './miniapp-auth'
+import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 
 const runtime = getBotRuntimeConfig()
 const bot = createTelegramBot(runtime.telegramBotToken)
@@ -28,6 +29,9 @@ const financeRepositoryClient =
   runtime.financeCommandsEnabled || runtime.miniAppAuthEnabled
     ? createDbFinanceRepository(runtime.databaseUrl!, runtime.householdId!)
     : null
+const financeService = financeRepositoryClient
+  ? createFinanceCommandService(financeRepositoryClient.repository)
+  : null
 
 if (financeRepositoryClient) {
   shutdownTasks.push(financeRepositoryClient.close)
@@ -59,8 +63,7 @@ if (runtime.purchaseTopicIngestionEnabled) {
 }
 
 if (runtime.financeCommandsEnabled) {
-  const financeService = createFinanceCommandService(financeRepositoryClient!.repository)
-  const financeCommands = createFinanceCommandsService(financeService)
+  const financeCommands = createFinanceCommandsService(financeService!)
 
   financeCommands.register(bot)
 } else {
@@ -96,6 +99,13 @@ const server = createBotWebhookServer({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         repository: financeRepositoryClient.repository
+      })
+    : undefined,
+  miniAppDashboard: financeService
+    ? createMiniAppDashboardHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        financeService
       })
     : undefined,
   scheduler:

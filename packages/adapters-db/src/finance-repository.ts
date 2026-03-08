@@ -249,12 +249,34 @@ export function createDbFinanceRepository(
       return BigInt(rows[0]?.totalMinor ?? '0')
     },
 
+    async listUtilityBillsForCycle(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.utilityBills.id,
+          billName: schema.utilityBills.billName,
+          amountMinor: schema.utilityBills.amountMinor,
+          currency: schema.utilityBills.currency,
+          createdByMemberId: schema.utilityBills.createdByMemberId,
+          createdAt: schema.utilityBills.createdAt
+        })
+        .from(schema.utilityBills)
+        .where(eq(schema.utilityBills.cycleId, cycleId))
+        .orderBy(schema.utilityBills.createdAt)
+
+      return rows.map((row) => ({
+        ...row,
+        currency: toCurrencyCode(row.currency)
+      }))
+    },
+
     async listParsedPurchasesForRange(start, end) {
       const rows = await db
         .select({
           id: schema.purchaseMessages.id,
           payerMemberId: schema.purchaseMessages.senderMemberId,
-          amountMinor: schema.purchaseMessages.parsedAmountMinor
+          amountMinor: schema.purchaseMessages.parsedAmountMinor,
+          description: schema.purchaseMessages.parsedItemDescription,
+          occurredAt: schema.purchaseMessages.messageSentAt
         })
         .from(schema.purchaseMessages)
         .where(
@@ -270,7 +292,9 @@ export function createDbFinanceRepository(
       return rows.map((row) => ({
         id: row.id,
         payerMemberId: row.payerMemberId!,
-        amountMinor: row.amountMinor!
+        amountMinor: row.amountMinor!,
+        description: row.description,
+        occurredAt: row.occurredAt
       }))
     },
 

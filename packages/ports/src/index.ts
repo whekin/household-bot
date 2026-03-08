@@ -11,6 +11,7 @@ export type {
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  FinanceUtilityBillRecord,
   SettlementSnapshotLineRecord,
   SettlementSnapshotRecord
 } from './finance'

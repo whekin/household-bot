@@ -1,8 +1,8 @@
-import type { FinanceRepository } from '@household/ports'
+import type { FinanceMemberRecord, FinanceRepository } from '@household/ports'
 
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
 
-function json(body: object, status = 200, origin?: string): Response {
+export function miniAppJsonResponse(body: object, status = 200, origin?: string): Response {
   const headers = new Headers({
     'content-type': 'application/json; charset=utf-8'
   })
@@ -20,7 +20,10 @@ function json(body: object, status = 200, origin?: string): Response {
   })
 }
 
-function allowedOrigin(request: Request, allowedOrigins: readonly string[]): string | undefined {
+export function allowedMiniAppOrigin(
+  request: Request,
+  allowedOrigins: readonly string[]
+): string | undefined {
   const origin = request.headers.get('origin')
 
   if (!origin) {
@@ -34,7 +37,7 @@ function allowedOrigin(request: Request, allowedOrigins: readonly string[]): str
   return allowedOrigins.includes(origin) ? origin : undefined
 }
 
-async function readInitData(request: Request): Promise<string | null> {
+export async function readMiniAppInitData(request: Request): Promise<string | null> {
   const text = await request.text()
 
   if (text.trim().length === 0) {
@@ -47,6 +50,53 @@ async function readInitData(request: Request): Promise<string | null> {
   return initData && initData.length > 0 ? initData : null
 }
 
+export interface MiniAppSessionResult {
+  authorized: boolean
+  reason?: 'not_member'
+  member?: {
+    id: string
+    displayName: string
+    isAdmin: boolean
+  }
+  telegramUser?: ReturnType<typeof verifyTelegramMiniAppInitData>
+}
+
+type MiniAppMemberLookup = (telegramUserId: string) => Promise<FinanceMemberRecord | null>
+
+export function createMiniAppSessionService(options: {
+  botToken: string
+  getMemberByTelegramUserId: MiniAppMemberLookup
+}): {
+  authenticate: (initData: string) => Promise<MiniAppSessionResult | null>
+} {
+  return {
+    authenticate: async (initData) => {
+      const telegramUser = verifyTelegramMiniAppInitData(initData, options.botToken)
+      if (!telegramUser) {
+        return null
+      }
+
+      const member = await options.getMemberByTelegramUserId(telegramUser.id)
+      if (!member) {
+        return {
+          authorized: false,
+          reason: 'not_member'
+        }
+      }
+
+      return {
+        authorized: true,
+        member: {
+          id: member.id,
+          displayName: member.displayName,
+          isAdmin: member.isAdmin
+        },
+        telegramUser
+      }
+    }
+  }
+}
+
 export function createMiniAppAuthHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
@@ -54,32 +104,40 @@ export function createMiniAppAuthHandler(options: {
 }): {
   handler: (request: Request) => Promise<Response>
 } {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    getMemberByTelegramUserId: options.repository.getMemberByTelegramUserId
+  })
+
   return {
     handler: async (request) => {
-      const origin = allowedOrigin(request, options.allowedOrigins)
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
 
       if (request.method === 'OPTIONS') {
-        return json({ ok: true }, 204, origin)
+        return miniAppJsonResponse({ ok: true }, 204, origin)
       }
 
       if (request.method !== 'POST') {
-        return json({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
       }
 
       try {
-        const initData = await readInitData(request)
+        const initData = await readMiniAppInitData(request)
         if (!initData) {
-          return json({ ok: false, error: 'Missing initData' }, 400, origin)
+          return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
         }
 
-        const telegramUser = verifyTelegramMiniAppInitData(initData, options.botToken)
-        if (!telegramUser) {
-          return json({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
+        const session = await sessionService.authenticate(initData)
+        if (!session) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Invalid Telegram init data' },
+            401,
+            origin
+          )
         }
 
-        const member = await options.repository.getMemberByTelegramUserId(telegramUser.id)
-        if (!member) {
-          return json(
+        if (!session.authorized) {
+          return miniAppJsonResponse(
             {
               ok: true,
               authorized: false,
@@ -90,19 +148,15 @@ export function createMiniAppAuthHandler(options: {
           )
         }
 
-        return json(
+        return miniAppJsonResponse(
           {
             ok: true,
             authorized: true,
-            member: {
-              id: member.id,
-              displayName: member.displayName,
-              isAdmin: member.isAdmin
-            },
-            telegramUser,
+            member: session.member,
+            telegramUser: session.telegramUser,
             features: {
-              balances: false,
-              ledger: false
+              balances: true,
+              ledger: true
             }
           },
           200,
@@ -110,7 +164,7 @@ export function createMiniAppAuthHandler(options: {
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown mini app auth error'
-        return json({ ok: false, error: message }, 400, origin)
+        return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
       }
     }
   }

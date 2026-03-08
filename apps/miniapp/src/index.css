@@ -210,6 +210,39 @@ button {
   padding: 18px;
 }
 
+.balance-list,
+.ledger-list {
+  display: grid;
+  gap: 12px;
+}
+
+.balance-item,
+.ledger-item {
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgb(255 255 255 / 0.03);
+}
+
+.balance-item header,
+.ledger-item header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.balance-item strong,
+.ledger-item strong {
+  font-size: 1rem;
+}
+
+.balance-item p,
+.ledger-item p {
+  margin-top: 6px;
+}
+
 .panel--wide {
   min-height: 170px;
 }

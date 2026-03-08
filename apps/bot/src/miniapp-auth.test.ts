@@ -38,6 +38,7 @@ function repository(
     addUtilityBill: async () => {},
     getRentRuleForPeriod: async () => null,
     getUtilityTotalForCycle: async () => 0n,
+    listUtilityBillsForCycle: async () => [],
     listParsedPurchasesForRange: async () => [],
     replaceSettlementSnapshot: async () => {}
   }
@@ -83,6 +84,10 @@ describe('createMiniAppAuthHandler', () => {
       member: {
         displayName: 'Stan',
         isAdmin: true
+      },
+      features: {
+        balances: true,
+        ledger: true
       },
       telegramUser: {
         id: '123456',

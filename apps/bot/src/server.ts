@@ -8,6 +8,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppDashboard?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   scheduler?:
     | {
         pathPrefix?: string
@@ -39,6 +45,7 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     ? options.webhookPath
     : `/${options.webhookPath}`
   const miniAppAuthPath = options.miniAppAuth?.path ?? '/api/miniapp/session'
+  const miniAppDashboardPath = options.miniAppDashboard?.path ?? '/api/miniapp/dashboard'
   const schedulerPathPrefix = options.scheduler
     ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
     : null
@@ -53,6 +60,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppAuth && url.pathname === miniAppAuthPath) {
         return await options.miniAppAuth.handler(request)
+      }
+
+      if (options.miniAppDashboard && url.pathname === miniAppDashboardPath) {
+        return await options.miniAppDashboard.handler(request)
       }
 
       if (url.pathname !== normalizedWebhookPath) {

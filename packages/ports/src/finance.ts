@@ -22,6 +22,17 @@ export interface FinanceParsedPurchaseRecord {
   id: string
   payerMemberId: string
   amountMinor: bigint
+  description: string | null
+  occurredAt: Date | null
+}
+
+export interface FinanceUtilityBillRecord {
+  id: string
+  billName: string
+  amountMinor: bigint
+  currency: CurrencyCode
+  createdByMemberId: string | null
+  createdAt: Date
 }
 
 export interface SettlementSnapshotLineRecord {
@@ -60,6 +71,7 @@ export interface FinanceRepository {
   }): Promise<void>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
+  listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
   listParsedPurchasesForRange(
     start: Date,
     end: Date

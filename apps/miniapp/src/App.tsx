@@ -1,7 +1,7 @@
-import { Match, Switch, createMemo, createSignal, onMount } from 'solid-js'
+import { Match, Switch, createMemo, createSignal, onMount, type JSX } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
-import { fetchMiniAppSession } from './miniapp-api'
+import { fetchMiniAppDashboard, fetchMiniAppSession, type MiniAppDashboard } from './miniapp-api'
 import { getTelegramWebApp } from './telegram-webapp'
 
 type SessionState =
@@ -55,6 +55,7 @@ function App() {
     status: 'loading'
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
+  const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
 
   const copy = createMemo(() => dictionary[locale()])
   const blockedSession = createMemo(() => {
@@ -103,9 +104,58 @@ function App() {
         member: payload.member,
         telegramUser: payload.telegramUser
       })
+
+      try {
+        setDashboard(await fetchMiniAppDashboard(initData))
+      } catch {
+        setDashboard(null)
+      }
     } catch {
       if (import.meta.env.DEV) {
         setSession(demoSession)
+        setDashboard({
+          period: '2026-03',
+          currency: 'USD',
+          totalDueMajor: '820.00',
+          members: [
+            {
+              memberId: 'alice',
+              displayName: 'Alice',
+              rentShareMajor: '350.00',
+              utilityShareMajor: '60.00',
+              purchaseOffsetMajor: '-15.00',
+              netDueMajor: '395.00',
+              explanations: ['Equal utility split', 'Shared purchase offset']
+            },
+            {
+              memberId: 'bob',
+              displayName: 'Bob',
+              rentShareMajor: '350.00',
+              utilityShareMajor: '60.00',
+              purchaseOffsetMajor: '15.00',
+              netDueMajor: '425.00',
+              explanations: ['Equal utility split']
+            }
+          ],
+          ledger: [
+            {
+              id: 'purchase-1',
+              kind: 'purchase',
+              title: 'Soap',
+              amountMajor: '30.00',
+              actorDisplayName: 'Alice',
+              occurredAt: '2026-03-12T11:00:00.000Z'
+            },
+            {
+              id: 'utility-1',
+              kind: 'utility',
+              title: 'Electricity',
+              amountMajor: '120.00',
+              actorDisplayName: 'Alice',
+              occurredAt: '2026-03-12T12:00:00.000Z'
+            }
+          ]
+        })
         return
       }
 
@@ -119,13 +169,74 @@ function App() {
   const renderPanel = () => {
     switch (activeNav()) {
       case 'balances':
-        return copy().balancesEmpty
+        return (
+          <div class="balance-list">
+            <ShowDashboard
+              dashboard={dashboard()}
+              fallback={<p>{copy().emptyDashboard}</p>}
+              render={(data) =>
+                data.members.map((member) => (
+                  <article class="balance-item">
+                    <header>
+                      <strong>{member.displayName}</strong>
+                      <span>
+                        {member.netDueMajor} {data.currency}
+                      </span>
+                    </header>
+                    <p>
+                      {copy().shareRent}: {member.rentShareMajor} {data.currency}
+                    </p>
+                    <p>
+                      {copy().shareUtilities}: {member.utilityShareMajor} {data.currency}
+                    </p>
+                    <p>
+                      {copy().shareOffset}: {member.purchaseOffsetMajor} {data.currency}
+                    </p>
+                  </article>
+                ))
+              }
+            />
+          </div>
+        )
       case 'ledger':
-        return copy().ledgerEmpty
+        return (
+          <div class="ledger-list">
+            <ShowDashboard
+              dashboard={dashboard()}
+              fallback={<p>{copy().emptyDashboard}</p>}
+              render={(data) =>
+                data.ledger.map((entry) => (
+                  <article class="ledger-item">
+                    <header>
+                      <strong>{entry.title}</strong>
+                      <span>
+                        {entry.amountMajor} {data.currency}
+                      </span>
+                    </header>
+                    <p>{entry.actorDisplayName ?? 'Household'}</p>
+                  </article>
+                ))
+              }
+            />
+          </div>
+        )
       case 'house':
         return copy().houseEmpty
       default:
-        return copy().summaryBody
+        return (
+          <ShowDashboard
+            dashboard={dashboard()}
+            fallback={<p>{copy().summaryBody}</p>}
+            render={(data) => (
+              <>
+                <p>
+                  {copy().totalDue}: {data.totalDueMajor} {data.currency}
+                </p>
+                <p>{copy().summaryBody}</p>
+              </>
+            )}
+          />
+        )
     }
   }
 
@@ -252,6 +363,14 @@ function App() {
       </Switch>
     </main>
   )
+}
+
+function ShowDashboard(props: {
+  dashboard: MiniAppDashboard | null
+  fallback: JSX.Element
+  render: (dashboard: MiniAppDashboard) => JSX.Element
+}) {
+  return <>{props.dashboard ? props.render(props.dashboard) : props.fallback}</>
 }
 
 export default App
