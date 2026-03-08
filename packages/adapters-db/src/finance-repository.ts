@@ -299,48 +299,54 @@ export function createDbFinanceRepository(
     },
 
     async replaceSettlementSnapshot(snapshot) {
-      const upserted = await db
-        .insert(schema.settlements)
-        .values({
-          householdId,
-          cycleId: snapshot.cycleId,
-          inputHash: snapshot.inputHash,
-          totalDueMinor: snapshot.totalDueMinor,
-          currency: snapshot.currency,
-          metadata: snapshot.metadata
-        })
-        .onConflictDoUpdate({
-          target: [schema.settlements.cycleId],
-          set: {
+      await db.transaction(async (tx) => {
+        const upserted = await tx
+          .insert(schema.settlements)
+          .values({
+            householdId,
+            cycleId: snapshot.cycleId,
             inputHash: snapshot.inputHash,
             totalDueMinor: snapshot.totalDueMinor,
             currency: snapshot.currency,
-            computedAt: new Date(),
             metadata: snapshot.metadata
-          }
-        })
-        .returning({ id: schema.settlements.id })
+          })
+          .onConflictDoUpdate({
+            target: [schema.settlements.cycleId],
+            set: {
+              inputHash: snapshot.inputHash,
+              totalDueMinor: snapshot.totalDueMinor,
+              currency: snapshot.currency,
+              computedAt: new Date(),
+              metadata: snapshot.metadata
+            }
+          })
+          .returning({ id: schema.settlements.id })
 
-      const settlementId = upserted[0]?.id
-      if (!settlementId) {
-        throw new Error('Failed to persist settlement snapshot')
-      }
+        const settlementId = upserted[0]?.id
+        if (!settlementId) {
+          throw new Error('Failed to persist settlement snapshot')
+        }
 
-      await db
-        .delete(schema.settlementLines)
-        .where(eq(schema.settlementLines.settlementId, settlementId))
+        await tx
+          .delete(schema.settlementLines)
+          .where(eq(schema.settlementLines.settlementId, settlementId))
 
-      await db.insert(schema.settlementLines).values(
-        snapshot.lines.map((line) => ({
-          settlementId,
-          memberId: line.memberId,
-          rentShareMinor: line.rentShareMinor,
-          utilityShareMinor: line.utilityShareMinor,
-          purchaseOffsetMinor: line.purchaseOffsetMinor,
-          netDueMinor: line.netDueMinor,
-          explanations: line.explanations
-        }))
-      )
+        if (snapshot.lines.length === 0) {
+          return
+        }
+
+        await tx.insert(schema.settlementLines).values(
+          snapshot.lines.map((line) => ({
+            settlementId,
+            memberId: line.memberId,
+            rentShareMinor: line.rentShareMinor,
+            utilityShareMinor: line.utilityShareMinor,
+            purchaseOffsetMinor: line.purchaseOffsetMinor,
+            netDueMinor: line.netDueMinor,
+            explanations: line.explanations
+          }))
+        )
+      })
     }
   }
 

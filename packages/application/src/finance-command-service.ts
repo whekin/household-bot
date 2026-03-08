@@ -232,11 +232,12 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
 
       await repository.openCycle(period, currency)
 
-      return {
-        id: '',
-        period,
-        currency
+      const cycle = await repository.getCycleByPeriod(period)
+      if (!cycle) {
+        throw new Error(`Failed to load billing cycle for period ${period}`)
       }
+
+      return cycle
     },
 
     async closeCycle(periodArg) {

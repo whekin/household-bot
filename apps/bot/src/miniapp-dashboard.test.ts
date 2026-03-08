@@ -1,28 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { createHmac } from 'node:crypto'
 
 import { createFinanceCommandService } from '@household/application'
 import type { FinanceRepository } from '@household/ports'
 
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
-
-function buildInitData(botToken: string, authDate: number, user: object): string {
-  const params = new URLSearchParams()
-  params.set('auth_date', authDate.toString())
-  params.set('query_id', 'AAHdF6IQAAAAAN0XohDhrOrc')
-  params.set('user', JSON.stringify(user))
-
-  const dataCheckString = [...params.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
-
-  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest()
-  const hash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
-  params.set('hash', hash)
-
-  return params.toString()
-}
+import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 function repository(
   member: Awaited<ReturnType<FinanceRepository['getMemberByTelegramUserId']>>
@@ -106,7 +88,7 @@ describe('createMiniAppDashboardHandler', () => {
           'content-type': 'application/json'
         },
         body: JSON.stringify({
-          initData: buildInitData('test-bot-token', authDate, {
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
             id: 123456,
             first_name: 'Stan',
             username: 'stanislav',
@@ -142,6 +124,40 @@ describe('createMiniAppDashboardHandler', () => {
           }
         ]
       }
+    })
+  })
+
+  test('returns 400 for malformed JSON bodies', async () => {
+    const financeService = createFinanceCommandService(
+      repository({
+        id: 'member-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        isAdmin: true
+      })
+    )
+
+    const dashboard = createMiniAppDashboardHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      financeService
+    })
+
+    const response = await dashboard.handler(
+      new Request('http://localhost/api/miniapp/dashboard', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: '{"initData":'
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Invalid JSON body'
     })
   })
 })

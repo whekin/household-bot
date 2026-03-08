@@ -39,7 +39,7 @@ Build the first usable SolidJS mini app shell with a real Telegram initData veri
 
 - Telegram initData is verified with the bot token before membership lookup.
 - Mini app access depends on an actual household membership match.
-- CORS can be limited via `MINI_APP_ALLOWED_ORIGINS`; if unset, the endpoint falls back to permissive origin reflection for deployment simplicity.
+- CORS can be limited via `MINI_APP_ALLOWED_ORIGINS`; local development may use permissive origin reflection, but production must use an explicit allow-list.
 
 ## UX Notes
 

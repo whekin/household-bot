@@ -1,9 +1,20 @@
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
-import type { AnonymousFeedbackRepository } from '@household/ports'
+import type {
+  AnonymousFeedbackModerationStatus,
+  AnonymousFeedbackRepository
+} from '@household/ports'
 
 const ACCEPTED_STATUSES = ['accepted', 'posted', 'failed'] as const
+
+function parseModerationStatus(raw: string): AnonymousFeedbackModerationStatus {
+  if (raw === 'accepted' || raw === 'posted' || raw === 'rejected' || raw === 'failed') {
+    return raw
+  }
+
+  throw new Error(`Unexpected anonymous feedback moderation status: ${raw}`)
+}
 
 export function createDbAnonymousFeedbackRepository(
   databaseUrl: string,
@@ -38,23 +49,10 @@ export function createDbAnonymousFeedbackRepository(
     },
 
     async getRateLimitSnapshot(memberId, acceptedSince) {
-      const countRows = await db
+      const rows = await db
         .select({
-          count: sql<string>`count(*)`
-        })
-        .from(schema.anonymousMessages)
-        .where(
-          and(
-            eq(schema.anonymousMessages.householdId, householdId),
-            eq(schema.anonymousMessages.submittedByMemberId, memberId),
-            inArray(schema.anonymousMessages.moderationStatus, ACCEPTED_STATUSES),
-            gte(schema.anonymousMessages.createdAt, acceptedSince)
-          )
-        )
-
-      const lastRows = await db
-        .select({
-          createdAt: schema.anonymousMessages.createdAt
+          acceptedCountSince: sql<string>`count(*) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSince})`,
+          lastAcceptedAt: sql<Date | null>`max(${schema.anonymousMessages.createdAt})`
         })
         .from(schema.anonymousMessages)
         .where(
@@ -64,12 +62,10 @@ export function createDbAnonymousFeedbackRepository(
             inArray(schema.anonymousMessages.moderationStatus, ACCEPTED_STATUSES)
           )
         )
-        .orderBy(desc(schema.anonymousMessages.createdAt))
-        .limit(1)
 
       return {
-        acceptedCountSince: Number(countRows[0]?.count ?? '0'),
-        lastAcceptedAt: lastRows[0]?.createdAt ?? null
+        acceptedCountSince: Number(rows[0]?.acceptedCountSince ?? '0'),
+        lastAcceptedAt: rows[0]?.lastAcceptedAt ?? null
       }
     },
 
@@ -99,11 +95,7 @@ export function createDbAnonymousFeedbackRepository(
         return {
           submission: {
             id: inserted[0].id,
-            moderationStatus: inserted[0].moderationStatus as
-              | 'accepted'
-              | 'posted'
-              | 'rejected'
-              | 'failed'
+            moderationStatus: parseModerationStatus(inserted[0].moderationStatus)
           },
           duplicate: false
         }
@@ -131,7 +123,7 @@ export function createDbAnonymousFeedbackRepository(
       return {
         submission: {
           id: row.id,
-          moderationStatus: row.moderationStatus as 'accepted' | 'posted' | 'rejected' | 'failed'
+          moderationStatus: parseModerationStatus(row.moderationStatus)
         },
         duplicate: true
       }

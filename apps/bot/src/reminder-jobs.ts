@@ -1,8 +1,6 @@
-import { BillingPeriod } from '@household/domain'
 import type { ReminderJobService } from '@household/application'
-
-const REMINDER_TYPES = ['utilities', 'rent-warning', 'rent-due'] as const
-type ReminderType = (typeof REMINDER_TYPES)[number]
+import { BillingPeriod } from '@household/domain'
+import { REMINDER_TYPES, type ReminderType } from '@household/ports'
 
 interface ReminderJobRequestBody {
   period?: string
@@ -42,8 +40,11 @@ async function readBody(request: Request): Promise<ReminderJobRequestBody> {
     return {}
   }
 
-  const parsed = JSON.parse(text) as ReminderJobRequestBody
-  return parsed
+  try {
+    return JSON.parse(text) as ReminderJobRequestBody
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
 }
 
 export function createReminderJobsHandler(options: {

@@ -77,7 +77,7 @@ export async function fetchMiniAppSession(initData: string): Promise<MiniAppSess
   }
 
   if (!response.ok) {
-    throw new Error(payload.error)
+    throw new Error(payload.error ?? 'Failed to create mini app session')
   }
 
   return {

@@ -22,7 +22,10 @@ export function miniAppJsonResponse(body: object, status = 200, origin?: string)
 
 export function allowedMiniAppOrigin(
   request: Request,
-  allowedOrigins: readonly string[]
+  allowedOrigins: readonly string[],
+  options: {
+    allowDynamicOrigin?: boolean
+  } = {}
 ): string | undefined {
   const origin = request.headers.get('origin')
 
@@ -31,7 +34,8 @@ export function allowedMiniAppOrigin(
   }
 
   if (allowedOrigins.length === 0) {
-    return origin
+    const allowDynamicOrigin = options.allowDynamicOrigin ?? process.env.NODE_ENV !== 'production'
+    return allowDynamicOrigin ? origin : undefined
   }
 
   return allowedOrigins.includes(origin) ? origin : undefined
@@ -44,10 +48,33 @@ export async function readMiniAppInitData(request: Request): Promise<string | nu
     return null
   }
 
-  const parsed = JSON.parse(text) as { initData?: string }
+  let parsed: { initData?: string }
+  try {
+    parsed = JSON.parse(text) as { initData?: string }
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
+
   const initData = parsed.initData?.trim()
 
   return initData && initData.length > 0 ? initData : null
+}
+
+export function miniAppErrorResponse(error: unknown, origin?: string): Response {
+  const message = error instanceof Error ? error.message : 'Unknown mini app error'
+
+  if (message === 'Invalid JSON body') {
+    return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
+  }
+
+  console.error(
+    JSON.stringify({
+      event: 'miniapp.request_failed',
+      error: message
+    })
+  )
+
+  return miniAppJsonResponse({ ok: false, error: 'Internal Server Error' }, 500, origin)
 }
 
 export interface MiniAppSessionResult {
@@ -163,8 +190,7 @@ export function createMiniAppAuthHandler(options: {
           origin
         )
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown mini app auth error'
-        return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
+        return miniAppErrorResponse(error, origin)
       }
     }
   }

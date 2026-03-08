@@ -11,6 +11,10 @@ function computePayloadHash(payload: object): string {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex')
 }
 
+function buildReminderDedupeKey(period: string, reminderType: ReminderType): string {
+  return `${period}:${reminderType}`
+}
+
 function createReminderMessage(reminderType: ReminderType, period: string): string {
   switch (reminderType) {
     case 'utilities':
@@ -56,7 +60,7 @@ export function createReminderJobService(
       if (input.dryRun === true) {
         return {
           status: 'dry-run',
-          dedupeKey: `${period}:${input.reminderType}`,
+          dedupeKey: buildReminderDedupeKey(period, input.reminderType),
           payloadHash,
           reminderType: input.reminderType,
           period,

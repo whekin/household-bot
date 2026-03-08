@@ -57,10 +57,8 @@ export function createSchedulerRequestAuthorizer(options: {
         return true
       }
 
-      if (!oidcAudience || allowedEmails.size === 0) {
-        if (allowedEmails.size === 0) {
-          return false
-        }
+      if (allowedEmails.size === 0) {
+        return false
       }
 
       try {

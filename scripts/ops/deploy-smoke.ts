@@ -15,7 +15,15 @@ function toUrl(base: string, path: string): URL {
 async function expectJson(url: URL, init: RequestInit, expectedStatus: number): Promise<any> {
   const response = await fetch(url, init)
   const text = await response.text()
-  const payload = (text.length > 0 ? JSON.parse(text) : null) as unknown
+  let payload: unknown = null
+
+  if (text.length > 0) {
+    try {
+      payload = JSON.parse(text) as unknown
+    } catch {
+      throw new Error(`${url.toString()} returned invalid JSON: ${text}`)
+    }
+  }
 
   if (response.status !== expectedStatus) {
     throw new Error(

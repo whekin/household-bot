@@ -107,7 +107,11 @@ function App() {
 
       try {
         setDashboard(await fetchMiniAppDashboard(initData))
-      } catch {
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('Failed to load mini app dashboard', error)
+        }
+
         setDashboard(null)
       }
     } catch {

@@ -36,7 +36,11 @@ export function verifyTelegramMiniAppInitData(
 
   const authDateSeconds = Number(authDateRaw)
   const nowSeconds = Math.floor(now.getTime() / 1000)
-  if (Math.abs(nowSeconds - authDateSeconds) > maxAgeSeconds) {
+  if (authDateSeconds > nowSeconds) {
+    return null
+  }
+
+  if (nowSeconds - authDateSeconds > maxAgeSeconds) {
     return null
   }
 

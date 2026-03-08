@@ -44,6 +44,10 @@ describe('createReminderJobService', () => {
 
   test('claims a dispatch once and returns the dedupe key', async () => {
     const repository = new ReminderDispatchRepositoryStub()
+    repository.nextResult = {
+      dedupeKey: '2026-03:rent-due',
+      claimed: true
+    }
     const service = createReminderJobService(repository)
 
     const result = await service.handleJob({
@@ -53,6 +57,7 @@ describe('createReminderJobService', () => {
     })
 
     expect(result.status).toBe('claimed')
+    expect(result.dedupeKey).toBe('2026-03:rent-due')
     expect(repository.lastClaim).toMatchObject({
       householdId: 'household-1',
       period: '2026-03',

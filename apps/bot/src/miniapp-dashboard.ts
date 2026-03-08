@@ -3,6 +3,7 @@ import type { FinanceCommandService } from '@household/application'
 import {
   allowedMiniAppOrigin,
   createMiniAppSessionService,
+  miniAppErrorResponse,
   miniAppJsonResponse,
   readMiniAppInitData
 } from './miniapp-auth'
@@ -98,8 +99,7 @@ export function createMiniAppDashboardHandler(options: {
           origin
         )
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown mini app dashboard error'
-        return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
+        return miniAppErrorResponse(error, origin)
       }
     }
   }

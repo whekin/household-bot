@@ -9,11 +9,21 @@ function requireEnv(name: string): string {
   return value
 }
 
-async function telegramRequest(
+function parseCommand(raw: string | undefined): WebhookCommand {
+  const command = raw?.trim() || 'info'
+
+  if (command === 'info' || command === 'set' || command === 'delete') {
+    return command
+  }
+
+  throw new Error(`Unsupported command: ${command}`)
+}
+
+async function telegramRequest<T>(
   botToken: string,
   method: string,
   body?: URLSearchParams
-): Promise<any> {
+): Promise<T> {
   const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: body ? 'POST' : 'GET',
     body
@@ -27,11 +37,11 @@ async function telegramRequest(
     throw new Error(`Telegram ${method} failed: ${JSON.stringify(payload)}`)
   }
 
-  return payload.result
+  return payload.result as T
 }
 
 async function run(): Promise<void> {
-  const command = (process.argv[2] ?? 'info') as WebhookCommand
+  const command = parseCommand(process.argv[2])
   const botToken = requireEnv('TELEGRAM_BOT_TOKEN')
 
   switch (command) {

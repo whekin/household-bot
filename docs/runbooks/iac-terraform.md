@@ -48,7 +48,12 @@ Keep bot runtime config that is not secret in your `*.tfvars` file:
 - `bot_household_id`
 - `bot_household_chat_id`
 - `bot_purchase_topic_id`
+- optional `bot_feedback_topic_id`
+- `bot_mini_app_allowed_origins`
 - optional `bot_parser_model`
+
+Set `bot_mini_app_allowed_origins` to the exact mini app origins you expect in each environment.
+Do not rely on permissive origin reflection in production.
 
 ## Reminder jobs
 
@@ -67,6 +72,7 @@ They target the bot runtime endpoints:
 Recommended rollout:
 
 - keep `scheduler_paused = true` and `scheduler_dry_run = true` on first apply
+- confirm `bot_mini_app_allowed_origins` is set for the environment before exposing the mini app
 - validate job responses and logs
 - unpause when the delivery side is ready
 - disable dry-run only after production verification
