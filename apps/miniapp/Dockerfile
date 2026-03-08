@@ -6,6 +6,7 @@ WORKDIR /app
 COPY bun.lock package.json tsconfig.base.json ./
 COPY apps/bot/package.json apps/bot/package.json
 COPY apps/miniapp/package.json apps/miniapp/package.json
+COPY packages/adapters-db/package.json packages/adapters-db/package.json
 COPY packages/application/package.json packages/application/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
