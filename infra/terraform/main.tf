@@ -128,7 +128,8 @@ module "bot_api_service" {
 
   depends_on = [
     google_project_service.enabled,
-    google_secret_manager_secret.runtime
+    google_secret_manager_secret.runtime,
+    google_secret_manager_secret_iam_member.bot_runtime_access
   ]
 }
 
