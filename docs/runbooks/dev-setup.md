@@ -26,6 +26,8 @@ bun run db:generate
 bun run db:check
 bun run db:migrate
 bun run db:seed
+bun run ops:telegram:webhook info
+bun run ops:deploy:smoke
 bun run infra:fmt:check
 bun run infra:validate
 ```
@@ -60,6 +62,7 @@ bun run review:coderabbit
 - Typed environment validation lives in `packages/config/src/env.ts`.
 - Copy `.env.example` to `.env` before running app/database commands.
 - Migration workflow is documented in `docs/runbooks/migrations.md`.
+- First deploy flow is documented in `docs/runbooks/first-deploy.md`.
 
 ## CI/CD
 

@@ -111,6 +111,12 @@ variable "bot_parser_model" {
   nullable    = true
 }
 
+variable "bot_mini_app_allowed_origins" {
+  description = "Optional allow-list of mini app origins for bot CORS handling"
+  type        = list(string)
+  default     = []
+}
+
 variable "openai_api_key_secret_id" {
   description = "Optional Secret Manager ID for OPENAI_API_KEY"
   type        = string

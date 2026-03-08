@@ -73,6 +73,7 @@ Recommended approach:
   - `bot_household_chat_id`
   - `bot_purchase_topic_id`
   - optional `bot_parser_model`
+  - optional `bot_mini_app_allowed_origins`
 
 ## CI validation
 
@@ -86,3 +87,4 @@ CI runs:
 
 - Scheduler jobs default to `paused = true` and `dry_run = true` to prevent accidental sends before live reminder delivery is ready.
 - Bot API is public to accept Telegram webhooks; scheduler endpoint should still verify app-level auth.
+- `bot_mini_app_allowed_origins` cannot be auto-derived in Terraform because the bot and mini app Cloud Run services reference each other; set it explicitly once the mini app URL is known.

@@ -93,6 +93,9 @@ module "bot_api_service" {
     var.bot_parser_model == null ? {} : {
       PARSER_MODEL = var.bot_parser_model
     },
+    length(var.bot_mini_app_allowed_origins) == 0 ? {} : {
+      MINI_APP_ALLOWED_ORIGINS = join(",", var.bot_mini_app_allowed_origins)
+    },
     {
       SCHEDULER_OIDC_ALLOWED_EMAILS = google_service_account.scheduler_invoker.email
     }
