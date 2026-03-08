@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto'
 
 import { eq } from 'drizzle-orm'
 
-import { e2eEnv } from '@household/config'
 import { createDbClient, schema } from '@household/db'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
@@ -12,12 +11,6 @@ import {
   createPurchaseMessageRepository,
   registerPurchaseTopicIngestion
 } from '../../apps/bot/src/purchase-topic-ingestion'
-
-if (!e2eEnv.E2E_SMOKE_ALLOW_WRITE) {
-  throw new Error('Set E2E_SMOKE_ALLOW_WRITE=true to run e2e smoke test')
-}
-
-const databaseUrl: string = e2eEnv.DATABASE_URL
 
 const chatId = '-100123456'
 const purchaseTopicId = 77
@@ -106,7 +99,21 @@ function parseStatement(text: string): Map<string, string> {
   return amounts
 }
 
+async function loadE2eConfig(): Promise<{ databaseUrl: string }> {
+  const { e2eEnv } = await import('@household/config')
+
+  if (!e2eEnv.E2E_SMOKE_ALLOW_WRITE) {
+    throw new Error('Set E2E_SMOKE_ALLOW_WRITE=true to run e2e smoke test')
+  }
+
+  return {
+    databaseUrl: e2eEnv.DATABASE_URL
+  }
+}
+
 async function run(): Promise<void> {
+  const { databaseUrl } = await loadE2eConfig()
+
   const ids = {
     household: randomUUID(),
     admin: randomUUID(),
