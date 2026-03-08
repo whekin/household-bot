@@ -17,12 +17,21 @@ import {
 import { createReminderJobsHandler } from './reminder-jobs'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
+import { createMiniAppAuthHandler } from './miniapp-auth'
 
 const runtime = getBotRuntimeConfig()
 const bot = createTelegramBot(runtime.telegramBotToken)
 const webhookHandler = webhookCallback(bot, 'std/http')
 
 const shutdownTasks: Array<() => Promise<void>> = []
+const financeRepositoryClient =
+  runtime.financeCommandsEnabled || runtime.miniAppAuthEnabled
+    ? createDbFinanceRepository(runtime.databaseUrl!, runtime.householdId!)
+    : null
+
+if (financeRepositoryClient) {
+  shutdownTasks.push(financeRepositoryClient.close)
+}
 
 if (runtime.purchaseTopicIngestionEnabled) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
@@ -50,15 +59,10 @@ if (runtime.purchaseTopicIngestionEnabled) {
 }
 
 if (runtime.financeCommandsEnabled) {
-  const financeRepositoryClient = createDbFinanceRepository(
-    runtime.databaseUrl!,
-    runtime.householdId!
-  )
-  const financeService = createFinanceCommandService(financeRepositoryClient.repository)
+  const financeService = createFinanceCommandService(financeRepositoryClient!.repository)
   const financeCommands = createFinanceCommandsService(financeService)
 
   financeCommands.register(bot)
-  shutdownTasks.push(financeRepositoryClient.close)
 } else {
   console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
 }
@@ -87,6 +91,13 @@ const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
   webhookHandler,
+  miniAppAuth: financeRepositoryClient
+    ? createMiniAppAuthHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        repository: financeRepositoryClient.repository
+      })
+    : undefined,
   scheduler:
     reminderJobs && runtime.schedulerSharedSecret
       ? {

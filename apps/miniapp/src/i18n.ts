@@ -1,0 +1,80 @@
+export type Locale = 'en' | 'ru'
+
+export const dictionary = {
+  en: {
+    appTitle: 'Kojori House',
+    appSubtitle: 'Shared home dashboard',
+    loadingTitle: 'Checking your household access',
+    loadingBody: 'Validating Telegram session and membership…',
+    demoBadge: 'Demo mode',
+    unauthorizedTitle: 'Access is limited to active household members',
+    unauthorizedBody:
+      'Open the mini app from Telegram after the bot admin adds you to the household.',
+    telegramOnlyTitle: 'Open this app from Telegram',
+    telegramOnlyBody:
+      'The real session gate needs Telegram mini app data. Local development falls back to a preview shell.',
+    reload: 'Retry',
+    language: 'Language',
+    home: 'Home',
+    balances: 'Balances',
+    ledger: 'Ledger',
+    house: 'House',
+    navHint: 'Shell v1',
+    welcome: 'Welcome back',
+    adminTag: 'Admin',
+    residentTag: 'Resident',
+    summaryTitle: 'Current shell',
+    summaryBody:
+      'Balances, ledger, and house wiki will land in the next tickets. This shell focuses on verified access, navigation, and mobile layout.',
+    cardAccess: 'Access',
+    cardAccessBody: 'Telegram identity verified and matched to a household member.',
+    cardLocale: 'Locale',
+    cardLocaleBody: 'Switch RU/EN immediately without reloading the shell.',
+    cardNext: 'Next up',
+    cardNextBody: 'Balances, ledger, and house pages will plug into this navigation.',
+    sectionTitle: 'Ready for the next features',
+    sectionBody:
+      'This layout is intentionally narrow and mobile-first so it behaves well inside the Telegram webview.',
+    balancesEmpty: 'Balances will appear here once the dashboard API lands.',
+    ledgerEmpty: 'Ledger entries will appear here after the finance view is connected.',
+    houseEmpty: 'House rules, Wi-Fi info, and practical notes will live here.'
+  },
+  ru: {
+    appTitle: 'Kojori House',
+    appSubtitle: 'Панель общего дома',
+    loadingTitle: 'Проверяем доступ к дому',
+    loadingBody: 'Проверяем Telegram-сессию и членство…',
+    demoBadge: 'Демо режим',
+    unauthorizedTitle: 'Доступ открыт только для активных участников дома',
+    unauthorizedBody:
+      'Открой мини-апп из Telegram после того, как админ бота добавит тебя в household.',
+    telegramOnlyTitle: 'Открой приложение из Telegram',
+    telegramOnlyBody:
+      'Настоящая проверка требует данные Telegram Mini App. Локально показывается демо-оболочка.',
+    reload: 'Повторить',
+    language: 'Язык',
+    home: 'Главная',
+    balances: 'Баланс',
+    ledger: 'Леджер',
+    house: 'Дом',
+    navHint: 'Shell v1',
+    welcome: 'С возвращением',
+    adminTag: 'Админ',
+    residentTag: 'Житель',
+    summaryTitle: 'Текущая оболочка',
+    summaryBody:
+      'Баланс, леджер и вики дома появятся в следующих тикетах. Сейчас приоритет — проверенный доступ, навигация и мобильный layout.',
+    cardAccess: 'Доступ',
+    cardAccessBody: 'Telegram-личность подтверждена и сопоставлена с участником household.',
+    cardLocale: 'Локаль',
+    cardLocaleBody: 'RU/EN переключаются сразу, без перезагрузки.',
+    cardNext: 'Дальше',
+    cardNextBody: 'Баланс, леджер и страницы дома подключатся к этой навигации.',
+    sectionTitle: 'Основа готова для следующих функций',
+    sectionBody:
+      'Этот layout специально сделан узким и mobile-first, чтобы хорошо жить внутри Telegram webview.',
+    balancesEmpty: 'Баланс появится здесь, когда подключим dashboard API.',
+    ledgerEmpty: 'Записи леджера появятся здесь после подключения finance view.',
+    houseEmpty: 'Правила дома, Wi-Fi и полезные инструкции будут здесь.'
+  }
+} satisfies Record<Locale, Record<string, string>>

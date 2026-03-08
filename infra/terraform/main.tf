@@ -140,7 +140,8 @@ module "mini_app_service" {
   labels                = local.common_labels
 
   env = {
-    NODE_ENV = var.environment
+    NODE_ENV    = var.environment
+    BOT_API_URL = module.bot_api_service.uri
   }
 
   depends_on = [google_project_service.enabled]

@@ -9,6 +9,8 @@ export interface BotRuntimeConfig {
   telegramPurchaseTopicId?: number
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
+  miniAppAllowedOrigins: readonly string[]
+  miniAppAuthEnabled: boolean
   schedulerSharedSecret?: string
   schedulerOidcAllowedEmails: readonly string[]
   reminderJobsEnabled: boolean
@@ -75,6 +77,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
+  const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
 
   const purchaseTopicIngestionEnabled =
     databaseUrl !== undefined &&
@@ -83,6 +86,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramPurchaseTopicId !== undefined
 
   const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
+  const miniAppAuthEnabled = databaseUrl !== undefined && householdId !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
     databaseUrl !== undefined &&
@@ -96,6 +100,8 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
     purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
+    miniAppAllowedOrigins,
+    miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
     reminderJobsEnabled,
     parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'

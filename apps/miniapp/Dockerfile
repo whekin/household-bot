@@ -26,10 +26,15 @@ RUN bun run --filter @household/miniapp build
 
 FROM nginx:1.27-alpine AS runtime
 
+ENV BOT_API_URL=""
+
 COPY apps/miniapp/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/miniapp/config.template.js /usr/share/nginx/html/config.template.js
 COPY --from=build /app/apps/miniapp/dist /usr/share/nginx/html
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1
+
+CMD ["/bin/sh", "-c", "envsubst < /usr/share/nginx/html/config.template.js > /usr/share/nginx/html/config.js && exec nginx -g 'daemon off;'"]

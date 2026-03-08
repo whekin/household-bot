@@ -7,6 +7,15 @@ describe('createBotWebhookServer', () => {
     webhookPath: '/webhook/telegram',
     webhookSecret: 'secret-token',
     webhookHandler: async () => new Response('ok', { status: 200 }),
+    miniAppAuth: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     scheduler: {
       authorize: async (request) =>
         request.headers.get('x-household-scheduler-secret') === 'scheduler-secret',
@@ -69,6 +78,21 @@ describe('createBotWebhookServer', () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('ok')
+  })
+
+  test('accepts mini app auth request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/session', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true
+    })
   })
 
   test('rejects scheduler request with missing secret', async () => {

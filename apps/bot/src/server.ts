@@ -2,6 +2,12 @@ export interface BotWebhookServerOptions {
   webhookPath: string
   webhookSecret: string
   webhookHandler: (request: Request) => Promise<Response> | Response
+  miniAppAuth?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   scheduler?:
     | {
         pathPrefix?: string
@@ -32,6 +38,7 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const normalizedWebhookPath = options.webhookPath.startsWith('/')
     ? options.webhookPath
     : `/${options.webhookPath}`
+  const miniAppAuthPath = options.miniAppAuth?.path ?? '/api/miniapp/session'
   const schedulerPathPrefix = options.scheduler
     ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
     : null
@@ -42,6 +49,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (url.pathname === '/healthz') {
         return json({ ok: true })
+      }
+
+      if (options.miniAppAuth && url.pathname === miniAppAuthPath) {
+        return await options.miniAppAuth.handler(request)
       }
 
       if (url.pathname !== normalizedWebhookPath) {
