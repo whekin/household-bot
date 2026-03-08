@@ -36,6 +36,10 @@ export function extractPurchaseTopicCandidate(
   value: PurchaseTopicCandidate,
   config: PurchaseTopicIngestionConfig
 ): PurchaseTopicRecord | null {
+  if (value.rawText.trim().startsWith('/')) {
+    return null
+  }
+
   if (value.chatId !== config.householdChatId) {
     return null
   }
@@ -195,14 +199,16 @@ export function registerPurchaseTopicIngestion(
     llmFallback?: PurchaseParserLlmFallback
   } = {}
 ): void {
-  bot.on('message:text', async (ctx) => {
+  bot.on('message:text', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
+      await next()
       return
     }
 
     const record = extractPurchaseTopicCandidate(candidate, config)
     if (!record) {
+      await next()
       return
     }
 

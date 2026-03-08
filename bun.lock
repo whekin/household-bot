@@ -8,6 +8,7 @@
         "@types/bun": "1.3.10",
         "@typescript/native-preview": "7.0.0-dev.20260304.1",
         "drizzle-kit": "^0.31.4",
+        "lefthook": "2.1.2",
         "oxlint": "^1.51.0",
         "typescript": "^5.9.2",
       },
@@ -80,6 +81,14 @@
       "name": "@household/ports",
       "dependencies": {
         "@household/domain": "workspace:*",
+      },
+    },
+    "scripts": {
+      "name": "@household/scripts",
+      "devDependencies": {
+        "@household/config": "workspace:*",
+        "@household/db": "workspace:*",
+        "drizzle-orm": "^0.44.5",
       },
     },
   },
@@ -201,6 +210,8 @@
     "@household/observability": ["@household/observability@workspace:packages/observability"],
 
     "@household/ports": ["@household/ports@workspace:packages/ports"],
+
+    "@household/scripts": ["@household/scripts@workspace:scripts"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
@@ -455,6 +466,28 @@
     "jsesc": ["jsesc@3.1.0", "", { "bin": { "jsesc": "bin/jsesc" } }, "sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA=="],
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
+
+    "lefthook": ["lefthook@2.1.2", "", { "optionalDependencies": { "lefthook-darwin-arm64": "2.1.2", "lefthook-darwin-x64": "2.1.2", "lefthook-freebsd-arm64": "2.1.2", "lefthook-freebsd-x64": "2.1.2", "lefthook-linux-arm64": "2.1.2", "lefthook-linux-x64": "2.1.2", "lefthook-openbsd-arm64": "2.1.2", "lefthook-openbsd-x64": "2.1.2", "lefthook-windows-arm64": "2.1.2", "lefthook-windows-x64": "2.1.2" }, "bin": { "lefthook": "bin/index.js" } }, "sha512-HdAMl4g47kbWSkrUkCx3Kucq54omFS6piMJtXwXNtmCAfB40UaybTJuYtFW4hNzZ5SvaEimtxTp7P/MNIkEfsA=="],
+
+    "lefthook-darwin-arm64": ["lefthook-darwin-arm64@2.1.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-AgHu93YuJtj1l9bcKlCbo4Tg8N8xFl9iD6BjXCGaGMu46LSjFiXbJFlkUdpgrL8fIbwoCjJi5FNp3POpqs4Wdw=="],
+
+    "lefthook-darwin-x64": ["lefthook-darwin-x64@2.1.2", "", { "os": "darwin", "cpu": "x64" }, "sha512-exooc9Ectz13OLJJOXM9AzaFQbqzf9QCF8JuVvGfbr4RYABYK+BwwtydjlPQrA76/n/h4tsS11MH5bBULnLkYA=="],
+
+    "lefthook-freebsd-arm64": ["lefthook-freebsd-arm64@2.1.2", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-E1QMlJPEU21n9eewv6ePfh+JmoTSg5R1jaYcKCky10kfbMdohNucI3xV91F2LcerE+p3UejKDqr/1wWO2RMGeQ=="],
+
+    "lefthook-freebsd-x64": ["lefthook-freebsd-x64@2.1.2", "", { "os": "freebsd", "cpu": "x64" }, "sha512-/5zp+x8055Thj46x9S7hgnneZxvWhHQvPWkkgISCab1Lh6eLrbxvhE1qTb1lU3DqTnNmH9NeXdq1xPHc9uGluA=="],
+
+    "lefthook-linux-arm64": ["lefthook-linux-arm64@2.1.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-UK5FvDTkwKO7tOznY8iEZzuTsM1jXMZAG5BMRs7olN1k1K6m2unR6oKABP0hCd0wDErK6DZKDJDJfB564Rzqtw=="],
+
+    "lefthook-linux-x64": ["lefthook-linux-x64@2.1.2", "", { "os": "linux", "cpu": "x64" }, "sha512-4eOtz4PNh8GbJ+nA8YVDfW/eMirQWdZqMP/V/MVtoVBGobf6oXvvuDOySvAPOgNYEFN0Boegytmuji/851Vstg=="],
+
+    "lefthook-openbsd-arm64": ["lefthook-openbsd-arm64@2.1.2", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-lJXRJ6iJIBKwomuNBA3CUNSclj2/rKuxGAQoUra214B92VB6jL9zaY5YEs6h/ie9jQrzSnllEeg7xyDIsuVCrQ=="],
+
+    "lefthook-openbsd-x64": ["lefthook-openbsd-x64@2.1.2", "", { "os": "openbsd", "cpu": "x64" }, "sha512-GyOje4W0DIqkmR7/Of5D+mZ0vWqMvtGAVedtJR6d1239xNeMzCS8Q+/a3O1xigceZa5xhlqq0BWlssB/QYPQnA=="],
+
+    "lefthook-windows-arm64": ["lefthook-windows-arm64@2.1.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-MZKMqTULEpX/8N3fKXAR0A9RjsGKkEEY0japLqrHOIpxsJXry1DRz0FvQo2kkY4WW3rtFegV9m6eesOymuDrUg=="],
+
+    "lefthook-windows-x64": ["lefthook-windows-x64@2.1.2", "", { "os": "win32", "cpu": "x64" }, "sha512-NZUgObuaSxc0EXAwC/CzkMf7TuQc++GGIk6TLPdaUpoSsNSJSZEwBVz5DtFB1cG+eMkfO/wOKplls+yjimTTtQ=="],
 
     "lightningcss": ["lightningcss@1.31.1", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.31.1", "lightningcss-darwin-arm64": "1.31.1", "lightningcss-darwin-x64": "1.31.1", "lightningcss-freebsd-x64": "1.31.1", "lightningcss-linux-arm-gnueabihf": "1.31.1", "lightningcss-linux-arm64-gnu": "1.31.1", "lightningcss-linux-arm64-musl": "1.31.1", "lightningcss-linux-x64-gnu": "1.31.1", "lightningcss-linux-x64-musl": "1.31.1", "lightningcss-win32-arm64-msvc": "1.31.1", "lightningcss-win32-x64-msvc": "1.31.1" } }, "sha512-l51N2r93WmGUye3WuFoN5k10zyvrVs0qfKBhyC5ogUQ6Ew6JUSswh78mbSO+IU3nTWsyOArqPCcShdQSadghBQ=="],
 

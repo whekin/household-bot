@@ -5,8 +5,13 @@ service_prefix = "household"
 
 artifact_repository_id = "household-bot"
 
-bot_api_image   = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/bot-api:latest"
-mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/mini-app:latest"
+bot_api_image   = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/bot:latest"
+mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/miniapp:latest"
+
+bot_household_id       = "11111111-1111-4111-8111-111111111111"
+bot_household_chat_id  = "-1001234567890"
+bot_purchase_topic_id  = 777
+bot_parser_model       = "gpt-4.1-mini"
 
 scheduler_cron     = "0 9 * * *"
 scheduler_timezone = "Asia/Tbilisi"

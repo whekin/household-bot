@@ -1,0 +1,21 @@
+# lefthook.yml
+
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: '*.{ts,tsx,js,jsx,json,md}'
+      run: bun run format:check
+    lint:
+      glob: '*.{ts,tsx,js,jsx}'
+      run: bun run lint
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run typecheck
+    test:
+      run: bun run test
+    build:
+      run: bun run build

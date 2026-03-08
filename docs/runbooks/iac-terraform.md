@@ -18,7 +18,7 @@ gcloud auth application-default login
 
 ```bash
 cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
-terraform -chdir=infra/terraform init
+terraform -chdir=infra/terraform init -backend-config="bucket=<terraform-state-bucket>"
 terraform -chdir=infra/terraform plan
 terraform -chdir=infra/terraform apply
 ```
@@ -35,9 +35,20 @@ bun run infra:validate
 After first apply, add secret versions:
 
 ```bash
+echo -n "<telegram-bot-token>" | gcloud secrets versions add telegram-bot-token --data-file=- --project <project_id>
 echo -n "<telegram-webhook-secret>" | gcloud secrets versions add telegram-webhook-secret --data-file=- --project <project_id>
 echo -n "<scheduler-shared-secret>" | gcloud secrets versions add scheduler-shared-secret --data-file=- --project <project_id>
 ```
+
+If you set optional secret IDs such as `database_url_secret_id` or
+`openai_api_key_secret_id`, add versions for those secrets too.
+
+Keep bot runtime config that is not secret in your `*.tfvars` file:
+
+- `bot_household_id`
+- `bot_household_chat_id`
+- `bot_purchase_topic_id`
+- optional `bot_parser_model`
 
 ## Environment strategy
 

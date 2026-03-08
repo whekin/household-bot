@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@household/*": ["../packages/*/src", "../apps/*/src"]
+    }
+  },
+  "include": ["**/*.ts", "../apps/bot/src/**/*.ts"]
+}
