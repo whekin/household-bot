@@ -61,6 +61,12 @@ bun run review:coderabbit
 - Drizzle config is in `packages/db/drizzle.config.ts`.
 - Typed environment validation lives in `packages/config/src/env.ts`.
 - Copy `.env.example` to `.env` before running app/database commands.
+- Local bot feature flags come from env presence:
+  - finance commands require `DATABASE_URL` and `HOUSEHOLD_ID`
+  - purchase ingestion also requires `TELEGRAM_HOUSEHOLD_CHAT_ID` and `TELEGRAM_PURCHASE_TOPIC_ID`
+  - anonymous feedback also requires `TELEGRAM_FEEDBACK_TOPIC_ID`
+  - reminders require `SCHEDULER_SHARED_SECRET` or `SCHEDULER_OIDC_ALLOWED_EMAILS`
+  - mini app CORS can be constrained with `MINI_APP_ALLOWED_ORIGINS`
 - Migration workflow is documented in `docs/runbooks/migrations.md`.
 - First deploy flow is documented in `docs/runbooks/first-deploy.md`.
 

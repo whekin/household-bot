@@ -31,6 +31,7 @@ Required in your environment `*.tfvars`:
 
 Recommended:
 
+- `bot_feedback_topic_id`
 - `bot_mini_app_allowed_origins`
 - `scheduler_timezone`
 - `scheduler_paused = true`
