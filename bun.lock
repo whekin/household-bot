@@ -15,9 +15,10 @@
     "apps/bot": {
       "name": "@household/bot",
       "dependencies": {
+        "@household/adapters-db": "workspace:*",
         "@household/application": "workspace:*",
         "@household/db": "workspace:*",
-        "@household/domain": "workspace:*",
+        "@household/ports": "workspace:*",
         "drizzle-orm": "^0.44.7",
         "grammy": "1.41.1",
       },
@@ -36,10 +37,20 @@
         "vite-plugin-solid": "^2.11.8",
       },
     },
+    "packages/adapters-db": {
+      "name": "@household/adapters-db",
+      "dependencies": {
+        "@household/db": "workspace:*",
+        "@household/domain": "workspace:*",
+        "@household/ports": "workspace:*",
+        "drizzle-orm": "^0.44.7",
+      },
+    },
     "packages/application": {
       "name": "@household/application",
       "dependencies": {
         "@household/domain": "workspace:*",
+        "@household/ports": "workspace:*",
       },
     },
     "packages/config": {
@@ -67,6 +78,9 @@
     },
     "packages/ports": {
       "name": "@household/ports",
+      "dependencies": {
+        "@household/domain": "workspace:*",
+      },
     },
   },
   "packages": {
@@ -167,6 +181,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
     "@grammyjs/types": ["@grammyjs/types@3.25.0", "", {}, "sha512-iN9i5p+8ZOu9OMxWNcguojQfz4K/PDyMPOnL7PPCON+SoA/F8OKMH3uR7CVUkYfdNe0GCz8QOzAWrnqusQYFOg=="],
+
+    "@household/adapters-db": ["@household/adapters-db@workspace:packages/adapters-db"],
 
     "@household/application": ["@household/application@workspace:packages/application"],
 

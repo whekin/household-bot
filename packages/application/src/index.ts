@@ -1,4 +1,5 @@
 export { calculateMonthlySettlement } from './settlement-engine'
+export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
 export {
   parsePurchaseMessage,
   type ParsedPurchaseResult,

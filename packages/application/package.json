@@ -12,6 +12,7 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
-    "@household/domain": "workspace:*"
+    "@household/domain": "workspace:*",
+    "@household/ports": "workspace:*"
   }
 }

@@ -10,9 +10,9 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
+    "@household/adapters-db": "workspace:*",
     "@household/application": "workspace:*",
     "@household/db": "workspace:*",
-    "@household/domain": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "grammy": "1.41.1"
   }

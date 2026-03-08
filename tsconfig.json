@@ -9,6 +9,7 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/observability" },
     { "path": "./packages/config" },
-    { "path": "./packages/db" }
+    { "path": "./packages/db" },
+    { "path": "./packages/adapters-db" }
   ]
 }

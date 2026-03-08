@@ -1,5 +1,5 @@
 {
-  "name": "@household/ports",
+  "name": "@household/adapters-db",
   "private": true,
   "type": "module",
   "exports": {
@@ -12,6 +12,9 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
-    "@household/domain": "workspace:*"
+    "@household/db": "workspace:*",
+    "@household/domain": "workspace:*",
+    "@household/ports": "workspace:*",
+    "drizzle-orm": "^0.44.7"
   }
 }

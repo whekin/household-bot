@@ -1,8 +1,11 @@
 import { webhookCallback } from 'grammy'
 
+import { createFinanceCommandService } from '@household/application'
+import { createDbFinanceRepository } from '@household/adapters-db'
+
+import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
-import { createFinanceCommandsService } from './finance-commands'
 import { createOpenAiParserFallback } from './openai-parser-fallback'
 import {
   createPurchaseMessageRepository,
@@ -42,12 +45,15 @@ if (runtime.purchaseTopicIngestionEnabled) {
 }
 
 if (runtime.financeCommandsEnabled) {
-  const financeCommands = createFinanceCommandsService(runtime.databaseUrl!, {
-    householdId: runtime.householdId!
-  })
+  const financeRepositoryClient = createDbFinanceRepository(
+    runtime.databaseUrl!,
+    runtime.householdId!
+  )
+  const financeService = createFinanceCommandService(financeRepositoryClient.repository)
+  const financeCommands = createFinanceCommandsService(financeService)
 
   financeCommands.register(bot)
-  shutdownTasks.push(financeCommands.close)
+  shutdownTasks.push(financeRepositoryClient.close)
 } else {
   console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
 }
