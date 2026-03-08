@@ -90,6 +90,9 @@ module "bot_api_service" {
     var.bot_purchase_topic_id == null ? {} : {
       TELEGRAM_PURCHASE_TOPIC_ID = tostring(var.bot_purchase_topic_id)
     },
+    var.bot_feedback_topic_id == null ? {} : {
+      TELEGRAM_FEEDBACK_TOPIC_ID = tostring(var.bot_feedback_topic_id)
+    },
     var.bot_parser_model == null ? {} : {
       PARSER_MODEL = var.bot_parser_model
     },

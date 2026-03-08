@@ -104,6 +104,13 @@ variable "bot_purchase_topic_id" {
   nullable    = true
 }
 
+variable "bot_feedback_topic_id" {
+  description = "Optional TELEGRAM_FEEDBACK_TOPIC_ID value for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
 variable "bot_parser_model" {
   description = "Optional PARSER_MODEL override for bot runtime"
   type        = string

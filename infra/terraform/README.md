@@ -72,6 +72,7 @@ Recommended approach:
   - `bot_household_id`
   - `bot_household_chat_id`
   - `bot_purchase_topic_id`
+  - optional `bot_feedback_topic_id`
   - optional `bot_parser_model`
   - optional `bot_mini_app_allowed_origins`
 

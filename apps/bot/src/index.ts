@@ -1,11 +1,17 @@
 import { webhookCallback } from 'grammy'
 
-import { createFinanceCommandService, createReminderJobService } from '@household/application'
 import {
+  createAnonymousFeedbackService,
+  createFinanceCommandService,
+  createReminderJobService
+} from '@household/application'
+import {
+  createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
   createDbReminderDispatchRepository
 } from '@household/adapters-db'
 
+import { registerAnonymousFeedback } from './anonymous-feedback'
 import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
@@ -32,9 +38,19 @@ const financeRepositoryClient =
 const financeService = financeRepositoryClient
   ? createFinanceCommandService(financeRepositoryClient.repository)
   : null
+const anonymousFeedbackRepositoryClient = runtime.anonymousFeedbackEnabled
+  ? createDbAnonymousFeedbackRepository(runtime.databaseUrl!, runtime.householdId!)
+  : null
+const anonymousFeedbackService = anonymousFeedbackRepositoryClient
+  ? createAnonymousFeedbackService(anonymousFeedbackRepositoryClient.repository)
+  : null
 
 if (financeRepositoryClient) {
   shutdownTasks.push(financeRepositoryClient.close)
+}
+
+if (anonymousFeedbackRepositoryClient) {
+  shutdownTasks.push(anonymousFeedbackRepositoryClient.close)
 }
 
 if (runtime.purchaseTopicIngestionEnabled) {
@@ -87,6 +103,19 @@ const reminderJobs = runtime.reminderJobsEnabled
 if (!runtime.reminderJobsEnabled) {
   console.warn(
     'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
+  )
+}
+
+if (anonymousFeedbackService) {
+  registerAnonymousFeedback({
+    bot,
+    anonymousFeedbackService,
+    householdChatId: runtime.telegramHouseholdChatId!,
+    feedbackTopicId: runtime.telegramFeedbackTopicId!
+  })
+} else {
+  console.warn(
+    'Anonymous feedback is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_FEEDBACK_TOPIC_ID to enable.'
   )
 }
 

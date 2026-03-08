@@ -7,8 +7,10 @@ export interface BotRuntimeConfig {
   householdId?: string
   telegramHouseholdChatId?: string
   telegramPurchaseTopicId?: number
+  telegramFeedbackTopicId?: number
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
+  anonymousFeedbackEnabled: boolean
   miniAppAllowedOrigins: readonly string[]
   miniAppAuthEnabled: boolean
   schedulerSharedSecret?: string
@@ -46,7 +48,7 @@ function parseOptionalTopicId(raw: string | undefined): number | undefined {
 
   const parsed = Number(raw)
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`Invalid TELEGRAM_PURCHASE_TOPIC_ID value: ${raw}`)
+    throw new Error(`Invalid Telegram topic id value: ${raw}`)
   }
 
   return parsed
@@ -75,6 +77,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const householdId = parseOptionalValue(env.HOUSEHOLD_ID)
   const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
   const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
+  const telegramFeedbackTopicId = parseOptionalTopicId(env.TELEGRAM_FEEDBACK_TOPIC_ID)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
@@ -86,6 +89,11 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramPurchaseTopicId !== undefined
 
   const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
+  const anonymousFeedbackEnabled =
+    databaseUrl !== undefined &&
+    householdId !== undefined &&
+    telegramHouseholdChatId !== undefined &&
+    telegramFeedbackTopicId !== undefined
   const miniAppAuthEnabled = databaseUrl !== undefined && householdId !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
@@ -100,6 +108,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
     purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
+    anonymousFeedbackEnabled,
     miniAppAllowedOrigins,
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
@@ -118,6 +127,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   }
   if (telegramPurchaseTopicId !== undefined) {
     runtime.telegramPurchaseTopicId = telegramPurchaseTopicId
+  }
+  if (telegramFeedbackTopicId !== undefined) {
+    runtime.telegramFeedbackTopicId = telegramFeedbackTopicId
   }
   if (schedulerSharedSecret !== undefined) {
     runtime.schedulerSharedSecret = schedulerSharedSecret

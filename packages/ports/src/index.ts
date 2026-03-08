@@ -6,6 +6,14 @@ export {
   type ReminderType
 } from './reminders'
 export type {
+  AnonymousFeedbackMemberRecord,
+  AnonymousFeedbackModerationStatus,
+  AnonymousFeedbackRateLimitSnapshot,
+  AnonymousFeedbackRejectionReason,
+  AnonymousFeedbackRepository,
+  AnonymousFeedbackSubmissionRecord
+} from './anonymous-feedback'
+export type {
   FinanceCycleRecord,
   FinanceMemberRecord,
   FinanceParsedPurchaseRecord,
