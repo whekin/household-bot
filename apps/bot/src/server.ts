@@ -5,7 +5,7 @@ export interface BotWebhookServerOptions {
   scheduler?:
     | {
         pathPrefix?: string
-        sharedSecret: string
+        authorize: (request: Request) => Promise<boolean>
         handler: (request: Request, reminderType: string) => Promise<Response>
       }
     | undefined
@@ -24,13 +24,6 @@ function isAuthorized(request: Request, expectedSecret: string): boolean {
   const secretHeader = request.headers.get('x-telegram-bot-api-secret-token')
 
   return secretHeader === expectedSecret
-}
-
-function isSchedulerAuthorized(request: Request, expectedSecret: string): boolean {
-  const customHeader = request.headers.get('x-household-scheduler-secret')
-  const authorizationHeader = request.headers.get('authorization')
-
-  return customHeader === expectedSecret || authorizationHeader === `Bearer ${expectedSecret}`
 }
 
 export function createBotWebhookServer(options: BotWebhookServerOptions): {
@@ -57,7 +50,7 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
             return new Response('Method Not Allowed', { status: 405 })
           }
 
-          if (!isSchedulerAuthorized(request, options.scheduler!.sharedSecret)) {
+          if (!(await options.scheduler!.authorize(request))) {
             return new Response('Unauthorized', { status: 401 })
           }
 

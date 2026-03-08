@@ -118,35 +118,34 @@ variable "openai_api_key_secret_id" {
   nullable    = true
 }
 
-
-variable "scheduler_path" {
-  description = "Reminder endpoint path on bot API"
-  type        = string
-  default     = "/internal/scheduler/reminders"
-}
-
-variable "scheduler_http_method" {
-  description = "Scheduler HTTP method"
-  type        = string
-  default     = "POST"
-}
-
-variable "scheduler_cron" {
-  description = "Cron expression for reminder scheduler"
-  type        = string
-  default     = "0 9 * * *"
-}
-
 variable "scheduler_timezone" {
   description = "Scheduler timezone"
   type        = string
   default     = "Asia/Tbilisi"
 }
 
-variable "scheduler_body_json" {
-  description = "JSON payload for scheduler requests"
+variable "scheduler_utilities_cron" {
+  description = "Cron expression for the utilities reminder scheduler job"
   type        = string
-  default     = "{\"kind\":\"monthly-reminder\"}"
+  default     = "0 9 4 * *"
+}
+
+variable "scheduler_rent_warning_cron" {
+  description = "Cron expression for the rent warning scheduler job"
+  type        = string
+  default     = "0 9 17 * *"
+}
+
+variable "scheduler_rent_due_cron" {
+  description = "Cron expression for the rent due scheduler job"
+  type        = string
+  default     = "0 9 20 * *"
+}
+
+variable "scheduler_dry_run" {
+  description = "Whether scheduler jobs should invoke the bot in dry-run mode"
+  type        = bool
+  default     = true
 }
 
 variable "scheduler_paused" {

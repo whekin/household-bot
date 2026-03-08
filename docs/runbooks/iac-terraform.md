@@ -50,6 +50,27 @@ Keep bot runtime config that is not secret in your `*.tfvars` file:
 - `bot_purchase_topic_id`
 - optional `bot_parser_model`
 
+## Reminder jobs
+
+Terraform provisions three separate Cloud Scheduler jobs:
+
+- `utilities`
+- `rent-warning`
+- `rent-due`
+
+They target the bot runtime endpoints:
+
+- `/jobs/reminder/utilities`
+- `/jobs/reminder/rent-warning`
+- `/jobs/reminder/rent-due`
+
+Recommended rollout:
+
+- keep `scheduler_paused = true` and `scheduler_dry_run = true` on first apply
+- validate job responses and logs
+- unpause when the delivery side is ready
+- disable dry-run only after production verification
+
 ## Environment strategy
 
 - Keep separate states for `dev` and `prod`.

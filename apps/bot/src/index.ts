@@ -15,6 +15,7 @@ import {
   registerPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
 import { createReminderJobsHandler } from './reminder-jobs'
+import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
 
 const runtime = getBotRuntimeConfig()
@@ -78,7 +79,7 @@ const reminderJobs = runtime.reminderJobsEnabled
 
 if (!runtime.reminderJobsEnabled) {
   console.warn(
-    'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and SCHEDULER_SHARED_SECRET to enable.'
+    'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
   )
 }
 
@@ -89,10 +90,20 @@ const server = createBotWebhookServer({
   scheduler:
     reminderJobs && runtime.schedulerSharedSecret
       ? {
-          sharedSecret: runtime.schedulerSharedSecret,
+          authorize: createSchedulerRequestAuthorizer({
+            sharedSecret: runtime.schedulerSharedSecret,
+            oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
+          }).authorize,
           handler: reminderJobs.handle
         }
-      : undefined
+      : reminderJobs
+        ? {
+            authorize: createSchedulerRequestAuthorizer({
+              oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
+            }).authorize,
+            handler: reminderJobs.handle
+          }
+        : undefined
 })
 
 if (import.meta.main) {

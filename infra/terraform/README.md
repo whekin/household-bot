@@ -7,7 +7,7 @@ This directory contains baseline IaC for deploying the household bot platform on
 - Artifact Registry Docker repository
 - Cloud Run service: bot API (public webhook endpoint)
 - Cloud Run service: mini app (public web UI)
-- Cloud Scheduler job for reminder triggers
+- Cloud Scheduler jobs for reminder triggers
 - Runtime and scheduler service accounts with least-privilege bindings
 - Secret Manager secrets (IDs only, secret values are added separately)
 - Optional GitHub OIDC Workload Identity setup for deploy automation
@@ -16,7 +16,7 @@ This directory contains baseline IaC for deploying the household bot platform on
 
 - `bot-api`: Telegram webhook + app API endpoints
 - `mini-app`: front-end delivery
-- `scheduler`: triggers `bot-api` internal reminder endpoint using OIDC token
+- `scheduler`: triggers `bot-api` reminder endpoints using OIDC tokens
 
 ## Prerequisites
 
@@ -84,5 +84,5 @@ CI runs:
 
 ## Notes
 
-- Scheduler job defaults to `paused = true` to prevent accidental sends before app logic is ready.
+- Scheduler jobs default to `paused = true` and `dry_run = true` to prevent accidental sends before live reminder delivery is ready.
 - Bot API is public to accept Telegram webhooks; scheduler endpoint should still verify app-level auth.

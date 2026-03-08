@@ -62,6 +62,7 @@ export function createReminderJobsHandler(options: {
 
       try {
         const body = await readBody(request)
+        const schedulerJobName = request.headers.get('x-cloudscheduler-jobname')
         const period = BillingPeriod.fromString(body.period ?? currentPeriod()).toString()
         const dryRun = options.forceDryRun === true || body.dryRun === true
         const result = await options.reminderService.handleJob({
@@ -75,7 +76,7 @@ export function createReminderJobsHandler(options: {
           event: 'scheduler.reminder.dispatch',
           reminderType,
           period,
-          jobId: body.jobId ?? null,
+          jobId: body.jobId ?? schedulerJobName ?? null,
           dedupeKey: result.dedupeKey,
           outcome: result.status,
           dryRun
@@ -85,7 +86,7 @@ export function createReminderJobsHandler(options: {
 
         return json({
           ok: true,
-          jobId: body.jobId ?? null,
+          jobId: body.jobId ?? schedulerJobName ?? null,
           reminderType,
           period,
           dedupeKey: result.dedupeKey,

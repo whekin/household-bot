@@ -8,7 +8,8 @@ describe('createBotWebhookServer', () => {
     webhookSecret: 'secret-token',
     webhookHandler: async () => new Response('ok', { status: 200 }),
     scheduler: {
-      sharedSecret: 'scheduler-secret',
+      authorize: async (request) =>
+        request.headers.get('x-household-scheduler-secret') === 'scheduler-secret',
       handler: async (_request, reminderType) =>
         new Response(JSON.stringify({ ok: true, reminderType }), {
           status: 200,

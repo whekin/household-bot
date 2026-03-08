@@ -10,6 +10,7 @@ export interface BotRuntimeConfig {
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
   schedulerSharedSecret?: string
+  schedulerOidcAllowedEmails: readonly string[]
   reminderJobsEnabled: boolean
   openaiApiKey?: string
   parserModel: string
@@ -54,12 +55,26 @@ function parseOptionalValue(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined
 }
 
+function parseOptionalCsv(value: string | undefined): readonly string[] {
+  const trimmed = value?.trim()
+
+  if (!trimmed) {
+    return []
+  }
+
+  return trimmed
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
   const databaseUrl = parseOptionalValue(env.DATABASE_URL)
   const householdId = parseOptionalValue(env.HOUSEHOLD_ID)
   const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
   const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
+  const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
 
   const purchaseTopicIngestionEnabled =
     databaseUrl !== undefined &&
@@ -68,8 +83,11 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramPurchaseTopicId !== undefined
 
   const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
+  const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
-    databaseUrl !== undefined && householdId !== undefined && schedulerSharedSecret !== undefined
+    databaseUrl !== undefined &&
+    householdId !== undefined &&
+    (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
@@ -78,6 +96,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
     purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
+    schedulerOidcAllowedEmails,
     reminderJobsEnabled,
     parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'
   }

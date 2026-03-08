@@ -92,6 +92,9 @@ module "bot_api_service" {
     },
     var.bot_parser_model == null ? {} : {
       PARSER_MODEL = var.bot_parser_model
+    },
+    {
+      SCHEDULER_OIDC_ALLOWED_EMAILS = google_service_account.scheduler_invoker.email
     }
   )
 
@@ -158,22 +161,27 @@ resource "google_service_account_iam_member" "scheduler_token_creator" {
 }
 
 resource "google_cloud_scheduler_job" "reminders" {
+  for_each = local.reminder_jobs
+
   project   = var.project_id
   region    = var.region
-  name      = "${local.name_prefix}-reminders"
-  schedule  = var.scheduler_cron
+  name      = "${local.name_prefix}-${each.key}"
+  schedule  = each.value.schedule
   time_zone = var.scheduler_timezone
   paused    = var.scheduler_paused
 
   http_target {
-    uri         = "${module.bot_api_service.uri}${var.scheduler_path}"
-    http_method = var.scheduler_http_method
+    uri         = "${module.bot_api_service.uri}${each.value.path}"
+    http_method = "POST"
 
     headers = {
       "Content-Type" = "application/json"
     }
 
-    body = base64encode(var.scheduler_body_json)
+    body = base64encode(jsonencode({
+      dryRun = var.scheduler_dry_run
+      jobId  = "${local.name_prefix}-${each.key}"
+    }))
 
     oidc_token {
       service_account_email = google_service_account.scheduler_invoker.email

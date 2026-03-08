@@ -13,9 +13,12 @@ bot_household_chat_id  = "-1001234567890"
 bot_purchase_topic_id  = 777
 bot_parser_model       = "gpt-4.1-mini"
 
-scheduler_cron     = "0 9 * * *"
-scheduler_timezone = "Asia/Tbilisi"
-scheduler_paused   = true
+scheduler_utilities_cron    = "0 9 4 * *"
+scheduler_rent_warning_cron = "0 9 17 * *"
+scheduler_rent_due_cron     = "0 9 20 * *"
+scheduler_timezone          = "Asia/Tbilisi"
+scheduler_paused            = true
+scheduler_dry_run           = true
 
 create_workload_identity = true
 github_repository        = "whekin/household-bot"
