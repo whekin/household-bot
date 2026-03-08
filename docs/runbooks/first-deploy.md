@@ -31,6 +31,10 @@ Required in your environment `*.tfvars`:
 
 Recommended:
 
+- `database_url_secret_id = "database-url"`
+- `openai_api_key_secret_id = "openai-api-key"`
+- optional `supabase_url_secret_id = "supabase-url"`
+- optional `supabase_publishable_key_secret_id = "supabase-publishable-key"`
 - `bot_feedback_topic_id`
 - `bot_mini_app_allowed_origins`
 - `scheduler_timezone`
@@ -131,6 +135,11 @@ echo -n "<database-url>" | gcloud secrets versions add database-url --data-file=
 ```
 
 Add optional secret versions only if those integrations are enabled.
+
+For a functional household dev deployment, set `database_url_secret_id = "database-url"` in
+`dev.tfvars` before the apply that creates the Cloud Run services. Otherwise the bot deploys
+without `DATABASE_URL`, and finance commands, reminders, mini app auth/dashboard, and anonymous
+feedback remain disabled.
 
 ## Phase 4: Configure GitHub CD
 

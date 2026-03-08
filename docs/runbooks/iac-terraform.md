@@ -43,6 +43,11 @@ echo -n "<scheduler-shared-secret>" | gcloud secrets versions add scheduler-shar
 If you set optional secret IDs such as `database_url_secret_id` or
 `openai_api_key_secret_id`, add versions for those secrets too.
 
+For a functional dev bot, set at least:
+
+- `database_url_secret_id = "database-url"`
+- optional `openai_api_key_secret_id = "openai-api-key"`
+
 Keep bot runtime config that is not secret in your `*.tfvars` file:
 
 - `bot_household_id`
