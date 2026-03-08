@@ -1,5 +1,6 @@
 import type { ReminderJobService } from '@household/application'
 import { BillingPeriod } from '@household/domain'
+import type { Logger } from '@household/observability'
 import { REMINDER_TYPES, type ReminderType } from '@household/ports'
 
 interface ReminderJobRequestBody {
@@ -51,6 +52,7 @@ export function createReminderJobsHandler(options: {
   householdId: string
   reminderService: ReminderJobService
   forceDryRun?: boolean
+  logger?: Logger
 }): {
   handle: (request: Request, rawReminderType: string) => Promise<Response>
 } {
@@ -83,7 +85,7 @@ export function createReminderJobsHandler(options: {
           dryRun
         }
 
-        console.log(JSON.stringify(logPayload))
+        options.logger?.info(logPayload, 'Reminder job processed')
 
         return json({
           ok: true,
@@ -98,12 +100,13 @@ export function createReminderJobsHandler(options: {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown reminder job error'
 
-        console.error(
-          JSON.stringify({
+        options.logger?.error(
+          {
             event: 'scheduler.reminder.dispatch_failed',
             reminderType: rawReminderType,
             error: message
-          })
+          },
+          'Reminder job failed'
         )
 
         return json({ ok: false, error: message }, 400)

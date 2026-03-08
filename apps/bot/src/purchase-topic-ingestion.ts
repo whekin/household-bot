@@ -1,6 +1,7 @@
 import { parsePurchaseMessage, type PurchaseParserLlmFallback } from '@household/application'
 import { and, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
+import type { Logger } from '@household/observability'
 
 import { createDbClient, schema } from '@household/db'
 
@@ -197,6 +198,7 @@ export function registerPurchaseTopicIngestion(
   repository: PurchaseMessageIngestionRepository,
   options: {
     llmFallback?: PurchaseParserLlmFallback
+    logger?: Logger
   } = {}
 ): void {
   bot.on('message:text', async (ctx, next) => {
@@ -216,12 +218,30 @@ export function registerPurchaseTopicIngestion(
       const status = await repository.save(record, options.llmFallback)
 
       if (status === 'created') {
-        console.log(
-          `purchase topic message ingested chat=${record.chatId} thread=${record.threadId} message=${record.messageId}`
+        options.logger?.info(
+          {
+            event: 'purchase.ingested',
+            chatId: record.chatId,
+            threadId: record.threadId,
+            messageId: record.messageId,
+            updateId: record.updateId,
+            senderTelegramUserId: record.senderTelegramUserId
+          },
+          'Purchase topic message ingested'
         )
       }
     } catch (error) {
-      console.error('Failed to ingest purchase topic message', error)
+      options.logger?.error(
+        {
+          event: 'purchase.ingest_failed',
+          chatId: record.chatId,
+          threadId: record.threadId,
+          messageId: record.messageId,
+          updateId: record.updateId,
+          error
+        },
+        'Failed to ingest purchase topic message'
+      )
     }
   })
 }

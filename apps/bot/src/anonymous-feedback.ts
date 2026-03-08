@@ -1,4 +1,5 @@
 import type { AnonymousFeedbackService } from '@household/application'
+import type { Logger } from '@household/observability'
 import type { Bot, Context } from 'grammy'
 
 function isPrivateChat(ctx: Context): boolean {
@@ -33,6 +34,7 @@ export function registerAnonymousFeedback(options: {
   anonymousFeedbackService: AnonymousFeedbackService
   householdChatId: string
   feedbackTopicId: number
+  logger?: Logger
 }): void {
   options.bot.command('anon', async (ctx) => {
     if (!isPrivateChat(ctx)) {
@@ -94,6 +96,16 @@ export function registerAnonymousFeedback(options: {
       await ctx.reply('Anonymous feedback delivered.')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown Telegram send failure'
+      options.logger?.error(
+        {
+          event: 'anonymous_feedback.post_failed',
+          submissionId: result.submissionId,
+          householdChatId: options.householdChatId,
+          feedbackTopicId: options.feedbackTopicId,
+          error: message
+        },
+        'Anonymous feedback posting failed'
+      )
       await options.anonymousFeedbackService.markFailed(result.submissionId, message)
       await ctx.reply('Anonymous feedback was saved, but posting failed. Try again later.')
     }

@@ -1,5 +1,6 @@
 export interface BotRuntimeConfig {
   port: number
+  logLevel: 'debug' | 'info' | 'warn' | 'error'
   telegramBotToken: string
   telegramWebhookSecret: string
   telegramWebhookPath: string
@@ -31,6 +32,25 @@ function parsePort(raw: string | undefined): number {
   }
 
   return parsed
+}
+
+function parseLogLevel(raw: string | undefined): 'debug' | 'info' | 'warn' | 'error' {
+  if (raw === undefined) {
+    return 'info'
+  }
+
+  const normalized = raw.trim().toLowerCase()
+
+  if (
+    normalized === 'debug' ||
+    normalized === 'info' ||
+    normalized === 'warn' ||
+    normalized === 'error'
+  ) {
+    return normalized
+  }
+
+  throw new Error(`Invalid LOG_LEVEL value: ${raw}`)
 }
 
 function requireValue(value: string | undefined, key: string): string {
@@ -103,6 +123,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
+    logLevel: parseLogLevel(env.LOG_LEVEL),
     telegramBotToken: requireValue(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
     telegramWebhookSecret: requireValue(env.TELEGRAM_WEBHOOK_SECRET, 'TELEGRAM_WEBHOOK_SECRET'),
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',

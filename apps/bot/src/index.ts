@@ -10,6 +10,7 @@ import {
   createDbFinanceRepository,
   createDbReminderDispatchRepository
 } from '@household/adapters-db'
+import { configureLogger, getLogger } from '@household/observability'
 
 import { registerAnonymousFeedback } from './anonymous-feedback'
 import { createFinanceCommandsService } from './finance-commands'
@@ -27,7 +28,13 @@ import { createMiniAppAuthHandler } from './miniapp-auth'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 
 const runtime = getBotRuntimeConfig()
-const bot = createTelegramBot(runtime.telegramBotToken)
+configureLogger({
+  level: runtime.logLevel,
+  service: '@household/bot'
+})
+
+const logger = getLogger('runtime')
+const bot = createTelegramBot(runtime.telegramBotToken, getLogger('telegram'))
 const webhookHandler = webhookCallback(bot, 'std/http')
 
 const shutdownTasks: Array<() => Promise<void>> = []
@@ -66,14 +73,21 @@ if (runtime.purchaseTopicIngestionEnabled) {
       purchaseTopicId: runtime.telegramPurchaseTopicId!
     },
     purchaseRepositoryClient.repository,
-    llmFallback
-      ? {
-          llmFallback
-        }
-      : {}
+    {
+      ...(llmFallback
+        ? {
+            llmFallback
+          }
+        : {}),
+      logger: getLogger('purchase-ingestion')
+    }
   )
 } else {
-  console.warn(
+  logger.warn(
+    {
+      event: 'runtime.feature_disabled',
+      feature: 'purchase-topic-ingestion'
+    },
     'Purchase topic ingestion is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_PURCHASE_TOPIC_ID to enable.'
   )
 }
@@ -83,7 +97,13 @@ if (runtime.financeCommandsEnabled) {
 
   financeCommands.register(bot)
 } else {
-  console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
+  logger.warn(
+    {
+      event: 'runtime.feature_disabled',
+      feature: 'finance-commands'
+    },
+    'Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.'
+  )
 }
 
 const reminderJobs = runtime.reminderJobsEnabled
@@ -95,13 +115,18 @@ const reminderJobs = runtime.reminderJobsEnabled
 
       return createReminderJobsHandler({
         householdId: runtime.householdId!,
-        reminderService
+        reminderService,
+        logger: getLogger('scheduler')
       })
     })()
   : null
 
 if (!runtime.reminderJobsEnabled) {
-  console.warn(
+  logger.warn(
+    {
+      event: 'runtime.feature_disabled',
+      feature: 'reminder-jobs'
+    },
     'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
   )
 }
@@ -111,10 +136,15 @@ if (anonymousFeedbackService) {
     bot,
     anonymousFeedbackService,
     householdChatId: runtime.telegramHouseholdChatId!,
-    feedbackTopicId: runtime.telegramFeedbackTopicId!
+    feedbackTopicId: runtime.telegramFeedbackTopicId!,
+    logger: getLogger('anonymous-feedback')
   })
 } else {
-  console.warn(
+  logger.warn(
+    {
+      event: 'runtime.feature_disabled',
+      feature: 'anonymous-feedback'
+    },
     'Anonymous feedback is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_FEEDBACK_TOPIC_ID to enable.'
   )
 }
@@ -127,14 +157,16 @@ const server = createBotWebhookServer({
     ? createMiniAppAuthHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        repository: financeRepositoryClient.repository
+        repository: financeRepositoryClient.repository,
+        logger: getLogger('miniapp-auth')
       })
     : undefined,
   miniAppDashboard: financeService
     ? createMiniAppDashboardHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        financeService
+        financeService,
+        logger: getLogger('miniapp-dashboard')
       })
     : undefined,
   scheduler:
@@ -162,11 +194,24 @@ if (import.meta.main) {
     fetch: server.fetch
   })
 
-  console.log(
-    `@household/bot webhook server started on :${runtime.port} path=${runtime.telegramWebhookPath}`
+  logger.info(
+    {
+      event: 'runtime.started',
+      port: runtime.port,
+      webhookPath: runtime.telegramWebhookPath
+    },
+    'Bot webhook server started'
   )
 
   process.on('SIGTERM', () => {
+    logger.info(
+      {
+        event: 'runtime.shutdown',
+        signal: 'SIGTERM'
+      },
+      'Bot shutdown requested'
+    )
+
     for (const close of shutdownTasks) {
       void close()
     }

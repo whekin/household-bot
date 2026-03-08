@@ -1,6 +1,7 @@
 import { Bot } from 'grammy'
+import type { Logger } from '@household/observability'
 
-export function createTelegramBot(token: string): Bot {
+export function createTelegramBot(token: string, logger?: Logger): Bot {
   const bot = new Bot(token)
 
   bot.command('help', async (ctx) => {
@@ -20,7 +21,14 @@ export function createTelegramBot(token: string): Bot {
   })
 
   bot.catch((error) => {
-    console.error('Telegram bot error', error.error)
+    logger?.error(
+      {
+        event: 'telegram.bot_error',
+        updateId: error.ctx?.update.update_id,
+        error: error.error
+      },
+      'Telegram bot error'
+    )
   })
 
   return bot

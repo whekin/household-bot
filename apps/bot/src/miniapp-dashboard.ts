@@ -1,4 +1,5 @@
 import type { FinanceCommandService } from '@household/application'
+import type { Logger } from '@household/observability'
 
 import {
   allowedMiniAppOrigin,
@@ -12,6 +13,7 @@ export function createMiniAppDashboardHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeService: FinanceCommandService
+  logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
@@ -99,7 +101,7 @@ export function createMiniAppDashboardHandler(options: {
           origin
         )
       } catch (error) {
-        return miniAppErrorResponse(error, origin)
+        return miniAppErrorResponse(error, origin, options.logger)
       }
     }
   }

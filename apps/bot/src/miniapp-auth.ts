@@ -1,4 +1,5 @@
 import type { FinanceMemberRecord, FinanceRepository } from '@household/ports'
+import type { Logger } from '@household/observability'
 
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
 
@@ -60,18 +61,19 @@ export async function readMiniAppInitData(request: Request): Promise<string | nu
   return initData && initData.length > 0 ? initData : null
 }
 
-export function miniAppErrorResponse(error: unknown, origin?: string): Response {
+export function miniAppErrorResponse(error: unknown, origin?: string, logger?: Logger): Response {
   const message = error instanceof Error ? error.message : 'Unknown mini app error'
 
   if (message === 'Invalid JSON body') {
     return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
   }
 
-  console.error(
-    JSON.stringify({
+  logger?.error(
+    {
       event: 'miniapp.request_failed',
       error: message
-    })
+    },
+    'Mini app request failed'
   )
 
   return miniAppJsonResponse({ ok: false, error: 'Internal Server Error' }, 500, origin)
@@ -128,6 +130,7 @@ export function createMiniAppAuthHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   repository: FinanceRepository
+  logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
@@ -190,7 +193,7 @@ export function createMiniAppAuthHandler(options: {
           origin
         )
       } catch (error) {
-        return miniAppErrorResponse(error, origin)
+        return miniAppErrorResponse(error, origin, options.logger)
       }
     }
   }
