@@ -50,4 +50,13 @@ describe('extractPurchaseTopicCandidate', () => {
 
     expect(record).toBeNull()
   })
+
+  test('skips slash commands in purchase topic', () => {
+    const record = extractPurchaseTopicCandidate(
+      candidate({ rawText: '/statement 2026-03' }),
+      config
+    )
+
+    expect(record).toBeNull()
+  })
 })

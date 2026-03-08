@@ -127,6 +127,20 @@ async function run(): Promise<void> {
   const bot = createTelegramBot('000000:test-token')
   const replies: string[] = []
 
+  bot.botInfo = {
+    id: 999000,
+    is_bot: true,
+    first_name: 'Household Test Bot',
+    username: 'household_test_bot',
+    can_join_groups: true,
+    can_read_all_group_messages: false,
+    supports_inline_queries: false,
+    can_connect_to_business: false,
+    has_main_web_app: false,
+    has_topics_enabled: true,
+    allows_users_to_create_topics: false
+  }
+
   bot.api.config.use(async (_prev, method, payload) => {
     if (method === 'sendMessage') {
       const p = payload as any
