@@ -1,7 +1,10 @@
 import { webhookCallback } from 'grammy'
 
-import { createFinanceCommandService } from '@household/application'
-import { createDbFinanceRepository } from '@household/adapters-db'
+import { createFinanceCommandService, createReminderJobService } from '@household/application'
+import {
+  createDbFinanceRepository,
+  createDbReminderDispatchRepository
+} from '@household/adapters-db'
 
 import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
@@ -11,6 +14,7 @@ import {
   createPurchaseMessageRepository,
   registerPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
+import { createReminderJobsHandler } from './reminder-jobs'
 import { createBotWebhookServer } from './server'
 
 const runtime = getBotRuntimeConfig()
@@ -58,10 +62,37 @@ if (runtime.financeCommandsEnabled) {
   console.warn('Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.')
 }
 
+const reminderJobs = runtime.reminderJobsEnabled
+  ? (() => {
+      const reminderRepositoryClient = createDbReminderDispatchRepository(runtime.databaseUrl!)
+      const reminderService = createReminderJobService(reminderRepositoryClient.repository)
+
+      shutdownTasks.push(reminderRepositoryClient.close)
+
+      return createReminderJobsHandler({
+        householdId: runtime.householdId!,
+        reminderService
+      })
+    })()
+  : null
+
+if (!runtime.reminderJobsEnabled) {
+  console.warn(
+    'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and SCHEDULER_SHARED_SECRET to enable.'
+  )
+}
+
 const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
-  webhookHandler
+  webhookHandler,
+  scheduler:
+    reminderJobs && runtime.schedulerSharedSecret
+      ? {
+          sharedSecret: runtime.schedulerSharedSecret,
+          handler: reminderJobs.handle
+        }
+      : undefined
 })
 
 if (import.meta.main) {

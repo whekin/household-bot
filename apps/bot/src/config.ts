@@ -9,6 +9,8 @@ export interface BotRuntimeConfig {
   telegramPurchaseTopicId?: number
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
+  schedulerSharedSecret?: string
+  reminderJobsEnabled: boolean
   openaiApiKey?: string
   parserModel: string
 }
@@ -57,6 +59,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const householdId = parseOptionalValue(env.HOUSEHOLD_ID)
   const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
   const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
+  const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
 
   const purchaseTopicIngestionEnabled =
     databaseUrl !== undefined &&
@@ -65,6 +68,8 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramPurchaseTopicId !== undefined
 
   const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
+  const reminderJobsEnabled =
+    databaseUrl !== undefined && householdId !== undefined && schedulerSharedSecret !== undefined
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
@@ -73,6 +78,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
     purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
+    reminderJobsEnabled,
     parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'
   }
 
@@ -87,6 +93,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   }
   if (telegramPurchaseTopicId !== undefined) {
     runtime.telegramPurchaseTopicId = telegramPurchaseTopicId
+  }
+  if (schedulerSharedSecret !== undefined) {
+    runtime.schedulerSharedSecret = schedulerSharedSecret
   }
   const openaiApiKey = parseOptionalValue(env.OPENAI_API_KEY)
   if (openaiApiKey !== undefined) {

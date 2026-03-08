@@ -1,6 +1,11 @@
 export { calculateMonthlySettlement } from './settlement-engine'
 export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
 export {
+  createReminderJobService,
+  type ReminderJobResult,
+  type ReminderJobService
+} from './reminder-job-service'
+export {
   parsePurchaseMessage,
   type ParsedPurchaseResult,
   type ParsePurchaseInput,

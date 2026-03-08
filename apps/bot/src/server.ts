@@ -2,6 +2,13 @@ export interface BotWebhookServerOptions {
   webhookPath: string
   webhookSecret: string
   webhookHandler: (request: Request) => Promise<Response> | Response
+  scheduler?:
+    | {
+        pathPrefix?: string
+        sharedSecret: string
+        handler: (request: Request, reminderType: string) => Promise<Response>
+      }
+    | undefined
 }
 
 function json(body: object, status = 200): Response {
@@ -19,12 +26,22 @@ function isAuthorized(request: Request, expectedSecret: string): boolean {
   return secretHeader === expectedSecret
 }
 
+function isSchedulerAuthorized(request: Request, expectedSecret: string): boolean {
+  const customHeader = request.headers.get('x-household-scheduler-secret')
+  const authorizationHeader = request.headers.get('authorization')
+
+  return customHeader === expectedSecret || authorizationHeader === `Bearer ${expectedSecret}`
+}
+
 export function createBotWebhookServer(options: BotWebhookServerOptions): {
   fetch: (request: Request) => Promise<Response>
 } {
   const normalizedWebhookPath = options.webhookPath.startsWith('/')
     ? options.webhookPath
     : `/${options.webhookPath}`
+  const schedulerPathPrefix = options.scheduler
+    ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
+    : null
 
   return {
     fetch: async (request: Request) => {
@@ -35,6 +52,19 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
       }
 
       if (url.pathname !== normalizedWebhookPath) {
+        if (schedulerPathPrefix && url.pathname.startsWith(`${schedulerPathPrefix}/`)) {
+          if (request.method !== 'POST') {
+            return new Response('Method Not Allowed', { status: 405 })
+          }
+
+          if (!isSchedulerAuthorized(request, options.scheduler!.sharedSecret)) {
+            return new Response('Unauthorized', { status: 401 })
+          }
+
+          const reminderType = url.pathname.slice(`${schedulerPathPrefix}/`.length)
+          return await options.scheduler!.handler(request, reminderType)
+        }
+
         return new Response('Not Found', { status: 404 })
       }
 
