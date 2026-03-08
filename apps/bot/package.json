@@ -13,6 +13,8 @@
     "@household/adapters-db": "workspace:*",
     "@household/application": "workspace:*",
     "@household/db": "workspace:*",
+    "@household/domain": "workspace:*",
+    "@household/ports": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "google-auth-library": "^10.4.1",
     "grammy": "1.41.1"
