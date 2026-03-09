@@ -49,9 +49,11 @@ export function createDbAnonymousFeedbackRepository(
     },
 
     async getRateLimitSnapshot(memberId, acceptedSince) {
+      const acceptedSinceIso = acceptedSince.toISOString()
+
       const rows = await db
         .select({
-          acceptedCountSince: sql<string>`count(*) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSince})`,
+          acceptedCountSince: sql<string>`count(*) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSinceIso}::timestamptz)`,
           lastAcceptedAt: sql<Date | null>`max(${schema.anonymousMessages.createdAt})`
         })
         .from(schema.anonymousMessages)
