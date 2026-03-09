@@ -23,6 +23,7 @@ function createRepositoryStub() {
   const pendingMembers = new Map<string, HouseholdPendingMemberRecord>()
 
   members.set('1', {
+    id: 'member-1',
     householdId: household.householdId,
     telegramUserId: '1',
     displayName: 'Stan',
@@ -43,6 +44,7 @@ function createRepositoryStub() {
       household
     }),
     getTelegramHouseholdChat: async () => household,
+    getHouseholdChatByHouseholdId: async () => household,
     bindHouseholdTopic: async (input) =>
       ({
         householdId: input.householdId,
@@ -80,6 +82,7 @@ function createRepositoryStub() {
       pendingMembers.get(telegramUserId) ?? null,
     ensureHouseholdMember: async (input) => {
       const record: HouseholdMemberRecord = {
+        id: `member-${input.telegramUserId}`,
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
@@ -89,6 +92,8 @@ function createRepositoryStub() {
       return record
     },
     getHouseholdMember: async (_householdId, telegramUserId) => members.get(telegramUserId) ?? null,
+    listHouseholdMembersByTelegramUserId: async (telegramUserId) =>
+      [...members.values()].filter((member) => member.telegramUserId === telegramUserId),
     listPendingHouseholdMembers: async () => [...pendingMembers.values()],
     approvePendingHouseholdMember: async (input) => {
       const pending = pendingMembers.get(input.telegramUserId)
@@ -99,6 +104,7 @@ function createRepositoryStub() {
       pendingMembers.delete(input.telegramUserId)
 
       const member: HouseholdMemberRecord = {
+        id: `member-${pending.telegramUserId}`,
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
@@ -170,6 +176,7 @@ describe('createHouseholdAdminService', () => {
       status: 'approved',
       householdName: 'Kojori House',
       member: {
+        id: 'member-2',
         householdId: 'household-1',
         telegramUserId: '2',
         displayName: 'Alice',

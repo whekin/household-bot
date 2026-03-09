@@ -86,12 +86,14 @@ function toHouseholdPendingMemberRecord(row: {
 }
 
 function toHouseholdMemberRecord(row: {
+  id: string
   householdId: string
   telegramUserId: string
   displayName: string
   isAdmin: number
 }): HouseholdMemberRecord {
   return {
+    id: row.id,
     householdId: row.householdId,
     telegramUserId: row.telegramUserId,
     displayName: row.displayName,
@@ -213,6 +215,27 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           eq(schema.householdTelegramChats.householdId, schema.households.id)
         )
         .where(eq(schema.householdTelegramChats.telegramChatId, telegramChatId))
+        .limit(1)
+
+      const row = rows[0]
+      return row ? toHouseholdTelegramChatRecord(row) : null
+    },
+
+    async getHouseholdChatByHouseholdId(householdId) {
+      const rows = await db
+        .select({
+          householdId: schema.householdTelegramChats.householdId,
+          householdName: schema.households.name,
+          telegramChatId: schema.householdTelegramChats.telegramChatId,
+          telegramChatType: schema.householdTelegramChats.telegramChatType,
+          title: schema.householdTelegramChats.title
+        })
+        .from(schema.householdTelegramChats)
+        .innerJoin(
+          schema.households,
+          eq(schema.householdTelegramChats.householdId, schema.households.id)
+        )
+        .where(eq(schema.householdTelegramChats.householdId, householdId))
         .limit(1)
 
       const row = rows[0]
@@ -535,6 +558,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           }
         })
         .returning({
+          id: schema.members.id,
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
@@ -552,6 +576,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
     async getHouseholdMember(householdId, telegramUserId) {
       const rows = await db
         .select({
+          id: schema.members.id,
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
@@ -568,6 +593,22 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
 
       const row = rows[0]
       return row ? toHouseholdMemberRecord(row) : null
+    },
+
+    async listHouseholdMembersByTelegramUserId(telegramUserId) {
+      const rows = await db
+        .select({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          isAdmin: schema.members.isAdmin
+        })
+        .from(schema.members)
+        .where(eq(schema.members.telegramUserId, telegramUserId))
+        .orderBy(schema.members.householdId, schema.members.displayName)
+
+      return rows.map(toHouseholdMemberRecord)
     },
 
     async listPendingHouseholdMembers(householdId) {
@@ -640,6 +681,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             }
           })
           .returning({
+            id: schema.members.id,
             householdId: schema.members.householdId,
             telegramUserId: schema.members.telegramUserId,
             displayName: schema.members.displayName,

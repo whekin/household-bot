@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
 import type {
-  FinanceMemberRecord,
   HouseholdConfigurationRepository,
+  HouseholdMemberRecord,
   HouseholdJoinTokenRecord,
   HouseholdPendingMemberRecord,
   HouseholdTelegramChatRecord,
@@ -21,6 +21,7 @@ function createRepositoryStub() {
   }
   let joinToken: HouseholdJoinTokenRecord | null = null
   const pendingMembers = new Map<string, HouseholdPendingMemberRecord>()
+  const members = new Map<string, HouseholdMemberRecord>()
 
   const repository: HouseholdConfigurationRepository = {
     async registerTelegramHouseholdChat() {
@@ -30,6 +31,9 @@ function createRepositoryStub() {
       }
     },
     async getTelegramHouseholdChat() {
+      return household
+    },
+    async getHouseholdChatByHouseholdId() {
       return household
     },
     async bindHouseholdTopic(input) {
@@ -84,15 +88,22 @@ function createRepositoryStub() {
       return pendingMembers.get(telegramUserId) ?? null
     },
     async ensureHouseholdMember(input) {
-      return {
+      const member = {
+        id: `member-${input.telegramUserId}`,
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
         isAdmin: input.isAdmin === true
       }
+      members.set(input.telegramUserId, member)
+      return member
     },
-    async getHouseholdMember() {
-      return null
+    async getHouseholdMember(_householdId, telegramUserId) {
+      return members.get(telegramUserId) ?? null
+    },
+    async listHouseholdMembersByTelegramUserId(telegramUserId) {
+      const member = members.get(telegramUserId)
+      return member ? [member] : []
     },
     async listPendingHouseholdMembers() {
       return [...pendingMembers.values()]
@@ -106,6 +117,7 @@ function createRepositoryStub() {
       pendingMembers.delete(input.telegramUserId)
 
       return {
+        id: `member-${pending.telegramUserId}`,
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
@@ -209,17 +221,16 @@ describe('createHouseholdOnboardingService', () => {
     })
   })
 
-  test('returns active when the user is already a finance member', async () => {
+  test('returns active when the user is already a household member', async () => {
     const { repository } = createRepositoryStub()
-    const member: FinanceMemberRecord = {
-      id: 'member-1',
+    await repository.ensureHouseholdMember({
+      householdId: 'household-1',
       telegramUserId: '42',
       displayName: 'Stan',
       isAdmin: true
-    }
+    })
     const service = createHouseholdOnboardingService({
-      repository,
-      getMemberByTelegramUserId: async () => member
+      repository
     })
 
     const access = await service.getMiniAppAccess({
@@ -233,10 +244,49 @@ describe('createHouseholdOnboardingService', () => {
     expect(access).toEqual({
       status: 'active',
       member: {
-        id: 'member-1',
+        id: 'member-42',
+        householdId: 'household-1',
         displayName: 'Stan',
         isAdmin: true
       }
+    })
+  })
+
+  test('returns open_from_group when user belongs to multiple households and no join token is provided', async () => {
+    const { repository } = createRepositoryStub()
+    const member: HouseholdMemberRecord = {
+      id: 'member-1',
+      householdId: 'household-1',
+      telegramUserId: '42',
+      displayName: 'Stan',
+      isAdmin: true
+    }
+    const service = createHouseholdOnboardingService({ repository })
+    const duplicateRepository = repository as HouseholdConfigurationRepository & {
+      listHouseholdMembersByTelegramUserId: (
+        telegramUserId: string
+      ) => Promise<readonly HouseholdMemberRecord[]>
+    }
+    duplicateRepository.listHouseholdMembersByTelegramUserId = async () => [
+      member,
+      {
+        id: 'member-2',
+        householdId: 'household-2',
+        telegramUserId: '42',
+        displayName: 'Stan elsewhere',
+        isAdmin: false
+      }
+    ]
+
+    const access = await service.getMiniAppAccess({
+      identity: {
+        telegramUserId: '42',
+        displayName: 'Stan'
+      }
+    })
+
+    expect(access).toEqual({
+      status: 'open_from_group'
     })
   })
 })

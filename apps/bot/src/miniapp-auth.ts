@@ -98,6 +98,7 @@ export interface MiniAppSessionResult {
   authorized: boolean
   member?: {
     id: string
+    householdId: string
     displayName: string
     isAdmin: boolean
   }

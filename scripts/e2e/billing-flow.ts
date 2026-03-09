@@ -4,7 +4,10 @@ import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 
 import { createFinanceCommandService } from '@household/application'
-import { createDbFinanceRepository } from '@household/adapters-db'
+import {
+  createDbFinanceRepository,
+  createDbHouseholdConfigurationRepository
+} from '@household/adapters-db'
 import { createDbClient, schema } from '@household/db'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
@@ -132,6 +135,9 @@ async function run(): Promise<void> {
   let coreClient: ReturnType<typeof createDbClient> | undefined
   let ingestionClient: ReturnType<typeof createPurchaseMessageRepository> | undefined
   let financeRepositoryClient: ReturnType<typeof createDbFinanceRepository> | undefined
+  let householdConfigurationRepositoryClient:
+    | ReturnType<typeof createDbHouseholdConfigurationRepository>
+    | undefined
 
   const bot = createTelegramBot('000000:test-token')
   const replies: string[] = []
@@ -181,8 +187,12 @@ async function run(): Promise<void> {
 
     ingestionClient = createPurchaseMessageRepository(databaseUrl)
     financeRepositoryClient = createDbFinanceRepository(databaseUrl, ids.household)
+    householdConfigurationRepositoryClient = createDbHouseholdConfigurationRepository(databaseUrl)
     const financeService = createFinanceCommandService(financeRepositoryClient.repository)
-    const financeCommands = createFinanceCommandsService(financeService)
+    const financeCommands = createFinanceCommandsService({
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      financeServiceForHousehold: () => financeService
+    })
 
     registerPurchaseTopicIngestion(
       bot,
@@ -199,6 +209,12 @@ async function run(): Promise<void> {
     await coreClient.db.insert(schema.households).values({
       id: ids.household,
       name: 'E2E Smoke Household'
+    })
+    await coreClient.db.insert(schema.householdTelegramChats).values({
+      householdId: ids.household,
+      telegramChatId: chatId,
+      telegramChatType: 'supergroup',
+      title: 'E2E Smoke Household'
     })
 
     await coreClient.db.insert(schema.members).values([
@@ -338,7 +354,8 @@ async function run(): Promise<void> {
         : undefined,
       coreClient?.queryClient.end({ timeout: 5 }),
       ingestionClient?.close(),
-      financeRepositoryClient?.close()
+      financeRepositoryClient?.close(),
+      householdConfigurationRepositoryClient?.close()
     ])
   }
 }

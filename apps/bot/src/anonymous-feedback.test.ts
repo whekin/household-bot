@@ -1,7 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 import type { AnonymousFeedbackService } from '@household/application'
-import type { TelegramPendingActionRepository } from '@household/ports'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRepository
+} from '@household/ports'
 
 import { createTelegramBot } from './bot'
 import { registerAnonymousFeedback } from './anonymous-feedback'
@@ -76,6 +79,89 @@ function createPromptRepository(): TelegramPendingActionRepository {
   }
 }
 
+function createHouseholdConfigurationRepository(): HouseholdConfigurationRepository {
+  return {
+    registerTelegramHouseholdChat: async () => ({
+      status: 'existing',
+      household: {
+        householdId: 'household-1',
+        householdName: 'Kojori House',
+        telegramChatId: '-100222333',
+        telegramChatType: 'supergroup',
+        title: 'Kojori House'
+      }
+    }),
+    getTelegramHouseholdChat: async () => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramChatId: '-100222333',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    }),
+    getHouseholdChatByHouseholdId: async () => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramChatId: '-100222333',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    }),
+    bindHouseholdTopic: async (input) => ({
+      householdId: input.householdId,
+      role: input.role,
+      telegramThreadId: input.telegramThreadId,
+      topicName: input.topicName?.trim() || null
+    }),
+    getHouseholdTopicBinding: async (_householdId, role) =>
+      role === 'feedback'
+        ? {
+            householdId: 'household-1',
+            role: 'feedback',
+            telegramThreadId: '77',
+            topicName: 'Feedback'
+          }
+        : null,
+    findHouseholdTopicByTelegramContext: async () => null,
+    listHouseholdTopicBindings: async () => [],
+    upsertHouseholdJoinToken: async () => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      token: 'join-token',
+      createdByTelegramUserId: null
+    }),
+    getHouseholdJoinToken: async () => null,
+    getHouseholdByJoinToken: async () => null,
+    upsertPendingHouseholdMember: async (input) => ({
+      householdId: input.householdId,
+      householdName: 'Kojori House',
+      telegramUserId: input.telegramUserId,
+      displayName: input.displayName,
+      username: input.username?.trim() || null,
+      languageCode: input.languageCode?.trim() || null
+    }),
+    getPendingHouseholdMember: async () => null,
+    findPendingHouseholdMemberByTelegramUserId: async () => null,
+    ensureHouseholdMember: async (input) => ({
+      id: `member-${input.telegramUserId}`,
+      householdId: input.householdId,
+      telegramUserId: input.telegramUserId,
+      displayName: input.displayName,
+      isAdmin: input.isAdmin === true
+    }),
+    getHouseholdMember: async () => null,
+    listHouseholdMembersByTelegramUserId: async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        isAdmin: false
+      }
+    ],
+    listPendingHouseholdMembers: async () => [],
+    approvePendingHouseholdMember: async () => null
+  }
+}
+
 describe('registerAnonymousFeedback', () => {
   test('posts accepted feedback into the configured topic', async () => {
     const bot = createTelegramBot('000000:test-token')
@@ -124,10 +210,9 @@ describe('registerAnonymousFeedback', () => {
 
     registerAnonymousFeedback({
       bot,
-      anonymousFeedbackService,
-      promptRepository: createPromptRepository(),
-      householdChatId: '-100222333',
-      feedbackTopicId: 77
+      anonymousFeedbackServiceForHousehold: () => anonymousFeedbackService,
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
     })
 
     await bot.handleUpdate(
@@ -187,7 +272,7 @@ describe('registerAnonymousFeedback', () => {
 
     registerAnonymousFeedback({
       bot,
-      anonymousFeedbackService: {
+      anonymousFeedbackServiceForHousehold: () => ({
         submit: mock(async () => ({
           status: 'accepted' as const,
           submissionId: 'submission-1',
@@ -195,10 +280,9 @@ describe('registerAnonymousFeedback', () => {
         })),
         markPosted: mock(async () => {}),
         markFailed: mock(async () => {})
-      },
-      promptRepository: createPromptRepository(),
-      householdChatId: '-100222333',
-      feedbackTopicId: 77
+      }),
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
     })
 
     await bot.handleUpdate(
@@ -258,14 +342,13 @@ describe('registerAnonymousFeedback', () => {
 
     registerAnonymousFeedback({
       bot,
-      anonymousFeedbackService: {
+      anonymousFeedbackServiceForHousehold: () => ({
         submit,
         markPosted: mock(async () => {}),
         markFailed: mock(async () => {})
-      },
-      promptRepository: createPromptRepository(),
-      householdChatId: '-100222333',
-      feedbackTopicId: 77
+      }),
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
     })
 
     await bot.handleUpdate(
@@ -341,14 +424,13 @@ describe('registerAnonymousFeedback', () => {
 
     registerAnonymousFeedback({
       bot,
-      anonymousFeedbackService: {
+      anonymousFeedbackServiceForHousehold: () => ({
         submit,
         markPosted: mock(async () => {}),
         markFailed: mock(async () => {})
-      },
-      promptRepository: createPromptRepository(),
-      householdChatId: '-100222333',
-      feedbackTopicId: 77
+      }),
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
     })
 
     await bot.handleUpdate(

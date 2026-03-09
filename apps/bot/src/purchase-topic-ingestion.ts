@@ -1,4 +1,5 @@
 import { parsePurchaseMessage, type PurchaseParserLlmFallback } from '@household/application'
+import { Money } from '@household/domain'
 import { and, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
@@ -30,11 +31,27 @@ export interface PurchaseTopicRecord extends PurchaseTopicCandidate {
   householdId: string
 }
 
+export type PurchaseMessageProcessingStatus = 'parsed' | 'needs_review' | 'parse_failed'
+
+export type PurchaseMessageIngestionResult =
+  | {
+      status: 'duplicate'
+    }
+  | {
+      status: 'created'
+      processingStatus: PurchaseMessageProcessingStatus
+      parsedAmountMinor: bigint | null
+      parsedCurrency: 'GEL' | 'USD' | null
+      parsedItemDescription: string | null
+      parserConfidence: number | null
+      parserMode: 'rules' | 'llm' | null
+    }
+
 export interface PurchaseMessageIngestionRepository {
   save(
     record: PurchaseTopicRecord,
     llmFallback?: PurchaseParserLlmFallback
-  ): Promise<'created' | 'duplicate'>
+  ): Promise<PurchaseMessageIngestionResult>
 }
 
 export function extractPurchaseTopicCandidate(
@@ -172,7 +189,21 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         })
         .returning({ id: schema.purchaseMessages.id })
 
-      return inserted.length > 0 ? 'created' : 'duplicate'
+      if (inserted.length === 0) {
+        return {
+          status: 'duplicate'
+        }
+      }
+
+      return {
+        status: 'created',
+        processingStatus,
+        parsedAmountMinor: parsed?.amountMinor ?? null,
+        parsedCurrency: parsed?.currency ?? null,
+        parsedItemDescription: parsed?.itemDescription ?? null,
+        parserConfidence: parsed?.confidence ?? null,
+        parserMode: parsed?.parserMode ?? null
+      }
     }
   }
 
@@ -182,6 +213,51 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       await queryClient.end({ timeout: 5 })
     }
   }
+}
+
+function formatPurchaseSummary(
+  result: Extract<PurchaseMessageIngestionResult, { status: 'created' }>
+): string {
+  if (
+    result.parsedAmountMinor === null ||
+    result.parsedCurrency === null ||
+    result.parsedItemDescription === null
+  ) {
+    return 'shared purchase'
+  }
+
+  const amount = Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency)
+  return `${result.parsedItemDescription} - ${amount.toMajorString()} ${result.parsedCurrency}`
+}
+
+export function buildPurchaseAcknowledgement(
+  result: PurchaseMessageIngestionResult
+): string | null {
+  if (result.status === 'duplicate') {
+    return null
+  }
+
+  switch (result.processingStatus) {
+    case 'parsed':
+      return `Recorded purchase: ${formatPurchaseSummary(result)}`
+    case 'needs_review':
+      return `Saved for review: ${formatPurchaseSummary(result)}`
+    case 'parse_failed':
+      return "Saved for review: I couldn't parse this purchase yet."
+  }
+}
+
+async function replyToPurchaseMessage(ctx: Context, text: string): Promise<void> {
+  const message = ctx.msg
+  if (!message) {
+    return
+  }
+
+  await ctx.reply(text, {
+    reply_parameters: {
+      message_id: message.message_id
+    }
+  })
 }
 
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
@@ -244,11 +320,13 @@ export function registerPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
+      const acknowledgement = buildPurchaseAcknowledgement(status)
 
-      if (status === 'created') {
+      if (status.status === 'created') {
         options.logger?.info(
           {
             event: 'purchase.ingested',
+            processingStatus: status.processingStatus,
             chatId: record.chatId,
             threadId: record.threadId,
             messageId: record.messageId,
@@ -257,6 +335,10 @@ export function registerPurchaseTopicIngestion(
           },
           'Purchase topic message ingested'
         )
+      }
+
+      if (acknowledgement) {
+        await replyToPurchaseMessage(ctx, acknowledgement)
       }
     } catch (error) {
       options.logger?.error(
@@ -308,12 +390,14 @@ export function registerConfiguredPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
+      const acknowledgement = buildPurchaseAcknowledgement(status)
 
-      if (status === 'created') {
+      if (status.status === 'created') {
         options.logger?.info(
           {
             event: 'purchase.ingested',
             householdId: record.householdId,
+            processingStatus: status.processingStatus,
             chatId: record.chatId,
             threadId: record.threadId,
             messageId: record.messageId,
@@ -322,6 +406,10 @@ export function registerConfiguredPurchaseTopicIngestion(
           },
           'Purchase topic message ingested'
         )
+      }
+
+      if (acknowledgement) {
+        await replyToPurchaseMessage(ctx, acknowledgement)
       }
     } catch (error) {
       options.logger?.error(

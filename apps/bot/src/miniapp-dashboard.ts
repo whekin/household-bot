@@ -12,7 +12,7 @@ import {
 export function createMiniAppDashboardHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  financeService: FinanceCommandService
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
   logger?: Logger
 }): {
@@ -62,7 +62,17 @@ export function createMiniAppDashboardHandler(options: {
           )
         }
 
-        const dashboard = await options.financeService.generateDashboard()
+        if (!session.member) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Authenticated session is missing member context' },
+            500,
+            origin
+          )
+        }
+
+        const dashboard = await options
+          .financeServiceForHousehold(session.member.householdId)
+          .generateDashboard()
         if (!dashboard) {
           return miniAppJsonResponse(
             { ok: false, error: 'No billing cycle available' },

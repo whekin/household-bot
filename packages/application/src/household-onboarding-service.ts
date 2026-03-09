@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import type { FinanceMemberRecord, HouseholdConfigurationRepository } from '@household/ports'
+import type { HouseholdConfigurationRepository, HouseholdMemberRecord } from '@household/ports'
 
 export interface HouseholdOnboardingIdentity {
   telegramUserId: string
@@ -14,6 +14,7 @@ export type HouseholdMiniAppAccess =
       status: 'active'
       member: {
         id: string
+        householdId: string
         displayName: string
         isAdmin: boolean
       }
@@ -58,6 +59,7 @@ export interface HouseholdOnboardingService {
         status: 'active'
         member: {
           id: string
+          householdId: string
           displayName: string
           isAdmin: boolean
         }
@@ -68,13 +70,15 @@ export interface HouseholdOnboardingService {
   >
 }
 
-function toMember(member: FinanceMemberRecord): {
+function toMember(member: HouseholdMemberRecord): {
   id: string
+  householdId: string
   displayName: string
   isAdmin: boolean
 } {
   return {
     id: member.id,
+    householdId: member.householdId,
     displayName: member.displayName,
     isAdmin: member.isAdmin
   }
@@ -86,7 +90,6 @@ function generateJoinToken(): string {
 
 export function createHouseholdOnboardingService(options: {
   repository: HouseholdConfigurationRepository
-  getMemberByTelegramUserId?: (telegramUserId: string) => Promise<FinanceMemberRecord | null>
   tokenFactory?: () => string
 }): HouseholdOnboardingService {
   const createToken = options.tokenFactory ?? generateJoinToken
@@ -121,14 +124,26 @@ export function createHouseholdOnboardingService(options: {
     },
 
     async getMiniAppAccess(input) {
-      const activeMember = options.getMemberByTelegramUserId
-        ? await options.getMemberByTelegramUserId(input.identity.telegramUserId)
-        : null
+      const activeMemberships = await options.repository.listHouseholdMembersByTelegramUserId(
+        input.identity.telegramUserId
+      )
+      const requestedHousehold =
+        input.joinToken !== undefined
+          ? await options.repository.getHouseholdByJoinToken(input.joinToken)
+          : null
+      const matchingActiveMember =
+        requestedHousehold === null
+          ? activeMemberships.length === 1
+            ? activeMemberships[0]!
+            : null
+          : (activeMemberships.find(
+              (member) => member.householdId === requestedHousehold.householdId
+            ) ?? null)
 
-      if (activeMember) {
+      if (matchingActiveMember) {
         return {
           status: 'active',
-          member: toMember(activeMember)
+          member: toMember(matchingActiveMember)
         }
       }
 
@@ -151,7 +166,7 @@ export function createHouseholdOnboardingService(options: {
         }
       }
 
-      const household = await options.repository.getHouseholdByJoinToken(input.joinToken)
+      const household = requestedHousehold
       if (!household) {
         return {
           status: 'open_from_group'
@@ -189,9 +204,9 @@ export function createHouseholdOnboardingService(options: {
         }
       }
 
-      const activeMember = options.getMemberByTelegramUserId
-        ? await options.getMemberByTelegramUserId(input.identity.telegramUserId)
-        : null
+      const activeMember = (
+        await options.repository.listHouseholdMembersByTelegramUserId(input.identity.telegramUserId)
+      ).find((member) => member.householdId === household.householdId)
 
       if (activeMember) {
         return {

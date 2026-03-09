@@ -53,6 +53,12 @@ function createRepositoryStub() {
       return households.get(telegramChatId) ?? null
     },
 
+    async getHouseholdChatByHouseholdId(householdId) {
+      return (
+        [...households.values()].find((household) => household.householdId === householdId) ?? null
+      )
+    },
+
     async bindHouseholdTopic(input) {
       const next: HouseholdTopicBindingRecord = {
         householdId: input.householdId,
@@ -156,6 +162,7 @@ function createRepositoryStub() {
       const key = `${input.householdId}:${input.telegramUserId}`
       const existing = members.get(key)
       const next: HouseholdMemberRecord = {
+        id: existing?.id ?? `member-${input.telegramUserId}`,
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
@@ -167,6 +174,10 @@ function createRepositoryStub() {
 
     async getHouseholdMember(householdId, telegramUserId) {
       return members.get(`${householdId}:${telegramUserId}`) ?? null
+    },
+
+    async listHouseholdMembersByTelegramUserId(telegramUserId) {
+      return [...members.values()].filter((member) => member.telegramUserId === telegramUserId)
     },
 
     async listPendingHouseholdMembers(householdId) {
@@ -183,6 +194,7 @@ function createRepositoryStub() {
       pendingMembers.delete(key)
 
       const member: HouseholdMemberRecord = {
+        id: `member-${pending.telegramUserId}`,
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
@@ -220,6 +232,7 @@ describe('createHouseholdSetupService', () => {
     expect(result.household.telegramChatId).toBe('-100123')
     const admin = await repository.getHouseholdMember(result.household.householdId, '42')
     expect(admin).toEqual({
+      id: 'member-42',
       householdId: result.household.householdId,
       telegramUserId: '42',
       displayName: 'Stan',

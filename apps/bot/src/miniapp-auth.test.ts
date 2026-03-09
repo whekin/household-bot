@@ -18,6 +18,16 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     title: 'Kojori House'
   }
   let joinToken: string | null = 'join-token'
+  const members = new Map<
+    string,
+    {
+      id: string
+      householdId: string
+      telegramUserId: string
+      displayName: string
+      isAdmin: boolean
+    }
+  >()
   let pending: {
     householdId: string
     householdName: string
@@ -33,6 +43,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       household
     }),
     getTelegramHouseholdChat: async () => household,
+    getHouseholdChatByHouseholdId: async () => household,
     bindHouseholdTopic: async (input) =>
       ({
         householdId: input.householdId,
@@ -72,13 +83,22 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     },
     getPendingHouseholdMember: async () => pending,
     findPendingHouseholdMemberByTelegramUserId: async () => pending,
-    ensureHouseholdMember: async (input) => ({
-      householdId: household.householdId,
-      telegramUserId: input.telegramUserId,
-      displayName: input.displayName,
-      isAdmin: input.isAdmin === true
-    }),
-    getHouseholdMember: async () => null,
+    ensureHouseholdMember: async (input) => {
+      const member = {
+        id: `member-${input.telegramUserId}`,
+        householdId: household.householdId,
+        telegramUserId: input.telegramUserId,
+        displayName: input.displayName,
+        isAdmin: input.isAdmin === true
+      }
+      members.set(input.telegramUserId, member)
+      return member
+    },
+    getHouseholdMember: async (_householdId, telegramUserId) => members.get(telegramUserId) ?? null,
+    listHouseholdMembersByTelegramUserId: async (telegramUserId) => {
+      const member = members.get(telegramUserId)
+      return member ? [member] : []
+    },
     listPendingHouseholdMembers: async () => (pending ? [pending] : []),
     approvePendingHouseholdMember: async (input) => {
       if (!pending || pending.telegramUserId !== input.telegramUserId) {
@@ -86,11 +106,13 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       }
 
       const member = {
+        id: `member-${pending.telegramUserId}`,
         householdId: household.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
         isAdmin: input.isAdmin === true
       }
+      members.set(pending.telegramUserId, member)
       pending = null
       return member
     }
@@ -100,17 +122,18 @@ function onboardingRepository(): HouseholdConfigurationRepository {
 describe('createMiniAppAuthHandler', () => {
   test('returns an authorized session for a household member', async () => {
     const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    await repository.ensureHouseholdMember({
+      householdId: 'household-1',
+      telegramUserId: '123456',
+      displayName: 'Stan',
+      isAdmin: true
+    })
     const auth = createMiniAppAuthHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({
-        repository: onboardingRepository(),
-        getMemberByTelegramUserId: async () => ({
-          id: 'member-1',
-          telegramUserId: '123456',
-          displayName: 'Stan',
-          isAdmin: true
-        })
+        repository
       })
     })
 

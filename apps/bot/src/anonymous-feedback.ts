@@ -1,6 +1,9 @@
 import type { AnonymousFeedbackService } from '@household/application'
 import type { Logger } from '@household/observability'
-import type { TelegramPendingActionRepository } from '@household/ports'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRepository
+} from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 const ANONYMOUS_FEEDBACK_ACTION = 'anonymous_feedback' as const
@@ -98,10 +101,9 @@ async function startPendingAnonymousFeedbackPrompt(
 
 async function submitAnonymousFeedback(options: {
   ctx: Context
-  anonymousFeedbackService: AnonymousFeedbackService
+  anonymousFeedbackServiceForHousehold: (householdId: string) => AnonymousFeedbackService
+  householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
-  householdChatId: string
-  feedbackTopicId: number
   logger?: Logger | undefined
   rawText: string
   keepPromptOnValidationFailure?: boolean
@@ -117,7 +119,44 @@ async function submitAnonymousFeedback(options: {
     return
   }
 
-  const result = await options.anonymousFeedbackService.submit({
+  const memberships =
+    await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+      telegramUserId
+    )
+
+  if (memberships.length === 0) {
+    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.ctx.reply('You are not a member of this household.')
+    return
+  }
+
+  if (memberships.length > 1) {
+    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.ctx.reply(
+      'You belong to multiple households. Open the target household from its group until household selection is added.'
+    )
+    return
+  }
+
+  const member = memberships[0]!
+  const householdChat =
+    await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(member.householdId)
+  const feedbackTopic = await options.householdConfigurationRepository.getHouseholdTopicBinding(
+    member.householdId,
+    'feedback'
+  )
+
+  if (!householdChat || !feedbackTopic) {
+    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.ctx.reply(
+      'Anonymous feedback is not configured for your household yet. Ask an admin to run /bind_feedback_topic.'
+    )
+    return
+  }
+
+  const anonymousFeedbackService = options.anonymousFeedbackServiceForHousehold(member.householdId)
+
+  const result = await anonymousFeedbackService.submit({
     telegramUserId,
     rawText: options.rawText,
     telegramChatId,
@@ -151,17 +190,17 @@ async function submitAnonymousFeedback(options: {
 
   try {
     const posted = await options.ctx.api.sendMessage(
-      options.householdChatId,
+      householdChat.telegramChatId,
       feedbackText(result.sanitizedText),
       {
-        message_thread_id: options.feedbackTopicId
+        message_thread_id: Number(feedbackTopic.telegramThreadId)
       }
     )
 
-    await options.anonymousFeedbackService.markPosted({
+    await anonymousFeedbackService.markPosted({
       submissionId: result.submissionId,
-      postedChatId: options.householdChatId,
-      postedThreadId: options.feedbackTopicId.toString(),
+      postedChatId: householdChat.telegramChatId,
+      postedThreadId: feedbackTopic.telegramThreadId,
       postedMessageId: posted.message_id.toString()
     })
 
@@ -173,23 +212,22 @@ async function submitAnonymousFeedback(options: {
       {
         event: 'anonymous_feedback.post_failed',
         submissionId: result.submissionId,
-        householdChatId: options.householdChatId,
-        feedbackTopicId: options.feedbackTopicId,
+        householdChatId: householdChat.telegramChatId,
+        feedbackTopicId: feedbackTopic.telegramThreadId,
         error: message
       },
       'Anonymous feedback posting failed'
     )
-    await options.anonymousFeedbackService.markFailed(result.submissionId, message)
+    await anonymousFeedbackService.markFailed(result.submissionId, message)
     await options.ctx.reply('Anonymous feedback was saved, but posting failed. Try again later.')
   }
 }
 
 export function registerAnonymousFeedback(options: {
   bot: Bot
-  anonymousFeedbackService: AnonymousFeedbackService
+  anonymousFeedbackServiceForHousehold: (householdId: string) => AnonymousFeedbackService
+  householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
-  householdChatId: string
-  feedbackTopicId: number
   logger?: Logger
 }): void {
   options.bot.command('cancel', async (ctx) => {
@@ -228,10 +266,9 @@ export function registerAnonymousFeedback(options: {
 
     await submitAnonymousFeedback({
       ctx,
-      anonymousFeedbackService: options.anonymousFeedbackService,
+      anonymousFeedbackServiceForHousehold: options.anonymousFeedbackServiceForHousehold,
+      householdConfigurationRepository: options.householdConfigurationRepository,
       promptRepository: options.promptRepository,
-      householdChatId: options.householdChatId,
-      feedbackTopicId: options.feedbackTopicId,
       logger: options.logger,
       rawText
     })
@@ -258,10 +295,9 @@ export function registerAnonymousFeedback(options: {
 
     await submitAnonymousFeedback({
       ctx,
-      anonymousFeedbackService: options.anonymousFeedbackService,
+      anonymousFeedbackServiceForHousehold: options.anonymousFeedbackServiceForHousehold,
+      householdConfigurationRepository: options.householdConfigurationRepository,
       promptRepository: options.promptRepository,
-      householdChatId: options.householdChatId,
-      feedbackTopicId: options.feedbackTopicId,
       logger: options.logger,
       rawText: ctx.msg.text,
       keepPromptOnValidationFailure: true

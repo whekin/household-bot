@@ -47,44 +47,58 @@ const shutdownTasks: Array<() => Promise<void>> = []
 const householdConfigurationRepositoryClient = runtime.databaseUrl
   ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
   : null
-const financeRepositoryClient =
-  runtime.financeCommandsEnabled || runtime.miniAppAuthEnabled
-    ? createDbFinanceRepository(runtime.databaseUrl!, runtime.householdId!)
-    : null
-const financeService = financeRepositoryClient
-  ? createFinanceCommandService(financeRepositoryClient.repository)
-  : null
+const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
+const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
 const householdOnboardingService = householdConfigurationRepositoryClient
   ? createHouseholdOnboardingService({
-      repository: householdConfigurationRepositoryClient.repository,
-      ...(financeRepositoryClient
-        ? {
-            getMemberByTelegramUserId: financeRepositoryClient.repository.getMemberByTelegramUserId
-          }
-        : {})
+      repository: householdConfigurationRepositoryClient.repository
     })
-  : null
-const anonymousFeedbackRepositoryClient = runtime.anonymousFeedbackEnabled
-  ? createDbAnonymousFeedbackRepository(runtime.databaseUrl!, runtime.householdId!)
   : null
 const telegramPendingActionRepositoryClient =
   runtime.databaseUrl && runtime.anonymousFeedbackEnabled
     ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
     : null
-const anonymousFeedbackService = anonymousFeedbackRepositoryClient
-  ? createAnonymousFeedbackService(anonymousFeedbackRepositoryClient.repository)
-  : null
+const anonymousFeedbackRepositoryClients = new Map<
+  string,
+  ReturnType<typeof createDbAnonymousFeedbackRepository>
+>()
+const anonymousFeedbackServices = new Map<
+  string,
+  ReturnType<typeof createAnonymousFeedbackService>
+>()
 
-if (financeRepositoryClient) {
-  shutdownTasks.push(financeRepositoryClient.close)
+function financeServiceForHousehold(householdId: string) {
+  const existing = financeServices.get(householdId)
+  if (existing) {
+    return existing
+  }
+
+  const repositoryClient = createDbFinanceRepository(runtime.databaseUrl!, householdId)
+  financeRepositoryClients.set(householdId, repositoryClient)
+  shutdownTasks.push(repositoryClient.close)
+
+  const service = createFinanceCommandService(repositoryClient.repository)
+  financeServices.set(householdId, service)
+  return service
+}
+
+function anonymousFeedbackServiceForHousehold(householdId: string) {
+  const existing = anonymousFeedbackServices.get(householdId)
+  if (existing) {
+    return existing
+  }
+
+  const repositoryClient = createDbAnonymousFeedbackRepository(runtime.databaseUrl!, householdId)
+  anonymousFeedbackRepositoryClients.set(householdId, repositoryClient)
+  shutdownTasks.push(repositoryClient.close)
+
+  const service = createAnonymousFeedbackService(repositoryClient.repository)
+  anonymousFeedbackServices.set(householdId, service)
+  return service
 }
 
 if (householdConfigurationRepositoryClient) {
   shutdownTasks.push(householdConfigurationRepositoryClient.close)
-}
-
-if (anonymousFeedbackRepositoryClient) {
-  shutdownTasks.push(anonymousFeedbackRepositoryClient.close)
 }
 
 if (telegramPendingActionRepositoryClient) {
@@ -120,7 +134,10 @@ if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
 }
 
 if (runtime.financeCommandsEnabled) {
-  const financeCommands = createFinanceCommandsService(financeService!)
+  const financeCommands = createFinanceCommandsService({
+    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    financeServiceForHousehold
+  })
 
   financeCommands.register(bot)
 } else {
@@ -129,7 +146,7 @@ if (runtime.financeCommandsEnabled) {
       event: 'runtime.feature_disabled',
       feature: 'finance-commands'
     },
-    'Finance commands are disabled. Set DATABASE_URL and HOUSEHOLD_ID to enable.'
+    'Finance commands are disabled. Set DATABASE_URL to enable household lookups.'
   )
 }
 
@@ -143,6 +160,11 @@ if (householdConfigurationRepositoryClient) {
       householdConfigurationRepositoryClient.repository
     ),
     householdOnboardingService: householdOnboardingService!,
+    ...(runtime.miniAppAllowedOrigins[0]
+      ? {
+          miniAppUrl: runtime.miniAppAllowedOrigins[0]
+        }
+      : {}),
     logger: getLogger('household-setup')
   })
 } else {
@@ -180,13 +202,16 @@ if (!runtime.reminderJobsEnabled) {
   )
 }
 
-if (anonymousFeedbackService) {
+if (
+  runtime.anonymousFeedbackEnabled &&
+  householdConfigurationRepositoryClient &&
+  telegramPendingActionRepositoryClient
+) {
   registerAnonymousFeedback({
     bot,
-    anonymousFeedbackService,
+    anonymousFeedbackServiceForHousehold,
+    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
     promptRepository: telegramPendingActionRepositoryClient!.repository,
-    householdChatId: runtime.telegramHouseholdChatId!,
-    feedbackTopicId: runtime.telegramFeedbackTopicId!,
     logger: getLogger('anonymous-feedback')
   })
 } else {
@@ -195,7 +220,7 @@ if (anonymousFeedbackService) {
       event: 'runtime.feature_disabled',
       feature: 'anonymous-feedback'
     },
-    'Anonymous feedback is disabled. Set DATABASE_URL, HOUSEHOLD_ID, TELEGRAM_HOUSEHOLD_CHAT_ID, and TELEGRAM_FEEDBACK_TOPIC_ID to enable.'
+    'Anonymous feedback is disabled. Set DATABASE_URL to enable household and topic lookups.'
   )
 }
 
@@ -219,11 +244,11 @@ const server = createBotWebhookServer({
         logger: getLogger('miniapp-auth')
       })
     : undefined,
-  miniAppDashboard: financeService
+  miniAppDashboard: householdOnboardingService
     ? createMiniAppDashboardHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        financeService,
+        financeServiceForHousehold,
         onboardingService: householdOnboardingService!,
         logger: getLogger('miniapp-dashboard')
       })

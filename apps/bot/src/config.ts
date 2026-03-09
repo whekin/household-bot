@@ -102,18 +102,10 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
 
-  const purchaseTopicIngestionEnabled =
-    databaseUrl !== undefined &&
-    householdId !== undefined &&
-    telegramHouseholdChatId !== undefined &&
-    telegramPurchaseTopicId !== undefined
+  const purchaseTopicIngestionEnabled = databaseUrl !== undefined
 
-  const financeCommandsEnabled = databaseUrl !== undefined && householdId !== undefined
-  const anonymousFeedbackEnabled =
-    databaseUrl !== undefined &&
-    householdId !== undefined &&
-    telegramHouseholdChatId !== undefined &&
-    telegramFeedbackTopicId !== undefined
+  const financeCommandsEnabled = databaseUrl !== undefined
+  const anonymousFeedbackEnabled = databaseUrl !== undefined
   const miniAppAuthEnabled = databaseUrl !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =

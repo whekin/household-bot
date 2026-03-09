@@ -112,11 +112,58 @@ function pendingMembersReply(result: {
   } as const
 }
 
+export function buildJoinMiniAppUrl(
+  miniAppUrl: string | undefined,
+  botUsername: string | undefined,
+  joinToken: string
+): string | null {
+  const normalizedMiniAppUrl = miniAppUrl?.trim()
+  if (!normalizedMiniAppUrl) {
+    return null
+  }
+
+  const url = new URL(normalizedMiniAppUrl)
+  url.searchParams.set('join', joinToken)
+
+  if (botUsername && botUsername.trim().length > 0) {
+    url.searchParams.set('bot', botUsername.trim())
+  }
+
+  return url.toString()
+}
+
+function miniAppReplyMarkup(
+  miniAppUrl: string | undefined,
+  botUsername: string | undefined,
+  joinToken: string
+) {
+  const webAppUrl = buildJoinMiniAppUrl(miniAppUrl, botUsername, joinToken)
+  if (!webAppUrl) {
+    return {}
+  }
+
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: 'Open mini app',
+            web_app: {
+              url: webAppUrl
+            }
+          }
+        ]
+      ]
+    }
+  }
+}
+
 export function registerHouseholdSetupCommands(options: {
   bot: Bot
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
   householdAdminService: HouseholdAdminService
+  miniAppUrl?: string
   logger?: Logger
 }): void {
   options.bot.command('start', async (ctx) => {
@@ -171,13 +218,15 @@ export function registerHouseholdSetupCommands(options: {
 
     if (result.status === 'active') {
       await ctx.reply(
-        `You are already an active member. Open the mini app to view ${result.member.displayName}.`
+        `You are already an active member. Open the mini app to view ${result.member.displayName}.`,
+        miniAppReplyMarkup(options.miniAppUrl, ctx.me.username, joinToken)
       )
       return
     }
 
     await ctx.reply(
-      `Join request sent for ${result.household.name}. Wait for a household admin to confirm you.`
+      `Join request sent for ${result.household.name}. Wait for a household admin to confirm you.`,
+      miniAppReplyMarkup(options.miniAppUrl, ctx.me.username, joinToken)
     )
   })
 

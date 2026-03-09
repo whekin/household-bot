@@ -84,6 +84,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       household
     }),
     getTelegramHouseholdChat: async () => household,
+    getHouseholdChatByHouseholdId: async () => household,
     bindHouseholdTopic: async (input) =>
       ({
         householdId: input.householdId,
@@ -113,12 +114,14 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     getPendingHouseholdMember: async () => null,
     findPendingHouseholdMemberByTelegramUserId: async () => null,
     ensureHouseholdMember: async (input) => ({
+      id: `member-${input.telegramUserId}`,
       householdId: household.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
+    listHouseholdMembersByTelegramUserId: async () => [],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null
   }
@@ -135,14 +138,23 @@ describe('createMiniAppDashboardHandler', () => {
         isAdmin: true
       })
     )
+    const householdRepository = onboardingRepository()
+    householdRepository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        isAdmin: true
+      }
+    ]
 
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      financeService,
+      financeServiceForHousehold: () => financeService,
       onboardingService: createHouseholdOnboardingService({
-        repository: onboardingRepository(),
-        getMemberByTelegramUserId: financeService.getMemberByTelegramUserId
+        repository: householdRepository
       })
     })
 
@@ -202,14 +214,23 @@ describe('createMiniAppDashboardHandler', () => {
         isAdmin: true
       })
     )
+    const householdRepository = onboardingRepository()
+    householdRepository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        isAdmin: true
+      }
+    ]
 
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      financeService,
+      financeServiceForHousehold: () => financeService,
       onboardingService: createHouseholdOnboardingService({
-        repository: onboardingRepository(),
-        getMemberByTelegramUserId: financeService.getMemberByTelegramUserId
+        repository: householdRepository
       })
     })
 
