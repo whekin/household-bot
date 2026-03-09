@@ -138,6 +138,11 @@ export interface BotTranslationCatalog {
     statementTotal: (amount: string, currency: string) => string
     statementFailed: (message: string) => string
   }
+  reminders: {
+    utilities: (period: string) => string
+    rentWarning: (period: string) => string
+    rentDue: (period: string) => string
+  }
   purchase: {
     sharedPurchaseFallback: string
     recorded: (summary: string) => string

@@ -37,6 +37,7 @@ function createRepository(): HouseholdConfigurationRepository {
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => ({
       householdId: household.householdId,
       householdName: household.householdName,

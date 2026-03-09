@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import { instantToDate, normalizeSupportedLocale, nowInstant } from '@household/domain'
@@ -11,6 +11,7 @@ import {
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
   type HouseholdTopicRole,
+  type ReminderTarget,
   type RegisterTelegramHouseholdChatResult
 } from '@household/ports'
 
@@ -122,6 +123,27 @@ function toHouseholdMemberRecord(row: {
     preferredLocale: normalizeSupportedLocale(row.preferredLocale),
     householdDefaultLocale,
     isAdmin: row.isAdmin === 1
+  }
+}
+
+function toReminderTarget(row: {
+  householdId: string
+  householdName: string
+  telegramChatId: string
+  reminderThreadId: string | null
+  defaultLocale: string
+}): ReminderTarget {
+  const locale = normalizeSupportedLocale(row.defaultLocale)
+  if (!locale) {
+    throw new Error(`Unsupported household default locale: ${row.defaultLocale}`)
+  }
+
+  return {
+    householdId: row.householdId,
+    householdName: row.householdName,
+    telegramChatId: row.telegramChatId,
+    telegramThreadId: row.reminderThreadId,
+    locale
   }
 }
 
@@ -362,6 +384,35 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .orderBy(schema.householdTopicBindings.role)
 
       return rows.map(toHouseholdTopicBindingRecord)
+    },
+
+    async listReminderTargets() {
+      const rows = await db
+        .select({
+          householdId: schema.householdTelegramChats.householdId,
+          householdName: schema.households.name,
+          telegramChatId: schema.householdTelegramChats.telegramChatId,
+          reminderThreadId: schema.householdTopicBindings.telegramThreadId,
+          defaultLocale: schema.households.defaultLocale
+        })
+        .from(schema.householdTelegramChats)
+        .innerJoin(
+          schema.households,
+          eq(schema.householdTelegramChats.householdId, schema.households.id)
+        )
+        .leftJoin(
+          schema.householdTopicBindings,
+          and(
+            eq(
+              schema.householdTopicBindings.householdId,
+              schema.householdTelegramChats.householdId
+            ),
+            eq(schema.householdTopicBindings.role, 'reminders')
+          )
+        )
+        .orderBy(asc(schema.householdTelegramChats.telegramChatId), asc(schema.households.name))
+
+      return rows.map(toReminderTarget)
     },
 
     async upsertHouseholdJoinToken(input) {

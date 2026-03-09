@@ -5,7 +5,6 @@ export interface BotRuntimeConfig {
   telegramWebhookSecret: string
   telegramWebhookPath: string
   databaseUrl?: string
-  householdId?: string
   telegramHouseholdChatId?: string
   telegramPurchaseTopicId?: number
   telegramFeedbackTopicId?: number
@@ -94,7 +93,6 @@ function parseOptionalCsv(value: string | undefined): readonly string[] {
 
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
   const databaseUrl = parseOptionalValue(env.DATABASE_URL)
-  const householdId = parseOptionalValue(env.HOUSEHOLD_ID)
   const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
   const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
   const telegramFeedbackTopicId = parseOptionalTopicId(env.TELEGRAM_FEEDBACK_TOPIC_ID)
@@ -109,9 +107,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const miniAppAuthEnabled = databaseUrl !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
-    databaseUrl !== undefined &&
-    householdId !== undefined &&
-    (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
+    databaseUrl !== undefined && (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
@@ -131,9 +127,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
 
   if (databaseUrl !== undefined) {
     runtime.databaseUrl = databaseUrl
-  }
-  if (householdId !== undefined) {
-    runtime.householdId = householdId
   }
   if (telegramHouseholdChatId !== undefined) {
     runtime.telegramHouseholdChatId = telegramHouseholdChatId

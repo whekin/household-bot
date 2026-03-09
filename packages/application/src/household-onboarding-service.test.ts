@@ -55,6 +55,9 @@ function createRepositoryStub() {
     async listHouseholdTopicBindings() {
       return []
     },
+    async listReminderTargets() {
+      return []
+    },
     async upsertHouseholdJoinToken(input) {
       joinToken = {
         householdId: household.householdId,

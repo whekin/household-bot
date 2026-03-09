@@ -136,6 +136,11 @@ export const ruBotTranslations: BotTranslationCatalog = {
     statementTotal: (amount, currency) => `Итого: ${amount} ${currency}`,
     statementFailed: (message) => `Не удалось построить выписку: ${message}`
   },
+  reminders: {
+    utilities: (period) => `Напоминание по коммунальным платежам за ${period}`,
+    rentWarning: (period) => `Напоминание по аренде за ${period}: срок оплаты скоро наступит.`,
+    rentDue: (period) => `Напоминание по аренде за ${period}: пожалуйста, оплатите сегодня.`
+  },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     recorded: (summary) => `Покупка сохранена: ${summary}`,

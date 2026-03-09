@@ -132,6 +132,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         : null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => ({
       householdId: 'household-1',
       householdName: 'Kojori House',

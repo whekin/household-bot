@@ -97,6 +97,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async (input) => ({
       householdId: household.householdId,
       householdName: household.householdName,

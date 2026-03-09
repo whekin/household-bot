@@ -1,3 +1,5 @@
+import { and, eq } from 'drizzle-orm'
+
 import { createDbClient, schema } from '@household/db'
 import type { ReminderDispatchRepository } from '@household/ports'
 
@@ -34,6 +36,20 @@ export function createDbReminderDispatchRepository(databaseUrl: string): {
         dedupeKey,
         claimed: rows.length > 0
       }
+    },
+
+    async releaseReminderDispatch(input) {
+      const dedupeKey = `${input.period}:${input.reminderType}`
+
+      await db
+        .delete(schema.processedBotMessages)
+        .where(
+          and(
+            eq(schema.processedBotMessages.householdId, input.householdId),
+            eq(schema.processedBotMessages.source, 'scheduler-reminder'),
+            eq(schema.processedBotMessages.sourceMessageKey, dedupeKey)
+          )
+        )
     }
   }
 

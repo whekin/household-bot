@@ -202,7 +202,30 @@ const reminderJobs = runtime.reminderJobsEnabled
       shutdownTasks.push(reminderRepositoryClient.close)
 
       return createReminderJobsHandler({
-        householdId: runtime.householdId!,
+        listReminderTargets: () =>
+          householdConfigurationRepositoryClient!.repository.listReminderTargets(),
+        releaseReminderDispatch: (input) =>
+          reminderRepositoryClient.repository.releaseReminderDispatch(input),
+        sendReminderMessage: async (target, text) => {
+          const threadId =
+            target.telegramThreadId !== null ? Number(target.telegramThreadId) : undefined
+
+          if (target.telegramThreadId !== null && (!threadId || !Number.isInteger(threadId))) {
+            throw new Error(
+              `Invalid reminder thread id for household ${target.householdId}: ${target.telegramThreadId}`
+            )
+          }
+
+          await bot.api.sendMessage(
+            target.telegramChatId,
+            text,
+            threadId
+              ? {
+                  message_thread_id: threadId
+                }
+              : undefined
+          )
+        },
         reminderService,
         logger: getLogger('scheduler')
       })
@@ -215,7 +238,7 @@ if (!runtime.reminderJobsEnabled) {
       event: 'runtime.feature_disabled',
       feature: 'reminder-jobs'
     },
-    'Reminder jobs are disabled. Set DATABASE_URL, HOUSEHOLD_ID, and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
+    'Reminder jobs are disabled. Set DATABASE_URL and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
   )
 }
 

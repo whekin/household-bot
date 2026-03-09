@@ -3,6 +3,7 @@ export {
   type ClaimReminderDispatchInput,
   type ClaimReminderDispatchResult,
   type ReminderDispatchRepository,
+  type ReminderTarget,
   type ReminderType
 } from './reminders'
 export {

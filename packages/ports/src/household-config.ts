@@ -1,4 +1,5 @@
 import type { SupportedLocale } from '@household/domain'
+import type { ReminderTarget } from './reminders'
 
 export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders'] as const
 
@@ -80,6 +81,7 @@ export interface HouseholdConfigurationRepository {
     telegramThreadId: string
   }): Promise<HouseholdTopicBindingRecord | null>
   listHouseholdTopicBindings(householdId: string): Promise<readonly HouseholdTopicBindingRecord[]>
+  listReminderTargets(): Promise<readonly ReminderTarget[]>
   upsertHouseholdJoinToken(input: {
     householdId: string
     token: string

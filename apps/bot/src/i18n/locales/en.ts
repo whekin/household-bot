@@ -133,6 +133,11 @@ export const enBotTranslations: BotTranslationCatalog = {
     statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,
     statementFailed: (message) => `Failed to generate statement: ${message}`
   },
+  reminders: {
+    utilities: (period) => `Utilities reminder for ${period}`,
+    rentWarning: (period) => `Rent reminder for ${period}: payment is coming up soon.`,
+    rentDue: (period) => `Rent due reminder for ${period}: please settle payment today.`
+  },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     recorded: (summary) => `Recorded purchase: ${summary}`,

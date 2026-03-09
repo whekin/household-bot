@@ -22,6 +22,8 @@ class ReminderDispatchRepositoryStub implements ReminderDispatchRepository {
     this.lastClaim = input
     return this.nextResult
   }
+
+  async releaseReminderDispatch(): Promise<void> {}
 }
 
 describe('createReminderJobService', () => {
