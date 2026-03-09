@@ -39,7 +39,8 @@ function createRepositoryStub() {
         householdName: input.householdName,
         telegramChatId: input.telegramChatId,
         telegramChatType: input.telegramChatType,
-        title: input.title?.trim() || null
+        title: input.title?.trim() || null,
+        defaultLocale: 'ru'
       }
       households.set(input.telegramChatId, created)
 
@@ -141,7 +142,8 @@ function createRepositoryStub() {
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
         username: input.username?.trim() || null,
-        languageCode: input.languageCode?.trim() || null
+        languageCode: input.languageCode?.trim() || null,
+        householdDefaultLocale: household.defaultLocale
       }
       pendingMembers.set(key, record)
       return record
@@ -166,6 +168,10 @@ function createRepositoryStub() {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        preferredLocale: input.preferredLocale ?? existing?.preferredLocale ?? null,
+        householdDefaultLocale:
+          [...households.values()].find((household) => household.householdId === input.householdId)
+            ?.defaultLocale ?? 'ru',
         isAdmin: input.isAdmin === true || existing?.isAdmin === true
       }
       members.set(key, next)
@@ -202,10 +208,39 @@ function createRepositoryStub() {
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        preferredLocale: null,
+        householdDefaultLocale:
+          [...households.values()].find(
+            (household) => household.householdId === pending.householdId
+          )?.defaultLocale ?? 'ru',
         isAdmin: input.isAdmin === true
       }
       members.set(key, member)
       return member
+    },
+    async updateHouseholdDefaultLocale(householdId, locale) {
+      const household =
+        [...households.values()].find((entry) => entry.householdId === householdId) ?? null
+      if (!household) {
+        throw new Error('Missing household')
+      }
+
+      const next = {
+        ...household,
+        defaultLocale: locale
+      }
+      households.set(next.telegramChatId, next)
+      return next
+    },
+    async updateMemberPreferredLocale(householdId, telegramUserId, locale) {
+      const key = `${householdId}:${telegramUserId}`
+      const member = members.get(key)
+      return member
+        ? {
+            ...member,
+            preferredLocale: locale
+          }
+        : null
     }
   }
 
@@ -240,6 +275,8 @@ describe('createHouseholdSetupService', () => {
       householdId: result.household.householdId,
       telegramUserId: '42',
       displayName: 'Stan',
+      preferredLocale: null,
+      householdDefaultLocale: 'ru',
       isAdmin: true
     })
   })
@@ -275,6 +312,8 @@ describe('createHouseholdSetupService', () => {
       householdId: result.household.householdId,
       telegramUserId: '77',
       displayName: 'Mia',
+      preferredLocale: null,
+      householdDefaultLocale: 'ru',
       isAdmin: true
     })
   })

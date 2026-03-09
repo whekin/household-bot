@@ -13,7 +13,8 @@ function repository(): HouseholdConfigurationRepository {
         householdName: 'Kojori House',
         telegramChatId: '-100123',
         telegramChatType: 'supergroup',
-        title: 'Kojori House'
+        title: 'Kojori House',
+        defaultLocale: 'ru'
       }
     }),
     getTelegramHouseholdChat: async () => null,
@@ -41,7 +42,8 @@ function repository(): HouseholdConfigurationRepository {
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
       username: input.username?.trim() || null,
-      languageCode: input.languageCode?.trim() || null
+      languageCode: input.languageCode?.trim() || null,
+      householdDefaultLocale: 'ru'
     }),
     getPendingHouseholdMember: async () => null,
     findPendingHouseholdMemberByTelegramUserId: async () => null,
@@ -50,6 +52,8 @@ function repository(): HouseholdConfigurationRepository {
       householdId: input.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      preferredLocale: input.preferredLocale ?? null,
+      householdDefaultLocale: 'ru',
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -62,7 +66,8 @@ function repository(): HouseholdConfigurationRepository {
         telegramUserId: '123456',
         displayName: 'Stan',
         username: 'stan',
-        languageCode: 'ru'
+        languageCode: 'ru',
+        householdDefaultLocale: 'ru'
       }
     ],
     approvePendingHouseholdMember: async (input) =>
@@ -72,6 +77,28 @@ function repository(): HouseholdConfigurationRepository {
             householdId: input.householdId,
             telegramUserId: input.telegramUserId,
             displayName: 'Stan',
+            preferredLocale: null,
+            householdDefaultLocale: 'ru',
+            isAdmin: false
+          }
+        : null,
+    updateHouseholdDefaultLocale: async (_householdId, locale) => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House',
+      defaultLocale: locale
+    }),
+    updateMemberPreferredLocale: async (_householdId, telegramUserId, locale) =>
+      telegramUserId === '123456'
+        ? {
+            id: 'member-123456',
+            householdId: 'household-1',
+            telegramUserId,
+            displayName: 'Stan',
+            preferredLocale: locale,
+            householdDefaultLocale: 'ru',
             isAdmin: false
           }
         : null
@@ -96,7 +123,8 @@ describe('createMiniAppAdminService', () => {
           telegramUserId: '123456',
           displayName: 'Stan',
           username: 'stan',
-          languageCode: 'ru'
+          languageCode: 'ru',
+          householdDefaultLocale: 'ru'
         }
       ]
     })
@@ -132,6 +160,8 @@ describe('createMiniAppAdminService', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: false
       }
     })

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
+import type { SupportedLocale } from '@household/domain'
 import type { HouseholdConfigurationRepository, HouseholdMemberRecord } from '@household/ports'
 
 export interface HouseholdOnboardingIdentity {
@@ -17,6 +18,8 @@ export type HouseholdMiniAppAccess =
         householdId: string
         displayName: string
         isAdmin: boolean
+        preferredLocale: SupportedLocale | null
+        householdDefaultLocale: SupportedLocale
       }
     }
   | {
@@ -24,6 +27,7 @@ export type HouseholdMiniAppAccess =
       household: {
         id: string
         name: string
+        defaultLocale: SupportedLocale
       }
     }
   | {
@@ -31,6 +35,7 @@ export type HouseholdMiniAppAccess =
       household: {
         id: string
         name: string
+        defaultLocale: SupportedLocale
       }
     }
   | {
@@ -53,6 +58,7 @@ export interface HouseholdOnboardingService {
         household: {
           id: string
           name: string
+          defaultLocale: SupportedLocale
         }
       }
     | {
@@ -62,6 +68,8 @@ export interface HouseholdOnboardingService {
           householdId: string
           displayName: string
           isAdmin: boolean
+          preferredLocale: SupportedLocale | null
+          householdDefaultLocale: SupportedLocale
         }
       }
     | {
@@ -75,12 +83,16 @@ function toMember(member: HouseholdMemberRecord): {
   householdId: string
   displayName: string
   isAdmin: boolean
+  preferredLocale: SupportedLocale | null
+  householdDefaultLocale: SupportedLocale
 } {
   return {
     id: member.id,
     householdId: member.householdId,
     displayName: member.displayName,
-    isAdmin: member.isAdmin
+    isAdmin: member.isAdmin,
+    preferredLocale: member.preferredLocale,
+    householdDefaultLocale: member.householdDefaultLocale
   }
 }
 
@@ -155,7 +167,8 @@ export function createHouseholdOnboardingService(options: {
           status: 'pending',
           household: {
             id: existingPending.householdId,
-            name: existingPending.householdName
+            name: existingPending.householdName,
+            defaultLocale: existingPending.householdDefaultLocale
           }
         }
       }
@@ -182,7 +195,8 @@ export function createHouseholdOnboardingService(options: {
           status: 'pending',
           household: {
             id: pending.householdId,
-            name: pending.householdName
+            name: pending.householdName,
+            defaultLocale: pending.householdDefaultLocale
           }
         }
       }
@@ -191,7 +205,8 @@ export function createHouseholdOnboardingService(options: {
         status: 'join_required',
         household: {
           id: household.householdId,
-          name: household.householdName
+          name: household.householdName,
+          defaultLocale: household.defaultLocale
         }
       }
     },
@@ -235,7 +250,8 @@ export function createHouseholdOnboardingService(options: {
         status: 'pending',
         household: {
           id: pending.householdId,
-          name: pending.householdName
+          name: pending.householdName,
+          defaultLocale: pending.householdDefaultLocale
         }
       }
     }

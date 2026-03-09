@@ -1,3 +1,5 @@
+import type { SupportedLocale } from '@household/domain'
+
 export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders'] as const
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
@@ -8,6 +10,7 @@ export interface HouseholdTelegramChatRecord {
   telegramChatId: string
   telegramChatType: string
   title: string | null
+  defaultLocale: SupportedLocale
 }
 
 export interface HouseholdTopicBindingRecord {
@@ -31,6 +34,7 @@ export interface HouseholdPendingMemberRecord {
   displayName: string
   username: string | null
   languageCode: string | null
+  householdDefaultLocale: SupportedLocale
 }
 
 export interface HouseholdMemberRecord {
@@ -38,6 +42,8 @@ export interface HouseholdMemberRecord {
   householdId: string
   telegramUserId: string
   displayName: string
+  preferredLocale: SupportedLocale | null
+  householdDefaultLocale: SupportedLocale
   isAdmin: boolean
 }
 
@@ -99,6 +105,7 @@ export interface HouseholdConfigurationRepository {
     householdId: string
     telegramUserId: string
     displayName: string
+    preferredLocale?: SupportedLocale | null
     isAdmin?: boolean
   }): Promise<HouseholdMemberRecord>
   getHouseholdMember(
@@ -115,4 +122,13 @@ export interface HouseholdConfigurationRepository {
     telegramUserId: string
     isAdmin?: boolean
   }): Promise<HouseholdMemberRecord | null>
+  updateHouseholdDefaultLocale(
+    householdId: string,
+    locale: SupportedLocale
+  ): Promise<HouseholdTelegramChatRecord>
+  updateMemberPreferredLocale(
+    householdId: string,
+    telegramUserId: string,
+    locale: SupportedLocale
+  ): Promise<HouseholdMemberRecord | null>
 }

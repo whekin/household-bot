@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
-import { instantToDate, nowInstant } from '@household/domain'
+import { instantToDate, normalizeSupportedLocale, nowInstant } from '@household/domain'
 import {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,
@@ -30,13 +30,20 @@ function toHouseholdTelegramChatRecord(row: {
   telegramChatId: string
   telegramChatType: string
   title: string | null
+  defaultLocale: string
 }): HouseholdTelegramChatRecord {
+  const defaultLocale = normalizeSupportedLocale(row.defaultLocale)
+  if (!defaultLocale) {
+    throw new Error(`Unsupported household default locale: ${row.defaultLocale}`)
+  }
+
   return {
     householdId: row.householdId,
     householdName: row.householdName,
     telegramChatId: row.telegramChatId,
     telegramChatType: row.telegramChatType,
-    title: row.title
+    title: row.title,
+    defaultLocale
   }
 }
 
@@ -75,14 +82,21 @@ function toHouseholdPendingMemberRecord(row: {
   displayName: string
   username: string | null
   languageCode: string | null
+  defaultLocale: string
 }): HouseholdPendingMemberRecord {
+  const householdDefaultLocale = normalizeSupportedLocale(row.defaultLocale)
+  if (!householdDefaultLocale) {
+    throw new Error(`Unsupported household default locale: ${row.defaultLocale}`)
+  }
+
   return {
     householdId: row.householdId,
     householdName: row.householdName,
     telegramUserId: row.telegramUserId,
     displayName: row.displayName,
     username: row.username,
-    languageCode: row.languageCode
+    languageCode: row.languageCode,
+    householdDefaultLocale
   }
 }
 
@@ -91,13 +105,22 @@ function toHouseholdMemberRecord(row: {
   householdId: string
   telegramUserId: string
   displayName: string
+  preferredLocale: string | null
+  defaultLocale: string
   isAdmin: number
 }): HouseholdMemberRecord {
+  const householdDefaultLocale = normalizeSupportedLocale(row.defaultLocale)
+  if (!householdDefaultLocale) {
+    throw new Error(`Unsupported household default locale: ${row.defaultLocale}`)
+  }
+
   return {
     id: row.id,
     householdId: row.householdId,
     telegramUserId: row.telegramUserId,
     displayName: row.displayName,
+    preferredLocale: normalizeSupportedLocale(row.preferredLocale),
+    householdDefaultLocale,
     isAdmin: row.isAdmin === 1
   }
 }
@@ -120,7 +143,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdName: schema.households.name,
             telegramChatId: schema.householdTelegramChats.telegramChatId,
             telegramChatType: schema.householdTelegramChats.telegramChatType,
-            title: schema.householdTelegramChats.title
+            title: schema.householdTelegramChats.title,
+            defaultLocale: schema.households.defaultLocale
           })
           .from(schema.householdTelegramChats)
           .innerJoin(
@@ -160,7 +184,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           })
           .returning({
             id: schema.households.id,
-            name: schema.households.name
+            name: schema.households.name,
+            defaultLocale: schema.households.defaultLocale
           })
 
         const household = insertedHouseholds[0]
@@ -195,7 +220,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdName: household.name,
             telegramChatId: chat.telegramChatId,
             telegramChatType: chat.telegramChatType,
-            title: chat.title
+            title: chat.title,
+            defaultLocale: household.defaultLocale
           })
         }
       })
@@ -208,7 +234,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdName: schema.households.name,
           telegramChatId: schema.householdTelegramChats.telegramChatId,
           telegramChatType: schema.householdTelegramChats.telegramChatType,
-          title: schema.householdTelegramChats.title
+          title: schema.householdTelegramChats.title,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdTelegramChats)
         .innerJoin(
@@ -229,7 +256,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdName: schema.households.name,
           telegramChatId: schema.householdTelegramChats.telegramChatId,
           telegramChatType: schema.householdTelegramChats.telegramChatType,
-          title: schema.householdTelegramChats.title
+          title: schema.householdTelegramChats.title,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdTelegramChats)
         .innerJoin(
@@ -412,7 +440,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdName: schema.households.name,
           telegramChatId: schema.householdTelegramChats.telegramChatId,
           telegramChatType: schema.householdTelegramChats.telegramChatType,
-          title: schema.householdTelegramChats.title
+          title: schema.householdTelegramChats.title,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdJoinTokens)
         .innerJoin(
@@ -468,7 +497,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const householdRows = await db
         .select({
           householdId: schema.households.id,
-          householdName: schema.households.name
+          householdName: schema.households.name,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.households)
         .where(eq(schema.households.id, row.householdId))
@@ -485,7 +515,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         telegramUserId: row.telegramUserId,
         displayName: row.displayName,
         username: row.username,
-        languageCode: row.languageCode
+        languageCode: row.languageCode,
+        defaultLocale: household.defaultLocale
       })
     },
 
@@ -497,7 +528,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.householdPendingMembers.telegramUserId,
           displayName: schema.householdPendingMembers.displayName,
           username: schema.householdPendingMembers.username,
-          languageCode: schema.householdPendingMembers.languageCode
+          languageCode: schema.householdPendingMembers.languageCode,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdPendingMembers)
         .innerJoin(
@@ -524,7 +556,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.householdPendingMembers.telegramUserId,
           displayName: schema.householdPendingMembers.displayName,
           username: schema.householdPendingMembers.username,
-          languageCode: schema.householdPendingMembers.languageCode
+          languageCode: schema.householdPendingMembers.languageCode,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdPendingMembers)
         .innerJoin(
@@ -545,12 +578,14 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: input.householdId,
           telegramUserId: input.telegramUserId,
           displayName: input.displayName,
+          preferredLocale: input.preferredLocale ?? null,
           isAdmin: input.isAdmin ? 1 : 0
         })
         .onConflictDoUpdate({
           target: [schema.members.householdId, schema.members.telegramUserId],
           set: {
             displayName: input.displayName,
+            preferredLocale: input.preferredLocale ?? schema.members.preferredLocale,
             ...(input.isAdmin
               ? {
                   isAdmin: 1
@@ -563,6 +598,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
           isAdmin: schema.members.isAdmin
         })
 
@@ -571,7 +607,15 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         throw new Error('Failed to ensure household member')
       }
 
-      return toHouseholdMemberRecord(row)
+      const household = await this.getHouseholdChatByHouseholdId(row.householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household for member')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
     },
 
     async getHouseholdMember(householdId, telegramUserId) {
@@ -581,9 +625,12 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
         .from(schema.members)
+        .innerJoin(schema.households, eq(schema.members.householdId, schema.households.id))
         .where(
           and(
             eq(schema.members.householdId, householdId),
@@ -603,9 +650,12 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
         .from(schema.members)
+        .innerJoin(schema.households, eq(schema.members.householdId, schema.households.id))
         .where(eq(schema.members.householdId, householdId))
         .orderBy(schema.members.displayName, schema.members.telegramUserId)
 
@@ -619,9 +669,12 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
         .from(schema.members)
+        .innerJoin(schema.households, eq(schema.members.householdId, schema.households.id))
         .where(eq(schema.members.telegramUserId, telegramUserId))
         .orderBy(schema.members.householdId, schema.members.displayName)
 
@@ -636,7 +689,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.householdPendingMembers.telegramUserId,
           displayName: schema.householdPendingMembers.displayName,
           username: schema.householdPendingMembers.username,
-          languageCode: schema.householdPendingMembers.languageCode
+          languageCode: schema.householdPendingMembers.languageCode,
+          defaultLocale: schema.households.defaultLocale
         })
         .from(schema.householdPendingMembers)
         .innerJoin(
@@ -658,7 +712,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             telegramUserId: schema.householdPendingMembers.telegramUserId,
             displayName: schema.householdPendingMembers.displayName,
             username: schema.householdPendingMembers.username,
-            languageCode: schema.householdPendingMembers.languageCode
+            languageCode: schema.householdPendingMembers.languageCode,
+            defaultLocale: schema.households.defaultLocale
           })
           .from(schema.householdPendingMembers)
           .innerJoin(
@@ -684,12 +739,15 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdId: pending.householdId,
             telegramUserId: pending.telegramUserId,
             displayName: pending.displayName,
+            preferredLocale: normalizeSupportedLocale(pending.languageCode),
             isAdmin: input.isAdmin ? 1 : 0
           })
           .onConflictDoUpdate({
             target: [schema.members.householdId, schema.members.telegramUserId],
             set: {
               displayName: pending.displayName,
+              preferredLocale:
+                normalizeSupportedLocale(pending.languageCode) ?? schema.members.preferredLocale,
               ...(input.isAdmin
                 ? {
                     isAdmin: 1
@@ -702,6 +760,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdId: schema.members.householdId,
             telegramUserId: schema.members.telegramUserId,
             displayName: schema.members.displayName,
+            preferredLocale: schema.members.preferredLocale,
             isAdmin: schema.members.isAdmin
           })
 
@@ -719,7 +778,76 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           throw new Error('Failed to approve pending household member')
         }
 
-        return toHouseholdMemberRecord(member)
+        return toHouseholdMemberRecord({
+          ...member,
+          defaultLocale: pending.defaultLocale
+        })
+      })
+    },
+
+    async updateHouseholdDefaultLocale(householdId, locale) {
+      const updatedHouseholds = await db
+        .update(schema.households)
+        .set({
+          defaultLocale: locale
+        })
+        .where(eq(schema.households.id, householdId))
+        .returning({
+          id: schema.households.id,
+          name: schema.households.name,
+          defaultLocale: schema.households.defaultLocale
+        })
+
+      const household = updatedHouseholds[0]
+      if (!household) {
+        throw new Error('Failed to update household default locale')
+      }
+
+      const chat = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!chat) {
+        throw new Error('Failed to resolve household chat after locale update')
+      }
+
+      return {
+        ...chat,
+        defaultLocale: normalizeSupportedLocale(household.defaultLocale) ?? chat.defaultLocale
+      }
+    },
+
+    async updateMemberPreferredLocale(householdId, telegramUserId, locale) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          preferredLocale: locale
+        })
+        .where(
+          and(
+            eq(schema.members.householdId, householdId),
+            eq(schema.members.telegramUserId, telegramUserId)
+          )
+        )
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after member locale update')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
       })
     }
   }

@@ -20,6 +20,10 @@ export {
   type ReminderJobService
 } from './reminder-job-service'
 export {
+  createLocalePreferenceService,
+  type LocalePreferenceService
+} from './locale-preference-service'
+export {
   parsePurchaseMessage,
   type ParsedPurchaseResult,
   type ParsePurchaseInput,

@@ -57,6 +57,13 @@
       "when": 1773051000000,
       "tag": "0007_sudden_murmur",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773047624171,
+      "tag": "0008_lowly_spiral",
+      "breakpoints": true
     }
   ]
 }

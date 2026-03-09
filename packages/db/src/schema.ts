@@ -15,6 +15,7 @@ import {
 export const households = pgTable('households', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
+  defaultLocale: text('default_locale').default('ru').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 })
 
@@ -142,6 +143,7 @@ export const members = pgTable(
       .references(() => households.id, { onDelete: 'cascade' }),
     telegramUserId: text('telegram_user_id').notNull(),
     displayName: text('display_name').notNull(),
+    preferredLocale: text('preferred_locale'),
     isAdmin: integer('is_admin').default(0).notNull(),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull()
   },

@@ -17,7 +17,8 @@ function createRepositoryStub() {
     householdName: 'Kojori House',
     telegramChatId: '-100123',
     telegramChatType: 'supergroup',
-    title: 'Kojori House'
+    title: 'Kojori House',
+    defaultLocale: 'ru'
   }
   let joinToken: HouseholdJoinTokenRecord | null = null
   const pendingMembers = new Map<string, HouseholdPendingMemberRecord>()
@@ -76,7 +77,8 @@ function createRepositoryStub() {
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
         username: input.username?.trim() || null,
-        languageCode: input.languageCode?.trim() || null
+        languageCode: input.languageCode?.trim() || null,
+        householdDefaultLocale: household.defaultLocale
       }
       pendingMembers.set(input.telegramUserId, record)
       return record
@@ -93,6 +95,8 @@ function createRepositoryStub() {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        preferredLocale: input.preferredLocale ?? null,
+        householdDefaultLocale: household.defaultLocale,
         isAdmin: input.isAdmin === true
       }
       members.set(input.telegramUserId, member)
@@ -124,8 +128,25 @@ function createRepositoryStub() {
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        preferredLocale: null,
+        householdDefaultLocale: household.defaultLocale,
         isAdmin: input.isAdmin === true
       }
+    },
+    async updateHouseholdDefaultLocale(_householdId, locale) {
+      return {
+        ...household,
+        defaultLocale: locale
+      }
+    },
+    async updateMemberPreferredLocale(_householdId, telegramUserId, locale) {
+      const member = members.get(telegramUserId)
+      return member
+        ? {
+            ...member,
+            preferredLocale: locale
+          }
+        : null
     }
   }
 
@@ -176,7 +197,8 @@ describe('createHouseholdOnboardingService', () => {
       status: 'join_required',
       household: {
         id: 'household-1',
-        name: 'Kojori House'
+        name: 'Kojori House',
+        defaultLocale: 'ru'
       }
     })
   })
@@ -204,7 +226,8 @@ describe('createHouseholdOnboardingService', () => {
       status: 'pending',
       household: {
         id: 'household-1',
-        name: 'Kojori House'
+        name: 'Kojori House',
+        defaultLocale: 'ru'
       }
     })
 
@@ -219,7 +242,8 @@ describe('createHouseholdOnboardingService', () => {
       status: 'pending',
       household: {
         id: 'household-1',
-        name: 'Kojori House'
+        name: 'Kojori House',
+        defaultLocale: 'ru'
       }
     })
   })
@@ -250,6 +274,8 @@ describe('createHouseholdOnboardingService', () => {
         id: 'member-42',
         householdId: 'household-1',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: true
       }
     })
@@ -262,6 +288,8 @@ describe('createHouseholdOnboardingService', () => {
       householdId: 'household-1',
       telegramUserId: '42',
       displayName: 'Stan',
+      preferredLocale: null,
+      householdDefaultLocale: 'ru',
       isAdmin: true
     }
     const service = createHouseholdOnboardingService({ repository })
@@ -277,6 +305,8 @@ describe('createHouseholdOnboardingService', () => {
         householdId: 'household-2',
         telegramUserId: '42',
         displayName: 'Stan elsewhere',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: false
       }
     ]
