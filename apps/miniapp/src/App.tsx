@@ -2,16 +2,22 @@ import { Match, Switch, createMemo, createSignal, onMount, type JSX } from 'soli
 
 import { dictionary, type Locale } from './i18n'
 import {
+  addMiniAppUtilityBill,
   approveMiniAppPendingMember,
+  closeMiniAppBillingCycle,
   fetchMiniAppAdminSettings,
+  fetchMiniAppBillingCycle,
   fetchMiniAppDashboard,
   fetchMiniAppPendingMembers,
   fetchMiniAppSession,
   joinMiniAppHousehold,
+  openMiniAppBillingCycle,
   promoteMiniAppMember,
+  type MiniAppAdminCycleState,
   type MiniAppAdminSettingsPayload,
   updateMiniAppLocalePreference,
   updateMiniAppBillingSettings,
+  updateMiniAppCycleRent,
   upsertMiniAppUtilityCategory,
   type MiniAppDashboard,
   type MiniAppPendingMember
@@ -120,6 +126,10 @@ function dashboardLedgerCount(dashboard: MiniAppDashboard | null): string {
   return dashboard ? String(dashboard.ledger.length) : '—'
 }
 
+function defaultCyclePeriod(): string {
+  return new Date().toISOString().slice(0, 7)
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -129,6 +139,7 @@ function App() {
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
+  const [cycleState, setCycleState] = createSignal<MiniAppAdminCycleState | null>(null)
   const [joining, setJoining] = createSignal(false)
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
@@ -136,6 +147,10 @@ function App() {
   const [savingHouseholdLocale, setSavingHouseholdLocale] = createSignal(false)
   const [savingBillingSettings, setSavingBillingSettings] = createSignal(false)
   const [savingCategorySlug, setSavingCategorySlug] = createSignal<string | null>(null)
+  const [openingCycle, setOpeningCycle] = createSignal(false)
+  const [closingCycle, setClosingCycle] = createSignal(false)
+  const [savingCycleRent, setSavingCycleRent] = createSignal(false)
+  const [savingUtilityBill, setSavingUtilityBill] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
     rentAmountMajor: '',
     rentCurrency: 'USD' as 'USD' | 'GEL',
@@ -146,6 +161,13 @@ function App() {
     timezone: 'Asia/Tbilisi'
   })
   const [newCategoryName, setNewCategoryName] = createSignal('')
+  const [cycleForm, setCycleForm] = createSignal({
+    period: defaultCyclePeriod(),
+    currency: 'USD' as 'USD' | 'GEL',
+    rentAmountMajor: '',
+    utilityCategorySlug: '',
+    utilityAmountMajor: ''
+  })
 
   const copy = createMemo(() => dictionary[locale()])
   const onboardingSession = createMemo(() => {
@@ -190,6 +212,13 @@ function App() {
     try {
       const payload = await fetchMiniAppAdminSettings(initData)
       setAdminSettings(payload)
+      setCycleForm((current) => ({
+        ...current,
+        utilityCategorySlug:
+          current.utilityCategorySlug ||
+          payload.categories.find((category) => category.isActive)?.slug ||
+          ''
+      }))
       setBillingForm({
         rentAmountMajor: payload.settings.rentAmountMinor
           ? (Number(payload.settings.rentAmountMinor) / 100).toFixed(2)
@@ -207,6 +236,32 @@ function App() {
       }
 
       setAdminSettings(null)
+    }
+  }
+
+  async function loadCycleState(initData: string) {
+    try {
+      const payload = await fetchMiniAppBillingCycle(initData)
+      setCycleState(payload)
+      setCycleForm((current) => ({
+        ...current,
+        period: payload.cycle?.period ?? current.period,
+        currency: payload.cycle?.currency ?? payload.rentRule?.currency ?? current.currency,
+        rentAmountMajor: payload.rentRule
+          ? (Number(payload.rentRule.amountMinor) / 100).toFixed(2)
+          : '',
+        utilityCategorySlug:
+          current.utilityCategorySlug ||
+          adminSettings()?.categories.find((category) => category.isActive)?.slug ||
+          '',
+        utilityAmountMajor: current.utilityAmountMajor
+      }))
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to load mini app billing cycle', error)
+      }
+
+      setCycleState(null)
     }
   }
 
@@ -267,6 +322,10 @@ function App() {
       if (payload.member.isAdmin) {
         await loadPendingMembers(initData)
         await loadAdminSettings(initData)
+        await loadCycleState(initData)
+      } else {
+        setAdminSettings(null)
+        setCycleState(null)
       }
     } catch {
       if (import.meta.env.DEV) {
@@ -360,6 +419,10 @@ function App() {
         if (payload.member.isAdmin) {
           await loadPendingMembers(initData)
           await loadAdminSettings(initData)
+          await loadCycleState(initData)
+        } else {
+          setAdminSettings(null)
+          setCycleState(null)
         }
         return
       }
@@ -499,6 +562,107 @@ function App() {
     }
   }
 
+  async function handleOpenCycle() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setOpeningCycle(true)
+
+    try {
+      const state = await openMiniAppBillingCycle(initData, {
+        period: cycleForm().period,
+        currency: cycleForm().currency
+      })
+      setCycleState(state)
+      setCycleForm((current) => ({
+        ...current,
+        period: state.cycle?.period ?? current.period,
+        currency: state.cycle?.currency ?? current.currency
+      }))
+    } finally {
+      setOpeningCycle(false)
+    }
+  }
+
+  async function handleCloseCycle() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setClosingCycle(true)
+
+    try {
+      const state = await closeMiniAppBillingCycle(initData, cycleState()?.cycle?.period)
+      setCycleState(state)
+    } finally {
+      setClosingCycle(false)
+    }
+  }
+
+  async function handleSaveCycleRent() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setSavingCycleRent(true)
+
+    try {
+      const state = await updateMiniAppCycleRent(initData, {
+        amountMajor: cycleForm().rentAmountMajor,
+        currency: cycleForm().currency,
+        ...(cycleState()?.cycle?.period
+          ? {
+              period: cycleState()!.cycle!.period
+            }
+          : {})
+      })
+      setCycleState(state)
+    } finally {
+      setSavingCycleRent(false)
+    }
+  }
+
+  async function handleAddUtilityBill() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    const selectedCategory =
+      adminSettings()?.categories.find(
+        (category) => category.slug === cycleForm().utilityCategorySlug
+      ) ?? adminSettings()?.categories.find((category) => category.isActive)
+
+    if (!selectedCategory || cycleForm().utilityAmountMajor.trim().length === 0) {
+      return
+    }
+
+    setSavingUtilityBill(true)
+
+    try {
+      const state = await addMiniAppUtilityBill(initData, {
+        billName: selectedCategory.name,
+        amountMajor: cycleForm().utilityAmountMajor,
+        currency: cycleForm().currency
+      })
+      setCycleState(state)
+      setCycleForm((current) => ({
+        ...current,
+        utilityAmountMajor: ''
+      }))
+    } finally {
+      setSavingUtilityBill(false)
+    }
+  }
+
   async function handleSaveUtilityCategory(input: {
     slug?: string
     name: string
@@ -624,6 +788,171 @@ function App() {
                 <strong>{copy().householdSettingsTitle}</strong>
               </header>
               <p>{copy().householdSettingsBody}</p>
+            </article>
+            <article class="balance-item">
+              <header>
+                <strong>{copy().billingCycleTitle}</strong>
+                <span>{cycleState()?.cycle?.period ?? copy().billingCycleEmpty}</span>
+              </header>
+              {cycleState()?.cycle ? (
+                <>
+                  <p>
+                    {copy().billingCycleStatus.replace(
+                      '{currency}',
+                      cycleState()?.cycle?.currency ?? cycleForm().currency
+                    )}
+                  </p>
+                  <div class="settings-grid">
+                    <label class="settings-field">
+                      <span>{copy().rentAmount}</span>
+                      <input
+                        value={cycleForm().rentAmountMajor}
+                        onInput={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            rentAmountMajor: event.currentTarget.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <label class="settings-field">
+                      <span>{copy().shareRent}</span>
+                      <select
+                        value={cycleForm().currency}
+                        onChange={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            currency: event.currentTarget.value as 'USD' | 'GEL'
+                          }))
+                        }
+                      >
+                        <option value="USD">USD</option>
+                        <option value="GEL">GEL</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="inline-actions">
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      disabled={
+                        savingCycleRent() || cycleForm().rentAmountMajor.trim().length === 0
+                      }
+                      onClick={() => void handleSaveCycleRent()}
+                    >
+                      {savingCycleRent() ? copy().savingCycleRent : copy().saveCycleRentAction}
+                    </button>
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      disabled={closingCycle()}
+                      onClick={() => void handleCloseCycle()}
+                    >
+                      {closingCycle() ? copy().closingCycle : copy().closeCycleAction}
+                    </button>
+                  </div>
+                  <div class="settings-grid">
+                    <label class="settings-field">
+                      <span>{copy().utilityCategoryLabel}</span>
+                      <select
+                        value={cycleForm().utilityCategorySlug}
+                        onChange={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            utilityCategorySlug: event.currentTarget.value
+                          }))
+                        }
+                      >
+                        {adminSettings()
+                          ?.categories.filter((category) => category.isActive)
+                          .map((category) => (
+                            <option value={category.slug}>{category.name}</option>
+                          ))}
+                      </select>
+                    </label>
+                    <label class="settings-field">
+                      <span>{copy().utilityAmount}</span>
+                      <input
+                        value={cycleForm().utilityAmountMajor}
+                        onInput={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            utilityAmountMajor: event.currentTarget.value
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <button
+                    class="ghost-button"
+                    type="button"
+                    disabled={
+                      savingUtilityBill() || cycleForm().utilityAmountMajor.trim().length === 0
+                    }
+                    onClick={() => void handleAddUtilityBill()}
+                  >
+                    {savingUtilityBill() ? copy().savingUtilityBill : copy().addUtilityBillAction}
+                  </button>
+                  <div class="balance-list">
+                    {cycleState()?.utilityBills.length ? (
+                      cycleState()?.utilityBills.map((bill) => (
+                        <article class="ledger-item">
+                          <header>
+                            <strong>{bill.billName}</strong>
+                            <span>
+                              {(Number(bill.amountMinor) / 100).toFixed(2)} {bill.currency}
+                            </span>
+                          </header>
+                          <p>{bill.createdAt.slice(0, 10)}</p>
+                        </article>
+                      ))
+                    ) : (
+                      <p>{copy().utilityBillsEmpty}</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>{copy().billingCycleOpenHint}</p>
+                  <div class="settings-grid">
+                    <label class="settings-field">
+                      <span>{copy().billingCyclePeriod}</span>
+                      <input
+                        value={cycleForm().period}
+                        onInput={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            period: event.currentTarget.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <label class="settings-field">
+                      <span>{copy().shareRent}</span>
+                      <select
+                        value={cycleForm().currency}
+                        onChange={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            currency: event.currentTarget.value as 'USD' | 'GEL'
+                          }))
+                        }
+                      >
+                        <option value="USD">USD</option>
+                        <option value="GEL">GEL</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    class="ghost-button"
+                    type="button"
+                    disabled={openingCycle()}
+                    onClick={() => void handleOpenCycle()}
+                  >
+                    {openingCycle() ? copy().openingCycle : copy().openCycleAction}
+                  </button>
+                </>
+              )}
             </article>
             <article class="balance-item">
               <header>

@@ -314,6 +314,17 @@ button {
   grid-column: 1 / -1;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.inline-actions .ghost-button {
+  margin-top: 0;
+}
+
 .panel--wide {
   min-height: 170px;
 }

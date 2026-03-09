@@ -89,6 +89,26 @@ export interface MiniAppAdminSettingsPayload {
   members: readonly MiniAppMember[]
 }
 
+export interface MiniAppAdminCycleState {
+  cycle: {
+    id: string
+    period: string
+    currency: 'USD' | 'GEL'
+  } | null
+  rentRule: {
+    amountMinor: string
+    currency: 'USD' | 'GEL'
+  } | null
+  utilityBills: readonly {
+    id: string
+    billName: string
+    amountMinor: string
+    currency: 'USD' | 'GEL'
+    createdByMemberId: string | null
+    createdAt: string
+  }[]
+}
+
 function apiBaseUrl(): string {
   const runtimeConfigured = runtimeBotApiUrl()
   if (runtimeConfigured) {
@@ -430,4 +450,160 @@ export async function promoteMiniAppMember(
   }
 
   return payload.member
+}
+
+export async function fetchMiniAppBillingCycle(initData: string): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/billing-cycle`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to load billing cycle')
+  }
+
+  return payload.cycleState
+}
+
+export async function openMiniAppBillingCycle(
+  initData: string,
+  input: {
+    period: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/billing-cycle/open`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to open billing cycle')
+  }
+
+  return payload.cycleState
+}
+
+export async function closeMiniAppBillingCycle(
+  initData: string,
+  period?: string
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/billing-cycle/close`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...(period
+        ? {
+            period
+          }
+        : {})
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to close billing cycle')
+  }
+
+  return payload.cycleState
+}
+
+export async function updateMiniAppCycleRent(
+  initData: string,
+  input: {
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+    period?: string
+  }
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/rent/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to update rent')
+  }
+
+  return payload.cycleState
+}
+
+export async function addMiniAppUtilityBill(
+  initData: string,
+  input: {
+    billName: string
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/utility-bills/add`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to add utility bill')
+  }
+
+  return payload.cycleState
 }

@@ -138,6 +138,62 @@ describe('createFinanceCommandService', () => {
     })
   })
 
+  test('getAdminCycleState prefers the open cycle and returns rent plus utility bills', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.openCycleRecord = {
+      id: 'cycle-1',
+      period: '2026-03',
+      currency: 'USD'
+    }
+    repository.latestCycleRecord = {
+      id: 'cycle-0',
+      period: '2026-02',
+      currency: 'USD'
+    }
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.utilityBills = [
+      {
+        id: 'utility-1',
+        billName: 'Electricity',
+        amountMinor: 12000n,
+        currency: 'USD',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+      }
+    ]
+
+    const service = createFinanceCommandService(repository)
+    const result = await service.getAdminCycleState()
+
+    expect(result).toEqual({
+      cycle: {
+        id: 'cycle-1',
+        period: '2026-03',
+        currency: 'USD'
+      },
+      rentRule: {
+        amountMinor: 70000n,
+        currency: 'USD'
+      },
+      utilityBills: [
+        {
+          id: 'utility-1',
+          billName: 'Electricity',
+          amount: expect.objectContaining({
+            amountMinor: 12000n,
+            currency: 'USD'
+          }),
+          currency: 'USD',
+          createdByMemberId: 'alice',
+          createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+        }
+      ]
+    })
+  })
+
   test('addUtilityBill returns null when no open cycle exists', async () => {
     const repository = new FinanceRepositoryStub()
     const service = createFinanceCommandService(repository)

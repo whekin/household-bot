@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 
-import type { FinanceCycleRecord, FinanceMemberRecord, FinanceRepository } from '@household/ports'
+import type {
+  FinanceCycleRecord,
+  FinanceMemberRecord,
+  FinanceRentRuleRecord,
+  FinanceRepository
+} from '@household/ports'
 import {
   BillingCycleId,
   BillingPeriod,
@@ -77,6 +82,19 @@ export interface FinanceDashboard {
   totalDue: Money
   members: readonly FinanceDashboardMemberLine[]
   ledger: readonly FinanceDashboardLedgerEntry[]
+}
+
+export interface FinanceAdminCycleState {
+  cycle: FinanceCycleRecord | null
+  rentRule: FinanceRentRuleRecord | null
+  utilityBills: readonly {
+    id: string
+    billName: string
+    amount: Money
+    currency: CurrencyCode
+    createdByMemberId: string | null
+    createdAt: Temporal.Instant
+  }[]
 }
 
 async function buildFinanceDashboard(
@@ -196,6 +214,7 @@ async function buildFinanceDashboard(
 export interface FinanceCommandService {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
+  getAdminCycleState(periodArg?: string): Promise<FinanceAdminCycleState>
   openCycle(periodArg: string, currencyArg?: string): Promise<FinanceCycleRecord>
   closeCycle(periodArg?: string): Promise<FinanceCycleRecord | null>
   setRent(
@@ -229,6 +248,38 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
 
     getOpenCycle() {
       return repository.getOpenCycle()
+    },
+
+    async getAdminCycleState(periodArg) {
+      const cycle = periodArg
+        ? await repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
+        : ((await repository.getOpenCycle()) ?? (await repository.getLatestCycle()))
+
+      if (!cycle) {
+        return {
+          cycle: null,
+          rentRule: null,
+          utilityBills: []
+        }
+      }
+
+      const [rentRule, utilityBills] = await Promise.all([
+        repository.getRentRuleForPeriod(cycle.period),
+        repository.listUtilityBillsForCycle(cycle.id)
+      ])
+
+      return {
+        cycle,
+        rentRule,
+        utilityBills: utilityBills.map((bill) => ({
+          id: bill.id,
+          billName: bill.billName,
+          amount: Money.fromMinor(bill.amountMinor, bill.currency),
+          currency: bill.currency,
+          createdByMemberId: bill.createdByMemberId,
+          createdAt: bill.createdAt
+        }))
+      }
     },
 
     async openCycle(periodArg, currencyArg) {

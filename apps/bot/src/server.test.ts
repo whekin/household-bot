@@ -73,6 +73,51 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppBillingCycle: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppOpenCycle: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppCloseCycle: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppRentUpdate: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppAddUtilityBill: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     miniAppApproveMember: {
       handler: async () =>
         new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
@@ -256,6 +301,86 @@ describe('createBotWebhookServer', () => {
       ok: true,
       authorized: true,
       member: {}
+    })
+  })
+
+  test('accepts mini app billing cycle request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/billing-cycle', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app open cycle request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/billing-cycle/open', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app close cycle request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/billing-cycle/close', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app rent update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/rent/update', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app utility bill add request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/utility-bills/add', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
     })
   })
 

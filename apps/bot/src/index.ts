@@ -42,6 +42,13 @@ import {
   createMiniAppUpdateSettingsHandler,
   createMiniAppUpsertUtilityCategoryHandler
 } from './miniapp-admin'
+import {
+  createMiniAppAddUtilityBillHandler,
+  createMiniAppBillingCycleHandler,
+  createMiniAppCloseCycleHandler,
+  createMiniAppOpenCycleHandler,
+  createMiniAppRentUpdateHandler
+} from './miniapp-billing'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
 
 const runtime = getBotRuntimeConfig()
@@ -349,6 +356,51 @@ const server = createBotWebhookServer({
         onboardingService: householdOnboardingService,
         miniAppAdminService: miniAppAdminService!,
         logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppBillingCycle: householdOnboardingService
+    ? createMiniAppBillingCycleHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppOpenCycle: householdOnboardingService
+    ? createMiniAppOpenCycleHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppCloseCycle: householdOnboardingService
+    ? createMiniAppCloseCycleHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppRentUpdate: householdOnboardingService
+    ? createMiniAppRentUpdateHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppAddUtilityBill: householdOnboardingService
+    ? createMiniAppAddUtilityBillHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
       })
     : undefined,
   miniAppLocalePreference: householdOnboardingService

@@ -56,6 +56,36 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppBillingCycle?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppOpenCycle?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppCloseCycle?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppRentUpdate?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppAddUtilityBill?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -106,6 +136,15 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpsertUtilityCategory?.path ?? '/api/miniapp/admin/utility-categories/upsert'
   const miniAppPromoteMemberPath =
     options.miniAppPromoteMember?.path ?? '/api/miniapp/admin/members/promote'
+  const miniAppBillingCyclePath =
+    options.miniAppBillingCycle?.path ?? '/api/miniapp/admin/billing-cycle'
+  const miniAppOpenCyclePath =
+    options.miniAppOpenCycle?.path ?? '/api/miniapp/admin/billing-cycle/open'
+  const miniAppCloseCyclePath =
+    options.miniAppCloseCycle?.path ?? '/api/miniapp/admin/billing-cycle/close'
+  const miniAppRentUpdatePath = options.miniAppRentUpdate?.path ?? '/api/miniapp/admin/rent/update'
+  const miniAppAddUtilityBillPath =
+    options.miniAppAddUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/add'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler
@@ -157,6 +196,26 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppPromoteMember && url.pathname === miniAppPromoteMemberPath) {
         return await options.miniAppPromoteMember.handler(request)
+      }
+
+      if (options.miniAppBillingCycle && url.pathname === miniAppBillingCyclePath) {
+        return await options.miniAppBillingCycle.handler(request)
+      }
+
+      if (options.miniAppOpenCycle && url.pathname === miniAppOpenCyclePath) {
+        return await options.miniAppOpenCycle.handler(request)
+      }
+
+      if (options.miniAppCloseCycle && url.pathname === miniAppCloseCyclePath) {
+        return await options.miniAppCloseCycle.handler(request)
+      }
+
+      if (options.miniAppRentUpdate && url.pathname === miniAppRentUpdatePath) {
+        return await options.miniAppRentUpdate.handler(request)
+      }
+
+      if (options.miniAppAddUtilityBill && url.pathname === miniAppAddUtilityBillPath) {
+        return await options.miniAppAddUtilityBill.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {
