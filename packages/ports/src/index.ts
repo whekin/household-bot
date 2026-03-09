@@ -35,3 +35,9 @@ export type {
   SettlementSnapshotLineRecord,
   SettlementSnapshotRecord
 } from './finance'
+export {
+  TELEGRAM_PENDING_ACTION_TYPES,
+  type TelegramPendingActionRecord,
+  type TelegramPendingActionRepository,
+  type TelegramPendingActionType
+} from './telegram-pending-actions'

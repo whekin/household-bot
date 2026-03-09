@@ -107,6 +107,32 @@ export const householdPendingMembers = pgTable(
   })
 )
 
+export const telegramPendingActions = pgTable(
+  'telegram_pending_actions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    telegramUserId: text('telegram_user_id').notNull(),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    action: text('action').notNull(),
+    payload: jsonb('payload')
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    chatUserUnique: uniqueIndex('telegram_pending_actions_chat_user_unique').on(
+      table.telegramChatId,
+      table.telegramUserId
+    ),
+    userActionIdx: index('telegram_pending_actions_user_action_idx').on(
+      table.telegramUserId,
+      table.action
+    )
+  })
+)
+
 export const members = pgTable(
   'members',
   {

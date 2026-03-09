@@ -12,7 +12,8 @@ import {
   createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
-  createDbReminderDispatchRepository
+  createDbReminderDispatchRepository,
+  createDbTelegramPendingActionRepository
 } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
@@ -66,6 +67,10 @@ const householdOnboardingService = householdConfigurationRepositoryClient
 const anonymousFeedbackRepositoryClient = runtime.anonymousFeedbackEnabled
   ? createDbAnonymousFeedbackRepository(runtime.databaseUrl!, runtime.householdId!)
   : null
+const telegramPendingActionRepositoryClient =
+  runtime.databaseUrl && runtime.anonymousFeedbackEnabled
+    ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
+    : null
 const anonymousFeedbackService = anonymousFeedbackRepositoryClient
   ? createAnonymousFeedbackService(anonymousFeedbackRepositoryClient.repository)
   : null
@@ -80,6 +85,10 @@ if (householdConfigurationRepositoryClient) {
 
 if (anonymousFeedbackRepositoryClient) {
   shutdownTasks.push(anonymousFeedbackRepositoryClient.close)
+}
+
+if (telegramPendingActionRepositoryClient) {
+  shutdownTasks.push(telegramPendingActionRepositoryClient.close)
 }
 
 if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
@@ -175,6 +184,7 @@ if (anonymousFeedbackService) {
   registerAnonymousFeedback({
     bot,
     anonymousFeedbackService,
+    promptRepository: telegramPendingActionRepositoryClient!.repository,
     householdChatId: runtime.telegramHouseholdChatId!,
     feedbackTopicId: runtime.telegramFeedbackTopicId!,
     logger: getLogger('anonymous-feedback')

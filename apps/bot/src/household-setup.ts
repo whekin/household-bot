@@ -6,6 +6,8 @@ import type {
 import type { Logger } from '@household/observability'
 import type { Bot, Context } from 'grammy'
 
+const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
+
 function commandArgText(ctx: Context): string {
   return typeof ctx.match === 'string' ? ctx.match.trim() : ''
 }
@@ -71,6 +73,43 @@ function actorDisplayName(ctx: Context): string | undefined {
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
 
   return fullName || ctx.from?.username?.trim() || undefined
+}
+
+function buildPendingMemberLabel(displayName: string): string {
+  const normalized = displayName.trim().replaceAll(/\s+/g, ' ')
+  if (normalized.length <= 32) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, 29)}...`
+}
+
+function pendingMembersReply(result: {
+  householdName: string
+  members: readonly {
+    telegramUserId: string
+    displayName: string
+    username?: string | null
+  }[]
+}) {
+  return {
+    text: [
+      `Pending members for ${result.householdName}:`,
+      ...result.members.map(
+        (member, index) =>
+          `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`
+      ),
+      'Tap a button below to approve, or use /approve_member <telegram_user_id>.'
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: result.members.map((member) => [
+        {
+          text: `Approve ${buildPendingMemberLabel(member.displayName)}`,
+          callback_data: `${APPROVE_MEMBER_CALLBACK_PREFIX}${member.telegramUserId}`
+        }
+      ])
+    }
+  } as const
 }
 
 export function registerHouseholdSetupCommands(options: {
@@ -335,16 +374,10 @@ export function registerHouseholdSetupCommands(options: {
       return
     }
 
-    await ctx.reply(
-      [
-        `Pending members for ${result.householdName}:`,
-        ...result.members.map(
-          (member, index) =>
-            `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`
-        ),
-        'Approve with /approve_member <telegram_user_id>.'
-      ].join('\n')
-    )
+    const reply = pendingMembersReply(result)
+    await ctx.reply(reply.text, {
+      reply_markup: reply.reply_markup
+    })
   })
 
   options.bot.command('approve_member', async (ctx) => {
@@ -380,4 +413,67 @@ export function registerHouseholdSetupCommands(options: {
       `Approved ${result.member.displayName} as an active member of ${result.householdName}.`
     )
   })
+
+  options.bot.callbackQuery(
+    new RegExp(`^${APPROVE_MEMBER_CALLBACK_PREFIX}(\\d+)$`),
+    async (ctx) => {
+      if (!isGroupChat(ctx)) {
+        await ctx.answerCallbackQuery({
+          text: 'Use this button in the household group.',
+          show_alert: true
+        })
+        return
+      }
+
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      const pendingTelegramUserId = ctx.match[1]
+      if (!actorTelegramUserId || !pendingTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: 'Unable to identify the selected member.',
+          show_alert: true
+        })
+        return
+      }
+
+      const result = await options.householdAdminService.approvePendingMember({
+        actorTelegramUserId,
+        telegramChatId: ctx.chat.id.toString(),
+        pendingTelegramUserId
+      })
+
+      if (result.status === 'rejected') {
+        await ctx.answerCallbackQuery({
+          text: adminRejectionMessage(result.reason),
+          show_alert: true
+        })
+        return
+      }
+
+      await ctx.answerCallbackQuery({
+        text: `Approved ${result.member.displayName}.`
+      })
+
+      if (ctx.msg) {
+        const refreshed = await options.householdAdminService.listPendingMembers({
+          actorTelegramUserId,
+          telegramChatId: ctx.chat.id.toString()
+        })
+
+        if (refreshed.status === 'ok') {
+          if (refreshed.members.length === 0) {
+            await ctx.editMessageText(`No pending members for ${refreshed.householdName}.`)
+          } else {
+            const reply = pendingMembersReply(refreshed)
+            await ctx.editMessageText(reply.text, {
+              reply_markup: reply.reply_markup
+            })
+          }
+        }
+      }
+
+      await ctx.reply(
+        `Approved ${result.member.displayName} as an active member of ${result.householdName}.`
+      )
+    }
+  )
 }
