@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
+import { instantFromDatabaseValue, instantToDate } from '@household/domain'
 import type {
   AnonymousFeedbackModerationStatus,
   AnonymousFeedbackRepository
@@ -49,11 +50,14 @@ export function createDbAnonymousFeedbackRepository(
     },
 
     async getRateLimitSnapshot(memberId, acceptedSince) {
-      const acceptedSinceIso = acceptedSince.toISOString()
+      const acceptedSinceIso = acceptedSince.toString()
 
       const rows = await db
         .select({
           acceptedCountSince: sql<string>`count(*) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSinceIso}::timestamptz)`,
+          earliestAcceptedAtSince: sql<
+            string | Date | null
+          >`min(${schema.anonymousMessages.createdAt}) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSinceIso}::timestamptz)`,
           lastAcceptedAt: sql<string | Date | null>`max(${schema.anonymousMessages.createdAt})`
         })
         .from(schema.anonymousMessages)
@@ -65,16 +69,13 @@ export function createDbAnonymousFeedbackRepository(
           )
         )
 
+      const earliestAcceptedAtSinceRaw = rows[0]?.earliestAcceptedAtSince ?? null
       const lastAcceptedAtRaw = rows[0]?.lastAcceptedAt ?? null
 
       return {
         acceptedCountSince: Number(rows[0]?.acceptedCountSince ?? '0'),
-        lastAcceptedAt:
-          lastAcceptedAtRaw instanceof Date
-            ? lastAcceptedAtRaw
-            : typeof lastAcceptedAtRaw === 'string'
-              ? new Date(lastAcceptedAtRaw)
-              : null
+        earliestAcceptedAtSince: instantFromDatabaseValue(earliestAcceptedAtSinceRaw),
+        lastAcceptedAt: instantFromDatabaseValue(lastAcceptedAtRaw)
       }
     },
 
@@ -146,7 +147,7 @@ export function createDbAnonymousFeedbackRepository(
           postedChatId: input.postedChatId,
           postedThreadId: input.postedThreadId,
           postedMessageId: input.postedMessageId,
-          postedAt: input.postedAt,
+          postedAt: instantToDate(input.postedAt),
           failureReason: null
         })
         .where(eq(schema.anonymousMessages.id, input.submissionId))

@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 import type { AnonymousFeedbackService } from '@household/application'
+import { instantFromIso, nowInstant, Temporal, type Instant } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   TelegramPendingActionRepository
@@ -43,7 +44,7 @@ function anonUpdate(params: {
 }
 
 function createPromptRepository(): TelegramPendingActionRepository {
-  const store = new Map<string, { action: 'anonymous_feedback'; expiresAt: Date | null }>()
+  const store = new Map<string, { action: 'anonymous_feedback'; expiresAt: Instant | null }>()
 
   return {
     async upsertPendingAction(input) {
@@ -60,7 +61,7 @@ function createPromptRepository(): TelegramPendingActionRepository {
         return null
       }
 
-      if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) {
+      if (record.expiresAt && Temporal.Instant.compare(record.expiresAt, nowInstant()) <= 0) {
         store.delete(key)
         return null
       }
@@ -476,5 +477,69 @@ describe('registerAnonymousFeedback', () => {
     expect(submit).toHaveBeenCalledTimes(0)
     expect(calls[1]?.method).toBe('answerCallbackQuery')
     expect(calls[2]?.method).toBe('editMessageText')
+  })
+
+  test('includes the next allowed time in cooldown replies', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 1,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit: mock(async () => ({
+          status: 'rejected' as const,
+          reason: 'cooldown' as const,
+          nextAllowedAt: nowInstant().add({ hours: 6 })
+        })),
+        markPosted: mock(async () => {}),
+        markFailed: mock(async () => {})
+      }),
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(
+      anonUpdate({
+        updateId: 1008,
+        chatType: 'private',
+        text: '/anon Please clean the kitchen tonight.'
+      }) as never
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      text: 'Anonymous feedback cooldown is active. You can send the next message in 6 hours.'
+    })
   })
 })

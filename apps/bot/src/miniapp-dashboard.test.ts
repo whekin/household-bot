@@ -4,6 +4,7 @@ import {
   createFinanceCommandService,
   createHouseholdOnboardingService
 } from '@household/application'
+import { instantFromIso } from '@household/domain'
 import type {
   FinanceRepository,
   HouseholdConfigurationRepository,
@@ -53,7 +54,7 @@ function repository(
         amountMinor: 12000n,
         currency: 'USD',
         createdByMemberId: member?.id ?? 'member-1',
-        createdAt: new Date('2026-03-12T12:00:00.000Z')
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ],
     listParsedPurchasesForRange: async () => [
@@ -62,7 +63,7 @@ function repository(
         payerMemberId: member?.id ?? 'member-1',
         amountMinor: 3000n,
         description: 'Soap',
-        occurredAt: new Date('2026-03-12T11:00:00.000Z')
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
     ],
     replaceSettlementSnapshot: async () => {}

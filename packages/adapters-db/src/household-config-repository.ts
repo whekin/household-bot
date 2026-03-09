@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
+import { instantToDate, nowInstant } from '@household/domain'
 import {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,
@@ -138,7 +139,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             .set({
               telegramChatType: input.telegramChatType,
               title: nextTitle,
-              updatedAt: new Date()
+              updatedAt: instantToDate(nowInstant())
             })
             .where(eq(schema.householdTelegramChats.telegramChatId, input.telegramChatId))
 
@@ -256,7 +257,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           set: {
             telegramThreadId: input.telegramThreadId,
             topicName: input.topicName?.trim() || null,
-            updatedAt: new Date()
+            updatedAt: instantToDate(nowInstant())
           }
         })
         .returning({
@@ -348,7 +349,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           set: {
             token: input.token,
             createdByTelegramUserId: input.createdByTelegramUserId ?? null,
-            updatedAt: new Date()
+            updatedAt: instantToDate(nowInstant())
           }
         })
         .returning({
@@ -448,7 +449,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             displayName: input.displayName,
             username: input.username?.trim() || null,
             languageCode: input.languageCode?.trim() || null,
-            updatedAt: new Date()
+            updatedAt: instantToDate(nowInstant())
           }
         })
         .returning({

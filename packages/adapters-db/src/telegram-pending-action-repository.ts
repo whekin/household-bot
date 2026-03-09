@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
+import { instantFromDatabaseValue, instantToDate, nowInstant, Temporal } from '@household/domain'
 import type {
   TelegramPendingActionRecord,
   TelegramPendingActionRepository,
@@ -20,7 +21,7 @@ function mapPendingAction(row: {
   telegramChatId: string
   action: string
   payload: unknown
-  expiresAt: Date | null
+  expiresAt: Date | string | null
 }): TelegramPendingActionRecord {
   return {
     telegramUserId: row.telegramUserId,
@@ -30,7 +31,7 @@ function mapPendingAction(row: {
       row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
         ? (row.payload as Record<string, unknown>)
         : {},
-    expiresAt: row.expiresAt
+    expiresAt: instantFromDatabaseValue(row.expiresAt)
   }
 }
 
@@ -52,8 +53,8 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
           telegramChatId: input.telegramChatId,
           action: input.action,
           payload: input.payload,
-          expiresAt: input.expiresAt,
-          updatedAt: new Date()
+          expiresAt: input.expiresAt ? instantToDate(input.expiresAt) : null,
+          updatedAt: instantToDate(nowInstant())
         })
         .onConflictDoUpdate({
           target: [
@@ -63,8 +64,8 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
           set: {
             action: input.action,
             payload: input.payload,
-            expiresAt: input.expiresAt,
-            updatedAt: new Date()
+            expiresAt: input.expiresAt ? instantToDate(input.expiresAt) : null,
+            updatedAt: instantToDate(nowInstant())
           }
         })
         .returning({
@@ -84,7 +85,7 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
     },
 
     async getPendingAction(telegramChatId, telegramUserId) {
-      const now = new Date()
+      const now = nowInstant()
       const rows = await db
         .select({
           telegramUserId: schema.telegramPendingActions.telegramUserId,
@@ -107,7 +108,8 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
         return null
       }
 
-      if (row.expiresAt && row.expiresAt.getTime() <= now.getTime()) {
+      const expiresAt = instantFromDatabaseValue(row.expiresAt)
+      if (expiresAt && Temporal.Instant.compare(expiresAt, now) <= 0) {
         await db
           .delete(schema.telegramPendingActions)
           .where(
@@ -120,7 +122,16 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
         return null
       }
 
-      return mapPendingAction(row)
+      return {
+        telegramUserId: row.telegramUserId,
+        telegramChatId: row.telegramChatId,
+        action: parsePendingActionType(row.action),
+        payload:
+          row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+            ? (row.payload as Record<string, unknown>)
+            : {},
+        expiresAt
+      }
     },
 
     async clearPendingAction(telegramChatId, telegramUserId) {

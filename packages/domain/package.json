@@ -10,5 +10,8 @@
     "typecheck": "tsgo --project tsconfig.json --noEmit",
     "test": "bun test --pass-with-no-tests",
     "lint": "oxlint \"src\""
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1"
   }
 }

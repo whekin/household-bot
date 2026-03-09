@@ -1,5 +1,5 @@
 import { parsePurchaseMessage, type PurchaseParserLlmFallback } from '@household/application'
-import { Money } from '@household/domain'
+import { instantFromEpochSeconds, instantToDate, Money, type Instant } from '@household/domain'
 import { and, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
@@ -24,7 +24,7 @@ export interface PurchaseTopicCandidate {
   senderTelegramUserId: string
   senderDisplayName?: string
   rawText: string
-  messageSentAt: Date
+  messageSentAt: Instant
 }
 
 export interface PurchaseTopicRecord extends PurchaseTopicCandidate {
@@ -170,7 +170,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
           telegramMessageId: record.messageId,
           telegramThreadId: record.threadId,
           telegramUpdateId: String(record.updateId),
-          messageSentAt: record.messageSentAt,
+          messageSentAt: instantToDate(record.messageSentAt),
           parsedAmountMinor: parsed?.amountMinor,
           parsedCurrency: parsed?.currency,
           parsedItemDescription: parsed?.itemDescription,
@@ -286,7 +286,7 @@ function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
     threadId: message.message_thread_id.toString(),
     senderTelegramUserId,
     rawText: message.text,
-    messageSentAt: new Date(message.date * 1000)
+    messageSentAt: instantFromEpochSeconds(message.date)
   }
 
   if (senderDisplayName.length > 0) {

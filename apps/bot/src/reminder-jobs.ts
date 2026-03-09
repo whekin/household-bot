@@ -1,5 +1,5 @@
 import type { ReminderJobService } from '@household/application'
-import { BillingPeriod } from '@household/domain'
+import { BillingPeriod, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import { REMINDER_TYPES, type ReminderType } from '@household/ports'
 
@@ -27,11 +27,7 @@ function parseReminderType(raw: string): ReminderType | null {
 }
 
 function currentPeriod(): string {
-  const now = new Date()
-  const year = now.getUTCFullYear()
-  const month = `${now.getUTCMonth() + 1}`.padStart(2, '0')
-
-  return `${year}-${month}`
+  return BillingPeriod.fromInstant(nowInstant()).toString()
 }
 
 async function readBody(request: Request): Promise<ReminderJobRequestBody> {

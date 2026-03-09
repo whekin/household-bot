@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
+import { instantToEpochSeconds, nowInstant, type Instant } from '@household/domain'
+
 interface TelegramUserPayload {
   id: number
   first_name?: string
@@ -19,7 +21,7 @@ export interface VerifiedMiniAppUser {
 export function verifyTelegramMiniAppInitData(
   initData: string,
   botToken: string,
-  now = new Date(),
+  now: Instant = nowInstant(),
   maxAgeSeconds = 3600
 ): VerifiedMiniAppUser | null {
   const params = new URLSearchParams(initData)
@@ -35,7 +37,7 @@ export function verifyTelegramMiniAppInitData(
   }
 
   const authDateSeconds = Number(authDateRaw)
-  const nowSeconds = Math.floor(now.getTime() / 1000)
+  const nowSeconds = instantToEpochSeconds(now)
   if (authDateSeconds > nowSeconds) {
     return null
   }

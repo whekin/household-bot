@@ -1,4 +1,5 @@
 import type { AnonymousFeedbackService } from '@household/application'
+import { Temporal, nowInstant, type Instant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -43,7 +44,30 @@ function shouldKeepPrompt(reason: string): boolean {
   return reason === 'too_short' || reason === 'too_long' || reason === 'blocklisted'
 }
 
-function rejectionMessage(reason: string): string {
+function formatRetryDelay(now: Instant, nextAllowedAt: Instant): string {
+  if (Temporal.Instant.compare(nextAllowedAt, now) <= 0) {
+    return 'now'
+  }
+
+  const duration = now.until(nextAllowedAt, {
+    largestUnit: 'hour',
+    smallestUnit: 'minute',
+    roundingMode: 'ceil'
+  })
+
+  const days = Math.floor(duration.hours / 24)
+  const hours = duration.hours % 24
+
+  const parts = [
+    days > 0 ? `${days} day${days === 1 ? '' : 's'}` : null,
+    hours > 0 ? `${hours} hour${hours === 1 ? '' : 's'}` : null,
+    duration.minutes > 0 ? `${duration.minutes} minute${duration.minutes === 1 ? '' : 's'}` : null
+  ].filter(Boolean)
+
+  return parts.length > 0 ? `in ${parts.join(' ')}` : 'in less than a minute'
+}
+
+function rejectionMessage(reason: string, nextAllowedAt?: Instant, now = nowInstant()): string {
   switch (reason) {
     case 'not_member':
       return 'You are not a member of this household.'
@@ -52,9 +76,13 @@ function rejectionMessage(reason: string): string {
     case 'too_long':
       return 'Anonymous feedback is too long. Keep it under 500 characters.'
     case 'cooldown':
-      return 'Anonymous feedback cooldown is active. Try again later.'
+      return nextAllowedAt
+        ? `Anonymous feedback cooldown is active. You can send the next message ${formatRetryDelay(now, nextAllowedAt)}.`
+        : 'Anonymous feedback cooldown is active. Try again later.'
     case 'daily_cap':
-      return 'Daily anonymous feedback limit reached. Try again tomorrow.'
+      return nextAllowedAt
+        ? `Daily anonymous feedback limit reached. You can send the next message ${formatRetryDelay(now, nextAllowedAt)}.`
+        : 'Daily anonymous feedback limit reached. Try again tomorrow.'
     case 'blocklisted':
       return 'Message rejected by moderation. Rewrite it in calmer, non-abusive language.'
     default:
@@ -91,7 +119,7 @@ async function startPendingAnonymousFeedbackPrompt(
     telegramChatId,
     action: ANONYMOUS_FEEDBACK_ACTION,
     payload: {},
-    expiresAt: new Date(Date.now() + PENDING_ACTION_TTL_MS)
+    expiresAt: nowInstant().add({ milliseconds: PENDING_ACTION_TTL_MS })
   })
 
   await ctx.reply('Send me the anonymous message in your next reply, or tap Cancel.', {
@@ -175,10 +203,12 @@ async function submitAnonymousFeedback(options: {
       await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
     }
 
+    const rejectionText = rejectionMessage(result.reason, result.nextAllowedAt, nowInstant())
+
     await options.ctx.reply(
       shouldKeepPrompt(result.reason)
-        ? `${rejectionMessage(result.reason)} Send a revised message, or tap Cancel.`
-        : rejectionMessage(result.reason),
+        ? `${rejectionText} Send a revised message, or tap Cancel.`
+        : rejectionText,
       shouldKeepPrompt(result.reason)
         ? {
             reply_markup: cancelReplyMarkup()

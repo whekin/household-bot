@@ -1,3 +1,5 @@
+import type { Instant } from '@household/domain'
+
 export type AnonymousFeedbackModerationStatus = 'accepted' | 'posted' | 'rejected' | 'failed'
 
 export type AnonymousFeedbackRejectionReason =
@@ -16,7 +18,8 @@ export interface AnonymousFeedbackMemberRecord {
 
 export interface AnonymousFeedbackRateLimitSnapshot {
   acceptedCountSince: number
-  lastAcceptedAt: Date | null
+  earliestAcceptedAtSince: Instant | null
+  lastAcceptedAt: Instant | null
 }
 
 export interface AnonymousFeedbackSubmissionRecord {
@@ -28,7 +31,7 @@ export interface AnonymousFeedbackRepository {
   getMemberByTelegramUserId(telegramUserId: string): Promise<AnonymousFeedbackMemberRecord | null>
   getRateLimitSnapshot(
     memberId: string,
-    acceptedSince: Date
+    acceptedSince: Instant
   ): Promise<AnonymousFeedbackRateLimitSnapshot>
   createSubmission(input: {
     submittedByMemberId: string
@@ -45,7 +48,7 @@ export interface AnonymousFeedbackRepository {
     postedChatId: string
     postedThreadId: string
     postedMessageId: string
-    postedAt: Date
+    postedAt: Instant
   }): Promise<void>
   markFailed(submissionId: string, failureReason: string): Promise<void>
 }

@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
+import { instantFromIso, instantToEpochSeconds } from '@household/domain'
+
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 describe('verifyTelegramMiniAppInitData', () => {
   test('verifies valid init data and extracts user payload', () => {
-    const now = new Date('2026-03-08T12:00:00.000Z')
-    const initData = buildMiniAppInitData('test-bot-token', Math.floor(now.getTime() / 1000), {
+    const now = instantFromIso('2026-03-08T12:00:00.000Z')
+    const initData = buildMiniAppInitData('test-bot-token', instantToEpochSeconds(now), {
       id: 123456,
       first_name: 'Stan',
       username: 'stanislav'
@@ -24,9 +26,9 @@ describe('verifyTelegramMiniAppInitData', () => {
   })
 
   test('rejects invalid hash', () => {
-    const now = new Date('2026-03-08T12:00:00.000Z')
+    const now = instantFromIso('2026-03-08T12:00:00.000Z')
     const params = new URLSearchParams(
-      buildMiniAppInitData('test-bot-token', Math.floor(now.getTime() / 1000), {
+      buildMiniAppInitData('test-bot-token', instantToEpochSeconds(now), {
         id: 123456,
         first_name: 'Stan'
       })
@@ -39,15 +41,11 @@ describe('verifyTelegramMiniAppInitData', () => {
   })
 
   test('rejects expired init data', () => {
-    const now = new Date('2026-03-08T12:00:00.000Z')
-    const initData = buildMiniAppInitData(
-      'test-bot-token',
-      Math.floor(now.getTime() / 1000) - 7200,
-      {
-        id: 123456,
-        first_name: 'Stan'
-      }
-    )
+    const now = instantFromIso('2026-03-08T12:00:00.000Z')
+    const initData = buildMiniAppInitData('test-bot-token', instantToEpochSeconds(now) - 7200, {
+      id: 123456,
+      first_name: 'Stan'
+    })
 
     const result = verifyTelegramMiniAppInitData(initData, 'test-bot-token', now, 3600)
 
@@ -55,8 +53,8 @@ describe('verifyTelegramMiniAppInitData', () => {
   })
 
   test('rejects init data timestamps from the future', () => {
-    const now = new Date('2026-03-08T12:00:00.000Z')
-    const initData = buildMiniAppInitData('test-bot-token', Math.floor(now.getTime() / 1000) + 5, {
+    const now = instantFromIso('2026-03-08T12:00:00.000Z')
+    const initData = buildMiniAppInitData('test-bot-token', instantToEpochSeconds(now) + 5, {
       id: 123456,
       first_name: 'Stan'
     })

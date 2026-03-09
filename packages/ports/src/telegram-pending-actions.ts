@@ -1,3 +1,5 @@
+import type { Instant } from '@household/domain'
+
 export const TELEGRAM_PENDING_ACTION_TYPES = ['anonymous_feedback'] as const
 
 export type TelegramPendingActionType = (typeof TELEGRAM_PENDING_ACTION_TYPES)[number]
@@ -7,7 +9,7 @@ export interface TelegramPendingActionRecord {
   telegramChatId: string
   action: TelegramPendingActionType
   payload: Record<string, unknown>
-  expiresAt: Date | null
+  expiresAt: Instant | null
 }
 
 export interface TelegramPendingActionRepository {

@@ -1,4 +1,4 @@
-import type { CurrencyCode } from '@household/domain'
+import type { CurrencyCode, Instant } from '@household/domain'
 
 export interface FinanceMemberRecord {
   id: string
@@ -23,7 +23,7 @@ export interface FinanceParsedPurchaseRecord {
   payerMemberId: string
   amountMinor: bigint
   description: string | null
-  occurredAt: Date | null
+  occurredAt: Instant | null
 }
 
 export interface FinanceUtilityBillRecord {
@@ -32,7 +32,7 @@ export interface FinanceUtilityBillRecord {
   amountMinor: bigint
   currency: CurrencyCode
   createdByMemberId: string | null
-  createdAt: Date
+  createdAt: Instant
 }
 
 export interface SettlementSnapshotLineRecord {
@@ -60,7 +60,7 @@ export interface FinanceRepository {
   getCycleByPeriod(period: string): Promise<FinanceCycleRecord | null>
   getLatestCycle(): Promise<FinanceCycleRecord | null>
   openCycle(period: string, currency: CurrencyCode): Promise<void>
-  closeCycle(cycleId: string, closedAt: Date): Promise<void>
+  closeCycle(cycleId: string, closedAt: Instant): Promise<void>
   saveRentRule(period: string, amountMinor: bigint, currency: CurrencyCode): Promise<void>
   addUtilityBill(input: {
     cycleId: string
@@ -73,8 +73,8 @@ export interface FinanceRepository {
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
   listParsedPurchasesForRange(
-    start: Date,
-    end: Date
+    start: Instant,
+    end: Instant
   ): Promise<readonly FinanceParsedPurchaseRecord[]>
   replaceSettlementSnapshot(snapshot: SettlementSnapshotRecord): Promise<void>
 }

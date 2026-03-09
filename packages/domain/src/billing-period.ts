@@ -1,3 +1,5 @@
+import type { Instant } from './time'
+
 import { DOMAIN_ERROR_CODE, DomainError } from './errors'
 
 const BILLING_PERIOD_PATTERN = /^(\d{4})-(\d{2})$/
@@ -48,8 +50,10 @@ export class BillingPeriod {
     return BillingPeriod.from(Number(yearString), Number(monthString))
   }
 
-  static fromDate(date: Date): BillingPeriod {
-    return BillingPeriod.from(date.getUTCFullYear(), date.getUTCMonth() + 1)
+  static fromInstant(instant: Instant): BillingPeriod {
+    const zoned = instant.toZonedDateTimeISO('UTC')
+
+    return BillingPeriod.from(zoned.year, zoned.month)
   }
 
   next(): BillingPeriod {

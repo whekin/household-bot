@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { instantFromIso } from '@household/domain'
 import { createTelegramBot } from './bot'
 
 import {
@@ -25,7 +26,7 @@ function candidate(overrides: Partial<PurchaseTopicCandidate> = {}): PurchaseTop
     threadId: '777',
     senderTelegramUserId: '10002',
     rawText: 'Bought toilet paper 30 gel',
-    messageSentAt: new Date('2026-03-05T00:00:00.000Z'),
+    messageSentAt: instantFromIso('2026-03-05T00:00:00.000Z'),
     ...overrides
   }
 }

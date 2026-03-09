@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { instantFromIso, type Instant } from '@household/domain'
 import type {
   AnonymousFeedbackMemberRecord,
   AnonymousFeedbackRepository,
@@ -16,7 +17,8 @@ class AnonymousFeedbackRepositoryStub implements AnonymousFeedbackRepository {
   }
 
   acceptedCountSince = 0
-  lastAcceptedAt: Date | null = null
+  earliestAcceptedAtSince: Instant | null = null
+  lastAcceptedAt: Instant | null = null
   duplicate = false
   created: Array<{
     rawText: string
@@ -34,6 +36,7 @@ class AnonymousFeedbackRepositoryStub implements AnonymousFeedbackRepository {
   async getRateLimitSnapshot() {
     return {
       acceptedCountSince: this.acceptedCountSince,
+      earliestAcceptedAtSince: this.earliestAcceptedAtSince,
       lastAcceptedAt: this.lastAcceptedAt
     }
   }
@@ -69,7 +72,7 @@ class AnonymousFeedbackRepositoryStub implements AnonymousFeedbackRepository {
     postedChatId: string
     postedThreadId: string
     postedMessageId: string
-    postedAt: Date
+    postedAt: Instant
   }) {
     this.posted.push({
       submissionId: input.submissionId,
@@ -94,7 +97,7 @@ describe('createAnonymousFeedbackService', () => {
       telegramChatId: 'chat-1',
       telegramMessageId: 'message-1',
       telegramUpdateId: 'update-1',
-      now: new Date('2026-03-08T12:00:00.000Z')
+      now: instantFromIso('2026-03-08T12:00:00.000Z')
     })
 
     expect(result).toEqual({
@@ -154,7 +157,7 @@ describe('createAnonymousFeedbackService', () => {
     const repository = new AnonymousFeedbackRepositoryStub()
     const service = createAnonymousFeedbackService(repository)
 
-    repository.lastAcceptedAt = new Date('2026-03-08T09:00:00.000Z')
+    repository.lastAcceptedAt = instantFromIso('2026-03-08T09:00:00.000Z')
 
     const cooldownResult = await service.submit({
       telegramUserId: '123',
@@ -162,15 +165,17 @@ describe('createAnonymousFeedbackService', () => {
       telegramChatId: 'chat-1',
       telegramMessageId: 'message-1',
       telegramUpdateId: 'update-1',
-      now: new Date('2026-03-08T12:00:00.000Z')
+      now: instantFromIso('2026-03-08T12:00:00.000Z')
     })
 
     expect(cooldownResult).toEqual({
       status: 'rejected',
-      reason: 'cooldown'
+      reason: 'cooldown',
+      nextAllowedAt: instantFromIso('2026-03-08T15:00:00.000Z')
     })
 
-    repository.lastAcceptedAt = new Date('2026-03-07T00:00:00.000Z')
+    repository.earliestAcceptedAtSince = instantFromIso('2026-03-07T18:00:00.000Z')
+    repository.lastAcceptedAt = instantFromIso('2026-03-07T23:00:00.000Z')
     repository.acceptedCountSince = 3
 
     const dailyCapResult = await service.submit({
@@ -179,12 +184,13 @@ describe('createAnonymousFeedbackService', () => {
       telegramChatId: 'chat-1',
       telegramMessageId: 'message-2',
       telegramUpdateId: 'update-2',
-      now: new Date('2026-03-08T12:00:00.000Z')
+      now: instantFromIso('2026-03-08T12:00:00.000Z')
     })
 
     expect(dailyCapResult).toEqual({
       status: 'rejected',
-      reason: 'daily_cap'
+      reason: 'daily_cap',
+      nextAllowedAt: instantFromIso('2026-03-08T18:00:00.000Z')
     })
   })
 

@@ -2,6 +2,7 @@ import type {
   AnonymousFeedbackRejectionReason,
   AnonymousFeedbackRepository
 } from '@household/ports'
+import { nowInstant, type Instant, Temporal } from '@household/domain'
 
 const MIN_MESSAGE_LENGTH = 12
 const MAX_MESSAGE_LENGTH = 500
@@ -46,6 +47,7 @@ export type AnonymousFeedbackSubmitResult =
       status: 'rejected'
       reason: AnonymousFeedbackRejectionReason
       detail?: string
+      nextAllowedAt?: Instant
     }
 
 export interface AnonymousFeedbackService {
@@ -55,14 +57,14 @@ export interface AnonymousFeedbackService {
     telegramChatId: string
     telegramMessageId: string
     telegramUpdateId: string
-    now?: Date
+    now?: Instant
   }): Promise<AnonymousFeedbackSubmitResult>
   markPosted(input: {
     submissionId: string
     postedChatId: string
     postedThreadId: string
     postedMessageId: string
-    postedAt?: Date
+    postedAt?: Instant
   }): Promise<void>
   markFailed(submissionId: string, failureReason: string): Promise<void>
 }
@@ -74,6 +76,7 @@ async function rejectSubmission(
     rawText: string
     reason: AnonymousFeedbackRejectionReason
     detail?: string
+    nextAllowedAt?: Instant
     telegramChatId: string
     telegramMessageId: string
     telegramUpdateId: string
@@ -100,6 +103,7 @@ async function rejectSubmission(
   return {
     status: 'rejected',
     reason: input.reason,
+    ...(input.nextAllowedAt ? { nextAllowedAt: input.nextAllowedAt } : {}),
     ...(input.detail ? { detail: input.detail } : {})
   }
 }
@@ -153,14 +157,18 @@ export function createAnonymousFeedbackService(
         })
       }
 
-      const now = input.now ?? new Date()
-      const acceptedSince = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      const now = input.now ?? nowInstant()
+      const acceptedSince = now.subtract({ hours: 24 })
       const rateLimit = await repository.getRateLimitSnapshot(member.id, acceptedSince)
       if (rateLimit.acceptedCountSince >= DAILY_CAP) {
+        const nextAllowedAt =
+          rateLimit.earliestAcceptedAtSince?.add({ hours: 24 }) ?? now.add({ hours: 24 })
+
         return rejectSubmission(repository, {
           memberId: member.id,
           rawText: input.rawText,
           reason: 'daily_cap',
+          nextAllowedAt,
           telegramChatId: input.telegramChatId,
           telegramMessageId: input.telegramMessageId,
           telegramUpdateId: input.telegramUpdateId
@@ -168,12 +176,13 @@ export function createAnonymousFeedbackService(
       }
 
       if (rateLimit.lastAcceptedAt) {
-        const cooldownBoundary = now.getTime() - COOLDOWN_HOURS * 60 * 60 * 1000
-        if (rateLimit.lastAcceptedAt.getTime() > cooldownBoundary) {
+        const cooldownBoundary = now.subtract({ hours: COOLDOWN_HOURS })
+        if (Temporal.Instant.compare(rateLimit.lastAcceptedAt, cooldownBoundary) > 0) {
           return rejectSubmission(repository, {
             memberId: member.id,
             rawText: input.rawText,
             reason: 'cooldown',
+            nextAllowedAt: rateLimit.lastAcceptedAt.add({ hours: COOLDOWN_HOURS }),
             telegramChatId: input.telegramChatId,
             telegramMessageId: input.telegramMessageId,
             telegramUpdateId: input.telegramUpdateId
@@ -212,7 +221,7 @@ export function createAnonymousFeedbackService(
         postedChatId: input.postedChatId,
         postedThreadId: input.postedThreadId,
         postedMessageId: input.postedMessageId,
-        postedAt: input.postedAt ?? new Date()
+        postedAt: input.postedAt ?? nowInstant()
       })
     },
 

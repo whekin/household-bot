@@ -1,8 +1,13 @@
-import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import type { FinanceRepository } from '@household/ports'
-import type { CurrencyCode } from '@household/domain'
+import {
+  instantFromDatabaseValue,
+  instantToDate,
+  nowInstant,
+  type CurrencyCode
+} from '@household/domain'
 
 function toCurrencyCode(raw: string): CurrencyCode {
   const normalized = raw.trim().toUpperCase()
@@ -171,7 +176,7 @@ export function createDbFinanceRepository(
       await db
         .update(schema.billingCycles)
         .set({
-          closedAt
+          closedAt: instantToDate(closedAt)
         })
         .where(eq(schema.billingCycles.id, cycleId))
     },
@@ -265,7 +270,8 @@ export function createDbFinanceRepository(
 
       return rows.map((row) => ({
         ...row,
-        currency: toCurrencyCode(row.currency)
+        currency: toCurrencyCode(row.currency),
+        createdAt: instantFromDatabaseValue(row.createdAt)!
       }))
     },
 
@@ -284,8 +290,8 @@ export function createDbFinanceRepository(
             eq(schema.purchaseMessages.householdId, householdId),
             isNotNull(schema.purchaseMessages.senderMemberId),
             isNotNull(schema.purchaseMessages.parsedAmountMinor),
-            gte(schema.purchaseMessages.messageSentAt, start),
-            lte(schema.purchaseMessages.messageSentAt, end)
+            gte(schema.purchaseMessages.messageSentAt, instantToDate(start)),
+            lt(schema.purchaseMessages.messageSentAt, instantToDate(end))
           )
         )
 
@@ -294,7 +300,7 @@ export function createDbFinanceRepository(
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
         description: row.description,
-        occurredAt: row.occurredAt
+        occurredAt: instantFromDatabaseValue(row.occurredAt)
       }))
     },
 
@@ -316,7 +322,7 @@ export function createDbFinanceRepository(
               inputHash: snapshot.inputHash,
               totalDueMinor: snapshot.totalDueMinor,
               currency: snapshot.currency,
-              computedAt: new Date(),
+              computedAt: instantToDate(nowInstant()),
               metadata: snapshot.metadata
             }
           })

@@ -7,6 +7,8 @@ import {
   MemberId,
   Money,
   PurchaseEntryId,
+  Temporal,
+  nowInstant,
   type CurrencyCode
 } from '@household/domain'
 
@@ -25,10 +27,13 @@ function parseCurrency(raw: string | undefined, fallback: CurrencyCode): Currenc
   return normalized
 }
 
-function monthRange(period: BillingPeriod): { start: Date; end: Date } {
+function monthRange(period: BillingPeriod): {
+  start: Temporal.Instant
+  end: Temporal.Instant
+} {
   return {
-    start: new Date(Date.UTC(period.year, period.month - 1, 1, 0, 0, 0)),
-    end: new Date(Date.UTC(period.year, period.month, 0, 23, 59, 59))
+    start: Temporal.Instant.from(`${period.toString()}-01T00:00:00Z`),
+    end: Temporal.Instant.from(`${period.next().toString()}-01T00:00:00Z`)
   }
 }
 
@@ -161,7 +166,7 @@ async function buildFinanceDashboard(
       actorDisplayName: bill.createdByMemberId
         ? (memberNameById.get(bill.createdByMemberId) ?? null)
         : null,
-      occurredAt: bill.createdAt.toISOString()
+      occurredAt: bill.createdAt.toString()
     })),
     ...purchases.map((purchase) => ({
       id: purchase.id,
@@ -169,7 +174,7 @@ async function buildFinanceDashboard(
       title: purchase.description ?? 'Shared purchase',
       amount: Money.fromMinor(purchase.amountMinor, rentRule.currency),
       actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
-      occurredAt: purchase.occurredAt?.toISOString() ?? null
+      occurredAt: purchase.occurredAt?.toString() ?? null
     }))
   ].sort((left, right) => {
     if (left.occurredAt === right.occurredAt) {
@@ -246,7 +251,7 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
         return null
       }
 
-      await repository.closeCycle(cycle.id, new Date())
+      await repository.closeCycle(cycle.id, nowInstant())
       return cycle
     },
 

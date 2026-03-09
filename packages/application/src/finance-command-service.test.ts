@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { instantFromIso, type Instant } from '@household/domain'
 import type {
   FinanceCycleRecord,
   FinanceMemberRecord,
@@ -26,7 +27,7 @@ class FinanceRepositoryStub implements FinanceRepository {
     amountMinor: bigint
     currency: 'USD' | 'GEL'
     createdByMemberId: string | null
-    createdAt: Date
+    createdAt: Instant
   }[] = []
 
   lastSavedRentRule: {
@@ -180,7 +181,7 @@ describe('createFinanceCommandService', () => {
         amountMinor: 12000n,
         currency: 'USD',
         createdByMemberId: 'alice',
-        createdAt: new Date('2026-03-12T12:00:00.000Z')
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ]
     repository.purchases = [
@@ -189,7 +190,7 @@ describe('createFinanceCommandService', () => {
         payerMemberId: 'alice',
         amountMinor: 3000n,
         description: 'Soap',
-        occurredAt: new Date('2026-03-12T11:00:00.000Z')
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
     ]
 
