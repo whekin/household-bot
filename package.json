@@ -19,6 +19,8 @@
     "db:generate": "bunx drizzle-kit generate --config packages/db/drizzle.config.ts",
     "db:check": "bunx drizzle-kit check --config packages/db/drizzle.config.ts",
     "db:migrate": "bunx drizzle-kit migrate --config packages/db/drizzle.config.ts",
+    "db:migrations:check": "bun run scripts/check-migration-hygiene.ts",
+    "db:migrations:manifest": "bun run scripts/update-migration-checksums.ts",
     "db:push": "bunx drizzle-kit push --config packages/db/drizzle.config.ts",
     "db:studio": "bunx drizzle-kit studio --config packages/db/drizzle.config.ts",
     "db:seed": "set -a; [ -f .env ] && . ./.env; set +a; bun run --filter @household/db seed",

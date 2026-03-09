@@ -1,0 +1,15 @@
+{
+  "algorithm": "sha256",
+  "files": {
+    "0000_modern_centennial.sql": "3529b04edcdbe2537466fe532f50779e3175d60c384eb2f77818a37231b65fac",
+    "0001_spicy_sersi.sql": "148421f99147fbac0c740d67c1a33f085540dd75375916e33821cc92eba9e35b",
+    "0002_tough_sandman.sql": "842e3e153760224e2d6710dd43f72a64cc0f4845f6467ad0747de29c273441d1",
+    "0003_mature_roulette.sql": "ea3eeba17984fedf862d05027013addfe8dc5997fad6236c41484b4fed2c0389",
+    "0004_big_ultimatum.sql": "d01fda1cc11720417bc5ef4d09eef0fc9ed82c0ca2ea4f34f7c06959751007e4",
+    "0005_free_kang.sql": "e749a58fadc9332ed7980ba498897e7094e583d95bead473ad88f162221b0e34",
+    "0006_marvelous_nehzno.sql": "369a862f68dede5568116e29865aa3c8a7a0ff494487af1b202b62932ffe83f4",
+    "0007_sudden_murmur.sql": "eedf265c46705c20be4ddb3e2bd7d9670108756915b911e580e19a00f8118104",
+    "0008_lowly_spiral.sql": "4f016332d60f7ef1fef0311210a0fa1a0bfc1d9b6da1da4380a60c14d54a9681",
+    "0009_quiet_wallflower.sql": "c5bcb6a01b6f22a9e64866ac0d11468105aad8b2afb248296370f15b462e3087"
+  }
+}

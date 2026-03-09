@@ -30,6 +30,7 @@ jobs:
           - test
           - build
           - db-check
+          - db-migrations
 
     steps:
       - name: Checkout
@@ -73,6 +74,9 @@ jobs:
               ;;
             db-check)
               bun run db:check
+              ;;
+            db-migrations)
+              bun run db:migrations:check
               ;;
             *)
               echo "Unknown task: ${{ matrix.task }}"
