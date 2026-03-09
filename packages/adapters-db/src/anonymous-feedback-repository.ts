@@ -54,7 +54,7 @@ export function createDbAnonymousFeedbackRepository(
       const rows = await db
         .select({
           acceptedCountSince: sql<string>`count(*) filter (where ${schema.anonymousMessages.createdAt} >= ${acceptedSinceIso}::timestamptz)`,
-          lastAcceptedAt: sql<Date | null>`max(${schema.anonymousMessages.createdAt})`
+          lastAcceptedAt: sql<string | Date | null>`max(${schema.anonymousMessages.createdAt})`
         })
         .from(schema.anonymousMessages)
         .where(
@@ -65,9 +65,16 @@ export function createDbAnonymousFeedbackRepository(
           )
         )
 
+      const lastAcceptedAtRaw = rows[0]?.lastAcceptedAt ?? null
+
       return {
         acceptedCountSince: Number(rows[0]?.acceptedCountSince ?? '0'),
-        lastAcceptedAt: rows[0]?.lastAcceptedAt ?? null
+        lastAcceptedAt:
+          lastAcceptedAtRaw instanceof Date
+            ? lastAcceptedAtRaw
+            : typeof lastAcceptedAtRaw === 'string'
+              ? new Date(lastAcceptedAtRaw)
+              : null
       }
     },
 
