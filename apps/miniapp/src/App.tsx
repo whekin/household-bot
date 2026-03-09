@@ -107,6 +107,14 @@ function joinDeepLink(): string | null {
   return `https://t.me/${context.botUsername}?start=join_${encodeURIComponent(context.joinToken)}`
 }
 
+function dashboardMemberCount(dashboard: MiniAppDashboard | null): string {
+  return dashboard ? String(dashboard.members.length) : '—'
+}
+
+function dashboardLedgerCount(dashboard: MiniAppDashboard | null): string {
+  return dashboard ? String(dashboard.ledger.length) : '—'
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -481,6 +489,12 @@ function App() {
           <div class="balance-list">
             <article class="balance-item">
               <header>
+                <strong>{copy().householdSettingsTitle}</strong>
+              </header>
+              <p>{copy().householdSettingsBody}</p>
+            </article>
+            <article class="balance-item">
+              <header>
                 <strong>{copy().householdLanguage}</strong>
                 <span>{readySession()?.member.householdDefaultLocale.toUpperCase()}</span>
               </header>
@@ -544,22 +558,75 @@ function App() {
             )}
           </div>
         ) : (
-          copy().houseEmpty
+          <div class="balance-list">
+            <article class="balance-item">
+              <header>
+                <strong>{copy().residentHouseTitle}</strong>
+              </header>
+              <p>{copy().residentHouseBody}</p>
+            </article>
+          </div>
         )
       default:
         return (
-          <ShowDashboard
-            dashboard={dashboard()}
-            fallback={<p>{copy().summaryBody}</p>}
-            render={(data) => (
-              <>
-                <p>
-                  {copy().totalDue}: {data.totalDueMajor} {data.currency}
-                </p>
-                <p>{copy().summaryBody}</p>
-              </>
-            )}
-          />
+          <div class="home-grid">
+            <article class="stat-card">
+              <span>{copy().totalDue}</span>
+              <strong>
+                {dashboard() ? `${dashboard()!.totalDueMajor} ${dashboard()!.currency}` : '—'}
+              </strong>
+            </article>
+            <article class="stat-card">
+              <span>{copy().membersCount}</span>
+              <strong>{dashboardMemberCount(dashboard())}</strong>
+            </article>
+            <article class="stat-card">
+              <span>{copy().ledgerEntries}</span>
+              <strong>{dashboardLedgerCount(dashboard())}</strong>
+            </article>
+            {readySession()?.member.isAdmin ? (
+              <article class="stat-card">
+                <span>{copy().pendingRequests}</span>
+                <strong>{String(pendingMembers().length)}</strong>
+              </article>
+            ) : null}
+
+            <article class="balance-item">
+              <header>
+                <strong>{copy().overviewTitle}</strong>
+              </header>
+              <p>{copy().overviewBody}</p>
+            </article>
+
+            <article class="balance-item">
+              <header>
+                <strong>{copy().latestActivityTitle}</strong>
+              </header>
+              <ShowDashboard
+                dashboard={dashboard()}
+                fallback={<p>{copy().latestActivityEmpty}</p>}
+                render={(data) =>
+                  data.ledger.length === 0 ? (
+                    <p>{copy().latestActivityEmpty}</p>
+                  ) : (
+                    <div class="ledger-list">
+                      {data.ledger.slice(0, 3).map((entry) => (
+                        <article class="ledger-item">
+                          <header>
+                            <strong>{entry.title}</strong>
+                            <span>
+                              {entry.amountMajor} {data.currency}
+                            </span>
+                          </header>
+                          <p>{entry.actorDisplayName ?? 'Household'}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )
+                }
+              />
+            </article>
+          </div>
         )
     }
   }
@@ -601,7 +668,7 @@ function App() {
       <Switch>
         <Match when={session().status === 'loading'}>
           <section class="hero-card">
-            <span class="pill">{copy().navHint}</span>
+            <span class="pill">{copy().loadingBadge}</span>
             <h2>{copy().loadingTitle}</h2>
             <p>{copy().loadingBody}</p>
           </section>
@@ -609,7 +676,7 @@ function App() {
 
         <Match when={session().status === 'blocked'}>
           <section class="hero-card">
-            <span class="pill">{copy().navHint}</span>
+            <span class="pill">{copy().loadingBadge}</span>
             <h2>
               {blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyTitle
@@ -628,7 +695,7 @@ function App() {
 
         <Match when={session().status === 'onboarding'}>
           <section class="hero-card">
-            <span class="pill">{copy().navHint}</span>
+            <span class="pill">{copy().loadingBadge}</span>
             <h2>
               {onboardingSession()?.mode === 'pending'
                 ? copy().pendingTitle
@@ -681,7 +748,7 @@ function App() {
           <section class="hero-card">
             <div class="hero-card__meta">
               <span class="pill">
-                {readySession()?.mode === 'demo' ? copy().demoBadge : copy().navHint}
+                {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
               </span>
               <span class="pill pill--muted">
                 {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
@@ -692,7 +759,7 @@ function App() {
               {copy().welcome},{' '}
               {readySession()?.telegramUser.firstName ?? readySession()?.member.displayName}
             </h2>
-            <p>{copy().sectionBody}</p>
+            <p>{copy().overviewBody}</p>
           </section>
 
           <nav class="nav-grid">
@@ -716,24 +783,9 @@ function App() {
 
           <section class="content-grid">
             <article class="panel panel--wide">
-              <p class="eyebrow">{copy().summaryTitle}</p>
+              <p class="eyebrow">{copy().overviewTitle}</p>
               <h3>{readySession()?.member.displayName}</h3>
               <div>{renderPanel()}</div>
-            </article>
-
-            <article class="panel">
-              <p class="eyebrow">{copy().cardAccess}</p>
-              <p>{copy().cardAccessBody}</p>
-            </article>
-
-            <article class="panel">
-              <p class="eyebrow">{copy().cardLocale}</p>
-              <p>{copy().cardLocaleBody}</p>
-            </article>
-
-            <article class="panel">
-              <p class="eyebrow">{copy().cardNext}</p>
-              <p>{copy().cardNextBody}</p>
             </article>
           </section>
         </Match>

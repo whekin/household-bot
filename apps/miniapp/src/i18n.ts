@@ -6,7 +6,9 @@ export const dictionary = {
     appSubtitle: 'Shared home dashboard',
     loadingTitle: 'Checking your household access',
     loadingBody: 'Validating Telegram session and membership…',
+    loadingBadge: 'Secure session',
     demoBadge: 'Demo mode',
+    liveBadge: 'Live household',
     joinTitle: 'Welcome to your household',
     joinBody:
       'You are not a member of {household} yet. Send a join request and wait for admin approval.',
@@ -33,28 +35,28 @@ export const dictionary = {
     balances: 'Balances',
     ledger: 'Ledger',
     house: 'House',
-    navHint: 'Shell v1',
     welcome: 'Welcome back',
     adminTag: 'Admin',
     residentTag: 'Resident',
-    summaryTitle: 'Current shell',
-    summaryBody:
-      'Balances, ledger, and house wiki will land in the next tickets. This shell focuses on verified access, navigation, and mobile layout.',
+    overviewTitle: 'Current cycle',
+    overviewBody:
+      'Use the sections below to review balances, ledger entries, and household access.',
     totalDue: 'Total due',
+    membersCount: 'Members',
+    ledgerEntries: 'Ledger entries',
+    pendingRequests: 'Pending requests',
     shareRent: 'Rent',
     shareUtilities: 'Utilities',
     shareOffset: 'Shared buys',
     ledgerTitle: 'Included ledger',
     emptyDashboard: 'No billing cycle is ready yet.',
-    cardAccess: 'Access',
-    cardAccessBody: 'Telegram identity verified and matched to a household member.',
-    cardLocale: 'Locale',
-    cardLocaleBody: 'Switch RU/EN immediately without reloading the shell.',
-    cardNext: 'Next up',
-    cardNextBody: 'Balances, ledger, and house pages will plug into this navigation.',
-    sectionTitle: 'Ready for the next features',
-    sectionBody:
-      'This layout is intentionally narrow and mobile-first so it behaves well inside the Telegram webview.',
+    latestActivityTitle: 'Latest activity',
+    latestActivityEmpty: 'Recent utility and purchase entries will appear here.',
+    householdSettingsTitle: 'Household settings',
+    householdSettingsBody: 'Control household defaults and approve roommates who requested access.',
+    residentHouseTitle: 'Household access',
+    residentHouseBody:
+      'Your admins manage household settings and approvals here. You can still switch your own language above.',
     pendingMembersTitle: 'Pending members',
     pendingMembersBody:
       'Approve roommates here after they request access from the group join flow.',
@@ -64,14 +66,16 @@ export const dictionary = {
     pendingMemberHandle: '@{username}',
     balancesEmpty: 'Balances will appear here once the dashboard API lands.',
     ledgerEmpty: 'Ledger entries will appear here after the finance view is connected.',
-    houseEmpty: 'House rules, Wi-Fi info, and practical notes will live here.'
+    houseEmpty: 'Household details will appear here.'
   },
   ru: {
     appTitle: 'Kojori House',
     appSubtitle: 'Панель общего дома',
     loadingTitle: 'Проверяем доступ к дому',
     loadingBody: 'Проверяем Telegram-сессию и членство…',
+    loadingBadge: 'Защищённая сессия',
     demoBadge: 'Демо режим',
+    liveBadge: 'Живой household',
     joinTitle: 'Добро пожаловать домой',
     joinBody:
       'Ты пока не участник {household}. Отправь заявку на вступление и дождись подтверждения админа.',
@@ -98,28 +102,27 @@ export const dictionary = {
     balances: 'Баланс',
     ledger: 'Леджер',
     house: 'Дом',
-    navHint: 'Shell v1',
     welcome: 'С возвращением',
     adminTag: 'Админ',
     residentTag: 'Житель',
-    summaryTitle: 'Текущая оболочка',
-    summaryBody:
-      'Баланс, леджер и вики дома появятся в следующих тикетах. Сейчас приоритет — проверенный доступ, навигация и мобильный layout.',
+    overviewTitle: 'Текущий цикл',
+    overviewBody: 'Ниже можно посмотреть балансы, записи леджера и доступ к household.',
     totalDue: 'Итого к оплате',
+    membersCount: 'Участники',
+    ledgerEntries: 'Записи леджера',
+    pendingRequests: 'Ожидают подтверждения',
     shareRent: 'Аренда',
     shareUtilities: 'Коммуналка',
     shareOffset: 'Общие покупки',
     ledgerTitle: 'Вошедшие операции',
     emptyDashboard: 'Пока нет готового billing cycle.',
-    cardAccess: 'Доступ',
-    cardAccessBody: 'Telegram-личность подтверждена и сопоставлена с участником household.',
-    cardLocale: 'Локаль',
-    cardLocaleBody: 'RU/EN переключаются сразу, без перезагрузки.',
-    cardNext: 'Дальше',
-    cardNextBody: 'Баланс, леджер и страницы дома подключатся к этой навигации.',
-    sectionTitle: 'Основа готова для следующих функций',
-    sectionBody:
-      'Этот layout специально сделан узким и mobile-first, чтобы хорошо жить внутри Telegram webview.',
+    latestActivityTitle: 'Последняя активность',
+    latestActivityEmpty: 'Здесь появятся последние коммунальные платежи и покупки.',
+    householdSettingsTitle: 'Настройки household',
+    householdSettingsBody: 'Здесь можно менять язык household и подтверждать новых соседей.',
+    residentHouseTitle: 'Доступ к household',
+    residentHouseBody:
+      'Настройки household и подтверждение заявок управляются админами. Свой язык можно менять переключателем выше.',
     pendingMembersTitle: 'Ожидающие участники',
     pendingMembersBody:
       'Подтверждай соседей здесь после того, как они отправят заявку через кнопку подключения.',
@@ -129,6 +132,6 @@ export const dictionary = {
     pendingMemberHandle: '@{username}',
     balancesEmpty: 'Баланс появится здесь, когда подключим dashboard API.',
     ledgerEmpty: 'Записи леджера появятся здесь после подключения finance view.',
-    houseEmpty: 'Правила дома, Wi-Fi и полезные инструкции будут здесь.'
+    houseEmpty: 'Детали household появятся здесь.'
   }
 } satisfies Record<Locale, Record<string, string>>
