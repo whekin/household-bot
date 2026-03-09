@@ -24,6 +24,7 @@ function repository(
         id: 'member-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ],
@@ -124,6 +125,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       displayName: input.displayName,
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: household.defaultLocale,
+      rentShareWeight: 1,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -165,7 +167,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       sortOrder: input.sortOrder,
       isActive: input.isActive
     }),
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
   }
 }
 
@@ -177,6 +180,7 @@ describe('createMiniAppDashboardHandler', () => {
         id: 'member-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        rentShareWeight: 1,
         isAdmin: true
       })
     )
@@ -189,6 +193,7 @@ describe('createMiniAppDashboardHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -255,6 +260,7 @@ describe('createMiniAppDashboardHandler', () => {
         id: 'member-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        rentShareWeight: 1,
         isAdmin: true
       })
     )
@@ -267,6 +273,7 @@ describe('createMiniAppDashboardHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]

@@ -194,6 +194,7 @@ export const members = pgTable(
     telegramUserId: text('telegram_user_id').notNull(),
     displayName: text('display_name').notNull(),
     preferredLocale: text('preferred_locale'),
+    rentShareWeight: integer('rent_share_weight').default(1).notNull(),
     isAdmin: integer('is_admin').default(0).notNull(),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull()
   },

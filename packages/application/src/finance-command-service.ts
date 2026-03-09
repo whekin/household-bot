@@ -130,7 +130,8 @@ async function buildFinanceDashboard(
     utilitySplitMode: 'equal',
     members: members.map((member) => ({
       memberId: MemberId.from(member.id),
-      active: true
+      active: true,
+      rentWeight: member.rentShareWeight
     })),
     purchases: purchases.map((purchase) => ({
       purchaseId: PurchaseEntryId.from(purchase.id),

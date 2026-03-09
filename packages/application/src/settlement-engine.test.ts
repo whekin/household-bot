@@ -83,6 +83,25 @@ describe('calculateMonthlySettlement', () => {
     expect(result.totalDue.amountMinor).toBe(82000n)
   })
 
+  test('supports weighted rent split by member weights', () => {
+    const input = {
+      ...fixtureBase(),
+      utilitySplitMode: 'equal' as const,
+      members: [
+        { memberId: MemberId.from('a'), active: true, rentWeight: 3 },
+        { memberId: MemberId.from('b'), active: true, rentWeight: 2 },
+        { memberId: MemberId.from('c'), active: true, rentWeight: 1 }
+      ],
+      purchases: []
+    }
+
+    const result = calculateMonthlySettlement(input)
+
+    expect(result.lines.map((line) => line.rentShare.amountMinor)).toEqual([35000n, 23333n, 11667n])
+    expect(result.lines.map((line) => line.utilityShare.amountMinor)).toEqual([4000n, 4000n, 4000n])
+    expect(result.totalDue.amountMinor).toBe(82000n)
+  })
+
   test('5-member scenario with two purchases remains deterministic', () => {
     const input = {
       ...fixtureBase(),
@@ -146,6 +165,20 @@ describe('calculateMonthlySettlement', () => {
           amount: Money.fromMajor('10.00', 'USD')
         }
       ]
+    }
+
+    expect(() => calculateMonthlySettlement(input)).toThrow(DomainError)
+  })
+
+  test('throws if rent split is selected with invalid rent weights', () => {
+    const input = {
+      ...fixtureBase(),
+      utilitySplitMode: 'equal' as const,
+      members: [
+        { memberId: MemberId.from('a'), active: true, rentWeight: 1 },
+        { memberId: MemberId.from('b'), active: true, rentWeight: 0 }
+      ],
+      purchases: []
     }
 
     expect(() => calculateMonthlySettlement(input)).toThrow(DomainError)

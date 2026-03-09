@@ -216,12 +216,14 @@ describe('createFinanceCommandService', () => {
         id: 'alice',
         telegramUserId: '100',
         displayName: 'Alice',
+        rentShareWeight: 1,
         isAdmin: true
       },
       {
         id: 'bob',
         telegramUserId: '200',
         displayName: 'Bob',
+        rentShareWeight: 1,
         isAdmin: false
       }
     ]

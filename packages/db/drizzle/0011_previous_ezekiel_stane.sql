@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "rent_share_weight" integer DEFAULT 1 NOT NULL;

@@ -4,6 +4,7 @@ export interface FinanceMemberRecord {
   id: string
   telegramUserId: string
   displayName: string
+  rentShareWeight: number
   isAdmin: boolean
 }
 

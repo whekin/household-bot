@@ -100,6 +100,7 @@ function createRepositoryStub() {
         displayName: input.displayName,
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
       members.set(input.telegramUserId, member)
@@ -133,6 +134,7 @@ function createRepositoryStub() {
         displayName: pending.displayName,
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
     },
@@ -189,6 +191,9 @@ function createRepositoryStub() {
       }
     },
     async promoteHouseholdAdmin() {
+      return null
+    },
+    async updateHouseholdMemberRentShareWeight() {
       return null
     }
   }
@@ -319,6 +324,7 @@ describe('createHouseholdOnboardingService', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     })
@@ -333,13 +339,14 @@ describe('createHouseholdOnboardingService', () => {
       displayName: 'Stan',
       preferredLocale: null,
       householdDefaultLocale: 'ru',
+      rentShareWeight: 1,
       isAdmin: true
     }
     const service = createHouseholdOnboardingService({ repository })
     const duplicateRepository = repository as HouseholdConfigurationRepository & {
       listHouseholdMembersByTelegramUserId: (
         telegramUserId: string
-      ) => Promise<readonly HouseholdMemberRecord[]>
+      ) => Promise<readonly (HouseholdMemberRecord & { rentShareWeight: number })[]>
     }
     duplicateRepository.listHouseholdMembersByTelegramUserId = async () => [
       member,
@@ -350,6 +357,7 @@ describe('createHouseholdOnboardingService', () => {
         displayName: 'Stan elsewhere',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: false
       }
     ]

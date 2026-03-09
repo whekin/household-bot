@@ -82,6 +82,31 @@ function validateWeightedUtilityDays(members: readonly SettlementMemberInput[]):
   return weights
 }
 
+function validateRentWeights(members: readonly SettlementMemberInput[]): readonly bigint[] {
+  const weights = members.map((member) => {
+    const raw = member.rentWeight ?? 1
+
+    if (!Number.isInteger(raw) || raw <= 0) {
+      throw new DomainError(
+        DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+        `rentWeight must be a positive integer for member ${member.memberId.toString()}`
+      )
+    }
+
+    return BigInt(raw)
+  })
+
+  const total = weights.reduce((sum, current) => sum + current, 0n)
+  if (total <= 0n) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+      'Total rent weights must be positive'
+    )
+  }
+
+  return weights
+}
+
 function validateCurrencyConsistency(input: SettlementInput): void {
   const currency = input.rent.currency
 
@@ -114,7 +139,7 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
     activeMembers.map((member) => [member.memberId.toString(), createMemberState(member, currency)])
   )
 
-  const rentShares = input.rent.splitEvenly(activeMembers.length)
+  const rentShares = input.rent.splitByWeights(validateRentWeights(activeMembers))
   for (const [index, member] of activeMembers.entries()) {
     const state = membersById.get(member.memberId.toString())
     if (!state) {

@@ -45,6 +45,7 @@ export interface HouseholdMemberRecord {
   displayName: string
   preferredLocale: SupportedLocale | null
   householdDefaultLocale: SupportedLocale
+  rentShareWeight: number
   isAdmin: boolean
 }
 
@@ -128,6 +129,7 @@ export interface HouseholdConfigurationRepository {
     telegramUserId: string
     displayName: string
     preferredLocale?: SupportedLocale | null
+    rentShareWeight?: number
     isAdmin?: boolean
   }): Promise<HouseholdMemberRecord>
   getHouseholdMember(
@@ -177,5 +179,10 @@ export interface HouseholdConfigurationRepository {
   promoteHouseholdAdmin(
     householdId: string,
     memberId: string
+  ): Promise<HouseholdMemberRecord | null>
+  updateHouseholdMemberRentShareWeight(
+    householdId: string,
+    memberId: string,
+    rentShareWeight: number
   ): Promise<HouseholdMemberRecord | null>
 }

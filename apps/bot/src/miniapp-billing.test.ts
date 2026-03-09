@@ -70,6 +70,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       displayName: input.displayName,
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: household.defaultLocale,
+      rentShareWeight: 1,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -111,6 +112,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ],
@@ -121,7 +123,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       defaultLocale: locale
     }),
     updateMemberPreferredLocale: async () => null,
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
   }
 }
 

@@ -21,6 +21,7 @@ function createRepository(): HouseholdConfigurationRepository {
     displayName: 'Stan',
     preferredLocale: null,
     householdDefaultLocale: 'ru',
+    rentShareWeight: 1,
     isAdmin: true
   }
 
@@ -104,7 +105,8 @@ function createRepository(): HouseholdConfigurationRepository {
       sortOrder: input.sortOrder,
       isActive: input.isActive
     }),
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
   }
 }
 

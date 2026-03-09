@@ -28,6 +28,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       displayName: string
       preferredLocale: 'en' | 'ru' | null
       householdDefaultLocale: 'en' | 'ru'
+      rentShareWeight: number
       isAdmin: boolean
     }
   >()
@@ -97,6 +98,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         displayName: input.displayName,
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
       members.set(input.telegramUserId, member)
@@ -122,6 +124,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         displayName: pending.displayName,
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
       members.set(pending.telegramUserId, member)
@@ -138,6 +141,15 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         ? {
             ...member,
             preferredLocale: locale
+          }
+        : null
+    },
+    updateHouseholdMemberRentShareWeight: async (_householdId, memberId, rentShareWeight) => {
+      const member = [...members.values()].find((entry) => entry.id === memberId)
+      return member
+        ? {
+            ...member,
+            rentShareWeight
           }
         : null
     },

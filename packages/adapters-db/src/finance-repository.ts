@@ -38,6 +38,7 @@ export function createDbFinanceRepository(
           id: schema.members.id,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
         })
         .from(schema.members)
@@ -66,6 +67,7 @@ export function createDbFinanceRepository(
           id: schema.members.id,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
         })
         .from(schema.members)

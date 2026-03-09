@@ -159,6 +159,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       displayName: input.displayName,
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: 'ru',
+      rentShareWeight: 1,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -171,6 +172,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: false
       }
     ],
@@ -191,6 +193,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       displayName: 'Stan',
       preferredLocale: locale,
       householdDefaultLocale: 'ru',
+      rentShareWeight: 1,
       isAdmin: false
     }),
     getHouseholdBillingSettings: async (householdId) => ({
@@ -222,7 +225,8 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       sortOrder: input.sortOrder,
       isActive: input.isActive
     }),
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
   }
 }
 

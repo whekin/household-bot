@@ -20,6 +20,7 @@ export type HouseholdMiniAppAccess =
         isAdmin: boolean
         preferredLocale: SupportedLocale | null
         householdDefaultLocale: SupportedLocale
+        rentShareWeight: number
       }
     }
   | {
@@ -70,6 +71,7 @@ export interface HouseholdOnboardingService {
           isAdmin: boolean
           preferredLocale: SupportedLocale | null
           householdDefaultLocale: SupportedLocale
+          rentShareWeight: number
         }
       }
     | {
@@ -85,6 +87,7 @@ function toMember(member: HouseholdMemberRecord): {
   isAdmin: boolean
   preferredLocale: SupportedLocale | null
   householdDefaultLocale: SupportedLocale
+  rentShareWeight: number
 } {
   return {
     id: member.id,
@@ -92,7 +95,8 @@ function toMember(member: HouseholdMemberRecord): {
     displayName: member.displayName,
     isAdmin: member.isAdmin,
     preferredLocale: member.preferredLocale,
-    householdDefaultLocale: member.householdDefaultLocale
+    householdDefaultLocale: member.householdDefaultLocale,
+    rentShareWeight: member.rentShareWeight
   }
 }
 

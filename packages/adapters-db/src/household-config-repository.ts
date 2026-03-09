@@ -115,6 +115,7 @@ function toHouseholdMemberRecord(row: {
   displayName: string
   preferredLocale: string | null
   defaultLocale: string
+  rentShareWeight: number
   isAdmin: number
 }): HouseholdMemberRecord {
   const householdDefaultLocale = normalizeSupportedLocale(row.defaultLocale)
@@ -129,6 +130,7 @@ function toHouseholdMemberRecord(row: {
     displayName: row.displayName,
     preferredLocale: normalizeSupportedLocale(row.preferredLocale),
     householdDefaultLocale,
+    rentShareWeight: row.rentShareWeight,
     isAdmin: row.isAdmin === 1
   }
 }
@@ -766,6 +768,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: input.telegramUserId,
           displayName: input.displayName,
           preferredLocale: input.preferredLocale ?? null,
+          rentShareWeight: input.rentShareWeight ?? 1,
           isAdmin: input.isAdmin ? 1 : 0
         })
         .onConflictDoUpdate({
@@ -773,6 +776,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           set: {
             displayName: input.displayName,
             preferredLocale: input.preferredLocale ?? schema.members.preferredLocale,
+            rentShareWeight: input.rentShareWeight ?? schema.members.rentShareWeight,
             ...(input.isAdmin
               ? {
                   isAdmin: 1
@@ -786,6 +790,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
         })
 
@@ -813,6 +818,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
@@ -838,6 +844,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
@@ -1012,6 +1019,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
           isAdmin: schema.members.isAdmin
         })
@@ -1082,6 +1090,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             telegramUserId: pending.telegramUserId,
             displayName: pending.displayName,
             preferredLocale: normalizeSupportedLocale(pending.languageCode),
+            rentShareWeight: 1,
             isAdmin: input.isAdmin ? 1 : 0
           })
           .onConflictDoUpdate({
@@ -1103,6 +1112,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             telegramUserId: schema.members.telegramUserId,
             displayName: schema.members.displayName,
             preferredLocale: schema.members.preferredLocale,
+            rentShareWeight: schema.members.rentShareWeight,
             isAdmin: schema.members.isAdmin
           })
 
@@ -1174,6 +1184,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
         })
 
@@ -1206,6 +1217,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
           preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
         })
 
@@ -1217,6 +1229,39 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const household = await this.getHouseholdChatByHouseholdId(householdId)
       if (!household) {
         throw new Error('Failed to resolve household chat after admin promotion')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
+    },
+
+    async updateHouseholdMemberRentShareWeight(householdId, memberId, rentShareWeight) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          rentShareWeight
+        })
+        .where(and(eq(schema.members.householdId, householdId), eq(schema.members.id, memberId)))
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after rent weight update')
       }
 
       return toHouseholdMemberRecord({

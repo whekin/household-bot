@@ -30,6 +30,7 @@ function createRepositoryStub() {
     displayName: 'Stan',
     preferredLocale: null,
     householdDefaultLocale: household.defaultLocale,
+    rentShareWeight: 1,
     isAdmin: true
   })
   pendingMembers.set('2', {
@@ -94,6 +95,7 @@ function createRepositoryStub() {
         displayName: input.displayName,
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
       members.set(input.telegramUserId, record)
@@ -120,6 +122,7 @@ function createRepositoryStub() {
         displayName: pending.displayName,
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
         isAdmin: input.isAdmin === true
       }
       members.set(member.telegramUserId, member)
@@ -167,7 +170,8 @@ function createRepositoryStub() {
       sortOrder: input.sortOrder,
       isActive: input.isActive
     }),
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
   }
 
   return {
@@ -238,6 +242,7 @@ describe('createHouseholdAdminService', () => {
         displayName: 'Alice',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: false
       }
     })
