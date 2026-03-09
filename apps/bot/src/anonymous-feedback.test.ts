@@ -148,6 +148,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
+    listHouseholdMembers: async () => [],
     listHouseholdMembersByTelegramUserId: async () => [
       {
         id: 'member-123456',

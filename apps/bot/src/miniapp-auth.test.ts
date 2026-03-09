@@ -95,6 +95,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       return member
     },
     getHouseholdMember: async (_householdId, telegramUserId) => members.get(telegramUserId) ?? null,
+    listHouseholdMembers: async (householdId) =>
+      [...members.values()].filter((member) => member.householdId === householdId),
     listHouseholdMembersByTelegramUserId: async (telegramUserId) => {
       const member = members.get(telegramUserId)
       return member ? [member] : []

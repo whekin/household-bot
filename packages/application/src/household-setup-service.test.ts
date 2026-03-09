@@ -176,6 +176,10 @@ function createRepositoryStub() {
       return members.get(`${householdId}:${telegramUserId}`) ?? null
     },
 
+    async listHouseholdMembers(householdId) {
+      return [...members.values()].filter((member) => member.householdId === householdId)
+    },
+
     async listHouseholdMembersByTelegramUserId(telegramUserId) {
       return [...members.values()].filter((member) => member.telegramUserId === telegramUserId)
     },
@@ -238,6 +242,77 @@ describe('createHouseholdSetupService', () => {
       displayName: 'Stan',
       isAdmin: true
     })
+  })
+
+  test('ensures the actor becomes admin when rerunning setup for an existing household with no admins', async () => {
+    const { repository } = createRepositoryStub()
+    const service = createHouseholdSetupService(repository)
+
+    await service.setupGroupChat({
+      actorIsAdmin: true,
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    })
+
+    const result = await service.setupGroupChat({
+      actorIsAdmin: true,
+      actorTelegramUserId: '77',
+      actorDisplayName: 'Mia',
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    })
+
+    expect(result.status).toBe('existing')
+    if (result.status !== 'existing') {
+      return
+    }
+
+    const admin = await repository.getHouseholdMember(result.household.householdId, '77')
+    expect(admin).toEqual({
+      id: 'member-77',
+      householdId: result.household.householdId,
+      telegramUserId: '77',
+      displayName: 'Mia',
+      isAdmin: true
+    })
+  })
+
+  test('does not grant admin when rerunning setup for an existing household that already has admins', async () => {
+    const { repository } = createRepositoryStub()
+    const service = createHouseholdSetupService(repository)
+
+    const created = await service.setupGroupChat({
+      actorIsAdmin: true,
+      actorTelegramUserId: '42',
+      actorDisplayName: 'Stan',
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    })
+
+    expect(created.status).toBe('created')
+    if (created.status !== 'created') {
+      return
+    }
+
+    const result = await service.setupGroupChat({
+      actorIsAdmin: true,
+      actorTelegramUserId: '77',
+      actorDisplayName: 'Mia',
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    })
+
+    expect(result.status).toBe('existing')
+    if (result.status !== 'existing') {
+      return
+    }
+
+    const admin = await repository.getHouseholdMember(result.household.householdId, '77')
+    expect(admin).toBeNull()
   })
 
   test('rejects setup when the actor is not a group admin', async () => {

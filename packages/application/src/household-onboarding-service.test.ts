@@ -101,6 +101,9 @@ function createRepositoryStub() {
     async getHouseholdMember(_householdId, telegramUserId) {
       return members.get(telegramUserId) ?? null
     },
+    async listHouseholdMembers(householdId) {
+      return [...members.values()].filter((member) => member.householdId === householdId)
+    },
     async listHouseholdMembersByTelegramUserId(telegramUserId) {
       const member = members.get(telegramUserId)
       return member ? [member] : []

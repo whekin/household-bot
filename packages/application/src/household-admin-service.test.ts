@@ -92,6 +92,8 @@ function createRepositoryStub() {
       return record
     },
     getHouseholdMember: async (_householdId, telegramUserId) => members.get(telegramUserId) ?? null,
+    listHouseholdMembers: async (householdId) =>
+      [...members.values()].filter((member) => member.householdId === householdId),
     listHouseholdMembersByTelegramUserId: async (telegramUserId) =>
       [...members.values()].filter((member) => member.telegramUserId === telegramUserId),
     listPendingHouseholdMembers: async () => [...pendingMembers.values()],

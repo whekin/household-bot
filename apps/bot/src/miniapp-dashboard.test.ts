@@ -121,6 +121,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
+    listHouseholdMembers: async () => [],
     listHouseholdMembersByTelegramUserId: async () => [],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null

@@ -85,13 +85,20 @@ export function createHouseholdSetupService(
           : {})
       })
 
-      if (registered.status === 'created' && input.actorTelegramUserId && input.actorDisplayName) {
-        await repository.ensureHouseholdMember({
-          householdId: registered.household.householdId,
-          telegramUserId: input.actorTelegramUserId,
-          displayName: input.actorDisplayName,
-          isAdmin: true
-        })
+      if (input.actorTelegramUserId && input.actorDisplayName) {
+        const existingMembers = await repository.listHouseholdMembers(
+          registered.household.householdId
+        )
+        const hasAdmin = existingMembers.some((member) => member.isAdmin)
+
+        if (registered.status === 'created' || !hasAdmin) {
+          await repository.ensureHouseholdMember({
+            householdId: registered.household.householdId,
+            telegramUserId: input.actorTelegramUserId,
+            displayName: input.actorDisplayName,
+            isAdmin: true
+          })
+        }
       }
 
       return {

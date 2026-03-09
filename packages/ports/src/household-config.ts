@@ -105,6 +105,7 @@ export interface HouseholdConfigurationRepository {
     householdId: string,
     telegramUserId: string
   ): Promise<HouseholdMemberRecord | null>
+  listHouseholdMembers(householdId: string): Promise<readonly HouseholdMemberRecord[]>
   listHouseholdMembersByTelegramUserId(
     telegramUserId: string
   ): Promise<readonly HouseholdMemberRecord[]>

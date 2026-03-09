@@ -595,6 +595,22 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       return row ? toHouseholdMemberRecord(row) : null
     },
 
+    async listHouseholdMembers(householdId) {
+      const rows = await db
+        .select({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          isAdmin: schema.members.isAdmin
+        })
+        .from(schema.members)
+        .where(eq(schema.members.householdId, householdId))
+        .orderBy(schema.members.displayName, schema.members.telegramUserId)
+
+      return rows.map(toHouseholdMemberRecord)
+    },
+
     async listHouseholdMembersByTelegramUserId(telegramUserId) {
       const rows = await db
         .select({
