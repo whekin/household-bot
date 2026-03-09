@@ -130,11 +130,6 @@ if (householdConfigurationRepositoryClient) {
       householdConfigurationRepositoryClient.repository
     ),
     householdOnboardingService: householdOnboardingService!,
-    ...(runtime.miniAppAllowedOrigins[0]
-      ? {
-          miniAppBaseUrl: runtime.miniAppAllowedOrigins[0]
-        }
-      : {}),
     logger: getLogger('household-setup')
   })
 } else {

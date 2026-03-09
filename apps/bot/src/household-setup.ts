@@ -52,7 +52,6 @@ export function registerHouseholdSetupCommands(options: {
   bot: Bot
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
-  miniAppBaseUrl?: string
   logger?: Logger
 }): void {
   options.bot.command('start', async (ctx) => {
@@ -161,43 +160,22 @@ export function registerHouseholdSetupCommands(options: {
     const joinDeepLink = ctx.me.username
       ? `https://t.me/${ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
       : null
-    const joinMiniAppUrl = options.miniAppBaseUrl
-      ? (() => {
-          const url = new URL(options.miniAppBaseUrl)
-          url.searchParams.set('join', joinToken.token)
-          if (ctx.me.username) {
-            url.searchParams.set('bot', ctx.me.username)
-          }
-          return url.toString()
-        })()
-      : null
-
     await ctx.reply(
       [
         `Household ${action}: ${result.household.householdName}`,
         `Chat ID: ${result.household.telegramChatId}`,
         'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic.',
-        'Members can join from the button below or from the bot link.'
+        'Members should open the bot chat from the button below and confirm the join request there.'
       ].join('\n'),
-      joinMiniAppUrl || joinDeepLink
+      joinDeepLink
         ? {
             reply_markup: {
               inline_keyboard: [
                 [
-                  ...(joinMiniAppUrl
-                    ? [
-                        {
-                          text: 'Join household',
-                          web_app: {
-                            url: joinMiniAppUrl
-                          }
-                        }
-                      ]
-                    : []),
                   ...(joinDeepLink
                     ? [
                         {
-                          text: 'Open bot chat',
+                          text: 'Join household',
                           url: joinDeepLink
                         }
                       ]
