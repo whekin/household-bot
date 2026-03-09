@@ -3,6 +3,8 @@ import { runtimeBotApiUrl } from './runtime-config'
 export interface MiniAppSession {
   authorized: boolean
   member?: {
+    id: string
+    householdId: string
     displayName: string
     isAdmin: boolean
     preferredLocale: 'en' | 'ru' | null

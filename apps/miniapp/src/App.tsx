@@ -47,6 +47,7 @@ type SessionState =
       status: 'ready'
       mode: 'live' | 'demo'
       member: {
+        id: string
         displayName: string
         isAdmin: boolean
         preferredLocale: Locale | null
@@ -65,6 +66,7 @@ const demoSession: Extract<SessionState, { status: 'ready' }> = {
   status: 'ready',
   mode: 'demo',
   member: {
+    id: 'demo-member',
     displayName: 'Demo Resident',
     isAdmin: false,
     preferredLocale: 'en',
@@ -131,6 +133,33 @@ function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
+function majorStringToMinor(value: string): bigint {
+  const trimmed = value.trim()
+  const negative = trimmed.startsWith('-')
+  const normalized = negative ? trimmed.slice(1) : trimmed
+  const [whole = '0', fraction = ''] = normalized.split('.')
+  const major = BigInt(whole || '0')
+  const cents = BigInt((fraction.padEnd(2, '0').slice(0, 2) || '00').replace(/\D/g, '') || '0')
+  const minor = major * 100n + cents
+
+  return negative ? -minor : minor
+}
+
+function minorToMajorString(value: bigint): string {
+  const negative = value < 0n
+  const absolute = negative ? -value : value
+  const whole = absolute / 100n
+  const fraction = String(absolute % 100n).padStart(2, '0')
+
+  return `${negative ? '-' : ''}${whole.toString()}.${fraction}`
+}
+
+function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
+  return minorToMajorString(
+    majorStringToMinor(member.rentShareMajor) + majorStringToMinor(member.utilityShareMajor)
+  )
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -185,6 +214,22 @@ function App() {
     const current = session()
     return current.status === 'ready' ? current : null
   })
+  const currentMemberLine = createMemo(() => {
+    const current = readySession()
+    const data = dashboard()
+
+    if (!current || !data) {
+      return null
+    }
+
+    return data.members.find((member) => member.memberId === current.member.id) ?? null
+  })
+  const purchaseLedger = createMemo(() =>
+    (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'purchase')
+  )
+  const utilityLedger = createMemo(() =>
+    (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'utility')
+  )
   const webApp = getTelegramWebApp()
 
   async function loadDashboard(initData: string) {
@@ -341,24 +386,24 @@ function App() {
         setDashboard({
           period: '2026-03',
           currency: 'USD',
-          totalDueMajor: '820.00',
+          totalDueMajor: '414.00',
           members: [
             {
-              memberId: 'alice',
-              displayName: 'Alice',
-              rentShareMajor: '350.00',
-              utilityShareMajor: '60.00',
-              purchaseOffsetMajor: '-15.00',
-              netDueMajor: '395.00',
+              memberId: 'demo-member',
+              displayName: 'Demo Resident',
+              rentShareMajor: '175.00',
+              utilityShareMajor: '32.00',
+              purchaseOffsetMajor: '-14.00',
+              netDueMajor: '193.00',
               explanations: ['Equal utility split', 'Shared purchase offset']
             },
             {
-              memberId: 'bob',
-              displayName: 'Bob',
-              rentShareMajor: '350.00',
-              utilityShareMajor: '60.00',
-              purchaseOffsetMajor: '15.00',
-              netDueMajor: '425.00',
+              memberId: 'member-2',
+              displayName: 'Alice',
+              rentShareMajor: '175.00',
+              utilityShareMajor: '32.00',
+              purchaseOffsetMajor: '14.00',
+              netDueMajor: '221.00',
               explanations: ['Equal utility split']
             }
           ],
@@ -781,27 +826,69 @@ function App() {
             <ShowDashboard
               dashboard={dashboard()}
               fallback={<p>{copy().emptyDashboard}</p>}
-              render={(data) =>
-                data.members.map((member) => (
+              render={(data) => (
+                <>
+                  {currentMemberLine() ? (
+                    <article class="balance-item balance-item--accent">
+                      <header>
+                        <strong>{copy().yourBalanceTitle}</strong>
+                        <span>
+                          {currentMemberLine()!.netDueMajor} {data.currency}
+                        </span>
+                      </header>
+                      <p>{copy().yourBalanceBody}</p>
+                      <div class="balance-breakdown">
+                        <div class="stat-card">
+                          <span>{copy().baseDue}</span>
+                          <strong>
+                            {memberBaseDueMajor(currentMemberLine()!)} {data.currency}
+                          </strong>
+                        </div>
+                        <div class="stat-card">
+                          <span>{copy().shareOffset}</span>
+                          <strong>
+                            {currentMemberLine()!.purchaseOffsetMajor} {data.currency}
+                          </strong>
+                        </div>
+                        <div class="stat-card">
+                          <span>{copy().finalDue}</span>
+                          <strong>
+                            {currentMemberLine()!.netDueMajor} {data.currency}
+                          </strong>
+                        </div>
+                      </div>
+                    </article>
+                  ) : null}
                   <article class="balance-item">
                     <header>
-                      <strong>{member.displayName}</strong>
-                      <span>
-                        {member.netDueMajor} {data.currency}
-                      </span>
+                      <strong>{copy().householdBalancesTitle}</strong>
                     </header>
-                    <p>
-                      {copy().shareRent}: {member.rentShareMajor} {data.currency}
-                    </p>
-                    <p>
-                      {copy().shareUtilities}: {member.utilityShareMajor} {data.currency}
-                    </p>
-                    <p>
-                      {copy().shareOffset}: {member.purchaseOffsetMajor} {data.currency}
-                    </p>
+                    <p>{copy().householdBalancesBody}</p>
                   </article>
-                ))
-              }
+                  {data.members.map((member) => (
+                    <article class="balance-item">
+                      <header>
+                        <strong>{member.displayName}</strong>
+                        <span>
+                          {member.netDueMajor} {data.currency}
+                        </span>
+                      </header>
+                      <p>
+                        {copy().baseDue}: {memberBaseDueMajor(member)} {data.currency}
+                      </p>
+                      <p>
+                        {copy().shareRent}: {member.rentShareMajor} {data.currency}
+                      </p>
+                      <p>
+                        {copy().shareUtilities}: {member.utilityShareMajor} {data.currency}
+                      </p>
+                      <p>
+                        {copy().shareOffset}: {member.purchaseOffsetMajor} {data.currency}
+                      </p>
+                    </article>
+                  ))}
+                </>
+              )}
             />
           </div>
         )
@@ -811,19 +898,54 @@ function App() {
             <ShowDashboard
               dashboard={dashboard()}
               fallback={<p>{copy().emptyDashboard}</p>}
-              render={(data) =>
-                data.ledger.map((entry) => (
-                  <article class="ledger-item">
+              render={(data) => (
+                <>
+                  <article class="balance-item">
                     <header>
-                      <strong>{entry.title}</strong>
-                      <span>
-                        {entry.amountMajor} {data.currency}
-                      </span>
+                      <strong>{copy().purchasesTitle}</strong>
                     </header>
-                    <p>{entry.actorDisplayName ?? 'Household'}</p>
+                    {purchaseLedger().length === 0 ? (
+                      <p>{copy().purchasesEmpty}</p>
+                    ) : (
+                      <div class="ledger-list">
+                        {purchaseLedger().map((entry) => (
+                          <article class="ledger-item">
+                            <header>
+                              <strong>{entry.title}</strong>
+                              <span>
+                                {entry.amountMajor} {data.currency}
+                              </span>
+                            </header>
+                            <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
                   </article>
-                ))
-              }
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().utilityLedgerTitle}</strong>
+                    </header>
+                    {utilityLedger().length === 0 ? (
+                      <p>{copy().utilityLedgerEmpty}</p>
+                    ) : (
+                      <div class="ledger-list">
+                        {utilityLedger().map((entry) => (
+                          <article class="ledger-item">
+                            <header>
+                              <strong>{entry.title}</strong>
+                              <span>
+                                {entry.amountMajor} {data.currency}
+                              </span>
+                            </header>
+                            <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                </>
+              )}
             />
           </div>
         )
@@ -1375,6 +1497,10 @@ function App() {
               <span>{copy().ledgerEntries}</span>
               <strong>{dashboardLedgerCount(dashboard())}</strong>
             </article>
+            <article class="stat-card">
+              <span>{copy().purchasesTitle}</span>
+              <strong>{String(purchaseLedger().length)}</strong>
+            </article>
             {readySession()?.member.isAdmin ? (
               <article class="stat-card">
                 <span>{copy().pendingRequests}</span>
@@ -1382,12 +1508,44 @@ function App() {
               </article>
             ) : null}
 
-            <article class="balance-item">
-              <header>
-                <strong>{copy().overviewTitle}</strong>
-              </header>
-              <p>{copy().overviewBody}</p>
-            </article>
+            {currentMemberLine() ? (
+              <article class="balance-item balance-item--accent">
+                <header>
+                  <strong>{copy().yourBalanceTitle}</strong>
+                  <span>
+                    {currentMemberLine()!.netDueMajor} {dashboard()?.currency ?? ''}
+                  </span>
+                </header>
+                <p>{copy().yourBalanceBody}</p>
+                <div class="balance-breakdown">
+                  <div class="stat-card">
+                    <span>{copy().baseDue}</span>
+                    <strong>
+                      {memberBaseDueMajor(currentMemberLine()!)} {dashboard()?.currency ?? ''}
+                    </strong>
+                  </div>
+                  <div class="stat-card">
+                    <span>{copy().shareOffset}</span>
+                    <strong>
+                      {currentMemberLine()!.purchaseOffsetMajor} {dashboard()?.currency ?? ''}
+                    </strong>
+                  </div>
+                  <div class="stat-card">
+                    <span>{copy().finalDue}</span>
+                    <strong>
+                      {currentMemberLine()!.netDueMajor} {dashboard()?.currency ?? ''}
+                    </strong>
+                  </div>
+                </div>
+              </article>
+            ) : (
+              <article class="balance-item">
+                <header>
+                  <strong>{copy().overviewTitle}</strong>
+                </header>
+                <p>{copy().overviewBody}</p>
+              </article>
+            )}
 
             <article class="balance-item">
               <header>
@@ -1409,7 +1567,7 @@ function App() {
                               {entry.amountMajor} {data.currency}
                             </span>
                           </header>
-                          <p>{entry.actorDisplayName ?? 'Household'}</p>
+                          <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
                         </article>
                       ))}
                     </div>

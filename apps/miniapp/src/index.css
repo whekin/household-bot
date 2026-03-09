@@ -243,6 +243,13 @@ button {
   background: rgb(255 255 255 / 0.03);
 }
 
+.balance-item--accent {
+  background:
+    linear-gradient(180deg, rgb(247 179 137 / 0.12), rgb(255 255 255 / 0.03)),
+    rgb(255 255 255 / 0.03);
+  border-color: rgb(247 179 137 / 0.28);
+}
+
 .balance-item header,
 .ledger-item header {
   display: flex;
@@ -269,6 +276,12 @@ button {
 .stat-card {
   display: grid;
   gap: 8px;
+}
+
+.balance-breakdown {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .stat-card span {
@@ -342,6 +355,10 @@ button {
 
   .home-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .balance-breakdown {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .settings-grid {
