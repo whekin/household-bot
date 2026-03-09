@@ -18,7 +18,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     householdName: 'Kojori House',
     telegramChatId: '-100123',
     telegramChatType: 'supergroup',
-    title: 'Kojori House'
+    title: 'Kojori House',
+    defaultLocale: 'ru' as const
   }
 
   return {
@@ -52,7 +53,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
       username: input.username?.trim() || null,
-      languageCode: input.languageCode?.trim() || null
+      languageCode: input.languageCode?.trim() || null,
+      householdDefaultLocale: household.defaultLocale
     }),
     getPendingHouseholdMember: async () => null,
     findPendingHouseholdMemberByTelegramUserId: async () => null,
@@ -61,6 +63,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       householdId: household.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      preferredLocale: input.preferredLocale ?? null,
+      householdDefaultLocale: household.defaultLocale,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -73,7 +77,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         telegramUserId: '555777',
         displayName: 'Mia',
         username: 'mia',
-        languageCode: 'ru'
+        languageCode: 'ru',
+        householdDefaultLocale: household.defaultLocale
       }
     ],
     approvePendingHouseholdMember: async (input) =>
@@ -83,6 +88,24 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             householdId: household.householdId,
             telegramUserId: '555777',
             displayName: 'Mia',
+            preferredLocale: null,
+            householdDefaultLocale: household.defaultLocale,
+            isAdmin: false
+          }
+        : null,
+    updateHouseholdDefaultLocale: async (_householdId, locale) => ({
+      ...household,
+      defaultLocale: locale
+    }),
+    updateMemberPreferredLocale: async (_householdId, telegramUserId, locale) =>
+      telegramUserId === '555777'
+        ? {
+            id: 'member-555777',
+            householdId: household.householdId,
+            telegramUserId,
+            displayName: 'Mia',
+            preferredLocale: locale,
+            householdDefaultLocale: household.defaultLocale,
             isAdmin: false
           }
         : null
@@ -99,6 +122,8 @@ describe('createMiniAppPendingMembersHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: true
       }
     ]
@@ -141,7 +166,8 @@ describe('createMiniAppPendingMembersHandler', () => {
           telegramUserId: '555777',
           displayName: 'Mia',
           username: 'mia',
-          languageCode: 'ru'
+          languageCode: 'ru',
+          householdDefaultLocale: 'ru'
         }
       ]
     })
@@ -158,6 +184,8 @@ describe('createMiniAppApproveMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: true
       }
     ]
@@ -199,6 +227,8 @@ describe('createMiniAppApproveMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '555777',
         displayName: 'Mia',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: false
       }
     })

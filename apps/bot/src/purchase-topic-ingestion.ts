@@ -9,7 +9,7 @@ import type {
 } from '@household/ports'
 
 import { createDbClient, schema } from '@household/db'
-import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
+import { getBotTranslations, type BotLocale } from './i18n'
 
 export interface PurchaseTopicIngestionConfig {
   householdId: string
@@ -325,7 +325,7 @@ export function registerPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
-      const acknowledgement = buildPurchaseAcknowledgement(status, botLocaleFromContext(ctx))
+      const acknowledgement = buildPurchaseAcknowledgement(status, 'en')
 
       if (status.status === 'created') {
         options.logger?.info(
@@ -395,7 +395,13 @@ export function registerConfiguredPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
-      const acknowledgement = buildPurchaseAcknowledgement(status, botLocaleFromContext(ctx))
+      const householdChat = await householdConfigurationRepository.getHouseholdChatByHouseholdId(
+        record.householdId
+      )
+      const acknowledgement = buildPurchaseAcknowledgement(
+        status,
+        householdChat?.defaultLocale ?? 'en'
+      )
 
       if (status.status === 'created') {
         options.logger?.info(

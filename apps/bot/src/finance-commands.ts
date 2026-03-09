@@ -2,7 +2,8 @@ import type { FinanceCommandService } from '@household/application'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
-import { botLocaleFromContext, getBotTranslations } from './i18n'
+import { getBotTranslations } from './i18n'
+import { resolveReplyLocale } from './bot-locale'
 
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -24,10 +25,10 @@ export function createFinanceCommandsService(options: {
   register: (bot: Bot) => void
 } {
   function formatStatement(
-    ctx: Context,
+    locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
   ): string {
-    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+    const t = getBotTranslations(locale).finance
 
     return [
       t.statementTitle(dashboard.period),
@@ -42,7 +43,11 @@ export function createFinanceCommandsService(options: {
     service: FinanceCommandService
     householdId: string
   } | null> {
-    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale).finance
     if (!isGroupChat(ctx)) {
       await ctx.reply(t.useInGroup)
       return null
@@ -63,7 +68,11 @@ export function createFinanceCommandsService(options: {
   }
 
   async function requireMember(ctx: Context) {
-    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale).finance
     const telegramUserId = ctx.from?.id?.toString()
     if (!telegramUserId) {
       await ctx.reply(t.unableToIdentifySender)
@@ -89,7 +98,11 @@ export function createFinanceCommandsService(options: {
   }
 
   async function requireAdmin(ctx: Context) {
-    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale).finance
     const resolved = await requireMember(ctx)
     if (!resolved) {
       return null
@@ -105,7 +118,11 @@ export function createFinanceCommandsService(options: {
 
   function register(bot: Bot): void {
     bot.command('cycle_open', async (ctx) => {
-      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -126,7 +143,11 @@ export function createFinanceCommandsService(options: {
     })
 
     bot.command('cycle_close', async (ctx) => {
-      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -146,7 +167,11 @@ export function createFinanceCommandsService(options: {
     })
 
     bot.command('rent_set', async (ctx) => {
-      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -172,7 +197,11 @@ export function createFinanceCommandsService(options: {
     })
 
     bot.command('utility_add', async (ctx) => {
-      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -205,7 +234,11 @@ export function createFinanceCommandsService(options: {
     })
 
     bot.command('statement', async (ctx) => {
-      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
       const resolved = await requireMember(ctx)
       if (!resolved) {
         return
@@ -218,7 +251,7 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await ctx.reply(formatStatement(ctx, dashboard))
+        await ctx.reply(formatStatement(locale, dashboard))
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

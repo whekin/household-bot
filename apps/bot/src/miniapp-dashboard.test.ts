@@ -76,7 +76,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     householdName: 'Kojori House',
     telegramChatId: '-100123',
     telegramChatType: 'supergroup',
-    title: 'Kojori House'
+    title: 'Kojori House',
+    defaultLocale: 'ru' as const
   }
 
   return {
@@ -110,7 +111,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
       username: input.username?.trim() || null,
-      languageCode: input.languageCode?.trim() || null
+      languageCode: input.languageCode?.trim() || null,
+      householdDefaultLocale: household.defaultLocale
     }),
     getPendingHouseholdMember: async () => null,
     findPendingHouseholdMemberByTelegramUserId: async () => null,
@@ -119,13 +121,20 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       householdId: household.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      preferredLocale: input.preferredLocale ?? null,
+      householdDefaultLocale: household.defaultLocale,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
     listHouseholdMembers: async () => [],
     listHouseholdMembersByTelegramUserId: async () => [],
     listPendingHouseholdMembers: async () => [],
-    approvePendingHouseholdMember: async () => null
+    approvePendingHouseholdMember: async () => null,
+    updateHouseholdDefaultLocale: async (_householdId, locale) => ({
+      ...household,
+      defaultLocale: locale
+    }),
+    updateMemberPreferredLocale: async () => null
   }
 }
 
@@ -147,6 +156,8 @@ describe('createMiniAppDashboardHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: true
       }
     ]
@@ -223,6 +234,8 @@ describe('createMiniAppDashboardHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: true
       }
     ]

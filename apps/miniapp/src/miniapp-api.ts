@@ -5,6 +5,8 @@ export interface MiniAppSession {
   member?: {
     displayName: string
     isAdmin: boolean
+    preferredLocale: 'en' | 'ru' | null
+    householdDefaultLocale: 'en' | 'ru'
   }
   telegramUser?: {
     firstName: string | null
@@ -14,7 +16,15 @@ export interface MiniAppSession {
   onboarding?: {
     status: 'join_required' | 'pending' | 'open_from_group'
     householdName?: string
+    householdDefaultLocale?: 'en' | 'ru'
   }
+}
+
+export interface MiniAppLocalePreference {
+  scope: 'member' | 'household'
+  effectiveLocale: 'en' | 'ru'
+  memberPreferredLocale: 'en' | 'ru' | null
+  householdDefaultLocale: 'en' | 'ru'
 }
 
 export interface MiniAppPendingMember {
@@ -218,4 +228,35 @@ export async function approveMiniAppPendingMember(
   if (!response.ok || !payload.authorized) {
     throw new Error(payload.error ?? 'Failed to approve member')
   }
+}
+
+export async function updateMiniAppLocalePreference(
+  initData: string,
+  locale: 'en' | 'ru',
+  scope: 'member' | 'household'
+): Promise<MiniAppLocalePreference> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/preferences/locale`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      locale,
+      scope
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    locale?: MiniAppLocalePreference
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.locale) {
+    throw new Error(payload.error ?? 'Failed to update locale preference')
+  }
+
+  return payload.locale
 }

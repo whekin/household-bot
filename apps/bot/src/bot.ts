@@ -1,19 +1,31 @@
 import { Bot } from 'grammy'
 import type { Logger } from '@household/observability'
+import type { HouseholdConfigurationRepository } from '@household/ports'
 
-import { botLocaleFromContext, getBotTranslations } from './i18n'
+import { getBotTranslations } from './i18n'
+import { resolveReplyLocale } from './bot-locale'
 import { formatTelegramHelpText } from './telegram-commands'
 
-export function createTelegramBot(token: string, logger?: Logger): Bot {
+export function createTelegramBot(
+  token: string,
+  logger?: Logger,
+  householdConfigurationRepository?: HouseholdConfigurationRepository
+): Bot {
   const bot = new Bot(token)
 
   bot.command('help', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: householdConfigurationRepository
+    })
     await ctx.reply(formatTelegramHelpText(locale))
   })
 
   bot.command('household_status', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: householdConfigurationRepository
+    })
     await ctx.reply(getBotTranslations(locale).bot.householdStatusPending)
   })
 

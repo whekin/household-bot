@@ -95,7 +95,8 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         householdName: 'Kojori House',
         telegramChatId: '-100222333',
         telegramChatType: 'supergroup',
-        title: 'Kojori House'
+        title: 'Kojori House',
+        defaultLocale: 'ru'
       }
     }),
     getTelegramHouseholdChat: async () => ({
@@ -103,14 +104,16 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       householdName: 'Kojori House',
       telegramChatId: '-100222333',
       telegramChatType: 'supergroup',
-      title: 'Kojori House'
+      title: 'Kojori House',
+      defaultLocale: 'ru'
     }),
     getHouseholdChatByHouseholdId: async () => ({
       householdId: 'household-1',
       householdName: 'Kojori House',
       telegramChatId: '-100222333',
       telegramChatType: 'supergroup',
-      title: 'Kojori House'
+      title: 'Kojori House',
+      defaultLocale: 'ru'
     }),
     bindHouseholdTopic: async (input) => ({
       householdId: input.householdId,
@@ -143,7 +146,8 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
       username: input.username?.trim() || null,
-      languageCode: input.languageCode?.trim() || null
+      languageCode: input.languageCode?.trim() || null,
+      householdDefaultLocale: 'ru'
     }),
     getPendingHouseholdMember: async () => null,
     findPendingHouseholdMemberByTelegramUserId: async () => null,
@@ -152,6 +156,8 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       householdId: input.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      preferredLocale: input.preferredLocale ?? null,
+      householdDefaultLocale: 'ru',
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -162,11 +168,30 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
         isAdmin: false
       }
     ],
     listPendingHouseholdMembers: async () => [],
-    approvePendingHouseholdMember: async () => null
+    approvePendingHouseholdMember: async () => null,
+    updateHouseholdDefaultLocale: async (_householdId, locale) => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramChatId: '-100222333',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House',
+      defaultLocale: locale
+    }),
+    updateMemberPreferredLocale: async (_householdId, telegramUserId, locale) => ({
+      id: `member-${telegramUserId}`,
+      householdId: 'household-1',
+      telegramUserId,
+      displayName: 'Stan',
+      preferredLocale: locale,
+      householdDefaultLocale: 'ru',
+      isAdmin: false
+    })
   }
 }
 
@@ -236,10 +261,10 @@ describe('registerAnonymousFeedback', () => {
     expect(calls[0]?.payload).toMatchObject({
       chat_id: '-100222333',
       message_thread_id: 77,
-      text: 'Anonymous household note\n\nPlease clean the kitchen tonight.'
+      text: 'Анонимное сообщение по дому\n\nPlease clean the kitchen tonight.'
     })
     expect(calls[1]?.payload).toMatchObject({
-      text: 'Anonymous feedback delivered.'
+      text: 'Анонимное сообщение отправлено.'
     })
   })
 
@@ -303,7 +328,7 @@ describe('registerAnonymousFeedback', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Use /anon in a private chat with the bot.'
+      text: 'Используйте /anon в личном чате с ботом.'
     })
   })
 
@@ -377,15 +402,15 @@ describe('registerAnonymousFeedback', () => {
 
     expect(submit).toHaveBeenCalledTimes(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Send me the anonymous message in your next reply, or tap Cancel.'
+      text: 'Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».'
     })
     expect(calls[1]?.payload).toMatchObject({
       chat_id: '-100222333',
       message_thread_id: 77,
-      text: 'Anonymous household note\n\nPlease clean the kitchen tonight.'
+      text: 'Анонимное сообщение по дому\n\nPlease clean the kitchen tonight.'
     })
     expect(calls[2]?.payload).toMatchObject({
-      text: 'Anonymous feedback delivered.'
+      text: 'Анонимное сообщение отправлено.'
     })
   })
 
@@ -620,7 +645,7 @@ describe('registerAnonymousFeedback', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Anonymous feedback cooldown is active. You can send the next message in 6 hours.'
+      text: 'Сейчас действует пауза на анонимные сообщения. Следующее сообщение можно отправить через 6 часов.'
     })
   })
 })

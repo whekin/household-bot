@@ -5,6 +5,7 @@ import {
   createHouseholdAdminService,
   createFinanceCommandService,
   createHouseholdOnboardingService,
+  createLocalePreferenceService,
   createMiniAppAdminService,
   createHouseholdSetupService,
   createReminderJobService
@@ -37,6 +38,7 @@ import {
   createMiniAppApproveMemberHandler,
   createMiniAppPendingMembersHandler
 } from './miniapp-admin'
+import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
 
 const runtime = getBotRuntimeConfig()
 configureLogger({
@@ -45,13 +47,16 @@ configureLogger({
 })
 
 const logger = getLogger('runtime')
-const bot = createTelegramBot(runtime.telegramBotToken, getLogger('telegram'))
-const webhookHandler = webhookCallback(bot, 'std/http')
-
 const shutdownTasks: Array<() => Promise<void>> = []
 const householdConfigurationRepositoryClient = runtime.databaseUrl
   ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
   : null
+const bot = createTelegramBot(
+  runtime.telegramBotToken,
+  getLogger('telegram'),
+  householdConfigurationRepositoryClient?.repository
+)
+const webhookHandler = webhookCallback(bot, 'std/http')
 const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
 const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
 const householdOnboardingService = householdConfigurationRepositoryClient
@@ -61,6 +66,9 @@ const householdOnboardingService = householdConfigurationRepositoryClient
   : null
 const miniAppAdminService = householdConfigurationRepositoryClient
   ? createMiniAppAdminService(householdConfigurationRepositoryClient.repository)
+  : null
+const localePreferenceService = householdConfigurationRepositoryClient
+  ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
   : null
 const telegramPendingActionRepositoryClient =
   runtime.databaseUrl && runtime.anonymousFeedbackEnabled
@@ -168,6 +176,7 @@ if (householdConfigurationRepositoryClient) {
       householdConfigurationRepositoryClient.repository
     ),
     householdOnboardingService: householdOnboardingService!,
+    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
     ...(runtime.miniAppAllowedOrigins[0]
       ? {
           miniAppUrl: runtime.miniAppAllowedOrigins[0]
@@ -276,6 +285,15 @@ const server = createBotWebhookServer({
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,
         miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppLocalePreference: householdOnboardingService
+    ? createMiniAppLocalePreferenceHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        localePreferenceService: localePreferenceService!,
         logger: getLogger('miniapp-admin')
       })
     : undefined,

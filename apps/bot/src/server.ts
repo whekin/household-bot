@@ -32,6 +32,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppLocalePreference?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   scheduler?:
     | {
         pathPrefix?: string
@@ -69,6 +75,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppPendingMembers?.path ?? '/api/miniapp/admin/pending-members'
   const miniAppApproveMemberPath =
     options.miniAppApproveMember?.path ?? '/api/miniapp/admin/approve-member'
+  const miniAppLocalePreferencePath =
+    options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler
     ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
     : null
@@ -99,6 +107,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppApproveMember && url.pathname === miniAppApproveMemberPath) {
         return await options.miniAppApproveMember.handler(request)
+      }
+
+      if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {
+        return await options.miniAppLocalePreference.handler(request)
       }
 
       if (url.pathname !== normalizedWebhookPath) {

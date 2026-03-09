@@ -1,4 +1,5 @@
 import type { HouseholdOnboardingService } from '@household/application'
+import type { SupportedLocale } from '@household/domain'
 import type { Logger } from '@household/observability'
 
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
@@ -101,11 +102,14 @@ export interface MiniAppSessionResult {
     householdId: string
     displayName: string
     isAdmin: boolean
+    preferredLocale: SupportedLocale | null
+    householdDefaultLocale: SupportedLocale
   }
   telegramUser?: ReturnType<typeof verifyTelegramMiniAppInitData>
   onboarding?: {
     status: 'join_required' | 'pending' | 'open_from_group'
     householdName?: string
+    householdDefaultLocale?: SupportedLocale
   }
 }
 
@@ -154,7 +158,8 @@ export function createMiniAppSessionService(options: {
             telegramUser,
             onboarding: {
               status: 'pending',
-              householdName: access.household.name
+              householdName: access.household.name,
+              householdDefaultLocale: access.household.defaultLocale
             }
           }
         case 'join_required':
@@ -163,7 +168,8 @@ export function createMiniAppSessionService(options: {
             telegramUser,
             onboarding: {
               status: 'join_required',
-              householdName: access.household.name
+              householdName: access.household.name,
+              householdDefaultLocale: access.household.defaultLocale
             }
           }
         case 'open_from_group':
@@ -334,7 +340,8 @@ export function createMiniAppJoinHandler(options: {
             authorized: false,
             onboarding: {
               status: 'pending',
-              householdName: result.household.name
+              householdName: result.household.name,
+              householdDefaultLocale: result.household.defaultLocale
             },
             telegramUser
           },

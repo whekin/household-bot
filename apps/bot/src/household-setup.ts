@@ -1,12 +1,15 @@
 import type {
   HouseholdAdminService,
   HouseholdOnboardingService,
-  HouseholdSetupService
+  HouseholdSetupService,
+  HouseholdMiniAppAccess
 } from '@household/application'
 import type { Logger } from '@household/observability'
+import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
-import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
+import { getBotTranslations, type BotLocale } from './i18n'
+import { resolveReplyLocale } from './bot-locale'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 
@@ -175,12 +178,17 @@ export function registerHouseholdSetupCommands(options: {
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
   householdAdminService: HouseholdAdminService
+  householdConfigurationRepository?: HouseholdConfigurationRepository
   miniAppUrl?: string
   logger?: Logger
 }): void {
   options.bot.command('start', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
-    const t = getBotTranslations(locale)
+    const fallbackLocale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    let locale = fallbackLocale
+    let t = getBotTranslations(locale)
 
     if (ctx.chat?.type !== 'private') {
       return
@@ -232,6 +240,18 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     if (result.status === 'active') {
+      locale = result.member.preferredLocale ?? result.member.householdDefaultLocale
+      t = getBotTranslations(locale)
+    } else {
+      const access = await options.householdOnboardingService.getMiniAppAccess({
+        identity,
+        joinToken
+      })
+      locale = localeFromAccess(access, fallbackLocale)
+      t = getBotTranslations(locale)
+    }
+
+    if (result.status === 'active') {
       await ctx.reply(
         t.setup.alreadyActiveMember(result.member.displayName),
         miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken)
@@ -246,8 +266,12 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('setup', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
-    const t = getBotTranslations(locale)
+    const fallbackLocale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    let locale = fallbackLocale
+    let t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
       await ctx.reply(t.setup.useSetupInGroup)
@@ -277,6 +301,9 @@ export function registerHouseholdSetupCommands(options: {
       await ctx.reply(setupRejectionMessage(locale, result.reason))
       return
     }
+
+    locale = result.household.defaultLocale
+    t = getBotTranslations(locale)
 
     options.logger?.info(
       {
@@ -326,7 +353,10 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
@@ -373,7 +403,10 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('bind_feedback_topic', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
@@ -420,7 +453,10 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('pending_members', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
@@ -456,7 +492,10 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('approve_member', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
@@ -493,7 +532,10 @@ export function registerHouseholdSetupCommands(options: {
   options.bot.callbackQuery(
     new RegExp(`^${APPROVE_MEMBER_CALLBACK_PREFIX}(\\d+)$`),
     async (ctx) => {
-      const locale = botLocaleFromContext(ctx)
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
       const t = getBotTranslations(locale)
 
       if (!isGroupChat(ctx)) {
@@ -553,4 +595,16 @@ export function registerHouseholdSetupCommands(options: {
       await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
     }
   )
+}
+
+function localeFromAccess(access: HouseholdMiniAppAccess, fallback: BotLocale): BotLocale {
+  switch (access.status) {
+    case 'active':
+      return access.member.preferredLocale ?? access.member.householdDefaultLocale
+    case 'pending':
+    case 'join_required':
+      return access.household.defaultLocale
+    case 'open_from_group':
+      return fallback
+  }
 }

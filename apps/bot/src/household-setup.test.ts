@@ -147,7 +147,8 @@ describe('registerHouseholdSetupCommands', () => {
           status: 'pending',
           household: {
             id: 'household-1',
-            name: 'Kojori House'
+            name: 'Kojori House',
+            defaultLocale: 'ru'
           }
         }
       }
@@ -236,7 +237,8 @@ describe('registerHouseholdSetupCommands', () => {
           status: 'pending',
           household: {
             id: 'household-1',
-            name: 'Kojori House'
+            name: 'Kojori House',
+            defaultLocale: 'ru'
           }
         }
       }

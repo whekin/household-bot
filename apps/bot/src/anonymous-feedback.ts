@@ -7,7 +7,8 @@ import type {
 } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
-import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
+import { getBotTranslations, type BotLocale } from './i18n'
+import { resolveReplyLocale } from './bot-locale'
 
 const ANONYMOUS_FEEDBACK_ACTION = 'anonymous_feedback' as const
 const CANCEL_ANONYMOUS_FEEDBACK_CALLBACK = 'cancel_prompt:anonymous_feedback'
@@ -114,9 +115,13 @@ async function clearPendingAnonymousFeedbackPrompt(
 
 async function startPendingAnonymousFeedbackPrompt(
   repository: TelegramPendingActionRepository,
+  householdConfigurationRepository: HouseholdConfigurationRepository,
   ctx: Context
 ): Promise<void> {
-  const locale = botLocaleFromContext(ctx)
+  const locale = await resolveReplyLocale({
+    ctx,
+    repository: householdConfigurationRepository
+  })
   const t = getBotTranslations(locale).anonymousFeedback
   const telegramUserId = ctx.from?.id?.toString()
   const telegramChatId = ctx.chat?.id?.toString()
@@ -152,11 +157,15 @@ async function submitAnonymousFeedback(options: {
   const telegramMessageId = options.ctx.msg?.message_id?.toString()
   const telegramUpdateId =
     'update_id' in options.ctx.update ? options.ctx.update.update_id?.toString() : undefined
-  const locale = botLocaleFromContext(options.ctx)
-  const t = getBotTranslations(locale).anonymousFeedback
+  const fallbackLocale = await resolveReplyLocale({
+    ctx: options.ctx,
+    repository: options.householdConfigurationRepository
+  })
 
   if (!telegramUserId || !telegramChatId || !telegramMessageId || !telegramUpdateId) {
-    await options.ctx.reply(t.unableToIdentifyMessage)
+    await options.ctx.reply(
+      getBotTranslations(fallbackLocale).anonymousFeedback.unableToIdentifyMessage
+    )
     return
   }
 
@@ -167,17 +176,19 @@ async function submitAnonymousFeedback(options: {
 
   if (memberships.length === 0) {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply(t.notMember)
+    await options.ctx.reply(getBotTranslations(fallbackLocale).anonymousFeedback.notMember)
     return
   }
 
   if (memberships.length > 1) {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply(t.multipleHouseholds)
+    await options.ctx.reply(getBotTranslations(fallbackLocale).anonymousFeedback.multipleHouseholds)
     return
   }
 
   const member = memberships[0]!
+  const locale = member.preferredLocale ?? member.householdDefaultLocale
+  const t = getBotTranslations(locale).anonymousFeedback
   const householdChat =
     await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(member.householdId)
   const feedbackTopic = await options.householdConfigurationRepository.getHouseholdTopicBinding(
@@ -273,7 +284,10 @@ export function registerAnonymousFeedback(options: {
   logger?: Logger
 }): void {
   options.bot.command('cancel', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
       return
@@ -297,7 +311,10 @@ export function registerAnonymousFeedback(options: {
   })
 
   options.bot.command('anon', async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
       await ctx.reply(t.useInPrivateChat)
@@ -306,7 +323,11 @@ export function registerAnonymousFeedback(options: {
 
     const rawText = commandArgText(ctx)
     if (rawText.length === 0) {
-      await startPendingAnonymousFeedbackPrompt(options.promptRepository, ctx)
+      await startPendingAnonymousFeedbackPrompt(
+        options.promptRepository,
+        options.householdConfigurationRepository,
+        ctx
+      )
       return
     }
 
@@ -351,7 +372,10 @@ export function registerAnonymousFeedback(options: {
   })
 
   options.bot.callbackQuery(CANCEL_ANONYMOUS_FEEDBACK_CALLBACK, async (ctx) => {
-    const locale = botLocaleFromContext(ctx)
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
     const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({

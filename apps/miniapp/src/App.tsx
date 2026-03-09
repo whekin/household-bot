@@ -7,6 +7,7 @@ import {
   fetchMiniAppPendingMembers,
   fetchMiniAppSession,
   joinMiniAppHousehold,
+  updateMiniAppLocalePreference,
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from './miniapp-api'
@@ -36,6 +37,8 @@ type SessionState =
       member: {
         displayName: string
         isAdmin: boolean
+        preferredLocale: Locale | null
+        householdDefaultLocale: Locale
       }
       telegramUser: {
         firstName: string | null
@@ -51,7 +54,9 @@ const demoSession: Extract<SessionState, { status: 'ready' }> = {
   mode: 'demo',
   member: {
     displayName: 'Demo Resident',
-    isAdmin: false
+    isAdmin: false,
+    preferredLocale: 'en',
+    householdDefaultLocale: 'en'
   },
   telegramUser: {
     firstName: 'Demo',
@@ -112,6 +117,8 @@ function App() {
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [joining, setJoining] = createSignal(false)
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
+  const [savingMemberLocale, setSavingMemberLocale] = createSignal(false)
+  const [savingHouseholdLocale, setSavingHouseholdLocale] = createSignal(false)
 
   const copy = createMemo(() => dictionary[locale()])
   const onboardingSession = createMemo(() => {
@@ -153,7 +160,8 @@ function App() {
   }
 
   async function bootstrap() {
-    setLocale(detectLocale())
+    const fallbackLocale = detectLocale()
+    setLocale(fallbackLocale)
 
     webApp?.ready?.()
     webApp?.expand?.()
@@ -175,6 +183,10 @@ function App() {
     try {
       const payload = await fetchMiniAppSession(initData, joinContext().joinToken)
       if (!payload.authorized || !payload.member || !payload.telegramUser) {
+        setLocale(
+          payload.onboarding?.householdDefaultLocale ??
+            ((payload.telegramUser?.languageCode ?? fallbackLocale).startsWith('ru') ? 'ru' : 'en')
+        )
         setSession({
           status: 'onboarding',
           mode: payload.onboarding?.status ?? 'open_from_group',
@@ -192,6 +204,7 @@ function App() {
         return
       }
 
+      setLocale(payload.member.preferredLocale ?? payload.member.householdDefaultLocale)
       setSession({
         status: 'ready',
         mode: 'live',
@@ -284,6 +297,7 @@ function App() {
     try {
       const payload = await joinMiniAppHousehold(initData, joinToken)
       if (payload.authorized && payload.member && payload.telegramUser) {
+        setLocale(payload.member.preferredLocale ?? payload.member.householdDefaultLocale)
         setSession({
           status: 'ready',
           mode: 'live',
@@ -297,6 +311,10 @@ function App() {
         return
       }
 
+      setLocale(
+        payload.onboarding?.householdDefaultLocale ??
+          ((payload.telegramUser?.languageCode ?? locale()).startsWith('ru') ? 'ru' : 'en')
+      )
       setSession({
         status: 'onboarding',
         mode: payload.onboarding?.status ?? 'pending',
@@ -336,6 +354,71 @@ function App() {
       )
     } finally {
       setApprovingTelegramUserId(null)
+    }
+  }
+
+  async function handleMemberLocaleChange(nextLocale: Locale) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+
+    setLocale(nextLocale)
+
+    if (!initData || currentReady?.mode !== 'live') {
+      return
+    }
+
+    setSavingMemberLocale(true)
+
+    try {
+      const updated = await updateMiniAppLocalePreference(initData, nextLocale, 'member')
+
+      setSession((current) =>
+        current.status === 'ready'
+          ? {
+              ...current,
+              member: {
+                ...current.member,
+                preferredLocale: updated.memberPreferredLocale,
+                householdDefaultLocale: updated.householdDefaultLocale
+              }
+            }
+          : current
+      )
+      setLocale(updated.effectiveLocale)
+    } finally {
+      setSavingMemberLocale(false)
+    }
+  }
+
+  async function handleHouseholdLocaleChange(nextLocale: Locale) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setSavingHouseholdLocale(true)
+
+    try {
+      const updated = await updateMiniAppLocalePreference(initData, nextLocale, 'household')
+
+      setSession((current) =>
+        current.status === 'ready'
+          ? {
+              ...current,
+              member: {
+                ...current.member,
+                householdDefaultLocale: updated.householdDefaultLocale
+              }
+            }
+          : current
+      )
+
+      if (!currentReady.member.preferredLocale) {
+        setLocale(updated.effectiveLocale)
+      }
+    } finally {
+      setSavingHouseholdLocale(false)
     }
   }
 
@@ -396,6 +479,34 @@ function App() {
       case 'house':
         return readySession()?.member.isAdmin ? (
           <div class="balance-list">
+            <article class="balance-item">
+              <header>
+                <strong>{copy().householdLanguage}</strong>
+                <span>{readySession()?.member.householdDefaultLocale.toUpperCase()}</span>
+              </header>
+              <div class="locale-switch__buttons">
+                <button
+                  classList={{
+                    'is-active': readySession()?.member.householdDefaultLocale === 'en'
+                  }}
+                  type="button"
+                  disabled={savingHouseholdLocale()}
+                  onClick={() => void handleHouseholdLocaleChange('en')}
+                >
+                  EN
+                </button>
+                <button
+                  classList={{
+                    'is-active': readySession()?.member.householdDefaultLocale === 'ru'
+                  }}
+                  type="button"
+                  disabled={savingHouseholdLocale()}
+                  onClick={() => void handleHouseholdLocaleChange('ru')}
+                >
+                  RU
+                </button>
+              </div>
+            </article>
             <article class="balance-item">
               <header>
                 <strong>{copy().pendingMembersTitle}</strong>
@@ -470,14 +581,16 @@ function App() {
             <button
               classList={{ 'is-active': locale() === 'en' }}
               type="button"
-              onClick={() => setLocale('en')}
+              disabled={savingMemberLocale()}
+              onClick={() => void handleMemberLocaleChange('en')}
             >
               EN
             </button>
             <button
               classList={{ 'is-active': locale() === 'ru' }}
               type="button"
-              onClick={() => setLocale('ru')}
+              disabled={savingMemberLocale()}
+              onClick={() => void handleMemberLocaleChange('ru')}
             >
               RU
             </button>
