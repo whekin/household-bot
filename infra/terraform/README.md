@@ -61,6 +61,9 @@ echo -n "<value>" | gcloud secrets versions add scheduler-shared-secret --data-f
 If you configure optional secret IDs such as `database_url_secret_id` or
 `openai_api_key_secret_id`, add versions for those secrets as well.
 
+If GitHub OIDC deploy access is enabled, keep `telegram_bot_token_secret_id` aligned with the
+real bot token secret name so CD can read it and sync Telegram commands automatically.
+
 ## Environments
 
 Recommended approach:

@@ -32,6 +32,7 @@ Required in your environment `*.tfvars`:
 Recommended:
 
 - `database_url_secret_id = "database-url"`
+- `telegram_bot_token_secret_id = "telegram-bot-token"`
 - `openai_api_key_secret_id = "openai-api-key"`
 - optional `supabase_url_secret_id = "supabase-url"`
 - optional `supabase_publishable_key_secret_id = "supabase-publishable-key"`
@@ -141,6 +142,9 @@ For a functional household dev deployment, set `database_url_secret_id = "databa
 without `DATABASE_URL`, and finance commands, reminders, mini app auth/dashboard, and anonymous
 feedback remain disabled.
 
+Keep `telegram_bot_token_secret_id = "telegram-bot-token"` aligned with the actual bot token
+secret name. CD uses that secret to sync the Telegram command menu after deploy.
+
 ## Phase 4: Configure GitHub CD
 
 Populate GitHub repository secrets with the Terraform outputs:
@@ -160,6 +164,9 @@ gh secret set DATABASE_URL
 ```
 
 Set GitHub repository variables if you want to override the defaults used by `.github/workflows/cd.yml`.
+
+- optional `TELEGRAM_BOT_TOKEN_SECRET_ID`
+  - only needed if your bot token secret name is not `telegram-bot-token`
 
 ## Phase 5: Trigger the First Deployment
 

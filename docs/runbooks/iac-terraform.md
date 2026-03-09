@@ -46,7 +46,11 @@ If you set optional secret IDs such as `database_url_secret_id` or
 For a functional dev bot, set at least:
 
 - `database_url_secret_id = "database-url"`
+- `telegram_bot_token_secret_id = "telegram-bot-token"`
 - optional `openai_api_key_secret_id = "openai-api-key"`
+
+If `create_workload_identity = true`, Terraform also grants the GitHub deploy service account
+`secretAccessor` on `telegram_bot_token_secret_id` so CD can sync Telegram commands after deploy.
 
 Keep bot runtime config that is not secret in your `*.tfvars` file:
 

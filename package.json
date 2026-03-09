@@ -26,6 +26,8 @@
     "infra:fmt": "terraform -chdir=infra/terraform fmt -recursive",
     "infra:fmt:check": "terraform -chdir=infra/terraform fmt -check -recursive",
     "infra:validate": "terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate",
+    "infra:plan:dev": "terraform -chdir=infra/terraform plan -var-file=dev.tfvars",
+    "infra:apply:dev": "terraform -chdir=infra/terraform apply -var-file=dev.tfvars",
     "dev:bot": "bun run --filter @household/bot dev",
     "dev:miniapp": "bun run --filter @household/miniapp dev",
     "docker:build:bot": "docker build -f apps/bot/Dockerfile -t household-bot:local .",

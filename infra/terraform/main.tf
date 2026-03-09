@@ -64,6 +64,15 @@ resource "google_secret_manager_secret_iam_member" "bot_runtime_access" {
   member    = "serviceAccount:${google_service_account.bot_runtime.email}"
 }
 
+resource "google_secret_manager_secret_iam_member" "github_deployer_bot_token_access" {
+  count = var.create_workload_identity ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.telegram_bot_token_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.github_deployer[0].email}"
+}
+
 module "bot_api_service" {
   source = "./modules/cloud_run_service"
 

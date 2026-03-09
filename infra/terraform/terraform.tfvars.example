@@ -9,6 +9,7 @@ bot_api_image   = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/bot:
 mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/miniapp:latest"
 
 database_url_secret_id   = "database-url"
+telegram_bot_token_secret_id = "telegram-bot-token"
 openai_api_key_secret_id = "openai-api-key"
 # supabase_url_secret_id             = "supabase-url"
 # supabase_publishable_key_secret_id = "supabase-publishable-key"
