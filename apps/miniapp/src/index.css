@@ -283,6 +283,37 @@ button {
   font-size: clamp(1.2rem, 4vw, 1.7rem);
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field span {
+  color: #c6c2bb;
+  font-size: 0.82rem;
+}
+
+.settings-field input,
+.settings-field select {
+  width: 100%;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgb(255 255 255 / 0.04);
+  color: inherit;
+}
+
+.settings-field--wide {
+  grid-column: 1 / -1;
+}
+
 .panel--wide {
   min-height: 170px;
 }
@@ -300,6 +331,10 @@ button {
 
   .home-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .settings-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .panel--wide {

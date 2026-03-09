@@ -36,7 +36,11 @@ import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-au
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import {
   createMiniAppApproveMemberHandler,
-  createMiniAppPendingMembersHandler
+  createMiniAppPendingMembersHandler,
+  createMiniAppPromoteMemberHandler,
+  createMiniAppSettingsHandler,
+  createMiniAppUpdateSettingsHandler,
+  createMiniAppUpsertUtilityCategoryHandler
 } from './miniapp-admin'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
 
@@ -304,6 +308,42 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppApproveMember: householdOnboardingService
     ? createMiniAppApproveMemberHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppSettings: householdOnboardingService
+    ? createMiniAppSettingsHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppUpdateSettings: householdOnboardingService
+    ? createMiniAppUpdateSettingsHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppUpsertUtilityCategory: householdOnboardingService
+    ? createMiniAppUpsertUtilityCategoryHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppPromoteMember: householdOnboardingService
+    ? createMiniAppPromoteMemberHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

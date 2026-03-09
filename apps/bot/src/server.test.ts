@@ -34,6 +34,45 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppSettings: {
+      handler: async () =>
+        new Response(
+          JSON.stringify({ ok: true, authorized: true, settings: {}, categories: [], members: [] }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json; charset=utf-8'
+            }
+          }
+        )
+    },
+    miniAppUpdateSettings: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, settings: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppUpsertUtilityCategory: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, category: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppPromoteMember: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     miniAppApproveMember: {
       handler: async () =>
         new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
@@ -151,6 +190,72 @@ describe('createBotWebhookServer', () => {
       ok: true,
       authorized: true,
       members: []
+    })
+  })
+
+  test('accepts mini app settings request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/settings', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      settings: {},
+      categories: [],
+      members: []
+    })
+  })
+
+  test('accepts mini app settings update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/settings/update', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      settings: {}
+    })
+  })
+
+  test('accepts mini app utility category upsert request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/utility-categories/upsert', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      category: {}
+    })
+  })
+
+  test('accepts mini app promote member request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/members/promote', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {}
     })
   })
 

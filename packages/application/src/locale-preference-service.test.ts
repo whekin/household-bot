@@ -74,7 +74,37 @@ function createRepository(): HouseholdConfigurationRepository {
             preferredLocale: locale,
             householdDefaultLocale: 'ru'
           }
-        : null
+        : null,
+    getHouseholdBillingSettings: async (householdId) => ({
+      householdId,
+      rentAmountMinor: null,
+      rentCurrency: 'USD',
+      rentDueDay: 20,
+      rentWarningDay: 17,
+      utilitiesDueDay: 4,
+      utilitiesReminderDay: 3,
+      timezone: 'Asia/Tbilisi'
+    }),
+    updateHouseholdBillingSettings: async (input) => ({
+      householdId: input.householdId,
+      rentAmountMinor: input.rentAmountMinor ?? null,
+      rentCurrency: input.rentCurrency ?? 'USD',
+      rentDueDay: input.rentDueDay ?? 20,
+      rentWarningDay: input.rentWarningDay ?? 17,
+      utilitiesDueDay: input.utilitiesDueDay ?? 4,
+      utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
+      timezone: input.timezone ?? 'Asia/Tbilisi'
+    }),
+    listHouseholdUtilityCategories: async () => [],
+    upsertHouseholdUtilityCategory: async (input) => ({
+      id: input.slug ?? 'utility-category-1',
+      householdId: input.householdId,
+      slug: input.slug ?? 'custom',
+      name: input.name,
+      sortOrder: input.sortOrder,
+      isActive: input.isActive
+    }),
+    promoteHouseholdAdmin: async () => null
   }
 }
 

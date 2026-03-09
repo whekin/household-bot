@@ -1,9 +1,15 @@
 import { and, asc, eq } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
-import { instantToDate, normalizeSupportedLocale, nowInstant } from '@household/domain'
+import {
+  instantToDate,
+  normalizeSupportedLocale,
+  nowInstant,
+  type CurrencyCode
+} from '@household/domain'
 import {
   HOUSEHOLD_TOPIC_ROLES,
+  type HouseholdBillingSettingsRecord,
   type HouseholdConfigurationRepository,
   type HouseholdJoinTokenRecord,
   type HouseholdMemberRecord,
@@ -11,6 +17,7 @@ import {
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
   type HouseholdTopicRole,
+  type HouseholdUtilityCategoryRecord,
   type ReminderTarget,
   type RegisterTelegramHouseholdChatResult
 } from '@household/ports'
@@ -147,6 +154,65 @@ function toReminderTarget(row: {
   }
 }
 
+function toCurrencyCode(raw: string): CurrencyCode {
+  const normalized = raw.trim().toUpperCase()
+
+  if (normalized !== 'USD' && normalized !== 'GEL') {
+    throw new Error(`Unsupported household billing currency: ${raw}`)
+  }
+
+  return normalized
+}
+
+function toHouseholdBillingSettingsRecord(row: {
+  householdId: string
+  rentAmountMinor: bigint | null
+  rentCurrency: string
+  rentDueDay: number
+  rentWarningDay: number
+  utilitiesDueDay: number
+  utilitiesReminderDay: number
+  timezone: string
+}): HouseholdBillingSettingsRecord {
+  return {
+    householdId: row.householdId,
+    rentAmountMinor: row.rentAmountMinor,
+    rentCurrency: toCurrencyCode(row.rentCurrency),
+    rentDueDay: row.rentDueDay,
+    rentWarningDay: row.rentWarningDay,
+    utilitiesDueDay: row.utilitiesDueDay,
+    utilitiesReminderDay: row.utilitiesReminderDay,
+    timezone: row.timezone
+  }
+}
+
+function toHouseholdUtilityCategoryRecord(row: {
+  id: string
+  householdId: string
+  slug: string
+  name: string
+  sortOrder: number
+  isActive: number
+}): HouseholdUtilityCategoryRecord {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    slug: row.slug,
+    name: row.name,
+    sortOrder: row.sortOrder,
+    isActive: row.isActive === 1
+  }
+}
+
+function utilityCategorySlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48)
+}
+
 export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
   repository: HouseholdConfigurationRepository
   close: () => Promise<void>
@@ -155,6 +221,43 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
     max: 5,
     prepare: false
   })
+
+  const defaultUtilityCategories = [
+    { slug: 'internet', name: 'Internet', sortOrder: 0 },
+    { slug: 'gas_water', name: 'Gas (Water)', sortOrder: 1 },
+    { slug: 'cleaning', name: 'Cleaning', sortOrder: 2 },
+    { slug: 'electricity', name: 'Electricity', sortOrder: 3 }
+  ] as const
+
+  async function ensureBillingSettings(householdId: string): Promise<void> {
+    await db
+      .insert(schema.householdBillingSettings)
+      .values({
+        householdId
+      })
+      .onConflictDoNothing({
+        target: [schema.householdBillingSettings.householdId]
+      })
+  }
+
+  async function ensureUtilityCategories(householdId: string): Promise<void> {
+    await db
+      .insert(schema.householdUtilityCategories)
+      .values(
+        defaultUtilityCategories.map((category) => ({
+          householdId,
+          slug: category.slug,
+          name: category.name,
+          sortOrder: category.sortOrder
+        }))
+      )
+      .onConflictDoNothing({
+        target: [
+          schema.householdUtilityCategories.householdId,
+          schema.householdUtilityCategories.slug
+        ]
+      })
+  }
 
   const repository: HouseholdConfigurationRepository = {
     async registerTelegramHouseholdChat(input) {
@@ -713,6 +816,161 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       return rows.map(toHouseholdMemberRecord)
     },
 
+    async getHouseholdBillingSettings(householdId) {
+      await ensureBillingSettings(householdId)
+
+      const rows = await db
+        .select({
+          householdId: schema.householdBillingSettings.householdId,
+          rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
+          rentCurrency: schema.householdBillingSettings.rentCurrency,
+          rentDueDay: schema.householdBillingSettings.rentDueDay,
+          rentWarningDay: schema.householdBillingSettings.rentWarningDay,
+          utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
+          utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
+          timezone: schema.householdBillingSettings.timezone
+        })
+        .from(schema.householdBillingSettings)
+        .where(eq(schema.householdBillingSettings.householdId, householdId))
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to load household billing settings')
+      }
+
+      return toHouseholdBillingSettingsRecord(row)
+    },
+
+    async updateHouseholdBillingSettings(input) {
+      await ensureBillingSettings(input.householdId)
+
+      const rows = await db
+        .update(schema.householdBillingSettings)
+        .set({
+          ...(input.rentAmountMinor !== undefined
+            ? {
+                rentAmountMinor: input.rentAmountMinor
+              }
+            : {}),
+          ...(input.rentCurrency
+            ? {
+                rentCurrency: input.rentCurrency
+              }
+            : {}),
+          ...(input.rentDueDay !== undefined
+            ? {
+                rentDueDay: input.rentDueDay
+              }
+            : {}),
+          ...(input.rentWarningDay !== undefined
+            ? {
+                rentWarningDay: input.rentWarningDay
+              }
+            : {}),
+          ...(input.utilitiesDueDay !== undefined
+            ? {
+                utilitiesDueDay: input.utilitiesDueDay
+              }
+            : {}),
+          ...(input.utilitiesReminderDay !== undefined
+            ? {
+                utilitiesReminderDay: input.utilitiesReminderDay
+              }
+            : {}),
+          ...(input.timezone
+            ? {
+                timezone: input.timezone
+              }
+            : {}),
+          updatedAt: instantToDate(nowInstant())
+        })
+        .where(eq(schema.householdBillingSettings.householdId, input.householdId))
+        .returning({
+          householdId: schema.householdBillingSettings.householdId,
+          rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
+          rentCurrency: schema.householdBillingSettings.rentCurrency,
+          rentDueDay: schema.householdBillingSettings.rentDueDay,
+          rentWarningDay: schema.householdBillingSettings.rentWarningDay,
+          utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
+          utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
+          timezone: schema.householdBillingSettings.timezone
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to update household billing settings')
+      }
+
+      return toHouseholdBillingSettingsRecord(row)
+    },
+
+    async listHouseholdUtilityCategories(householdId) {
+      await ensureUtilityCategories(householdId)
+
+      const rows = await db
+        .select({
+          id: schema.householdUtilityCategories.id,
+          householdId: schema.householdUtilityCategories.householdId,
+          slug: schema.householdUtilityCategories.slug,
+          name: schema.householdUtilityCategories.name,
+          sortOrder: schema.householdUtilityCategories.sortOrder,
+          isActive: schema.householdUtilityCategories.isActive
+        })
+        .from(schema.householdUtilityCategories)
+        .where(eq(schema.householdUtilityCategories.householdId, householdId))
+        .orderBy(
+          asc(schema.householdUtilityCategories.sortOrder),
+          asc(schema.householdUtilityCategories.name)
+        )
+
+      return rows.map(toHouseholdUtilityCategoryRecord)
+    },
+
+    async upsertHouseholdUtilityCategory(input) {
+      const slug = utilityCategorySlug(input.slug ?? input.name)
+      if (!slug) {
+        throw new Error('Utility category slug cannot be empty')
+      }
+
+      const rows = await db
+        .insert(schema.householdUtilityCategories)
+        .values({
+          householdId: input.householdId,
+          slug,
+          name: input.name.trim(),
+          sortOrder: input.sortOrder,
+          isActive: input.isActive ? 1 : 0
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.householdUtilityCategories.householdId,
+            schema.householdUtilityCategories.slug
+          ],
+          set: {
+            name: input.name.trim(),
+            sortOrder: input.sortOrder,
+            isActive: input.isActive ? 1 : 0,
+            updatedAt: instantToDate(nowInstant())
+          }
+        })
+        .returning({
+          id: schema.householdUtilityCategories.id,
+          householdId: schema.householdUtilityCategories.householdId,
+          slug: schema.householdUtilityCategories.slug,
+          name: schema.householdUtilityCategories.name,
+          sortOrder: schema.householdUtilityCategories.sortOrder,
+          isActive: schema.householdUtilityCategories.isActive
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to upsert household utility category')
+      }
+
+      return toHouseholdUtilityCategoryRecord(row)
+    },
+
     async listHouseholdMembersByTelegramUserId(telegramUserId) {
       const rows = await db
         .select({
@@ -894,6 +1152,38 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const household = await this.getHouseholdChatByHouseholdId(householdId)
       if (!household) {
         throw new Error('Failed to resolve household chat after member locale update')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
+    },
+
+    async promoteHouseholdAdmin(householdId, memberId) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          isAdmin: 1
+        })
+        .where(and(eq(schema.members.householdId, householdId), eq(schema.members.id, memberId)))
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          preferredLocale: schema.members.preferredLocale,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after admin promotion')
       }
 
       return toHouseholdMemberRecord({

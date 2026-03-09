@@ -1,4 +1,4 @@
-import type { SupportedLocale } from '@household/domain'
+import type { CurrencyCode, SupportedLocale } from '@household/domain'
 import type { ReminderTarget } from './reminders'
 
 export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders'] as const
@@ -46,6 +46,26 @@ export interface HouseholdMemberRecord {
   preferredLocale: SupportedLocale | null
   householdDefaultLocale: SupportedLocale
   isAdmin: boolean
+}
+
+export interface HouseholdBillingSettingsRecord {
+  householdId: string
+  rentAmountMinor: bigint | null
+  rentCurrency: CurrencyCode
+  rentDueDay: number
+  rentWarningDay: number
+  utilitiesDueDay: number
+  utilitiesReminderDay: number
+  timezone: string
+}
+
+export interface HouseholdUtilityCategoryRecord {
+  id: string
+  householdId: string
+  slug: string
+  name: string
+  sortOrder: number
+  isActive: boolean
 }
 
 export interface RegisterTelegramHouseholdChatInput {
@@ -115,6 +135,27 @@ export interface HouseholdConfigurationRepository {
     telegramUserId: string
   ): Promise<HouseholdMemberRecord | null>
   listHouseholdMembers(householdId: string): Promise<readonly HouseholdMemberRecord[]>
+  getHouseholdBillingSettings(householdId: string): Promise<HouseholdBillingSettingsRecord>
+  updateHouseholdBillingSettings(input: {
+    householdId: string
+    rentAmountMinor?: bigint | null
+    rentCurrency?: CurrencyCode
+    rentDueDay?: number
+    rentWarningDay?: number
+    utilitiesDueDay?: number
+    utilitiesReminderDay?: number
+    timezone?: string
+  }): Promise<HouseholdBillingSettingsRecord>
+  listHouseholdUtilityCategories(
+    householdId: string
+  ): Promise<readonly HouseholdUtilityCategoryRecord[]>
+  upsertHouseholdUtilityCategory(input: {
+    householdId: string
+    slug?: string
+    name: string
+    sortOrder: number
+    isActive: boolean
+  }): Promise<HouseholdUtilityCategoryRecord>
   listHouseholdMembersByTelegramUserId(
     telegramUserId: string
   ): Promise<readonly HouseholdMemberRecord[]>
@@ -132,5 +173,9 @@ export interface HouseholdConfigurationRepository {
     householdId: string,
     telegramUserId: string,
     locale: SupportedLocale
+  ): Promise<HouseholdMemberRecord | null>
+  promoteHouseholdAdmin(
+    householdId: string,
+    memberId: string
   ): Promise<HouseholdMemberRecord | null>
 }

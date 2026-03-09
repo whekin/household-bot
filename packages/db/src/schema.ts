@@ -19,6 +19,56 @@ export const households = pgTable('households', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 })
 
+export const householdBillingSettings = pgTable(
+  'household_billing_settings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    rentAmountMinor: bigint('rent_amount_minor', { mode: 'bigint' }),
+    rentCurrency: text('rent_currency').default('USD').notNull(),
+    rentDueDay: integer('rent_due_day').default(20).notNull(),
+    rentWarningDay: integer('rent_warning_day').default(17).notNull(),
+    utilitiesDueDay: integer('utilities_due_day').default(4).notNull(),
+    utilitiesReminderDay: integer('utilities_reminder_day').default(3).notNull(),
+    timezone: text('timezone').default('Asia/Tbilisi').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdUnique: uniqueIndex('household_billing_settings_household_unique').on(
+      table.householdId
+    )
+  })
+)
+
+export const householdUtilityCategories = pgTable(
+  'household_utility_categories',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    isActive: integer('is_active').default(1).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdSlugUnique: uniqueIndex('household_utility_categories_household_slug_unique').on(
+      table.householdId,
+      table.slug
+    ),
+    householdSortIdx: index('household_utility_categories_household_sort_idx').on(
+      table.householdId,
+      table.sortOrder
+    )
+  })
+)
+
 export const householdTelegramChats = pgTable(
   'household_telegram_chats',
   {
@@ -460,8 +510,10 @@ export const settlementLines = pgTable(
 )
 
 export type Household = typeof households.$inferSelect
+export type HouseholdBillingSettings = typeof householdBillingSettings.$inferSelect
 export type HouseholdTelegramChat = typeof householdTelegramChats.$inferSelect
 export type HouseholdTopicBinding = typeof householdTopicBindings.$inferSelect
+export type HouseholdUtilityCategory = typeof householdUtilityCategories.$inferSelect
 export type Member = typeof members.$inferSelect
 export type BillingCycle = typeof billingCycles.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect

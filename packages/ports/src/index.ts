@@ -9,12 +9,14 @@ export {
 export {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,
+  type HouseholdBillingSettingsRecord,
   type HouseholdJoinTokenRecord,
   type HouseholdMemberRecord,
   type HouseholdPendingMemberRecord,
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
   type HouseholdTopicRole,
+  type HouseholdUtilityCategoryRecord,
   type RegisterTelegramHouseholdChatInput,
   type RegisterTelegramHouseholdChatResult
 } from './household-config'

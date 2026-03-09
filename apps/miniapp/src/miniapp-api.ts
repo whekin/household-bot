@@ -34,6 +34,32 @@ export interface MiniAppPendingMember {
   languageCode: string | null
 }
 
+export interface MiniAppMember {
+  id: string
+  displayName: string
+  isAdmin: boolean
+}
+
+export interface MiniAppBillingSettings {
+  householdId: string
+  rentAmountMinor: string | null
+  rentCurrency: 'USD' | 'GEL'
+  rentDueDay: number
+  rentWarningDay: number
+  utilitiesDueDay: number
+  utilitiesReminderDay: number
+  timezone: string
+}
+
+export interface MiniAppUtilityCategory {
+  id: string
+  householdId: string
+  slug: string
+  name: string
+  sortOrder: number
+  isActive: boolean
+}
+
 export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
@@ -55,6 +81,12 @@ export interface MiniAppDashboard {
     actorDisplayName: string | null
     occurredAt: string | null
   }[]
+}
+
+export interface MiniAppAdminSettingsPayload {
+  settings: MiniAppBillingSettings
+  categories: readonly MiniAppUtilityCategory[]
+  members: readonly MiniAppMember[]
 }
 
 function apiBaseUrl(): string {
@@ -259,4 +291,143 @@ export async function updateMiniAppLocalePreference(
   }
 
   return payload.locale
+}
+
+export async function fetchMiniAppAdminSettings(
+  initData: string
+): Promise<MiniAppAdminSettingsPayload> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/settings`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    settings?: MiniAppBillingSettings
+    categories?: MiniAppUtilityCategory[]
+    members?: MiniAppMember[]
+    error?: string
+  }
+
+  if (
+    !response.ok ||
+    !payload.authorized ||
+    !payload.settings ||
+    !payload.categories ||
+    !payload.members
+  ) {
+    throw new Error(payload.error ?? 'Failed to load admin settings')
+  }
+
+  return {
+    settings: payload.settings,
+    categories: payload.categories,
+    members: payload.members
+  }
+}
+
+export async function updateMiniAppBillingSettings(
+  initData: string,
+  input: {
+    rentAmountMajor?: string
+    rentCurrency: 'USD' | 'GEL'
+    rentDueDay: number
+    rentWarningDay: number
+    utilitiesDueDay: number
+    utilitiesReminderDay: number
+    timezone: string
+  }
+): Promise<MiniAppBillingSettings> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/settings/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    settings?: MiniAppBillingSettings
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.settings) {
+    throw new Error(payload.error ?? 'Failed to update billing settings')
+  }
+
+  return payload.settings
+}
+
+export async function upsertMiniAppUtilityCategory(
+  initData: string,
+  input: {
+    slug?: string
+    name: string
+    sortOrder: number
+    isActive: boolean
+  }
+): Promise<MiniAppUtilityCategory> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/utility-categories/upsert`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    category?: MiniAppUtilityCategory
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.category) {
+    throw new Error(payload.error ?? 'Failed to save utility category')
+  }
+
+  return payload.category
+}
+
+export async function promoteMiniAppMember(
+  initData: string,
+  memberId: string
+): Promise<MiniAppMember> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/promote`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppMember
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to promote member')
+  }
+
+  return payload.member
 }

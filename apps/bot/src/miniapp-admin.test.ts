@@ -8,7 +8,10 @@ import type {
 
 import {
   createMiniAppApproveMemberHandler,
-  createMiniAppPendingMembersHandler
+  createMiniAppPendingMembersHandler,
+  createMiniAppPromoteMemberHandler,
+  createMiniAppSettingsHandler,
+  createMiniAppUpdateSettingsHandler
 } from './miniapp-admin'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
@@ -109,7 +112,56 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             householdDefaultLocale: household.defaultLocale,
             isAdmin: false
           }
+        : null,
+    getHouseholdBillingSettings: async (householdId) => ({
+      householdId,
+      rentAmountMinor: 70000n,
+      rentCurrency: 'USD',
+      rentDueDay: 20,
+      rentWarningDay: 17,
+      utilitiesDueDay: 4,
+      utilitiesReminderDay: 3,
+      timezone: 'Asia/Tbilisi'
+    }),
+    updateHouseholdBillingSettings: async (input) => ({
+      householdId: input.householdId,
+      rentAmountMinor: input.rentAmountMinor ?? 70000n,
+      rentCurrency: input.rentCurrency ?? 'USD',
+      rentDueDay: input.rentDueDay ?? 20,
+      rentWarningDay: input.rentWarningDay ?? 17,
+      utilitiesDueDay: input.utilitiesDueDay ?? 4,
+      utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
+      timezone: input.timezone ?? 'Asia/Tbilisi'
+    }),
+    listHouseholdUtilityCategories: async () => [],
+    upsertHouseholdUtilityCategory: async (input) => ({
+      id: input.slug ?? 'utility-category-1',
+      householdId: input.householdId,
+      slug: input.slug ?? 'custom',
+      name: input.name,
+      sortOrder: input.sortOrder,
+      isActive: input.isActive
+    }),
+    promoteHouseholdAdmin: async (householdId, memberId) => {
+      const member = [
+        {
+          id: 'member-123456',
+          householdId,
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          preferredLocale: null,
+          householdDefaultLocale: household.defaultLocale,
+          isAdmin: false
+        }
+      ].find((entry) => entry.id === memberId)
+
+      return member
+        ? {
+            ...member,
+            isAdmin: true
+          }
         : null
+    }
   }
 }
 
@@ -231,6 +283,219 @@ describe('createMiniAppApproveMemberHandler', () => {
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         isAdmin: false
+      }
+    })
+  })
+})
+
+describe('createMiniAppSettingsHandler', () => {
+  test('returns billing settings and admin members for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        isAdmin: true
+      }
+    ]
+    repository.listHouseholdMembers = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppSettingsHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/settings', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          })
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      settings: {
+        householdId: 'household-1',
+        rentAmountMinor: '70000',
+        rentCurrency: 'USD',
+        rentDueDay: 20,
+        rentWarningDay: 17,
+        utilitiesDueDay: 4,
+        utilitiesReminderDay: 3,
+        timezone: 'Asia/Tbilisi'
+      },
+      categories: [],
+      members: [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          preferredLocale: null,
+          householdDefaultLocale: 'ru',
+          isAdmin: true
+        }
+      ]
+    })
+  })
+})
+
+describe('createMiniAppUpdateSettingsHandler', () => {
+  test('updates billing settings for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppUpdateSettingsHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/settings/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          rentAmountMajor: '750',
+          rentCurrency: 'USD',
+          rentDueDay: 22,
+          rentWarningDay: 19,
+          utilitiesDueDay: 6,
+          utilitiesReminderDay: 5,
+          timezone: 'Asia/Tbilisi'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      settings: {
+        householdId: 'household-1',
+        rentAmountMinor: '75000',
+        rentCurrency: 'USD',
+        rentDueDay: 22,
+        rentWarningDay: 19,
+        utilitiesDueDay: 6,
+        utilitiesReminderDay: 5,
+        timezone: 'Asia/Tbilisi'
+      }
+    })
+  })
+})
+
+describe('createMiniAppPromoteMemberHandler', () => {
+  test('promotes a household member to admin for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppPromoteMemberHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/members/promote', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          memberId: 'member-123456'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        isAdmin: true
       }
     })
   })

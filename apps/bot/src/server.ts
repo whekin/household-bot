@@ -32,6 +32,30 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppSettings?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppUpdateSettings?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppUpsertUtilityCategory?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppPromoteMember?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -75,6 +99,13 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppPendingMembers?.path ?? '/api/miniapp/admin/pending-members'
   const miniAppApproveMemberPath =
     options.miniAppApproveMember?.path ?? '/api/miniapp/admin/approve-member'
+  const miniAppSettingsPath = options.miniAppSettings?.path ?? '/api/miniapp/admin/settings'
+  const miniAppUpdateSettingsPath =
+    options.miniAppUpdateSettings?.path ?? '/api/miniapp/admin/settings/update'
+  const miniAppUpsertUtilityCategoryPath =
+    options.miniAppUpsertUtilityCategory?.path ?? '/api/miniapp/admin/utility-categories/upsert'
+  const miniAppPromoteMemberPath =
+    options.miniAppPromoteMember?.path ?? '/api/miniapp/admin/members/promote'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler
@@ -107,6 +138,25 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppApproveMember && url.pathname === miniAppApproveMemberPath) {
         return await options.miniAppApproveMember.handler(request)
+      }
+
+      if (options.miniAppSettings && url.pathname === miniAppSettingsPath) {
+        return await options.miniAppSettings.handler(request)
+      }
+
+      if (options.miniAppUpdateSettings && url.pathname === miniAppUpdateSettingsPath) {
+        return await options.miniAppUpdateSettings.handler(request)
+      }
+
+      if (
+        options.miniAppUpsertUtilityCategory &&
+        url.pathname === miniAppUpsertUtilityCategoryPath
+      ) {
+        return await options.miniAppUpsertUtilityCategory.handler(request)
+      }
+
+      if (options.miniAppPromoteMember && url.pathname === miniAppPromoteMemberPath) {
+        return await options.miniAppPromoteMember.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {

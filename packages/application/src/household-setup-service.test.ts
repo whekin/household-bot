@@ -244,6 +244,58 @@ function createRepositoryStub() {
             preferredLocale: locale
           }
         : null
+    },
+    async getHouseholdBillingSettings(householdId) {
+      return {
+        householdId,
+        rentAmountMinor: null,
+        rentCurrency: 'USD',
+        rentDueDay: 20,
+        rentWarningDay: 17,
+        utilitiesDueDay: 4,
+        utilitiesReminderDay: 3,
+        timezone: 'Asia/Tbilisi'
+      }
+    },
+    async updateHouseholdBillingSettings(input) {
+      return {
+        householdId: input.householdId,
+        rentAmountMinor: input.rentAmountMinor ?? null,
+        rentCurrency: input.rentCurrency ?? 'USD',
+        rentDueDay: input.rentDueDay ?? 20,
+        rentWarningDay: input.rentWarningDay ?? 17,
+        utilitiesDueDay: input.utilitiesDueDay ?? 4,
+        utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
+        timezone: input.timezone ?? 'Asia/Tbilisi'
+      }
+    },
+    async listHouseholdUtilityCategories() {
+      return []
+    },
+    async upsertHouseholdUtilityCategory(input) {
+      return {
+        id: input.slug ?? 'utility-category-1',
+        householdId: input.householdId,
+        slug: input.slug ?? 'custom',
+        name: input.name,
+        sortOrder: input.sortOrder,
+        isActive: input.isActive
+      }
+    },
+    async promoteHouseholdAdmin(householdId, memberId) {
+      const member = [...members.values()].find(
+        (entry) => entry.householdId === householdId && entry.id === memberId
+      )
+      if (!member) {
+        return null
+      }
+
+      const next = {
+        ...member,
+        isAdmin: true
+      }
+      members.set(`${householdId}:${member.telegramUserId}`, next)
+      return next
     }
   }
 
