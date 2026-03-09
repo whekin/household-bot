@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 import type { AnonymousFeedbackService } from '@household/application'
-import { instantFromIso, nowInstant, Temporal, type Instant } from '@household/domain'
+import { nowInstant, Temporal, type Instant } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   TelegramPendingActionRepository
