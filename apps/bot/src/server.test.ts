@@ -25,6 +25,24 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppPendingMembers: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, members: [] }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppApproveMember: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     scheduler: {
       authorize: async (request) =>
         request.headers.get('x-household-scheduler-secret') === 'scheduler-secret',
@@ -117,6 +135,38 @@ describe('createBotWebhookServer', () => {
       ok: true,
       authorized: true,
       dashboard: {}
+    })
+  })
+
+  test('accepts mini app pending members request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/pending-members', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      members: []
+    })
+  })
+
+  test('accepts mini app approve member request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/approve-member', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload', pendingTelegramUserId: '123456' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {}
     })
   })
 

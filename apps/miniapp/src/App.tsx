@@ -2,10 +2,13 @@ import { Match, Switch, createMemo, createSignal, onMount, type JSX } from 'soli
 
 import { dictionary, type Locale } from './i18n'
 import {
+  approveMiniAppPendingMember,
   fetchMiniAppDashboard,
+  fetchMiniAppPendingMembers,
   fetchMiniAppSession,
   joinMiniAppHousehold,
-  type MiniAppDashboard
+  type MiniAppDashboard,
+  type MiniAppPendingMember
 } from './miniapp-api'
 import { getTelegramWebApp } from './telegram-webapp'
 
@@ -106,7 +109,9 @@ function App() {
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
+  const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [joining, setJoining] = createSignal(false)
+  const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
 
   const copy = createMemo(() => dictionary[locale()])
   const onboardingSession = createMemo(() => {
@@ -132,6 +137,18 @@ function App() {
       }
 
       setDashboard(null)
+    }
+  }
+
+  async function loadPendingMembers(initData: string) {
+    try {
+      setPendingMembers(await fetchMiniAppPendingMembers(initData))
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to load pending mini app members', error)
+      }
+
+      setPendingMembers([])
     }
   }
 
@@ -183,6 +200,9 @@ function App() {
       })
 
       await loadDashboard(initData)
+      if (payload.member.isAdmin) {
+        await loadPendingMembers(initData)
+      }
     } catch {
       if (import.meta.env.DEV) {
         setSession(demoSession)
@@ -229,6 +249,14 @@ function App() {
             }
           ]
         })
+        setPendingMembers([
+          {
+            telegramUserId: '555777',
+            displayName: 'Mia',
+            username: 'mia',
+            languageCode: 'ru'
+          }
+        ])
         return
       }
 
@@ -263,6 +291,9 @@ function App() {
           telegramUser: payload.telegramUser
         })
         await loadDashboard(initData)
+        if (payload.member.isAdmin) {
+          await loadPendingMembers(initData)
+        }
         return
       }
 
@@ -287,6 +318,24 @@ function App() {
       })
     } finally {
       setJoining(false)
+    }
+  }
+
+  async function handleApprovePendingMember(pendingTelegramUserId: string) {
+    const initData = webApp?.initData?.trim()
+    if (!initData || approvingTelegramUserId()) {
+      return
+    }
+
+    setApprovingTelegramUserId(pendingTelegramUserId)
+
+    try {
+      await approveMiniAppPendingMember(initData, pendingTelegramUserId)
+      setPendingMembers((current) =>
+        current.filter((member) => member.telegramUserId !== pendingTelegramUserId)
+      )
+    } finally {
+      setApprovingTelegramUserId(null)
     }
   }
 
@@ -345,7 +394,47 @@ function App() {
           </div>
         )
       case 'house':
-        return copy().houseEmpty
+        return readySession()?.member.isAdmin ? (
+          <div class="balance-list">
+            <article class="balance-item">
+              <header>
+                <strong>{copy().pendingMembersTitle}</strong>
+              </header>
+              <p>{copy().pendingMembersBody}</p>
+            </article>
+            {pendingMembers().length === 0 ? (
+              <article class="balance-item">
+                <p>{copy().pendingMembersEmpty}</p>
+              </article>
+            ) : (
+              pendingMembers().map((member) => (
+                <article class="balance-item">
+                  <header>
+                    <strong>{member.displayName}</strong>
+                    <span>{member.telegramUserId}</span>
+                  </header>
+                  <p>
+                    {member.username
+                      ? copy().pendingMemberHandle.replace('{username}', member.username)
+                      : (member.languageCode ?? 'Telegram')}
+                  </p>
+                  <button
+                    class="ghost-button"
+                    type="button"
+                    disabled={approvingTelegramUserId() === member.telegramUserId}
+                    onClick={() => void handleApprovePendingMember(member.telegramUserId)}
+                  >
+                    {approvingTelegramUserId() === member.telegramUserId
+                      ? copy().approvingMember
+                      : copy().approveMemberAction}
+                  </button>
+                </article>
+              ))
+            )}
+          </div>
+        ) : (
+          copy().houseEmpty
+        )
       default:
         return (
           <ShowDashboard
@@ -516,7 +605,7 @@ function App() {
             <article class="panel panel--wide">
               <p class="eyebrow">{copy().summaryTitle}</p>
               <h3>{readySession()?.member.displayName}</h3>
-              <p>{renderPanel()}</p>
+              <div>{renderPanel()}</div>
             </article>
 
             <article class="panel">

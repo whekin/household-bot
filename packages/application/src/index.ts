@@ -7,6 +7,7 @@ export {
 export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
 export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'
+export { createMiniAppAdminService, type MiniAppAdminService } from './miniapp-admin-service'
 export {
   createHouseholdOnboardingService,
   type HouseholdMiniAppAccess,

@@ -5,6 +5,7 @@ import {
   createHouseholdAdminService,
   createFinanceCommandService,
   createHouseholdOnboardingService,
+  createMiniAppAdminService,
   createHouseholdSetupService,
   createReminderJobService
 } from '@household/application'
@@ -32,6 +33,10 @@ import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
 import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
+import {
+  createMiniAppApproveMemberHandler,
+  createMiniAppPendingMembersHandler
+} from './miniapp-admin'
 
 const runtime = getBotRuntimeConfig()
 configureLogger({
@@ -53,6 +58,9 @@ const householdOnboardingService = householdConfigurationRepositoryClient
   ? createHouseholdOnboardingService({
       repository: householdConfigurationRepositoryClient.repository
     })
+  : null
+const miniAppAdminService = householdConfigurationRepositoryClient
+  ? createMiniAppAdminService(householdConfigurationRepositoryClient.repository)
   : null
 const telegramPendingActionRepositoryClient =
   runtime.databaseUrl && runtime.anonymousFeedbackEnabled
@@ -251,6 +259,24 @@ const server = createBotWebhookServer({
         financeServiceForHousehold,
         onboardingService: householdOnboardingService!,
         logger: getLogger('miniapp-dashboard')
+      })
+    : undefined,
+  miniAppPendingMembers: householdOnboardingService
+    ? createMiniAppPendingMembersHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppApproveMember: householdOnboardingService
+    ? createMiniAppApproveMemberHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
       })
     : undefined,
   scheduler:

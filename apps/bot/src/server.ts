@@ -20,6 +20,18 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppPendingMembers?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppApproveMember?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   scheduler?:
     | {
         pathPrefix?: string
@@ -53,6 +65,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppAuthPath = options.miniAppAuth?.path ?? '/api/miniapp/session'
   const miniAppDashboardPath = options.miniAppDashboard?.path ?? '/api/miniapp/dashboard'
   const miniAppJoinPath = options.miniAppJoin?.path ?? '/api/miniapp/join'
+  const miniAppPendingMembersPath =
+    options.miniAppPendingMembers?.path ?? '/api/miniapp/admin/pending-members'
+  const miniAppApproveMemberPath =
+    options.miniAppApproveMember?.path ?? '/api/miniapp/admin/approve-member'
   const schedulerPathPrefix = options.scheduler
     ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
     : null
@@ -75,6 +91,14 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppJoin && url.pathname === miniAppJoinPath) {
         return await options.miniAppJoin.handler(request)
+      }
+
+      if (options.miniAppPendingMembers && url.pathname === miniAppPendingMembersPath) {
+        return await options.miniAppPendingMembers.handler(request)
+      }
+
+      if (options.miniAppApproveMember && url.pathname === miniAppApproveMemberPath) {
+        return await options.miniAppApproveMember.handler(request)
       }
 
       if (url.pathname !== normalizedWebhookPath) {

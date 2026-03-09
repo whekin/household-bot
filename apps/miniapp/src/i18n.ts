@@ -53,6 +53,13 @@ export const dictionary = {
     sectionTitle: 'Ready for the next features',
     sectionBody:
       'This layout is intentionally narrow and mobile-first so it behaves well inside the Telegram webview.',
+    pendingMembersTitle: 'Pending members',
+    pendingMembersBody:
+      'Approve roommates here after they request access from the group join flow.',
+    pendingMembersEmpty: 'No pending member requests right now.',
+    approveMemberAction: 'Approve',
+    approvingMember: 'Approving…',
+    pendingMemberHandle: '@{username}',
     balancesEmpty: 'Balances will appear here once the dashboard API lands.',
     ledgerEmpty: 'Ledger entries will appear here after the finance view is connected.',
     houseEmpty: 'House rules, Wi-Fi info, and practical notes will live here.'
@@ -109,6 +116,13 @@ export const dictionary = {
     sectionTitle: 'Основа готова для следующих функций',
     sectionBody:
       'Этот layout специально сделан узким и mobile-first, чтобы хорошо жить внутри Telegram webview.',
+    pendingMembersTitle: 'Ожидающие участники',
+    pendingMembersBody:
+      'Подтверждай соседей здесь после того, как они отправят заявку через кнопку подключения.',
+    pendingMembersEmpty: 'Сейчас нет ожидающих заявок.',
+    approveMemberAction: 'Подтвердить',
+    approvingMember: 'Подтверждаем…',
+    pendingMemberHandle: '@{username}',
     balancesEmpty: 'Баланс появится здесь, когда подключим dashboard API.',
     ledgerEmpty: 'Записи леджера появятся здесь после подключения finance view.',
     houseEmpty: 'Правила дома, Wi-Fi и полезные инструкции будут здесь.'

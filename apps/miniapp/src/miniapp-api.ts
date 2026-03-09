@@ -17,6 +17,13 @@ export interface MiniAppSession {
   }
 }
 
+export interface MiniAppPendingMember {
+  telegramUserId: string
+  displayName: string
+  username: string | null
+  languageCode: string | null
+}
+
 export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
@@ -158,4 +165,57 @@ export async function fetchMiniAppDashboard(initData: string): Promise<MiniAppDa
   }
 
   return payload.dashboard
+}
+
+export async function fetchMiniAppPendingMembers(
+  initData: string
+): Promise<readonly MiniAppPendingMember[]> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/pending-members`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    members?: MiniAppPendingMember[]
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.members) {
+    throw new Error(payload.error ?? 'Failed to load pending members')
+  }
+
+  return payload.members
+}
+
+export async function approveMiniAppPendingMember(
+  initData: string,
+  pendingTelegramUserId: string
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/approve-member`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      pendingTelegramUserId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to approve member')
+  }
 }
