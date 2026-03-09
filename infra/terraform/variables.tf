@@ -138,21 +138,21 @@ variable "scheduler_timezone" {
 }
 
 variable "scheduler_utilities_cron" {
-  description = "Cron expression for the utilities reminder scheduler job"
+  description = "Cron expression for the utilities reminder scheduler job. Daily cadence is recommended because the app filters per household."
   type        = string
-  default     = "0 9 4 * *"
+  default     = "0 9 * * *"
 }
 
 variable "scheduler_rent_warning_cron" {
-  description = "Cron expression for the rent warning scheduler job"
+  description = "Cron expression for the rent warning scheduler job. Daily cadence is recommended because the app filters per household."
   type        = string
-  default     = "0 9 17 * *"
+  default     = "0 9 * * *"
 }
 
 variable "scheduler_rent_due_cron" {
-  description = "Cron expression for the rent due scheduler job"
+  description = "Cron expression for the rent due scheduler job. Daily cadence is recommended because the app filters per household."
   type        = string
-  default     = "0 9 20 * *"
+  default     = "0 9 * * *"
 }
 
 variable "scheduler_dry_run" {

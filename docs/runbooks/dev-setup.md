@@ -66,6 +66,7 @@ bun run review:coderabbit
   - purchase ingestion requires `DATABASE_URL` plus a bound purchase topic via `/bind_purchase_topic`
   - anonymous feedback requires `DATABASE_URL` plus a bound feedback topic via `/bind_feedback_topic`
   - reminders require `DATABASE_URL` plus `SCHEDULER_SHARED_SECRET` or `SCHEDULER_OIDC_ALLOWED_EMAILS`
+    and optionally use a dedicated reminders topic via `/bind_reminders_topic`
   - mini app CORS can be constrained with `MINI_APP_ALLOWED_ORIGINS`
 - Migration workflow is documented in `docs/runbooks/migrations.md`.
 - First deploy flow is documented in `docs/runbooks/first-deploy.md`.

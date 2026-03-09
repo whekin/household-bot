@@ -23,9 +23,9 @@ bot_mini_app_allowed_origins = [
   "https://household-dev-mini-app-abc123-ew.a.run.app"
 ]
 
-scheduler_utilities_cron    = "0 9 4 * *"
-scheduler_rent_warning_cron = "0 9 17 * *"
-scheduler_rent_due_cron     = "0 9 20 * *"
+scheduler_utilities_cron    = "0 9 * * *"
+scheduler_rent_warning_cron = "0 9 * * *"
+scheduler_rent_due_cron     = "0 9 * * *"
 scheduler_timezone          = "Asia/Tbilisi"
 scheduler_paused            = true
 scheduler_dry_run           = true

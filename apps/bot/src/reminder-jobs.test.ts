@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 import type { ReminderJobResult, ReminderJobService } from '@household/application'
+import { Temporal } from '@household/domain'
 import type { ReminderTarget } from '@household/ports'
 
 import { createReminderJobsHandler } from './reminder-jobs'
@@ -10,8 +11,15 @@ const target: ReminderTarget = {
   householdName: 'Kojori House',
   telegramChatId: '-1001',
   telegramThreadId: '12',
-  locale: 'ru'
+  locale: 'ru',
+  timezone: 'Asia/Tbilisi',
+  rentDueDay: 20,
+  rentWarningDay: 17,
+  utilitiesDueDay: 4,
+  utilitiesReminderDay: 3
 }
+
+const fixedNow = Temporal.Instant.from('2026-03-03T09:00:00Z')
 
 describe('createReminderJobsHandler', () => {
   test('returns per-household dispatch outcome with Telegram delivery metadata', async () => {
@@ -33,7 +41,8 @@ describe('createReminderJobsHandler', () => {
       listReminderTargets: async () => [target],
       releaseReminderDispatch: mock(async () => {}),
       sendReminderMessage,
-      reminderService
+      reminderService,
+      now: () => fixedNow
     })
 
     const response = await handler.handle(
@@ -73,6 +82,7 @@ describe('createReminderJobsHandler', () => {
           householdName: 'Kojori House',
           telegramChatId: '-1001',
           telegramThreadId: '12',
+          period: '2026-03',
           dedupeKey: '2026-03:utilities',
           outcome: 'claimed',
           messageText: 'Напоминание по коммунальным платежам за 2026-03'
@@ -101,7 +111,8 @@ describe('createReminderJobsHandler', () => {
       releaseReminderDispatch: mock(async () => {}),
       sendReminderMessage,
       reminderService,
-      forceDryRun: true
+      forceDryRun: true,
+      now: () => fixedNow
     })
 
     const response = await handler.handle(
@@ -146,7 +157,8 @@ describe('createReminderJobsHandler', () => {
       sendReminderMessage: mock(async () => {
         throw new Error('Telegram unavailable')
       }),
-      reminderService
+      reminderService,
+      now: () => fixedNow
     })
 
     const response = await handler.handle(
@@ -185,7 +197,8 @@ describe('createReminderJobsHandler', () => {
         handleJob: mock(async () => {
           throw new Error('should not be called')
         })
-      }
+      },
+      now: () => fixedNow
     })
 
     const response = await handler.handle(
@@ -200,6 +213,96 @@ describe('createReminderJobsHandler', () => {
     expect(await response.json()).toEqual({
       ok: false,
       error: 'Invalid reminder type'
+    })
+  })
+
+  test('skips households whose configured reminder day does not match today when no period override is supplied', async () => {
+    const reminderService: ReminderJobService = {
+      handleJob: mock(async () => {
+        throw new Error('should not be called')
+      })
+    }
+
+    const handler = createReminderJobsHandler({
+      listReminderTargets: async () => [
+        {
+          ...target,
+          utilitiesReminderDay: 31
+        }
+      ],
+      releaseReminderDispatch: mock(async () => {}),
+      sendReminderMessage: mock(async () => {}),
+      reminderService,
+      now: () => fixedNow
+    })
+
+    const response = await handler.handle(
+      new Request('http://localhost/jobs/reminder/utilities', {
+        method: 'POST',
+        body: JSON.stringify({ jobId: 'job-3' })
+      }),
+      'utilities'
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      totals: {
+        targets: 0
+      },
+      dispatches: []
+    })
+  })
+
+  test('honors explicit period overrides even when today is not the configured reminder day', async () => {
+    const dryRunResult: ReminderJobResult = {
+      status: 'dry-run',
+      dedupeKey: '2026-03:rent-due',
+      payloadHash: 'hash',
+      reminderType: 'rent-due',
+      period: '2026-03',
+      messageText: 'Rent due reminder for 2026-03: please settle payment today.'
+    }
+
+    const reminderService: ReminderJobService = {
+      handleJob: mock(async () => dryRunResult)
+    }
+
+    const handler = createReminderJobsHandler({
+      listReminderTargets: async () => [
+        {
+          ...target,
+          rentDueDay: 20
+        }
+      ],
+      releaseReminderDispatch: mock(async () => {}),
+      sendReminderMessage: mock(async () => {}),
+      reminderService,
+      now: () => fixedNow
+    })
+
+    const response = await handler.handle(
+      new Request('http://localhost/jobs/reminder/rent-due', {
+        method: 'POST',
+        body: JSON.stringify({ period: '2026-03', dryRun: true })
+      }),
+      'rent-due'
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      totals: {
+        targets: 1,
+        'dry-run': 1
+      },
+      dispatches: [
+        expect.objectContaining({
+          householdId: 'household-1',
+          period: '2026-03',
+          outcome: 'dry-run'
+        })
+      ]
     })
   })
 })

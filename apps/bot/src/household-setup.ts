@@ -65,6 +65,40 @@ function bindRejectionMessage(
   }
 }
 
+function bindTopicUsageMessage(
+  locale: BotLocale,
+  role: 'purchase' | 'feedback' | 'reminders'
+): string {
+  const t = getBotTranslations(locale).setup
+
+  switch (role) {
+    case 'purchase':
+      return t.useBindPurchaseTopicInGroup
+    case 'feedback':
+      return t.useBindFeedbackTopicInGroup
+    case 'reminders':
+      return t.useBindRemindersTopicInGroup
+  }
+}
+
+function bindTopicSuccessMessage(
+  locale: BotLocale,
+  role: 'purchase' | 'feedback' | 'reminders',
+  householdName: string,
+  threadId: string
+): string {
+  const t = getBotTranslations(locale).setup
+
+  switch (role) {
+    case 'purchase':
+      return t.purchaseTopicSaved(householdName, threadId)
+    case 'feedback':
+      return t.feedbackTopicSaved(householdName, threadId)
+    case 'reminders':
+      return t.remindersTopicSaved(householdName, threadId)
+  }
+}
+
 function adminRejectionMessage(
   locale: BotLocale,
   reason: 'not_admin' | 'household_not_found' | 'pending_not_found'
@@ -182,6 +216,63 @@ export function registerHouseholdSetupCommands(options: {
   miniAppUrl?: string
   logger?: Logger
 }): void {
+  async function handleBindTopicCommand(
+    ctx: Context,
+    role: 'purchase' | 'feedback' | 'reminders'
+  ): Promise<void> {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+
+    if (!isGroupChat(ctx)) {
+      await ctx.reply(bindTopicUsageMessage(locale, role))
+      return
+    }
+
+    const actorIsAdmin = await isGroupAdmin(ctx)
+    const telegramThreadId =
+      isTopicMessage(ctx) && ctx.msg && 'message_thread_id' in ctx.msg
+        ? ctx.msg.message_thread_id?.toString()
+        : undefined
+    const result = await options.householdSetupService.bindTopic({
+      actorIsAdmin,
+      telegramChatId: ctx.chat.id.toString(),
+      role,
+      ...(telegramThreadId
+        ? {
+            telegramThreadId
+          }
+        : {})
+    })
+
+    if (result.status === 'rejected') {
+      await ctx.reply(bindRejectionMessage(locale, result.reason))
+      return
+    }
+
+    options.logger?.info(
+      {
+        event: 'household_setup.topic_bound',
+        role: result.binding.role,
+        telegramChatId: result.household.telegramChatId,
+        telegramThreadId: result.binding.telegramThreadId,
+        householdId: result.household.householdId,
+        actorTelegramUserId: ctx.from?.id?.toString()
+      },
+      'Household topic bound'
+    )
+
+    await ctx.reply(
+      bindTopicSuccessMessage(
+        locale,
+        role,
+        result.household.householdName,
+        result.binding.telegramThreadId
+      )
+    )
+  }
+
   options.bot.command('start', async (ctx) => {
     const fallbackLocale = await resolveReplyLocale({
       ctx,
@@ -353,103 +444,15 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useBindPurchaseTopicInGroup)
-      return
-    }
-
-    const actorIsAdmin = await isGroupAdmin(ctx)
-    const telegramThreadId =
-      isTopicMessage(ctx) && ctx.msg && 'message_thread_id' in ctx.msg
-        ? ctx.msg.message_thread_id?.toString()
-        : undefined
-    const result = await options.householdSetupService.bindTopic({
-      actorIsAdmin,
-      telegramChatId: ctx.chat.id.toString(),
-      role: 'purchase',
-      ...(telegramThreadId
-        ? {
-            telegramThreadId
-          }
-        : {})
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(bindRejectionMessage(locale, result.reason))
-      return
-    }
-
-    options.logger?.info(
-      {
-        event: 'household_setup.topic_bound',
-        role: result.binding.role,
-        telegramChatId: result.household.telegramChatId,
-        telegramThreadId: result.binding.telegramThreadId,
-        householdId: result.household.householdId,
-        actorTelegramUserId: ctx.from?.id?.toString()
-      },
-      'Household topic bound'
-    )
-
-    await ctx.reply(
-      t.setup.purchaseTopicSaved(result.household.householdName, result.binding.telegramThreadId)
-    )
+    await handleBindTopicCommand(ctx, 'purchase')
   })
 
   options.bot.command('bind_feedback_topic', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
+    await handleBindTopicCommand(ctx, 'feedback')
+  })
 
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useBindFeedbackTopicInGroup)
-      return
-    }
-
-    const actorIsAdmin = await isGroupAdmin(ctx)
-    const telegramThreadId =
-      isTopicMessage(ctx) && ctx.msg && 'message_thread_id' in ctx.msg
-        ? ctx.msg.message_thread_id?.toString()
-        : undefined
-    const result = await options.householdSetupService.bindTopic({
-      actorIsAdmin,
-      telegramChatId: ctx.chat.id.toString(),
-      role: 'feedback',
-      ...(telegramThreadId
-        ? {
-            telegramThreadId
-          }
-        : {})
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(bindRejectionMessage(locale, result.reason))
-      return
-    }
-
-    options.logger?.info(
-      {
-        event: 'household_setup.topic_bound',
-        role: result.binding.role,
-        telegramChatId: result.household.telegramChatId,
-        telegramThreadId: result.binding.telegramThreadId,
-        householdId: result.household.householdId,
-        actorTelegramUserId: ctx.from?.id?.toString()
-      },
-      'Household topic bound'
-    )
-
-    await ctx.reply(
-      t.setup.feedbackTopicSaved(result.household.householdName, result.binding.telegramThreadId)
-    )
+  options.bot.command('bind_reminders_topic', async (ctx) => {
+    await handleBindTopicCommand(ctx, 'reminders')
   })
 
   options.bot.command('pending_members', async (ctx) => {

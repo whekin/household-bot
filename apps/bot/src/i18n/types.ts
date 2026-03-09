@@ -8,6 +8,7 @@ export type TelegramCommandName =
   | 'setup'
   | 'bind_purchase_topic'
   | 'bind_feedback_topic'
+  | 'bind_reminders_topic'
   | 'pending_members'
   | 'approve_member'
 
@@ -19,6 +20,7 @@ export interface BotCommandDescriptions {
   setup: string
   bind_purchase_topic: string
   bind_feedback_topic: string
+  bind_reminders_topic: string
   pending_members: string
   approve_member: string
 }
@@ -73,6 +75,8 @@ export interface BotTranslationCatalog {
     purchaseTopicSaved: (householdName: string, threadId: string) => string
     useBindFeedbackTopicInGroup: string
     feedbackTopicSaved: (householdName: string, threadId: string) => string
+    useBindRemindersTopicInGroup: string
+    remindersTopicSaved: (householdName: string, threadId: string) => string
     usePendingMembersInGroup: string
     useApproveMemberInGroup: string
     approveMemberUsage: string

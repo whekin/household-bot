@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import {
@@ -139,6 +139,11 @@ function toReminderTarget(row: {
   telegramChatId: string
   reminderThreadId: string | null
   defaultLocale: string
+  timezone: string
+  rentDueDay: number
+  rentWarningDay: number
+  utilitiesDueDay: number
+  utilitiesReminderDay: number
 }): ReminderTarget {
   const locale = normalizeSupportedLocale(row.defaultLocale)
   if (!locale) {
@@ -150,7 +155,12 @@ function toReminderTarget(row: {
     householdName: row.householdName,
     telegramChatId: row.telegramChatId,
     telegramThreadId: row.reminderThreadId,
-    locale
+    locale,
+    timezone: row.timezone,
+    rentDueDay: row.rentDueDay,
+    rentWarningDay: row.rentWarningDay,
+    utilitiesDueDay: row.utilitiesDueDay,
+    utilitiesReminderDay: row.utilitiesReminderDay
   }
 }
 
@@ -496,12 +506,35 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdName: schema.households.name,
           telegramChatId: schema.householdTelegramChats.telegramChatId,
           reminderThreadId: schema.householdTopicBindings.telegramThreadId,
-          defaultLocale: schema.households.defaultLocale
+          defaultLocale: schema.households.defaultLocale,
+          timezone:
+            sql<string>`coalesce(${schema.householdBillingSettings.timezone}, 'Asia/Tbilisi')`.as(
+              'timezone'
+            ),
+          rentDueDay: sql<number>`coalesce(${schema.householdBillingSettings.rentDueDay}, 20)`.as(
+            'rent_due_day'
+          ),
+          rentWarningDay:
+            sql<number>`coalesce(${schema.householdBillingSettings.rentWarningDay}, 17)`.as(
+              'rent_warning_day'
+            ),
+          utilitiesDueDay:
+            sql<number>`coalesce(${schema.householdBillingSettings.utilitiesDueDay}, 4)`.as(
+              'utilities_due_day'
+            ),
+          utilitiesReminderDay:
+            sql<number>`coalesce(${schema.householdBillingSettings.utilitiesReminderDay}, 3)`.as(
+              'utilities_reminder_day'
+            )
         })
         .from(schema.householdTelegramChats)
         .innerJoin(
           schema.households,
           eq(schema.householdTelegramChats.householdId, schema.households.id)
+        )
+        .leftJoin(
+          schema.householdBillingSettings,
+          eq(schema.householdBillingSettings.householdId, schema.householdTelegramChats.householdId)
         )
         .leftJoin(
           schema.householdTopicBindings,

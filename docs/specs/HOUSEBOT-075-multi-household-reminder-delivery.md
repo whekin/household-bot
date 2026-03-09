@@ -48,6 +48,6 @@ Reminder jobs must not require:
 
 ## Follow-ups
 
-- per-household reminder settings
+- daily scheduler cadence in infrastructure defaults
 - localized reminder copy using persisted household/member locale
 - scheduler fan-out observability metrics

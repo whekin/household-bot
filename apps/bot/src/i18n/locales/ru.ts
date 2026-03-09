@@ -10,6 +10,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     setup: 'Подключить эту группу как дом',
     bind_purchase_topic: 'Назначить текущий топик для покупок',
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
+    bind_reminders_topic: 'Назначить текущий топик для напоминаний',
     pending_members: 'Показать ожидающие заявки на вступление',
     approve_member: 'Подтвердить участника дома'
   },
@@ -54,7 +55,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
       [
         `${created ? 'Дом создан' : 'Дом уже подключён'}: ${householdName}`,
         `ID чата: ${telegramChatId}`,
-        'Дальше: откройте топик покупок и выполните /bind_purchase_topic, затем откройте топик обратной связи и выполните /bind_feedback_topic.',
+        'Дальше: откройте топик покупок и выполните /bind_purchase_topic, затем откройте топик обратной связи и выполните /bind_feedback_topic. Если хотите отдельный топик для напоминаний, откройте его и выполните /bind_reminders_topic.',
         'Участники должны открыть чат с ботом по кнопке ниже и подтвердить заявку на вступление.'
       ].join('\n'),
     useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
@@ -63,6 +64,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     useBindFeedbackTopicInGroup: 'Используйте /bind_feedback_topic внутри топика группы дома.',
     feedbackTopicSaved: (householdName, threadId) =>
       `Топик обратной связи сохранён для ${householdName} (тред ${threadId}).`,
+    useBindRemindersTopicInGroup: 'Используйте /bind_reminders_topic внутри топика группы дома.',
+    remindersTopicSaved: (householdName, threadId) =>
+      `Топик напоминаний сохранён для ${householdName} (тред ${threadId}).`,
     usePendingMembersInGroup: 'Используйте /pending_members внутри группы дома.',
     useApproveMemberInGroup: 'Используйте /approve_member внутри группы дома.',
     approveMemberUsage: 'Использование: /approve_member <telegram_user_id>',

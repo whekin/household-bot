@@ -10,6 +10,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     setup: 'Register this group as a household',
     bind_purchase_topic: 'Bind the current topic as purchases',
     bind_feedback_topic: 'Bind the current topic as feedback',
+    bind_reminders_topic: 'Bind the current topic as reminders',
     pending_members: 'List pending household join requests',
     approve_member: 'Approve a pending household member'
   },
@@ -52,7 +53,7 @@ export const enBotTranslations: BotTranslationCatalog = {
       [
         `Household ${created ? 'created' : 'already registered'}: ${householdName}`,
         `Chat ID: ${telegramChatId}`,
-        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic.',
+        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic. If you want a dedicated reminders topic, open it and run /bind_reminders_topic.',
         'Members should open the bot chat from the button below and confirm the join request there.'
       ].join('\n'),
     useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
@@ -61,6 +62,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     useBindFeedbackTopicInGroup: 'Use /bind_feedback_topic inside the household group topic.',
     feedbackTopicSaved: (householdName, threadId) =>
       `Feedback topic saved for ${householdName} (thread ${threadId}).`,
+    useBindRemindersTopicInGroup: 'Use /bind_reminders_topic inside the household group topic.',
+    remindersTopicSaved: (householdName, threadId) =>
+      `Reminders topic saved for ${householdName} (thread ${threadId}).`,
     usePendingMembersInGroup: 'Use /pending_members inside the household group.',
     useApproveMemberInGroup: 'Use /approve_member inside the household group.',
     approveMemberUsage: 'Usage: /approve_member <telegram_user_id>',

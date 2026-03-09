@@ -10,6 +10,11 @@ export interface ReminderTarget {
   telegramChatId: string
   telegramThreadId: string | null
   locale: SupportedLocale
+  timezone: string
+  rentDueDay: number
+  rentWarningDay: number
+  utilitiesDueDay: number
+  utilitiesReminderDay: number
 }
 
 export interface ClaimReminderDispatchInput {

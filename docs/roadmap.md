@@ -89,12 +89,13 @@ Goal: automate key payment reminders.
 Deliverables:
 
 - Cloud Scheduler jobs.
-- Reminder handlers for day 3/4 utilities, day 17 rent notice, day 20 due date.
+- Reminder handlers that evaluate per-household utility and rent reminder dates.
 - Dedicated topic posting for reminders.
 
 Exit criteria:
 
 - Scheduled reminders fire reliably.
+- Household billing settings control when reminders are delivered.
 - Duplicate sends are prevented.
 
 ## Phase 4 - Mini App V1

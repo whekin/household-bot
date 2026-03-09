@@ -17,7 +17,7 @@ Schedule and deliver household billing reminders to dedicated Telegram topics.
 
 ## Scope
 
-- In: scheduler endpoints, reminder generation, send guards.
+- In: scheduler endpoints, reminder generation, send guards, per-household reminder eligibility.
 - Out: full statement rendering details.
 
 ## Interfaces and Contracts
@@ -30,10 +30,11 @@ Schedule and deliver household billing reminders to dedicated Telegram topics.
 
 ## Domain Rules
 
-- Utilities reminder target: day 3 or 4 (configurable).
-- Rent warning target: day 17.
-- Rent due target: day 20.
+- Utilities reminder target: household-configured utilities reminder day.
+- Rent warning target: household-configured rent warning day.
+- Rent due target: household-configured rent due day.
 - Duplicate-send guard keyed by household + cycle + reminder type.
+- Scheduler should run on a daily cadence and let the application decide which households are due today.
 
 ## Data Model Changes
 

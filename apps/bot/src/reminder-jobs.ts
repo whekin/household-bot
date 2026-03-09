@@ -1,5 +1,5 @@
 import type { ReminderJobService } from '@household/application'
-import { BillingPeriod, nowInstant } from '@household/domain'
+import { BillingPeriod, Temporal, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import { REMINDER_TYPES, type ReminderTarget, type ReminderType } from '@household/ports'
 
@@ -32,6 +32,34 @@ function currentPeriod(): string {
   return BillingPeriod.fromInstant(nowInstant()).toString()
 }
 
+function targetLocalDate(target: ReminderTarget, instant: Temporal.Instant) {
+  return instant.toZonedDateTimeISO(target.timezone)
+}
+
+function isReminderDueToday(
+  target: ReminderTarget,
+  reminderType: ReminderType,
+  instant: Temporal.Instant
+): boolean {
+  const currentDay = targetLocalDate(target, instant).day
+
+  switch (reminderType) {
+    case 'utilities':
+      return currentDay === target.utilitiesReminderDay
+    case 'rent-warning':
+      return currentDay === target.rentWarningDay
+    case 'rent-due':
+      return currentDay === target.rentDueDay
+  }
+}
+
+function targetPeriod(target: ReminderTarget, instant: Temporal.Instant): string {
+  const localDate = targetLocalDate(target, instant)
+  return BillingPeriod.fromString(
+    `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
+  ).toString()
+}
+
 async function readBody(request: Request): Promise<ReminderJobRequestBody> {
   const text = await request.text()
 
@@ -56,6 +84,7 @@ export function createReminderJobsHandler(options: {
   sendReminderMessage: (target: ReminderTarget, text: string) => Promise<void>
   reminderService: ReminderJobService
   forceDryRun?: boolean
+  now?: () => Temporal.Instant
   logger?: Logger
 }): {
   handle: (request: Request, rawReminderType: string) => Promise<Response>
@@ -83,14 +112,19 @@ export function createReminderJobsHandler(options: {
       try {
         const body = await readBody(request)
         const schedulerJobName = request.headers.get('x-cloudscheduler-jobname')
-        const period = BillingPeriod.fromString(body.period ?? currentPeriod()).toString()
+        const requestedPeriod = body.period
+          ? BillingPeriod.fromString(body.period).toString()
+          : null
+        const defaultPeriod = requestedPeriod ?? currentPeriod()
         const dryRun = options.forceDryRun === true || body.dryRun === true
+        const currentInstant = options.now?.() ?? nowInstant()
         const targets = await options.listReminderTargets()
         const dispatches: Array<{
           householdId: string
           householdName: string
           telegramChatId: string
           telegramThreadId: string | null
+          period: string
           dedupeKey: string
           outcome: 'dry-run' | 'claimed' | 'duplicate' | 'failed'
           messageText: string
@@ -98,6 +132,11 @@ export function createReminderJobsHandler(options: {
         }> = []
 
         for (const target of targets) {
+          if (!requestedPeriod && !isReminderDueToday(target, reminderType, currentInstant)) {
+            continue
+          }
+
+          const period = requestedPeriod ?? targetPeriod(target, currentInstant)
           const result = await options.reminderService.handleJob({
             householdId: target.householdId,
             period,
@@ -148,6 +187,7 @@ export function createReminderJobsHandler(options: {
             householdName: target.householdName,
             telegramChatId: target.telegramChatId,
             telegramThreadId: target.telegramThreadId,
+            period,
             dedupeKey: result.dedupeKey,
             outcome,
             messageText: text,
@@ -174,7 +214,7 @@ export function createReminderJobsHandler(options: {
           ok: true,
           jobId: body.jobId ?? schedulerJobName ?? null,
           reminderType,
-          period,
+          period: defaultPeriod,
           dryRun,
           totals,
           dispatches
