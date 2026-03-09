@@ -5,6 +5,7 @@ import {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,
   type HouseholdJoinTokenRecord,
+  type HouseholdMemberRecord,
   type HouseholdPendingMemberRecord,
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
@@ -81,6 +82,20 @@ function toHouseholdPendingMemberRecord(row: {
     displayName: row.displayName,
     username: row.username,
     languageCode: row.languageCode
+  }
+}
+
+function toHouseholdMemberRecord(row: {
+  householdId: string
+  telegramUserId: string
+  displayName: string
+  isAdmin: number
+}): HouseholdMemberRecord {
+  return {
+    householdId: row.householdId,
+    telegramUserId: row.telegramUserId,
+    displayName: row.displayName,
+    isAdmin: row.isAdmin === 1
   }
 }
 
@@ -497,6 +512,156 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
 
       const row = rows[0]
       return row ? toHouseholdPendingMemberRecord(row) : null
+    },
+
+    async ensureHouseholdMember(input) {
+      const rows = await db
+        .insert(schema.members)
+        .values({
+          householdId: input.householdId,
+          telegramUserId: input.telegramUserId,
+          displayName: input.displayName,
+          isAdmin: input.isAdmin ? 1 : 0
+        })
+        .onConflictDoUpdate({
+          target: [schema.members.householdId, schema.members.telegramUserId],
+          set: {
+            displayName: input.displayName,
+            ...(input.isAdmin
+              ? {
+                  isAdmin: 1
+                }
+              : {})
+          }
+        })
+        .returning({
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to ensure household member')
+      }
+
+      return toHouseholdMemberRecord(row)
+    },
+
+    async getHouseholdMember(householdId, telegramUserId) {
+      const rows = await db
+        .select({
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          isAdmin: schema.members.isAdmin
+        })
+        .from(schema.members)
+        .where(
+          and(
+            eq(schema.members.householdId, householdId),
+            eq(schema.members.telegramUserId, telegramUserId)
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      return row ? toHouseholdMemberRecord(row) : null
+    },
+
+    async listPendingHouseholdMembers(householdId) {
+      const rows = await db
+        .select({
+          householdId: schema.householdPendingMembers.householdId,
+          householdName: schema.households.name,
+          telegramUserId: schema.householdPendingMembers.telegramUserId,
+          displayName: schema.householdPendingMembers.displayName,
+          username: schema.householdPendingMembers.username,
+          languageCode: schema.householdPendingMembers.languageCode
+        })
+        .from(schema.householdPendingMembers)
+        .innerJoin(
+          schema.households,
+          eq(schema.householdPendingMembers.householdId, schema.households.id)
+        )
+        .where(eq(schema.householdPendingMembers.householdId, householdId))
+        .orderBy(schema.householdPendingMembers.createdAt)
+
+      return rows.map(toHouseholdPendingMemberRecord)
+    },
+
+    async approvePendingHouseholdMember(input) {
+      return await db.transaction(async (tx) => {
+        const pendingRows = await tx
+          .select({
+            householdId: schema.householdPendingMembers.householdId,
+            householdName: schema.households.name,
+            telegramUserId: schema.householdPendingMembers.telegramUserId,
+            displayName: schema.householdPendingMembers.displayName,
+            username: schema.householdPendingMembers.username,
+            languageCode: schema.householdPendingMembers.languageCode
+          })
+          .from(schema.householdPendingMembers)
+          .innerJoin(
+            schema.households,
+            eq(schema.householdPendingMembers.householdId, schema.households.id)
+          )
+          .where(
+            and(
+              eq(schema.householdPendingMembers.householdId, input.householdId),
+              eq(schema.householdPendingMembers.telegramUserId, input.telegramUserId)
+            )
+          )
+          .limit(1)
+
+        const pending = pendingRows[0]
+        if (!pending) {
+          return null
+        }
+
+        const memberRows = await tx
+          .insert(schema.members)
+          .values({
+            householdId: pending.householdId,
+            telegramUserId: pending.telegramUserId,
+            displayName: pending.displayName,
+            isAdmin: input.isAdmin ? 1 : 0
+          })
+          .onConflictDoUpdate({
+            target: [schema.members.householdId, schema.members.telegramUserId],
+            set: {
+              displayName: pending.displayName,
+              ...(input.isAdmin
+                ? {
+                    isAdmin: 1
+                  }
+                : {})
+            }
+          })
+          .returning({
+            householdId: schema.members.householdId,
+            telegramUserId: schema.members.telegramUserId,
+            displayName: schema.members.displayName,
+            isAdmin: schema.members.isAdmin
+          })
+
+        await tx
+          .delete(schema.householdPendingMembers)
+          .where(
+            and(
+              eq(schema.householdPendingMembers.householdId, input.householdId),
+              eq(schema.householdPendingMembers.telegramUserId, input.telegramUserId)
+            )
+          )
+
+        const member = memberRows[0]
+        if (!member) {
+          throw new Error('Failed to approve pending household member')
+        }
+
+        return toHouseholdMemberRecord(member)
+      })
     }
   }
 

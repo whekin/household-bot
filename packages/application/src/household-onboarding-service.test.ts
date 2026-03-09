@@ -82,6 +82,35 @@ function createRepositoryStub() {
     },
     async findPendingHouseholdMemberByTelegramUserId(telegramUserId) {
       return pendingMembers.get(telegramUserId) ?? null
+    },
+    async ensureHouseholdMember(input) {
+      return {
+        householdId: input.householdId,
+        telegramUserId: input.telegramUserId,
+        displayName: input.displayName,
+        isAdmin: input.isAdmin === true
+      }
+    },
+    async getHouseholdMember() {
+      return null
+    },
+    async listPendingHouseholdMembers() {
+      return [...pendingMembers.values()]
+    },
+    async approvePendingHouseholdMember(input) {
+      const pending = pendingMembers.get(input.telegramUserId)
+      if (!pending) {
+        return null
+      }
+
+      pendingMembers.delete(input.telegramUserId)
+
+      return {
+        householdId: pending.householdId,
+        telegramUserId: pending.telegramUserId,
+        displayName: pending.displayName,
+        isAdmin: input.isAdmin === true
+      }
     }
   }
 

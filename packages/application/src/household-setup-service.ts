@@ -8,6 +8,8 @@ import type {
 export interface HouseholdSetupService {
   setupGroupChat(input: {
     actorIsAdmin: boolean
+    actorTelegramUserId?: string
+    actorDisplayName?: string
     telegramChatId: string
     telegramChatType: string
     title?: string
@@ -82,6 +84,15 @@ export function createHouseholdSetupService(
             }
           : {})
       })
+
+      if (registered.status === 'created' && input.actorTelegramUserId && input.actorDisplayName) {
+        await repository.ensureHouseholdMember({
+          householdId: registered.household.householdId,
+          telegramUserId: input.actorTelegramUserId,
+          displayName: input.actorDisplayName,
+          isAdmin: true
+        })
+      }
 
       return {
         status: registered.status,

@@ -71,7 +71,29 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       return pending
     },
     getPendingHouseholdMember: async () => pending,
-    findPendingHouseholdMemberByTelegramUserId: async () => pending
+    findPendingHouseholdMemberByTelegramUserId: async () => pending,
+    ensureHouseholdMember: async (input) => ({
+      householdId: household.householdId,
+      telegramUserId: input.telegramUserId,
+      displayName: input.displayName,
+      isAdmin: input.isAdmin === true
+    }),
+    getHouseholdMember: async () => null,
+    listPendingHouseholdMembers: async () => (pending ? [pending] : []),
+    approvePendingHouseholdMember: async (input) => {
+      if (!pending || pending.telegramUserId !== input.telegramUserId) {
+        return null
+      }
+
+      const member = {
+        householdId: household.householdId,
+        telegramUserId: pending.telegramUserId,
+        displayName: pending.displayName,
+        isAdmin: input.isAdmin === true
+      }
+      pending = null
+      return member
+    }
   }
 }
 

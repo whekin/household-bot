@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import type {
   HouseholdConfigurationRepository,
   HouseholdJoinTokenRecord,
+  HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
   HouseholdTelegramChatRecord,
   HouseholdTopicBindingRecord
@@ -15,6 +16,7 @@ function createRepositoryStub() {
   const bindings = new Map<string, HouseholdTopicBindingRecord[]>()
   const joinTokens = new Map<string, HouseholdJoinTokenRecord>()
   const pendingMembers = new Map<string, HouseholdPendingMemberRecord>()
+  const members = new Map<string, HouseholdMemberRecord>()
 
   const repository: HouseholdConfigurationRepository = {
     async registerTelegramHouseholdChat(input) {
@@ -148,6 +150,46 @@ function createRepositoryStub() {
         [...pendingMembers.values()].find((entry) => entry.telegramUserId === telegramUserId) ??
         null
       )
+    },
+
+    async ensureHouseholdMember(input) {
+      const key = `${input.householdId}:${input.telegramUserId}`
+      const existing = members.get(key)
+      const next: HouseholdMemberRecord = {
+        householdId: input.householdId,
+        telegramUserId: input.telegramUserId,
+        displayName: input.displayName,
+        isAdmin: input.isAdmin === true || existing?.isAdmin === true
+      }
+      members.set(key, next)
+      return next
+    },
+
+    async getHouseholdMember(householdId, telegramUserId) {
+      return members.get(`${householdId}:${telegramUserId}`) ?? null
+    },
+
+    async listPendingHouseholdMembers(householdId) {
+      return [...pendingMembers.values()].filter((entry) => entry.householdId === householdId)
+    },
+
+    async approvePendingHouseholdMember(input) {
+      const key = `${input.householdId}:${input.telegramUserId}`
+      const pending = pendingMembers.get(key)
+      if (!pending) {
+        return null
+      }
+
+      pendingMembers.delete(key)
+
+      const member: HouseholdMemberRecord = {
+        householdId: pending.householdId,
+        telegramUserId: pending.telegramUserId,
+        displayName: pending.displayName,
+        isAdmin: input.isAdmin === true
+      }
+      members.set(key, member)
+      return member
     }
   }
 
@@ -163,6 +205,8 @@ describe('createHouseholdSetupService', () => {
 
     const result = await service.setupGroupChat({
       actorIsAdmin: true,
+      actorTelegramUserId: '42',
+      actorDisplayName: 'Stan',
       telegramChatId: '-100123',
       telegramChatType: 'supergroup',
       title: 'Kojori House'
@@ -174,6 +218,13 @@ describe('createHouseholdSetupService', () => {
     }
     expect(result.household.householdName).toBe('Kojori House')
     expect(result.household.telegramChatId).toBe('-100123')
+    const admin = await repository.getHouseholdMember(result.household.householdId, '42')
+    expect(admin).toEqual({
+      householdId: result.household.householdId,
+      telegramUserId: '42',
+      displayName: 'Stan',
+      isAdmin: true
+    })
   })
 
   test('rejects setup when the actor is not a group admin', async () => {

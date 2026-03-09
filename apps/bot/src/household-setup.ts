@@ -1,4 +1,8 @@
-import type { HouseholdOnboardingService, HouseholdSetupService } from '@household/application'
+import type {
+  HouseholdAdminService,
+  HouseholdOnboardingService,
+  HouseholdSetupService
+} from '@household/application'
 import type { Logger } from '@household/observability'
 import type { Bot, Context } from 'grammy'
 
@@ -48,10 +52,32 @@ function bindRejectionMessage(
   }
 }
 
+function adminRejectionMessage(
+  reason: 'not_admin' | 'household_not_found' | 'pending_not_found'
+): string {
+  switch (reason) {
+    case 'not_admin':
+      return 'Only household admins can manage pending members.'
+    case 'household_not_found':
+      return 'Household is not configured for this chat yet. Run /setup first.'
+    case 'pending_not_found':
+      return 'Pending member not found. Use /pending_members to inspect the queue.'
+  }
+}
+
+function actorDisplayName(ctx: Context): string | undefined {
+  const firstName = ctx.from?.first_name?.trim()
+  const lastName = ctx.from?.last_name?.trim()
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
+
+  return fullName || ctx.from?.username?.trim() || undefined
+}
+
 export function registerHouseholdSetupCommands(options: {
   bot: Bot
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
+  householdAdminService: HouseholdAdminService
   logger?: Logger
 }): void {
   options.bot.command('start', async (ctx) => {
@@ -128,7 +154,17 @@ export function registerHouseholdSetupCommands(options: {
       telegramChatId: ctx.chat.id.toString(),
       telegramChatType: ctx.chat.type,
       title: ctx.chat.title,
-      householdName: commandArgText(ctx)
+      householdName: commandArgText(ctx),
+      ...(ctx.from?.id
+        ? {
+            actorTelegramUserId: ctx.from.id.toString()
+          }
+        : {}),
+      ...(actorDisplayName(ctx)
+        ? {
+            actorDisplayName: actorDisplayName(ctx)!
+          }
+        : {})
     })
 
     if (result.status === 'rejected') {
@@ -172,14 +208,10 @@ export function registerHouseholdSetupCommands(options: {
             reply_markup: {
               inline_keyboard: [
                 [
-                  ...(joinDeepLink
-                    ? [
-                        {
-                          text: 'Join household',
-                          url: joinDeepLink
-                        }
-                      ]
-                    : [])
+                  {
+                    text: 'Join household',
+                    url: joinDeepLink
+                  }
                 ]
               ]
             }
@@ -273,6 +305,79 @@ export function registerHouseholdSetupCommands(options: {
 
     await ctx.reply(
       `Feedback topic saved for ${result.household.householdName} (thread ${result.binding.telegramThreadId}).`
+    )
+  })
+
+  options.bot.command('pending_members', async (ctx) => {
+    if (!isGroupChat(ctx)) {
+      await ctx.reply('Use /pending_members inside the household group.')
+      return
+    }
+
+    const actorTelegramUserId = ctx.from?.id?.toString()
+    if (!actorTelegramUserId) {
+      await ctx.reply('Unable to identify sender for this command.')
+      return
+    }
+
+    const result = await options.householdAdminService.listPendingMembers({
+      actorTelegramUserId,
+      telegramChatId: ctx.chat.id.toString()
+    })
+
+    if (result.status === 'rejected') {
+      await ctx.reply(adminRejectionMessage(result.reason))
+      return
+    }
+
+    if (result.members.length === 0) {
+      await ctx.reply(`No pending members for ${result.householdName}.`)
+      return
+    }
+
+    await ctx.reply(
+      [
+        `Pending members for ${result.householdName}:`,
+        ...result.members.map(
+          (member, index) =>
+            `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`
+        ),
+        'Approve with /approve_member <telegram_user_id>.'
+      ].join('\n')
+    )
+  })
+
+  options.bot.command('approve_member', async (ctx) => {
+    if (!isGroupChat(ctx)) {
+      await ctx.reply('Use /approve_member inside the household group.')
+      return
+    }
+
+    const actorTelegramUserId = ctx.from?.id?.toString()
+    if (!actorTelegramUserId) {
+      await ctx.reply('Unable to identify sender for this command.')
+      return
+    }
+
+    const pendingTelegramUserId = commandArgText(ctx)
+    if (!pendingTelegramUserId) {
+      await ctx.reply('Usage: /approve_member <telegram_user_id>')
+      return
+    }
+
+    const result = await options.householdAdminService.approvePendingMember({
+      actorTelegramUserId,
+      telegramChatId: ctx.chat.id.toString(),
+      pendingTelegramUserId
+    })
+
+    if (result.status === 'rejected') {
+      await ctx.reply(adminRejectionMessage(result.reason))
+      return
+    }
+
+    await ctx.reply(
+      `Approved ${result.member.displayName} as an active member of ${result.householdName}.`
     )
   })
 }

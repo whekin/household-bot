@@ -33,6 +33,13 @@ export interface HouseholdPendingMemberRecord {
   languageCode: string | null
 }
 
+export interface HouseholdMemberRecord {
+  householdId: string
+  telegramUserId: string
+  displayName: string
+  isAdmin: boolean
+}
+
 export interface RegisterTelegramHouseholdChatInput {
   householdName: string
   telegramChatId: string
@@ -86,4 +93,20 @@ export interface HouseholdConfigurationRepository {
   findPendingHouseholdMemberByTelegramUserId(
     telegramUserId: string
   ): Promise<HouseholdPendingMemberRecord | null>
+  ensureHouseholdMember(input: {
+    householdId: string
+    telegramUserId: string
+    displayName: string
+    isAdmin?: boolean
+  }): Promise<HouseholdMemberRecord>
+  getHouseholdMember(
+    householdId: string,
+    telegramUserId: string
+  ): Promise<HouseholdMemberRecord | null>
+  listPendingHouseholdMembers(householdId: string): Promise<readonly HouseholdPendingMemberRecord[]>
+  approvePendingHouseholdMember(input: {
+    householdId: string
+    telegramUserId: string
+    isAdmin?: boolean
+  }): Promise<HouseholdMemberRecord | null>
 }

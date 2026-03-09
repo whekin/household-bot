@@ -14,6 +14,8 @@ export function createTelegramBot(token: string, logger?: Logger): Bot {
         '/setup [household name] - Register this group as a household',
         '/bind_purchase_topic - Bind the current topic as the purchase topic',
         '/bind_feedback_topic - Bind the current topic as the feedback topic',
+        '/pending_members - List pending household join requests',
+        '/approve_member <telegram_user_id> - Approve a pending member',
         '/anon <message> - Send anonymous household feedback in a private chat'
       ].join('\n')
     )

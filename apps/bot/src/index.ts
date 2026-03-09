@@ -2,6 +2,7 @@ import { webhookCallback } from 'grammy'
 
 import {
   createAnonymousFeedbackService,
+  createHouseholdAdminService,
   createFinanceCommandService,
   createHouseholdOnboardingService,
   createHouseholdSetupService,
@@ -127,6 +128,9 @@ if (householdConfigurationRepositoryClient) {
   registerHouseholdSetupCommands({
     bot,
     householdSetupService: createHouseholdSetupService(
+      householdConfigurationRepositoryClient.repository
+    ),
+    householdAdminService: createHouseholdAdminService(
       householdConfigurationRepositoryClient.repository
     ),
     householdOnboardingService: householdOnboardingService!,

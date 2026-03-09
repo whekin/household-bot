@@ -6,6 +6,7 @@ export {
 } from './anonymous-feedback-service'
 export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
+export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'
 export {
   createHouseholdOnboardingService,
   type HouseholdMiniAppAccess,

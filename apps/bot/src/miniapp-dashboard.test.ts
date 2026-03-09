@@ -111,7 +111,16 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       languageCode: input.languageCode?.trim() || null
     }),
     getPendingHouseholdMember: async () => null,
-    findPendingHouseholdMemberByTelegramUserId: async () => null
+    findPendingHouseholdMemberByTelegramUserId: async () => null,
+    ensureHouseholdMember: async (input) => ({
+      householdId: household.householdId,
+      telegramUserId: input.telegramUserId,
+      displayName: input.displayName,
+      isAdmin: input.isAdmin === true
+    }),
+    getHouseholdMember: async () => null,
+    listPendingHouseholdMembers: async () => [],
+    approvePendingHouseholdMember: async () => null
   }
 }
 
