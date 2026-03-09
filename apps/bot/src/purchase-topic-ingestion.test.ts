@@ -176,6 +176,23 @@ describe('buildPurchaseAcknowledgement', () => {
       })
     ).toBeNull()
   })
+
+  test('returns Russian acknowledgement when requested', () => {
+    const result = buildPurchaseAcknowledgement(
+      {
+        status: 'created',
+        processingStatus: 'parsed',
+        parsedAmountMinor: 3000n,
+        parsedCurrency: 'GEL',
+        parsedItemDescription: 'туалетная бумага',
+        parserConfidence: 92,
+        parserMode: 'rules'
+      },
+      'ru'
+    )
+
+    expect(result).toBe('Покупка сохранена: туалетная бумага - 30.00 GEL')
+  })
 })
 
 describe('registerPurchaseTopicIngestion', () => {

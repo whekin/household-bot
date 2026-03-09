@@ -6,6 +6,8 @@ import type {
 import type { Logger } from '@household/observability'
 import type { Bot, Context } from 'grammy'
 
+import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
+
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 
 function commandArgText(ctx: Context): string {
@@ -32,38 +34,46 @@ async function isGroupAdmin(ctx: Context): Promise<boolean> {
   return member.status === 'creator' || member.status === 'administrator'
 }
 
-function setupRejectionMessage(reason: 'not_admin' | 'invalid_chat_type'): string {
+function setupRejectionMessage(
+  locale: BotLocale,
+  reason: 'not_admin' | 'invalid_chat_type'
+): string {
+  const t = getBotTranslations(locale).setup
   switch (reason) {
     case 'not_admin':
-      return 'Only Telegram group admins can run /setup.'
+      return t.onlyTelegramAdmins
     case 'invalid_chat_type':
-      return 'Use /setup inside a group or supergroup.'
+      return t.useSetupInGroup
   }
 }
 
 function bindRejectionMessage(
+  locale: BotLocale,
   reason: 'not_admin' | 'household_not_found' | 'not_topic_message'
 ): string {
+  const t = getBotTranslations(locale).setup
   switch (reason) {
     case 'not_admin':
-      return 'Only Telegram group admins can bind household topics.'
+      return t.onlyTelegramAdminsBindTopics
     case 'household_not_found':
-      return 'Household is not configured for this chat yet. Run /setup first.'
+      return t.householdNotConfigured
     case 'not_topic_message':
-      return 'Run this command inside the target topic thread.'
+      return t.useCommandInTopic
   }
 }
 
 function adminRejectionMessage(
+  locale: BotLocale,
   reason: 'not_admin' | 'household_not_found' | 'pending_not_found'
 ): string {
+  const t = getBotTranslations(locale).setup
   switch (reason) {
     case 'not_admin':
-      return 'Only household admins can manage pending members.'
+      return t.onlyHouseholdAdmins
     case 'household_not_found':
-      return 'Household is not configured for this chat yet. Run /setup first.'
+      return t.householdNotConfigured
     case 'pending_not_found':
-      return 'Pending member not found. Use /pending_members to inspect the queue.'
+      return t.pendingNotFound
   }
 }
 
@@ -84,27 +94,28 @@ function buildPendingMemberLabel(displayName: string): string {
   return `${normalized.slice(0, 29)}...`
 }
 
-function pendingMembersReply(result: {
-  householdName: string
-  members: readonly {
-    telegramUserId: string
-    displayName: string
-    username?: string | null
-  }[]
-}) {
+function pendingMembersReply(
+  locale: BotLocale,
+  result: {
+    householdName: string
+    members: readonly {
+      telegramUserId: string
+      displayName: string
+      username?: string | null
+    }[]
+  }
+) {
+  const t = getBotTranslations(locale).setup
   return {
     text: [
-      `Pending members for ${result.householdName}:`,
-      ...result.members.map(
-        (member, index) =>
-          `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`
-      ),
-      'Tap a button below to approve, or use /approve_member <telegram_user_id>.'
+      t.pendingMembersHeading(result.householdName),
+      ...result.members.map((member, index) => t.pendingMemberLine(member, index)),
+      t.pendingMembersHint
     ].join('\n'),
     reply_markup: {
       inline_keyboard: result.members.map((member) => [
         {
-          text: `Approve ${buildPendingMemberLabel(member.displayName)}`,
+          text: t.approveMemberButton(buildPendingMemberLabel(member.displayName)),
           callback_data: `${APPROVE_MEMBER_CALLBACK_PREFIX}${member.telegramUserId}`
         }
       ])
@@ -133,6 +144,7 @@ export function buildJoinMiniAppUrl(
 }
 
 function miniAppReplyMarkup(
+  locale: BotLocale,
   miniAppUrl: string | undefined,
   botUsername: string | undefined,
   joinToken: string
@@ -147,7 +159,7 @@ function miniAppReplyMarkup(
       inline_keyboard: [
         [
           {
-            text: 'Open mini app',
+            text: getBotTranslations(locale).setup.openMiniAppButton,
             web_app: {
               url: webAppUrl
             }
@@ -167,24 +179,27 @@ export function registerHouseholdSetupCommands(options: {
   logger?: Logger
 }): void {
   options.bot.command('start', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (ctx.chat?.type !== 'private') {
       return
     }
 
     if (!ctx.from) {
-      await ctx.reply('Telegram user identity is required to join a household.')
+      await ctx.reply(t.setup.telegramIdentityRequired)
       return
     }
 
     const startPayload = commandArgText(ctx)
     if (!startPayload.startsWith('join_')) {
-      await ctx.reply('Send /help to see available commands.')
+      await ctx.reply(t.common.useHelp)
       return
     }
 
     const joinToken = startPayload.slice('join_'.length).trim()
     if (!joinToken) {
-      await ctx.reply('Invalid household invite link.')
+      await ctx.reply(t.setup.invalidJoinLink)
       return
     }
 
@@ -212,27 +227,30 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'invalid_token') {
-      await ctx.reply('This household invite link is invalid or expired.')
+      await ctx.reply(t.setup.joinLinkInvalidOrExpired)
       return
     }
 
     if (result.status === 'active') {
       await ctx.reply(
-        `You are already an active member. Open the mini app to view ${result.member.displayName}.`,
-        miniAppReplyMarkup(options.miniAppUrl, ctx.me.username, joinToken)
+        t.setup.alreadyActiveMember(result.member.displayName),
+        miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken)
       )
       return
     }
 
     await ctx.reply(
-      `Join request sent for ${result.household.name}. Wait for a household admin to confirm you.`,
-      miniAppReplyMarkup(options.miniAppUrl, ctx.me.username, joinToken)
+      t.setup.joinRequestSent(result.household.name),
+      miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken)
     )
   })
 
   options.bot.command('setup', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use /setup inside the household group.')
+      await ctx.reply(t.setup.useSetupInGroup)
       return
     }
 
@@ -256,7 +274,7 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'rejected') {
-      await ctx.reply(setupRejectionMessage(result.reason))
+      await ctx.reply(setupRejectionMessage(locale, result.reason))
       return
     }
 
@@ -285,19 +303,18 @@ export function registerHouseholdSetupCommands(options: {
       ? `https://t.me/${ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
       : null
     await ctx.reply(
-      [
-        `Household ${action}: ${result.household.householdName}`,
-        `Chat ID: ${result.household.telegramChatId}`,
-        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic.',
-        'Members should open the bot chat from the button below and confirm the join request there.'
-      ].join('\n'),
+      t.setup.setupSummary({
+        householdName: result.household.householdName,
+        telegramChatId: result.household.telegramChatId,
+        created: action === 'created'
+      }),
       joinDeepLink
         ? {
             reply_markup: {
               inline_keyboard: [
                 [
                   {
-                    text: 'Join household',
+                    text: t.setup.joinHouseholdButton,
                     url: joinDeepLink
                   }
                 ]
@@ -309,8 +326,11 @@ export function registerHouseholdSetupCommands(options: {
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use /bind_purchase_topic inside the household group topic.')
+      await ctx.reply(t.setup.useBindPurchaseTopicInGroup)
       return
     }
 
@@ -331,7 +351,7 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'rejected') {
-      await ctx.reply(bindRejectionMessage(result.reason))
+      await ctx.reply(bindRejectionMessage(locale, result.reason))
       return
     }
 
@@ -348,13 +368,16 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     await ctx.reply(
-      `Purchase topic saved for ${result.household.householdName} (thread ${result.binding.telegramThreadId}).`
+      t.setup.purchaseTopicSaved(result.household.householdName, result.binding.telegramThreadId)
     )
   })
 
   options.bot.command('bind_feedback_topic', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use /bind_feedback_topic inside the household group topic.')
+      await ctx.reply(t.setup.useBindFeedbackTopicInGroup)
       return
     }
 
@@ -375,7 +398,7 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'rejected') {
-      await ctx.reply(bindRejectionMessage(result.reason))
+      await ctx.reply(bindRejectionMessage(locale, result.reason))
       return
     }
 
@@ -392,19 +415,22 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     await ctx.reply(
-      `Feedback topic saved for ${result.household.householdName} (thread ${result.binding.telegramThreadId}).`
+      t.setup.feedbackTopicSaved(result.household.householdName, result.binding.telegramThreadId)
     )
   })
 
   options.bot.command('pending_members', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use /pending_members inside the household group.')
+      await ctx.reply(t.setup.usePendingMembersInGroup)
       return
     }
 
     const actorTelegramUserId = ctx.from?.id?.toString()
     if (!actorTelegramUserId) {
-      await ctx.reply('Unable to identify sender for this command.')
+      await ctx.reply(t.common.unableToIdentifySender)
       return
     }
 
@@ -414,36 +440,39 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'rejected') {
-      await ctx.reply(adminRejectionMessage(result.reason))
+      await ctx.reply(adminRejectionMessage(locale, result.reason))
       return
     }
 
     if (result.members.length === 0) {
-      await ctx.reply(`No pending members for ${result.householdName}.`)
+      await ctx.reply(t.setup.pendingMembersEmpty(result.householdName))
       return
     }
 
-    const reply = pendingMembersReply(result)
+    const reply = pendingMembersReply(locale, result)
     await ctx.reply(reply.text, {
       reply_markup: reply.reply_markup
     })
   })
 
   options.bot.command('approve_member', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale)
+
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use /approve_member inside the household group.')
+      await ctx.reply(t.setup.useApproveMemberInGroup)
       return
     }
 
     const actorTelegramUserId = ctx.from?.id?.toString()
     if (!actorTelegramUserId) {
-      await ctx.reply('Unable to identify sender for this command.')
+      await ctx.reply(t.common.unableToIdentifySender)
       return
     }
 
     const pendingTelegramUserId = commandArgText(ctx)
     if (!pendingTelegramUserId) {
-      await ctx.reply('Usage: /approve_member <telegram_user_id>')
+      await ctx.reply(t.setup.approveMemberUsage)
       return
     }
 
@@ -454,21 +483,22 @@ export function registerHouseholdSetupCommands(options: {
     })
 
     if (result.status === 'rejected') {
-      await ctx.reply(adminRejectionMessage(result.reason))
+      await ctx.reply(adminRejectionMessage(locale, result.reason))
       return
     }
 
-    await ctx.reply(
-      `Approved ${result.member.displayName} as an active member of ${result.householdName}.`
-    )
+    await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
   })
 
   options.bot.callbackQuery(
     new RegExp(`^${APPROVE_MEMBER_CALLBACK_PREFIX}(\\d+)$`),
     async (ctx) => {
+      const locale = botLocaleFromContext(ctx)
+      const t = getBotTranslations(locale)
+
       if (!isGroupChat(ctx)) {
         await ctx.answerCallbackQuery({
-          text: 'Use this button in the household group.',
+          text: t.setup.useButtonInGroup,
           show_alert: true
         })
         return
@@ -478,7 +508,7 @@ export function registerHouseholdSetupCommands(options: {
       const pendingTelegramUserId = ctx.match[1]
       if (!actorTelegramUserId || !pendingTelegramUserId) {
         await ctx.answerCallbackQuery({
-          text: 'Unable to identify the selected member.',
+          text: t.setup.unableToIdentifySelectedMember,
           show_alert: true
         })
         return
@@ -492,14 +522,14 @@ export function registerHouseholdSetupCommands(options: {
 
       if (result.status === 'rejected') {
         await ctx.answerCallbackQuery({
-          text: adminRejectionMessage(result.reason),
+          text: adminRejectionMessage(locale, result.reason),
           show_alert: true
         })
         return
       }
 
       await ctx.answerCallbackQuery({
-        text: `Approved ${result.member.displayName}.`
+        text: t.setup.approvedMemberToast(result.member.displayName)
       })
 
       if (ctx.msg) {
@@ -510,9 +540,9 @@ export function registerHouseholdSetupCommands(options: {
 
         if (refreshed.status === 'ok') {
           if (refreshed.members.length === 0) {
-            await ctx.editMessageText(`No pending members for ${refreshed.householdName}.`)
+            await ctx.editMessageText(t.setup.pendingMembersEmpty(refreshed.householdName))
           } else {
-            const reply = pendingMembersReply(refreshed)
+            const reply = pendingMembersReply(locale, refreshed)
             await ctx.editMessageText(reply.text, {
               reply_markup: reply.reply_markup
             })
@@ -520,9 +550,7 @@ export function registerHouseholdSetupCommands(options: {
         }
       }
 
-      await ctx.reply(
-        `Approved ${result.member.displayName} as an active member of ${result.householdName}.`
-      )
+      await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
     }
   )
 }

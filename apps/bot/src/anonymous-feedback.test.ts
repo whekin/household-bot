@@ -14,6 +14,7 @@ function anonUpdate(params: {
   updateId: number
   chatType: 'private' | 'supergroup'
   text: string
+  languageCode?: string
 }) {
   const commandToken = params.text.split(' ')[0] ?? params.text
 
@@ -29,7 +30,12 @@ function anonUpdate(params: {
       from: {
         id: 123456,
         is_bot: false,
-        first_name: 'Stan'
+        first_name: 'Stan',
+        ...(params.languageCode
+          ? {
+              language_code: params.languageCode
+            }
+          : {})
       },
       text: params.text,
       entities: [
@@ -380,6 +386,81 @@ describe('registerAnonymousFeedback', () => {
     })
     expect(calls[2]?.payload).toMatchObject({
       text: 'Anonymous feedback delivered.'
+    })
+  })
+
+  test('prompts in Russian for Russian-speaking users', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 1,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit: mock(async () => ({
+          status: 'accepted' as const,
+          submissionId: 'submission-1',
+          sanitizedText: 'irrelevant'
+        })),
+        markPosted: mock(async () => {}),
+        markFailed: mock(async () => {})
+      }),
+      householdConfigurationRepository: createHouseholdConfigurationRepository(),
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(
+      anonUpdate({
+        updateId: 8001,
+        chatType: 'private',
+        text: '/anon',
+        languageCode: 'ru'
+      }) as never
+    )
+
+    expect(calls[0]?.payload).toMatchObject({
+      chat_id: 123456,
+      text: 'Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Отменить',
+              callback_data: 'cancel_prompt:anonymous_feedback'
+            }
+          ]
+        ]
+      }
     })
   })
 

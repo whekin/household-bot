@@ -9,6 +9,7 @@ import type {
 } from '@household/ports'
 
 import { createDbClient, schema } from '@household/db'
+import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
 
 export interface PurchaseTopicIngestionConfig {
   householdId: string
@@ -216,6 +217,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
 }
 
 function formatPurchaseSummary(
+  locale: BotLocale,
   result: Extract<PurchaseMessageIngestionResult, { status: 'created' }>
 ): string {
   if (
@@ -223,7 +225,7 @@ function formatPurchaseSummary(
     result.parsedCurrency === null ||
     result.parsedItemDescription === null
   ) {
-    return 'shared purchase'
+    return getBotTranslations(locale).purchase.sharedPurchaseFallback
   }
 
   const amount = Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency)
@@ -231,19 +233,22 @@ function formatPurchaseSummary(
 }
 
 export function buildPurchaseAcknowledgement(
-  result: PurchaseMessageIngestionResult
+  result: PurchaseMessageIngestionResult,
+  locale: BotLocale = 'en'
 ): string | null {
   if (result.status === 'duplicate') {
     return null
   }
 
+  const t = getBotTranslations(locale).purchase
+
   switch (result.processingStatus) {
     case 'parsed':
-      return `Recorded purchase: ${formatPurchaseSummary(result)}`
+      return t.recorded(formatPurchaseSummary(locale, result))
     case 'needs_review':
-      return `Saved for review: ${formatPurchaseSummary(result)}`
+      return t.savedForReview(formatPurchaseSummary(locale, result))
     case 'parse_failed':
-      return "Saved for review: I couldn't parse this purchase yet."
+      return t.parseFailed
   }
 }
 
@@ -320,7 +325,7 @@ export function registerPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
-      const acknowledgement = buildPurchaseAcknowledgement(status)
+      const acknowledgement = buildPurchaseAcknowledgement(status, botLocaleFromContext(ctx))
 
       if (status.status === 'created') {
         options.logger?.info(
@@ -390,7 +395,7 @@ export function registerConfiguredPurchaseTopicIngestion(
 
     try {
       const status = await repository.save(record, options.llmFallback)
-      const acknowledgement = buildPurchaseAcknowledgement(status)
+      const acknowledgement = buildPurchaseAcknowledgement(status, botLocaleFromContext(ctx))
 
       if (status.status === 'created') {
         options.logger?.info(

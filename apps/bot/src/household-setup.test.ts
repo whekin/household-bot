@@ -9,7 +9,7 @@ import type {
 import { createTelegramBot } from './bot'
 import { buildJoinMiniAppUrl, registerHouseholdSetupCommands } from './household-setup'
 
-function startUpdate(text: string) {
+function startUpdate(text: string, languageCode?: string) {
   const commandToken = text.split(' ')[0] ?? text
 
   return {
@@ -24,7 +24,12 @@ function startUpdate(text: string) {
       from: {
         id: 123456,
         is_bot: false,
-        first_name: 'Stan'
+        first_name: 'Stan',
+        ...(languageCode
+          ? {
+              language_code: languageCode
+            }
+          : {})
       },
       text,
       entities: [
@@ -168,6 +173,93 @@ describe('registerHouseholdSetupCommands', () => {
           [
             {
               text: 'Open mini app',
+              web_app: {
+                url: 'https://miniapp.example.app/?join=join-token&bot=household_test_bot'
+              }
+            }
+          ]
+        ]
+      }
+    })
+  })
+
+  test('localizes the DM join response for Russian users', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const householdOnboardingService: HouseholdOnboardingService = {
+      async ensureHouseholdJoinToken() {
+        return {
+          householdId: 'household-1',
+          householdName: 'Kojori House',
+          token: 'join-token'
+        }
+      },
+      async getMiniAppAccess() {
+        return {
+          status: 'open_from_group'
+        }
+      },
+      async joinHousehold() {
+        return {
+          status: 'pending',
+          household: {
+            id: 'household-1',
+            name: 'Kojori House'
+          }
+        }
+      }
+    }
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createHouseholdSetupService(),
+      householdOnboardingService,
+      householdAdminService: createHouseholdAdminService(),
+      miniAppUrl: 'https://miniapp.example.app'
+    })
+
+    await bot.handleUpdate(startUpdate('/start join_join-token', 'ru') as never)
+
+    expect(calls[0]?.payload).toMatchObject({
+      chat_id: 123456,
+      text: 'Заявка на вступление в Kojori House отправлена. Дождитесь подтверждения от админа дома.',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Открыть мини-приложение',
               web_app: {
                 url: 'https://miniapp.example.app/?join=join-token&bot=household_test_bot'
               }

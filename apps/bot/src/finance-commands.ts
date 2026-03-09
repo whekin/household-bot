@@ -2,6 +2,8 @@ import type { FinanceCommandService } from '@household/application'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
+import { botLocaleFromContext, getBotTranslations } from './i18n'
+
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
   if (raw.length === 0) {
@@ -21,12 +23,28 @@ export function createFinanceCommandsService(options: {
 }): {
   register: (bot: Bot) => void
 } {
+  function formatStatement(
+    ctx: Context,
+    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  ): string {
+    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
+
+    return [
+      t.statementTitle(dashboard.period),
+      ...dashboard.members.map((line) =>
+        t.statementLine(line.displayName, line.netDue.toMajorString(), dashboard.currency)
+      ),
+      t.statementTotal(dashboard.totalDue.toMajorString(), dashboard.currency)
+    ].join('\n')
+  }
+
   async function resolveGroupFinanceService(ctx: Context): Promise<{
     service: FinanceCommandService
     householdId: string
   } | null> {
+    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
     if (!isGroupChat(ctx)) {
-      await ctx.reply('Use this command inside a household group.')
+      await ctx.reply(t.useInGroup)
       return null
     }
 
@@ -34,7 +52,7 @@ export function createFinanceCommandsService(options: {
       ctx.chat!.id.toString()
     )
     if (!household) {
-      await ctx.reply('Household is not configured for this chat yet. Run /setup first.')
+      await ctx.reply(t.householdNotConfigured)
       return null
     }
 
@@ -45,9 +63,10 @@ export function createFinanceCommandsService(options: {
   }
 
   async function requireMember(ctx: Context) {
+    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
     const telegramUserId = ctx.from?.id?.toString()
     if (!telegramUserId) {
-      await ctx.reply('Unable to identify sender for this command.')
+      await ctx.reply(t.unableToIdentifySender)
       return null
     }
 
@@ -58,7 +77,7 @@ export function createFinanceCommandsService(options: {
 
     const member = await scoped.service.getMemberByTelegramUserId(telegramUserId)
     if (!member) {
-      await ctx.reply('You are not a member of this household.')
+      await ctx.reply(t.notMember)
       return null
     }
 
@@ -70,13 +89,14 @@ export function createFinanceCommandsService(options: {
   }
 
   async function requireAdmin(ctx: Context) {
+    const t = getBotTranslations(botLocaleFromContext(ctx)).finance
     const resolved = await requireMember(ctx)
     if (!resolved) {
       return null
     }
 
     if (!resolved.member.isAdmin) {
-      await ctx.reply('Only household admins can use this command.')
+      await ctx.reply(t.adminOnly)
       return null
     }
 
@@ -85,6 +105,7 @@ export function createFinanceCommandsService(options: {
 
   function register(bot: Bot): void {
     bot.command('cycle_open', async (ctx) => {
+      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -92,19 +113,20 @@ export function createFinanceCommandsService(options: {
 
       const args = commandArgs(ctx)
       if (args.length === 0) {
-        await ctx.reply('Usage: /cycle_open <YYYY-MM> [USD|GEL]')
+        await ctx.reply(t.cycleOpenUsage)
         return
       }
 
       try {
         const cycle = await resolved.service.openCycle(args[0]!, args[1])
-        await ctx.reply(`Cycle opened: ${cycle.period} (${cycle.currency})`)
+        await ctx.reply(t.cycleOpened(cycle.period, cycle.currency))
       } catch (error) {
-        await ctx.reply(`Failed to open cycle: ${(error as Error).message}`)
+        await ctx.reply(t.cycleOpenFailed((error as Error).message))
       }
     })
 
     bot.command('cycle_close', async (ctx) => {
+      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -113,17 +135,18 @@ export function createFinanceCommandsService(options: {
       try {
         const cycle = await resolved.service.closeCycle(commandArgs(ctx)[0])
         if (!cycle) {
-          await ctx.reply('No cycle found to close.')
+          await ctx.reply(t.noCycleToClose)
           return
         }
 
-        await ctx.reply(`Cycle closed: ${cycle.period}`)
+        await ctx.reply(t.cycleClosed(cycle.period))
       } catch (error) {
-        await ctx.reply(`Failed to close cycle: ${(error as Error).message}`)
+        await ctx.reply(t.cycleCloseFailed((error as Error).message))
       }
     })
 
     bot.command('rent_set', async (ctx) => {
+      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -131,26 +154,25 @@ export function createFinanceCommandsService(options: {
 
       const args = commandArgs(ctx)
       if (args.length === 0) {
-        await ctx.reply('Usage: /rent_set <amount> [USD|GEL] [YYYY-MM]')
+        await ctx.reply(t.rentSetUsage)
         return
       }
 
       try {
         const result = await resolved.service.setRent(args[0]!, args[1], args[2])
         if (!result) {
-          await ctx.reply('No period provided and no open cycle found.')
+          await ctx.reply(t.rentNoPeriod)
           return
         }
 
-        await ctx.reply(
-          `Rent rule saved: ${result.amount.toMajorString()} ${result.currency} starting ${result.period}`
-        )
+        await ctx.reply(t.rentSaved(result.amount.toMajorString(), result.currency, result.period))
       } catch (error) {
-        await ctx.reply(`Failed to save rent rule: ${(error as Error).message}`)
+        await ctx.reply(t.rentSaveFailed((error as Error).message))
       }
     })
 
     bot.command('utility_add', async (ctx) => {
+      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
       const resolved = await requireAdmin(ctx)
       if (!resolved) {
         return
@@ -158,7 +180,7 @@ export function createFinanceCommandsService(options: {
 
       const args = commandArgs(ctx)
       if (args.length < 2) {
-        await ctx.reply('Usage: /utility_add <name> <amount> [USD|GEL]')
+        await ctx.reply(t.utilityAddUsage)
         return
       }
 
@@ -170,34 +192,35 @@ export function createFinanceCommandsService(options: {
           args[2]
         )
         if (!result) {
-          await ctx.reply('No open cycle found. Use /cycle_open first.')
+          await ctx.reply(t.utilityNoOpenCycle)
           return
         }
 
         await ctx.reply(
-          `Utility bill added: ${args[0]} ${result.amount.toMajorString()} ${result.currency} for ${result.period}`
+          t.utilityAdded(args[0]!, result.amount.toMajorString(), result.currency, result.period)
         )
       } catch (error) {
-        await ctx.reply(`Failed to add utility bill: ${(error as Error).message}`)
+        await ctx.reply(t.utilityAddFailed((error as Error).message))
       }
     })
 
     bot.command('statement', async (ctx) => {
+      const t = getBotTranslations(botLocaleFromContext(ctx)).finance
       const resolved = await requireMember(ctx)
       if (!resolved) {
         return
       }
 
       try {
-        const statement = await resolved.service.generateStatement(commandArgs(ctx)[0])
-        if (!statement) {
-          await ctx.reply('No cycle found for statement.')
+        const dashboard = await resolved.service.generateDashboard(commandArgs(ctx)[0])
+        if (!dashboard) {
+          await ctx.reply(t.noStatementCycle)
           return
         }
 
-        await ctx.reply(statement)
+        await ctx.reply(formatStatement(ctx, dashboard))
       } catch (error) {
-        await ctx.reply(`Failed to generate statement: ${(error as Error).message}`)
+        await ctx.reply(t.statementFailed((error as Error).message))
       }
     })
   }

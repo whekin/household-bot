@@ -7,6 +7,8 @@ import type {
 } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
+import { botLocaleFromContext, getBotTranslations, type BotLocale } from './i18n'
+
 const ANONYMOUS_FEEDBACK_ACTION = 'anonymous_feedback' as const
 const CANCEL_ANONYMOUS_FEEDBACK_CALLBACK = 'cancel_prompt:anonymous_feedback'
 const PENDING_ACTION_TTL_MS = 24 * 60 * 60 * 1000
@@ -19,16 +21,16 @@ function commandArgText(ctx: Context): string {
   return typeof ctx.match === 'string' ? ctx.match.trim() : ''
 }
 
-function feedbackText(sanitizedText: string): string {
-  return ['Anonymous household note', '', sanitizedText].join('\n')
+function feedbackText(locale: BotLocale, sanitizedText: string): string {
+  return [getBotTranslations(locale).anonymousFeedback.title, '', sanitizedText].join('\n')
 }
 
-function cancelReplyMarkup() {
+function cancelReplyMarkup(locale: BotLocale) {
   return {
     inline_keyboard: [
       [
         {
-          text: 'Cancel',
+          text: getBotTranslations(locale).anonymousFeedback.cancelButton,
           callback_data: CANCEL_ANONYMOUS_FEEDBACK_CALLBACK
         }
       ]
@@ -44,9 +46,10 @@ function shouldKeepPrompt(reason: string): boolean {
   return reason === 'too_short' || reason === 'too_long' || reason === 'blocklisted'
 }
 
-function formatRetryDelay(now: Instant, nextAllowedAt: Instant): string {
+function formatRetryDelay(locale: BotLocale, now: Instant, nextAllowedAt: Instant): string {
+  const t = getBotTranslations(locale).anonymousFeedback
   if (Temporal.Instant.compare(nextAllowedAt, now) <= 0) {
-    return 'now'
+    return t.retryNow
   }
 
   const duration = now.until(nextAllowedAt, {
@@ -59,34 +62,40 @@ function formatRetryDelay(now: Instant, nextAllowedAt: Instant): string {
   const hours = duration.hours % 24
 
   const parts = [
-    days > 0 ? `${days} day${days === 1 ? '' : 's'}` : null,
-    hours > 0 ? `${hours} hour${hours === 1 ? '' : 's'}` : null,
-    duration.minutes > 0 ? `${duration.minutes} minute${duration.minutes === 1 ? '' : 's'}` : null
+    days > 0 ? t.day(days) : null,
+    hours > 0 ? t.hour(hours) : null,
+    duration.minutes > 0 ? t.minute(duration.minutes) : null
   ].filter(Boolean)
 
-  return parts.length > 0 ? `in ${parts.join(' ')}` : 'in less than a minute'
+  return parts.length > 0 ? t.retryIn(parts.join(' ')) : t.retryInLessThanMinute
 }
 
-function rejectionMessage(reason: string, nextAllowedAt?: Instant, now = nowInstant()): string {
+function rejectionMessage(
+  locale: BotLocale,
+  reason: string,
+  nextAllowedAt?: Instant,
+  now = nowInstant()
+): string {
+  const t = getBotTranslations(locale).anonymousFeedback
   switch (reason) {
     case 'not_member':
-      return 'You are not a member of this household.'
+      return t.notMember
     case 'too_short':
-      return 'Anonymous feedback is too short. Add a little more detail.'
+      return t.tooShort
     case 'too_long':
-      return 'Anonymous feedback is too long. Keep it under 500 characters.'
+      return t.tooLong
     case 'cooldown':
       return nextAllowedAt
-        ? `Anonymous feedback cooldown is active. You can send the next message ${formatRetryDelay(now, nextAllowedAt)}.`
-        : 'Anonymous feedback cooldown is active. Try again later.'
+        ? t.cooldown(formatRetryDelay(locale, now, nextAllowedAt))
+        : t.cooldown(t.retryInLessThanMinute)
     case 'daily_cap':
       return nextAllowedAt
-        ? `Daily anonymous feedback limit reached. You can send the next message ${formatRetryDelay(now, nextAllowedAt)}.`
-        : 'Daily anonymous feedback limit reached. Try again tomorrow.'
+        ? t.dailyCap(formatRetryDelay(locale, now, nextAllowedAt))
+        : t.dailyCap(t.retryInLessThanMinute)
     case 'blocklisted':
-      return 'Message rejected by moderation. Rewrite it in calmer, non-abusive language.'
+      return t.blocklisted
     default:
-      return 'Anonymous feedback could not be submitted.'
+      return t.submitFailed
   }
 }
 
@@ -107,10 +116,12 @@ async function startPendingAnonymousFeedbackPrompt(
   repository: TelegramPendingActionRepository,
   ctx: Context
 ): Promise<void> {
+  const locale = botLocaleFromContext(ctx)
+  const t = getBotTranslations(locale).anonymousFeedback
   const telegramUserId = ctx.from?.id?.toString()
   const telegramChatId = ctx.chat?.id?.toString()
   if (!telegramUserId || !telegramChatId) {
-    await ctx.reply('Unable to start anonymous feedback right now.')
+    await ctx.reply(t.unableToStart)
     return
   }
 
@@ -122,8 +133,8 @@ async function startPendingAnonymousFeedbackPrompt(
     expiresAt: nowInstant().add({ milliseconds: PENDING_ACTION_TTL_MS })
   })
 
-  await ctx.reply('Send me the anonymous message in your next reply, or tap Cancel.', {
-    reply_markup: cancelReplyMarkup()
+  await ctx.reply(t.prompt, {
+    reply_markup: cancelReplyMarkup(locale)
   })
 }
 
@@ -141,9 +152,11 @@ async function submitAnonymousFeedback(options: {
   const telegramMessageId = options.ctx.msg?.message_id?.toString()
   const telegramUpdateId =
     'update_id' in options.ctx.update ? options.ctx.update.update_id?.toString() : undefined
+  const locale = botLocaleFromContext(options.ctx)
+  const t = getBotTranslations(locale).anonymousFeedback
 
   if (!telegramUserId || !telegramChatId || !telegramMessageId || !telegramUpdateId) {
-    await options.ctx.reply('Unable to identify this message for anonymous feedback.')
+    await options.ctx.reply(t.unableToIdentifyMessage)
     return
   }
 
@@ -154,15 +167,13 @@ async function submitAnonymousFeedback(options: {
 
   if (memberships.length === 0) {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply('You are not a member of this household.')
+    await options.ctx.reply(t.notMember)
     return
   }
 
   if (memberships.length > 1) {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply(
-      'You belong to multiple households. Open the target household from its group until household selection is added.'
-    )
+    await options.ctx.reply(t.multipleHouseholds)
     return
   }
 
@@ -176,9 +187,7 @@ async function submitAnonymousFeedback(options: {
 
   if (!householdChat || !feedbackTopic) {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply(
-      'Anonymous feedback is not configured for your household yet. Ask an admin to run /bind_feedback_topic.'
-    )
+    await options.ctx.reply(t.feedbackTopicMissing)
     return
   }
 
@@ -194,7 +203,7 @@ async function submitAnonymousFeedback(options: {
 
   if (result.status === 'duplicate') {
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply('This anonymous feedback message was already processed.')
+    await options.ctx.reply(t.duplicate)
     return
   }
 
@@ -203,15 +212,18 @@ async function submitAnonymousFeedback(options: {
       await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
     }
 
-    const rejectionText = rejectionMessage(result.reason, result.nextAllowedAt, nowInstant())
+    const rejectionText = rejectionMessage(
+      locale,
+      result.reason,
+      result.nextAllowedAt,
+      nowInstant()
+    )
 
     await options.ctx.reply(
-      shouldKeepPrompt(result.reason)
-        ? `${rejectionText} Send a revised message, or tap Cancel.`
-        : rejectionText,
+      shouldKeepPrompt(result.reason) ? `${rejectionText} ${t.keepPromptSuffix}` : rejectionText,
       shouldKeepPrompt(result.reason)
         ? {
-            reply_markup: cancelReplyMarkup()
+            reply_markup: cancelReplyMarkup(locale)
           }
         : {}
     )
@@ -221,7 +233,7 @@ async function submitAnonymousFeedback(options: {
   try {
     const posted = await options.ctx.api.sendMessage(
       householdChat.telegramChatId,
-      feedbackText(result.sanitizedText),
+      feedbackText(locale, result.sanitizedText),
       {
         message_thread_id: Number(feedbackTopic.telegramThreadId)
       }
@@ -235,7 +247,7 @@ async function submitAnonymousFeedback(options: {
     })
 
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await options.ctx.reply('Anonymous feedback delivered.')
+    await options.ctx.reply(t.delivered)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Telegram send failure'
     options.logger?.error(
@@ -249,7 +261,7 @@ async function submitAnonymousFeedback(options: {
       'Anonymous feedback posting failed'
     )
     await anonymousFeedbackService.markFailed(result.submissionId, message)
-    await options.ctx.reply('Anonymous feedback was saved, but posting failed. Try again later.')
+    await options.ctx.reply(t.savedButPostFailed)
   }
 }
 
@@ -261,6 +273,8 @@ export function registerAnonymousFeedback(options: {
   logger?: Logger
 }): void {
   options.bot.command('cancel', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
       return
     }
@@ -268,23 +282,25 @@ export function registerAnonymousFeedback(options: {
     const telegramUserId = ctx.from?.id?.toString()
     const telegramChatId = ctx.chat?.id?.toString()
     if (!telegramUserId || !telegramChatId) {
-      await ctx.reply('Nothing to cancel right now.')
+      await ctx.reply(t.nothingToCancel)
       return
     }
 
     const pending = await options.promptRepository.getPendingAction(telegramChatId, telegramUserId)
     if (!pending) {
-      await ctx.reply('Nothing to cancel right now.')
+      await ctx.reply(t.nothingToCancel)
       return
     }
 
     await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
-    await ctx.reply('Cancelled.')
+    await ctx.reply(t.cancelled)
   })
 
   options.bot.command('anon', async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
-      await ctx.reply('Use /anon in a private chat with the bot.')
+      await ctx.reply(t.useInPrivateChat)
       return
     }
 
@@ -335,9 +351,11 @@ export function registerAnonymousFeedback(options: {
   })
 
   options.bot.callbackQuery(CANCEL_ANONYMOUS_FEEDBACK_CALLBACK, async (ctx) => {
+    const locale = botLocaleFromContext(ctx)
+    const t = getBotTranslations(locale).anonymousFeedback
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: 'Use this in a private chat with the bot.',
+        text: t.useThisInPrivateChat,
         show_alert: true
       })
       return
@@ -345,11 +363,11 @@ export function registerAnonymousFeedback(options: {
 
     await clearPendingAnonymousFeedbackPrompt(options.promptRepository, ctx)
     await ctx.answerCallbackQuery({
-      text: 'Cancelled.'
+      text: t.cancelled
     })
 
     if (ctx.msg) {
-      await ctx.editMessageText('Anonymous feedback cancelled.')
+      await ctx.editMessageText(t.cancelledMessage)
     }
   })
 }
