@@ -1,7 +1,12 @@
-import type { FinanceMemberRecord, FinanceRepository } from '@household/ports'
+import type { HouseholdOnboardingService } from '@household/application'
 import type { Logger } from '@household/observability'
 
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
+
+export interface MiniAppRequestPayload {
+  initData: string | null
+  joinToken?: string
+}
 
 export function miniAppJsonResponse(body: object, status = 200, origin?: string): Response {
   const headers = new Headers({
@@ -42,23 +47,33 @@ export function allowedMiniAppOrigin(
   return allowedOrigins.includes(origin) ? origin : undefined
 }
 
-export async function readMiniAppInitData(request: Request): Promise<string | null> {
+export async function readMiniAppRequestPayload(request: Request): Promise<MiniAppRequestPayload> {
   const text = await request.text()
 
   if (text.trim().length === 0) {
-    return null
+    return {
+      initData: null
+    }
   }
 
-  let parsed: { initData?: string }
+  let parsed: { initData?: string; joinToken?: string }
   try {
-    parsed = JSON.parse(text) as { initData?: string }
+    parsed = JSON.parse(text) as { initData?: string; joinToken?: string }
   } catch {
     throw new Error('Invalid JSON body')
   }
 
   const initData = parsed.initData?.trim()
+  const joinToken = parsed.joinToken?.trim()
 
-  return initData && initData.length > 0 ? initData : null
+  return {
+    initData: initData && initData.length > 0 ? initData : null,
+    ...(joinToken && joinToken.length > 0
+      ? {
+          joinToken
+        }
+      : {})
+  }
 }
 
 export function miniAppErrorResponse(error: unknown, origin?: string, logger?: Logger): Response {
@@ -81,46 +96,83 @@ export function miniAppErrorResponse(error: unknown, origin?: string, logger?: L
 
 export interface MiniAppSessionResult {
   authorized: boolean
-  reason?: 'not_member'
   member?: {
     id: string
     displayName: string
     isAdmin: boolean
   }
   telegramUser?: ReturnType<typeof verifyTelegramMiniAppInitData>
+  onboarding?: {
+    status: 'join_required' | 'pending' | 'open_from_group'
+    householdName?: string
+  }
 }
-
-type MiniAppMemberLookup = (telegramUserId: string) => Promise<FinanceMemberRecord | null>
 
 export function createMiniAppSessionService(options: {
   botToken: string
-  getMemberByTelegramUserId: MiniAppMemberLookup
+  onboardingService: HouseholdOnboardingService
 }): {
-  authenticate: (initData: string) => Promise<MiniAppSessionResult | null>
+  authenticate: (payload: MiniAppRequestPayload) => Promise<MiniAppSessionResult | null>
 } {
   return {
-    authenticate: async (initData) => {
-      const telegramUser = verifyTelegramMiniAppInitData(initData, options.botToken)
+    authenticate: async (payload) => {
+      if (!payload.initData) {
+        return null
+      }
+
+      const telegramUser = verifyTelegramMiniAppInitData(payload.initData, options.botToken)
       if (!telegramUser) {
         return null
       }
 
-      const member = await options.getMemberByTelegramUserId(telegramUser.id)
-      if (!member) {
-        return {
-          authorized: false,
-          reason: 'not_member'
-        }
-      }
-
-      return {
-        authorized: true,
-        member: {
-          id: member.id,
-          displayName: member.displayName,
-          isAdmin: member.isAdmin
+      const access = await options.onboardingService.getMiniAppAccess({
+        identity: {
+          telegramUserId: telegramUser.id,
+          displayName:
+            telegramUser.firstName ?? telegramUser.username ?? `Telegram ${telegramUser.id}`,
+          username: telegramUser.username,
+          languageCode: telegramUser.languageCode
         },
-        telegramUser
+        ...(payload.joinToken
+          ? {
+              joinToken: payload.joinToken
+            }
+          : {})
+      })
+
+      switch (access.status) {
+        case 'active':
+          return {
+            authorized: true,
+            member: access.member,
+            telegramUser
+          }
+        case 'pending':
+          return {
+            authorized: false,
+            telegramUser,
+            onboarding: {
+              status: 'pending',
+              householdName: access.household.name
+            }
+          }
+        case 'join_required':
+          return {
+            authorized: false,
+            telegramUser,
+            onboarding: {
+              status: 'join_required',
+              householdName: access.household.name
+            }
+          }
+        case 'open_from_group':
+          return {
+            authorized: false,
+            telegramUser,
+            onboarding: {
+              status: 'open_from_group'
+            }
+          }
       }
     }
   }
@@ -129,14 +181,14 @@ export function createMiniAppSessionService(options: {
 export function createMiniAppAuthHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  repository: FinanceRepository
+  onboardingService: HouseholdOnboardingService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
   const sessionService = createMiniAppSessionService({
     botToken: options.botToken,
-    getMemberByTelegramUserId: options.repository.getMemberByTelegramUserId
+    onboardingService: options.onboardingService
   })
 
   return {
@@ -152,12 +204,12 @@ export function createMiniAppAuthHandler(options: {
       }
 
       try {
-        const initData = await readMiniAppInitData(request)
-        if (!initData) {
+        const payload = await readMiniAppRequestPayload(request)
+        if (!payload.initData) {
           return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
         }
 
-        const session = await sessionService.authenticate(initData)
+        const session = await sessionService.authenticate(payload)
         if (!session) {
           return miniAppJsonResponse(
             { ok: false, error: 'Invalid Telegram init data' },
@@ -171,9 +223,10 @@ export function createMiniAppAuthHandler(options: {
             {
               ok: true,
               authorized: false,
-              reason: 'not_member'
+              onboarding: session.onboarding,
+              telegramUser: session.telegramUser
             },
-            403,
+            200,
             origin
           )
         }
@@ -188,6 +241,101 @@ export function createMiniAppAuthHandler(options: {
               balances: true,
               ledger: true
             }
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppJoinHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readMiniAppRequestPayload(request)
+        if (!payload.initData) {
+          return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
+        }
+
+        if (!payload.joinToken) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Missing household join token' },
+            400,
+            origin
+          )
+        }
+
+        const telegramUser = verifyTelegramMiniAppInitData(payload.initData, options.botToken)
+        if (!telegramUser) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Invalid Telegram init data' },
+            401,
+            origin
+          )
+        }
+
+        const result = await options.onboardingService.joinHousehold({
+          identity: {
+            telegramUserId: telegramUser.id,
+            displayName:
+              telegramUser.firstName ?? telegramUser.username ?? `Telegram ${telegramUser.id}`,
+            username: telegramUser.username,
+            languageCode: telegramUser.languageCode
+          },
+          joinToken: payload.joinToken
+        })
+
+        if (result.status === 'invalid_token') {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Invalid household join token' },
+            404,
+            origin
+          )
+        }
+
+        if (result.status === 'active') {
+          return miniAppJsonResponse(
+            {
+              ok: true,
+              authorized: true,
+              member: result.member,
+              telegramUser
+            },
+            200,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: false,
+            onboarding: {
+              status: 'pending',
+              householdName: result.household.name
+            },
+            telegramUser
           },
           200,
           origin

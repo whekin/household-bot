@@ -7,9 +7,21 @@ export const dictionary = {
     loadingTitle: 'Checking your household access',
     loadingBody: 'Validating Telegram session and membership…',
     demoBadge: 'Demo mode',
-    unauthorizedTitle: 'Access is limited to active household members',
-    unauthorizedBody:
-      'Open the mini app from Telegram after the bot admin adds you to the household.',
+    joinTitle: 'Welcome to your household',
+    joinBody:
+      'You are not a member of {household} yet. Send a join request and wait for admin approval.',
+    pendingTitle: 'Join request sent',
+    pendingBody: 'Your request for {household} is pending admin approval.',
+    openFromGroupTitle: 'Open this from your household group',
+    openFromGroupBody:
+      'Use the join button from the household group setup message so the app knows which household you want to join.',
+    unexpectedErrorTitle: 'Unable to load the household app',
+    unexpectedErrorBody:
+      'Retry in Telegram. If this keeps failing, ask the household admin to resend the join button.',
+    householdFallback: 'this household',
+    joinAction: 'Join household',
+    joining: 'Sending request…',
+    botLinkAction: 'Open bot chat',
     telegramOnlyTitle: 'Open this app from Telegram',
     telegramOnlyBody:
       'The real session gate needs Telegram mini app data. Local development falls back to a preview shell.',
@@ -51,9 +63,21 @@ export const dictionary = {
     loadingTitle: 'Проверяем доступ к дому',
     loadingBody: 'Проверяем Telegram-сессию и членство…',
     demoBadge: 'Демо режим',
-    unauthorizedTitle: 'Доступ открыт только для активных участников дома',
-    unauthorizedBody:
-      'Открой мини-апп из Telegram после того, как админ бота добавит тебя в household.',
+    joinTitle: 'Добро пожаловать домой',
+    joinBody:
+      'Ты пока не участник {household}. Отправь заявку на вступление и дождись подтверждения админа.',
+    pendingTitle: 'Заявка отправлена',
+    pendingBody: 'Твоя заявка в {household} ждёт подтверждения админа.',
+    openFromGroupTitle: 'Открой приложение из группового чата',
+    openFromGroupBody:
+      'Используй кнопку подключения из сообщения настройки household, чтобы приложение поняло, к какому дому ты хочешь присоединиться.',
+    unexpectedErrorTitle: 'Не удалось открыть household app',
+    unexpectedErrorBody:
+      'Попробуй снова из Telegram. Если ошибка повторяется, попроси админа ещё раз прислать кнопку подключения.',
+    householdFallback: 'этот household',
+    joinAction: 'Вступить в household',
+    joining: 'Отправляем заявку…',
+    botLinkAction: 'Открыть чат с ботом',
     telegramOnlyTitle: 'Открой приложение из Telegram',
     telegramOnlyBody:
       'Настоящая проверка требует данные Telegram Mini App. Локально показывается демо-оболочка.',

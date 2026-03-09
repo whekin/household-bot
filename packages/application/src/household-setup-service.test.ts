@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import type {
   HouseholdConfigurationRepository,
+  HouseholdJoinTokenRecord,
+  HouseholdPendingMemberRecord,
   HouseholdTelegramChatRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
@@ -11,6 +13,8 @@ import { createHouseholdSetupService } from './household-setup-service'
 function createRepositoryStub() {
   const households = new Map<string, HouseholdTelegramChatRecord>()
   const bindings = new Map<string, HouseholdTopicBindingRecord[]>()
+  const joinTokens = new Map<string, HouseholdJoinTokenRecord>()
+  const pendingMembers = new Map<string, HouseholdPendingMemberRecord>()
 
   const repository: HouseholdConfigurationRepository = {
     async registerTelegramHouseholdChat(input) {
@@ -79,6 +83,71 @@ function createRepositoryStub() {
 
     async listHouseholdTopicBindings(householdId) {
       return bindings.get(householdId) ?? []
+    },
+
+    async upsertHouseholdJoinToken(input) {
+      const household = [...households.values()].find(
+        (entry) => entry.householdId === input.householdId
+      )
+      if (!household) {
+        throw new Error('Missing household')
+      }
+
+      const record: HouseholdJoinTokenRecord = {
+        householdId: household.householdId,
+        householdName: household.householdName,
+        token: input.token,
+        createdByTelegramUserId: input.createdByTelegramUserId ?? null
+      }
+      joinTokens.set(household.householdId, record)
+      return record
+    },
+
+    async getHouseholdJoinToken(householdId) {
+      return joinTokens.get(householdId) ?? null
+    },
+
+    async getHouseholdByJoinToken(token) {
+      const record = [...joinTokens.values()].find((entry) => entry.token === token)
+      if (!record) {
+        return null
+      }
+
+      return (
+        [...households.values()].find((entry) => entry.householdId === record.householdId) ?? null
+      )
+    },
+
+    async upsertPendingHouseholdMember(input) {
+      const household = [...households.values()].find(
+        (entry) => entry.householdId === input.householdId
+      )
+      if (!household) {
+        throw new Error('Missing household')
+      }
+
+      const key = `${input.householdId}:${input.telegramUserId}`
+      const record: HouseholdPendingMemberRecord = {
+        householdId: household.householdId,
+        householdName: household.householdName,
+        telegramUserId: input.telegramUserId,
+        displayName: input.displayName,
+        username: input.username?.trim() || null,
+        languageCode: input.languageCode?.trim() || null
+      }
+      pendingMembers.set(key, record)
+      return record
+    },
+
+    async getPendingHouseholdMember(householdId, telegramUserId) {
+      return pendingMembers.get(`${householdId}:${telegramUserId}`) ?? null
+    },
+
+    async findPendingHouseholdMemberByTelegramUserId(telegramUserId) {
+      return (
+        [...pendingMembers.values()].find((entry) => entry.telegramUserId === telegramUserId) ??
+        null
+      )
     }
   }
 

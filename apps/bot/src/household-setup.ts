@@ -1,4 +1,4 @@
-import type { HouseholdSetupService } from '@household/application'
+import type { HouseholdOnboardingService, HouseholdSetupService } from '@household/application'
 import type { Logger } from '@household/observability'
 import type { Bot, Context } from 'grammy'
 
@@ -51,8 +51,72 @@ function bindRejectionMessage(
 export function registerHouseholdSetupCommands(options: {
   bot: Bot
   householdSetupService: HouseholdSetupService
+  householdOnboardingService: HouseholdOnboardingService
+  miniAppBaseUrl?: string
   logger?: Logger
 }): void {
+  options.bot.command('start', async (ctx) => {
+    if (ctx.chat?.type !== 'private') {
+      return
+    }
+
+    if (!ctx.from) {
+      await ctx.reply('Telegram user identity is required to join a household.')
+      return
+    }
+
+    const startPayload = commandArgText(ctx)
+    if (!startPayload.startsWith('join_')) {
+      await ctx.reply('Send /help to see available commands.')
+      return
+    }
+
+    const joinToken = startPayload.slice('join_'.length).trim()
+    if (!joinToken) {
+      await ctx.reply('Invalid household invite link.')
+      return
+    }
+
+    const identity = {
+      telegramUserId: ctx.from.id.toString(),
+      displayName:
+        [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ').trim() ||
+        ctx.from.username ||
+        `Telegram ${ctx.from.id}`,
+      ...(ctx.from.username
+        ? {
+            username: ctx.from.username
+          }
+        : {}),
+      ...(ctx.from.language_code
+        ? {
+            languageCode: ctx.from.language_code
+          }
+        : {})
+    }
+
+    const result = await options.householdOnboardingService.joinHousehold({
+      identity,
+      joinToken
+    })
+
+    if (result.status === 'invalid_token') {
+      await ctx.reply('This household invite link is invalid or expired.')
+      return
+    }
+
+    if (result.status === 'active') {
+      await ctx.reply(
+        `You are already an active member. Open the mini app to view ${result.member.displayName}.`
+      )
+      return
+    }
+
+    await ctx.reply(
+      `Join request sent for ${result.household.name}. Wait for a household admin to confirm you.`
+    )
+  })
+
   options.bot.command('setup', async (ctx) => {
     if (!isGroupChat(ctx)) {
       await ctx.reply('Use /setup inside the household group.')
@@ -85,12 +149,64 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     const action = result.status === 'created' ? 'created' : 'already registered'
+    const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
+      householdId: result.household.householdId,
+      ...(ctx.from?.id
+        ? {
+            actorTelegramUserId: ctx.from.id.toString()
+          }
+        : {})
+    })
+
+    const joinDeepLink = ctx.me.username
+      ? `https://t.me/${ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
+      : null
+    const joinMiniAppUrl = options.miniAppBaseUrl
+      ? (() => {
+          const url = new URL(options.miniAppBaseUrl)
+          url.searchParams.set('join', joinToken.token)
+          if (ctx.me.username) {
+            url.searchParams.set('bot', ctx.me.username)
+          }
+          return url.toString()
+        })()
+      : null
+
     await ctx.reply(
       [
         `Household ${action}: ${result.household.householdName}`,
         `Chat ID: ${result.household.telegramChatId}`,
-        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic.'
-      ].join('\n')
+        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic.',
+        'Members can join from the button below or from the bot link.'
+      ].join('\n'),
+      joinMiniAppUrl || joinDeepLink
+        ? {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  ...(joinMiniAppUrl
+                    ? [
+                        {
+                          text: 'Join household',
+                          web_app: {
+                            url: joinMiniAppUrl
+                          }
+                        }
+                      ]
+                    : []),
+                  ...(joinDeepLink
+                    ? [
+                        {
+                          text: 'Open bot chat',
+                          url: joinDeepLink
+                        }
+                      ]
+                    : [])
+                ]
+              ]
+            }
+          }
+        : {}
     )
   })
 

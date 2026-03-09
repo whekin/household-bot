@@ -3,6 +3,7 @@ import { webhookCallback } from 'grammy'
 import {
   createAnonymousFeedbackService,
   createFinanceCommandService,
+  createHouseholdOnboardingService,
   createHouseholdSetupService,
   createReminderJobService
 } from '@household/application'
@@ -27,7 +28,7 @@ import {
 import { createReminderJobsHandler } from './reminder-jobs'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
-import { createMiniAppAuthHandler } from './miniapp-auth'
+import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 
 const runtime = getBotRuntimeConfig()
@@ -50,6 +51,16 @@ const financeRepositoryClient =
     : null
 const financeService = financeRepositoryClient
   ? createFinanceCommandService(financeRepositoryClient.repository)
+  : null
+const householdOnboardingService = householdConfigurationRepositoryClient
+  ? createHouseholdOnboardingService({
+      repository: householdConfigurationRepositoryClient.repository,
+      ...(financeRepositoryClient
+        ? {
+            getMemberByTelegramUserId: financeRepositoryClient.repository.getMemberByTelegramUserId
+          }
+        : {})
+    })
   : null
 const anonymousFeedbackRepositoryClient = runtime.anonymousFeedbackEnabled
   ? createDbAnonymousFeedbackRepository(runtime.databaseUrl!, runtime.householdId!)
@@ -118,6 +129,12 @@ if (householdConfigurationRepositoryClient) {
     householdSetupService: createHouseholdSetupService(
       householdConfigurationRepositoryClient.repository
     ),
+    householdOnboardingService: householdOnboardingService!,
+    ...(runtime.miniAppAllowedOrigins[0]
+      ? {
+          miniAppBaseUrl: runtime.miniAppAllowedOrigins[0]
+        }
+      : {}),
     logger: getLogger('household-setup')
   })
 } else {
@@ -177,11 +194,19 @@ const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
   webhookHandler,
-  miniAppAuth: financeRepositoryClient
+  miniAppAuth: householdOnboardingService
     ? createMiniAppAuthHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        repository: financeRepositoryClient.repository,
+        onboardingService: householdOnboardingService,
+        logger: getLogger('miniapp-auth')
+      })
+    : undefined,
+  miniAppJoin: householdOnboardingService
+    ? createMiniAppJoinHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
         logger: getLogger('miniapp-auth')
       })
     : undefined,
@@ -190,6 +215,7 @@ const server = createBotWebhookServer({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         financeService,
+        onboardingService: householdOnboardingService!,
         logger: getLogger('miniapp-dashboard')
       })
     : undefined,

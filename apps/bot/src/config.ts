@@ -114,7 +114,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     householdId !== undefined &&
     telegramHouseholdChatId !== undefined &&
     telegramFeedbackTopicId !== undefined
-  const miniAppAuthEnabled = databaseUrl !== undefined && householdId !== undefined
+  const miniAppAuthEnabled = databaseUrl !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
     databaseUrl !== undefined &&

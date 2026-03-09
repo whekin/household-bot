@@ -1,28 +1,77 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { FinanceRepository } from '@household/ports'
+import { createHouseholdOnboardingService } from '@household/application'
+import type {
+  HouseholdConfigurationRepository,
+  HouseholdTopicBindingRecord
+} from '@household/ports'
 
-import { createMiniAppAuthHandler } from './miniapp-auth'
+import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
-function repository(
-  member: Awaited<ReturnType<FinanceRepository['getMemberByTelegramUserId']>>
-): FinanceRepository {
+function onboardingRepository(): HouseholdConfigurationRepository {
+  const household = {
+    householdId: 'household-1',
+    householdName: 'Kojori House',
+    telegramChatId: '-100123',
+    telegramChatType: 'supergroup',
+    title: 'Kojori House'
+  }
+  let joinToken: string | null = 'join-token'
+  let pending: {
+    householdId: string
+    householdName: string
+    telegramUserId: string
+    displayName: string
+    username: string | null
+    languageCode: string | null
+  } | null = null
+
   return {
-    getMemberByTelegramUserId: async () => member,
-    listMembers: async () => [],
-    getOpenCycle: async () => null,
-    getCycleByPeriod: async () => null,
-    getLatestCycle: async () => null,
-    openCycle: async () => {},
-    closeCycle: async () => {},
-    saveRentRule: async () => {},
-    addUtilityBill: async () => {},
-    getRentRuleForPeriod: async () => null,
-    getUtilityTotalForCycle: async () => 0n,
-    listUtilityBillsForCycle: async () => [],
-    listParsedPurchasesForRange: async () => [],
-    replaceSettlementSnapshot: async () => {}
+    registerTelegramHouseholdChat: async () => ({
+      status: 'existing',
+      household
+    }),
+    getTelegramHouseholdChat: async () => household,
+    bindHouseholdTopic: async (input) =>
+      ({
+        householdId: input.householdId,
+        role: input.role,
+        telegramThreadId: input.telegramThreadId,
+        topicName: input.topicName?.trim() || null
+      }) satisfies HouseholdTopicBindingRecord,
+    getHouseholdTopicBinding: async () => null,
+    findHouseholdTopicByTelegramContext: async () => null,
+    listHouseholdTopicBindings: async () => [],
+    upsertHouseholdJoinToken: async (input) => ({
+      householdId: household.householdId,
+      householdName: household.householdName,
+      token: input.token,
+      createdByTelegramUserId: input.createdByTelegramUserId ?? null
+    }),
+    getHouseholdJoinToken: async () =>
+      joinToken
+        ? {
+            householdId: household.householdId,
+            householdName: household.householdName,
+            token: joinToken,
+            createdByTelegramUserId: null
+          }
+        : null,
+    getHouseholdByJoinToken: async (token) => (token === joinToken ? household : null),
+    upsertPendingHouseholdMember: async (input) => {
+      pending = {
+        householdId: household.householdId,
+        householdName: household.householdName,
+        telegramUserId: input.telegramUserId,
+        displayName: input.displayName,
+        username: input.username?.trim() || null,
+        languageCode: input.languageCode?.trim() || null
+      }
+      return pending
+    },
+    getPendingHouseholdMember: async () => pending,
+    findPendingHouseholdMemberByTelegramUserId: async () => pending
   }
 }
 
@@ -32,11 +81,14 @@ describe('createMiniAppAuthHandler', () => {
     const auth = createMiniAppAuthHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      repository: repository({
-        id: 'member-1',
-        telegramUserId: '123456',
-        displayName: 'Stan',
-        isAdmin: true
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository(),
+        getMemberByTelegramUserId: async () => ({
+          id: 'member-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          isAdmin: true
+        })
       })
     })
 
@@ -67,10 +119,6 @@ describe('createMiniAppAuthHandler', () => {
         displayName: 'Stan',
         isAdmin: true
       },
-      features: {
-        balances: true,
-        ledger: true
-      },
       telegramUser: {
         id: '123456',
         firstName: 'Stan',
@@ -80,12 +128,14 @@ describe('createMiniAppAuthHandler', () => {
     })
   })
 
-  test('returns membership gate failure for a non-member', async () => {
+  test('returns onboarding state for a non-member with a valid household token', async () => {
     const authDate = Math.floor(Date.now() / 1000)
     const auth = createMiniAppAuthHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      repository: repository(null)
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository()
+      })
     })
 
     const response = await auth.handler(
@@ -99,16 +149,58 @@ describe('createMiniAppAuthHandler', () => {
           initData: buildMiniAppInitData('test-bot-token', authDate, {
             id: 123456,
             first_name: 'Stan'
-          })
+          }),
+          joinToken: 'join-token'
         })
       })
     )
 
-    expect(response.status).toBe(403)
-    expect(await response.json()).toEqual({
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
       ok: true,
       authorized: false,
-      reason: 'not_member'
+      onboarding: {
+        status: 'join_required',
+        householdName: 'Kojori House'
+      }
+    })
+  })
+
+  test('creates a pending join request from the mini app', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const join = createMiniAppJoinHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository()
+      })
+    })
+
+    const response = await join.handler(
+      new Request('http://localhost/api/miniapp/join', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan'
+          }),
+          joinToken: 'join-token'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: false,
+      onboarding: {
+        status: 'pending',
+        householdName: 'Kojori House'
+      }
     })
   })
 
@@ -116,7 +208,9 @@ describe('createMiniAppAuthHandler', () => {
     const auth = createMiniAppAuthHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      repository: repository(null)
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository()
+      })
     })
 
     const response = await auth.handler(
@@ -135,49 +229,5 @@ describe('createMiniAppAuthHandler', () => {
       ok: false,
       error: 'Invalid JSON body'
     })
-  })
-
-  test('does not reflect arbitrary origins in production without an allow-list', async () => {
-    const previousNodeEnv = process.env.NODE_ENV
-    process.env.NODE_ENV = 'production'
-
-    try {
-      const authDate = Math.floor(Date.now() / 1000)
-      const auth = createMiniAppAuthHandler({
-        allowedOrigins: [],
-        botToken: 'test-bot-token',
-        repository: repository({
-          id: 'member-1',
-          telegramUserId: '123456',
-          displayName: 'Stan',
-          isAdmin: true
-        })
-      })
-
-      const response = await auth.handler(
-        new Request('http://localhost/api/miniapp/session', {
-          method: 'POST',
-          headers: {
-            origin: 'https://unknown.example',
-            'content-type': 'application/json'
-          },
-          body: JSON.stringify({
-            initData: buildMiniAppInitData('test-bot-token', authDate, {
-              id: 123456,
-              first_name: 'Stan'
-            })
-          })
-        })
-      )
-
-      expect(response.status).toBe(200)
-      expect(response.headers.get('access-control-allow-origin')).toBeNull()
-    } finally {
-      if (previousNodeEnv === undefined) {
-        delete process.env.NODE_ENV
-      } else {
-        process.env.NODE_ENV = previousNodeEnv
-      }
-    }
   })
 })

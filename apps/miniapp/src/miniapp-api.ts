@@ -11,7 +11,10 @@ export interface MiniAppSession {
     username: string | null
     languageCode: string | null
   }
-  reason?: string
+  onboarding?: {
+    status: 'join_required' | 'pending' | 'open_from_group'
+    householdName?: string
+  }
 }
 
 export interface MiniAppDashboard {
@@ -56,14 +59,22 @@ function apiBaseUrl(): string {
   return window.location.origin
 }
 
-export async function fetchMiniAppSession(initData: string): Promise<MiniAppSession> {
+export async function fetchMiniAppSession(
+  initData: string,
+  joinToken?: string
+): Promise<MiniAppSession> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/session`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      initData
+      initData,
+      ...(joinToken
+        ? {
+            joinToken
+          }
+        : {})
     })
   })
 
@@ -72,7 +83,7 @@ export async function fetchMiniAppSession(initData: string): Promise<MiniAppSess
     authorized?: boolean
     member?: MiniAppSession['member']
     telegramUser?: MiniAppSession['telegramUser']
-    reason?: string
+    onboarding?: MiniAppSession['onboarding']
     error?: string
   }
 
@@ -84,7 +95,43 @@ export async function fetchMiniAppSession(initData: string): Promise<MiniAppSess
     authorized: payload.authorized === true,
     ...(payload.member ? { member: payload.member } : {}),
     ...(payload.telegramUser ? { telegramUser: payload.telegramUser } : {}),
-    ...(payload.reason ? { reason: payload.reason } : {})
+    ...(payload.onboarding ? { onboarding: payload.onboarding } : {})
+  }
+}
+
+export async function joinMiniAppHousehold(
+  initData: string,
+  joinToken: string
+): Promise<MiniAppSession> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/join`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      joinToken
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppSession['member']
+    telegramUser?: MiniAppSession['telegramUser']
+    onboarding?: MiniAppSession['onboarding']
+    error?: string
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'Failed to join household')
+  }
+
+  return {
+    authorized: payload.authorized === true,
+    ...(payload.member ? { member: payload.member } : {}),
+    ...(payload.telegramUser ? { telegramUser: payload.telegramUser } : {}),
+    ...(payload.onboarding ? { onboarding: payload.onboarding } : {})
   }
 }
 

@@ -17,6 +17,22 @@ export interface HouseholdTopicBindingRecord {
   topicName: string | null
 }
 
+export interface HouseholdJoinTokenRecord {
+  householdId: string
+  householdName: string
+  token: string
+  createdByTelegramUserId: string | null
+}
+
+export interface HouseholdPendingMemberRecord {
+  householdId: string
+  householdName: string
+  telegramUserId: string
+  displayName: string
+  username: string | null
+  languageCode: string | null
+}
+
 export interface RegisterTelegramHouseholdChatInput {
   householdName: string
   telegramChatId: string
@@ -49,4 +65,25 @@ export interface HouseholdConfigurationRepository {
     telegramThreadId: string
   }): Promise<HouseholdTopicBindingRecord | null>
   listHouseholdTopicBindings(householdId: string): Promise<readonly HouseholdTopicBindingRecord[]>
+  upsertHouseholdJoinToken(input: {
+    householdId: string
+    token: string
+    createdByTelegramUserId?: string
+  }): Promise<HouseholdJoinTokenRecord>
+  getHouseholdJoinToken(householdId: string): Promise<HouseholdJoinTokenRecord | null>
+  getHouseholdByJoinToken(token: string): Promise<HouseholdTelegramChatRecord | null>
+  upsertPendingHouseholdMember(input: {
+    householdId: string
+    telegramUserId: string
+    displayName: string
+    username?: string
+    languageCode?: string
+  }): Promise<HouseholdPendingMemberRecord>
+  getPendingHouseholdMember(
+    householdId: string,
+    telegramUserId: string
+  ): Promise<HouseholdPendingMemberRecord | null>
+  findPendingHouseholdMemberByTelegramUserId(
+    telegramUserId: string
+  ): Promise<HouseholdPendingMemberRecord | null>
 }

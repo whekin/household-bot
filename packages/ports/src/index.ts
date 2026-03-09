@@ -8,6 +8,8 @@ export {
 export {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,
+  type HouseholdJoinTokenRecord,
+  type HouseholdPendingMemberRecord,
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
   type HouseholdTopicRole,

@@ -1,7 +1,12 @@
 import { Match, Switch, createMemo, createSignal, onMount, type JSX } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
-import { fetchMiniAppDashboard, fetchMiniAppSession, type MiniAppDashboard } from './miniapp-api'
+import {
+  fetchMiniAppDashboard,
+  fetchMiniAppSession,
+  joinMiniAppHousehold,
+  type MiniAppDashboard
+} from './miniapp-api'
 import { getTelegramWebApp } from './telegram-webapp'
 
 type SessionState =
@@ -10,7 +15,17 @@ type SessionState =
     }
   | {
       status: 'blocked'
-      reason: 'not_member' | 'telegram_only' | 'error'
+      reason: 'telegram_only' | 'error'
+    }
+  | {
+      status: 'onboarding'
+      mode: 'join_required' | 'pending' | 'open_from_group'
+      householdName?: string
+      telegramUser: {
+        firstName: string | null
+        username: string | null
+        languageCode: string | null
+      }
     }
   | {
       status: 'ready'
@@ -49,6 +64,41 @@ function detectLocale(): Locale {
   return (telegramLocale ?? browserLocale).startsWith('ru') ? 'ru' : 'en'
 }
 
+function joinContext(): {
+  joinToken?: string
+  botUsername?: string
+} {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  const params = new URLSearchParams(window.location.search)
+  const joinToken = params.get('join')?.trim()
+  const botUsername = params.get('bot')?.trim()
+
+  return {
+    ...(joinToken
+      ? {
+          joinToken
+        }
+      : {}),
+    ...(botUsername
+      ? {
+          botUsername
+        }
+      : {})
+  }
+}
+
+function joinDeepLink(): string | null {
+  const context = joinContext()
+  if (!context.botUsername || !context.joinToken) {
+    return null
+  }
+
+  return `https://t.me/${context.botUsername}?start=join_${encodeURIComponent(context.joinToken)}`
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -56,8 +106,13 @@ function App() {
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
+  const [joining, setJoining] = createSignal(false)
 
   const copy = createMemo(() => dictionary[locale()])
+  const onboardingSession = createMemo(() => {
+    const current = session()
+    return current.status === 'onboarding' ? current : null
+  })
   const blockedSession = createMemo(() => {
     const current = session()
     return current.status === 'blocked' ? current : null
@@ -68,7 +123,19 @@ function App() {
   })
   const webApp = getTelegramWebApp()
 
-  onMount(async () => {
+  async function loadDashboard(initData: string) {
+    try {
+      setDashboard(await fetchMiniAppDashboard(initData))
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to load mini app dashboard', error)
+      }
+
+      setDashboard(null)
+    }
+  }
+
+  async function bootstrap() {
     setLocale(detectLocale())
 
     webApp?.ready?.()
@@ -89,11 +156,21 @@ function App() {
     }
 
     try {
-      const payload = await fetchMiniAppSession(initData)
+      const payload = await fetchMiniAppSession(initData, joinContext().joinToken)
       if (!payload.authorized || !payload.member || !payload.telegramUser) {
         setSession({
-          status: 'blocked',
-          reason: payload.reason === 'not_member' ? 'not_member' : 'error'
+          status: 'onboarding',
+          mode: payload.onboarding?.status ?? 'open_from_group',
+          ...(payload.onboarding?.householdName
+            ? {
+                householdName: payload.onboarding.householdName
+              }
+            : {}),
+          telegramUser: payload.telegramUser ?? {
+            firstName: null,
+            username: null,
+            languageCode: null
+          }
         })
         return
       }
@@ -105,15 +182,7 @@ function App() {
         telegramUser: payload.telegramUser
       })
 
-      try {
-        setDashboard(await fetchMiniAppDashboard(initData))
-      } catch (error) {
-        if (import.meta.env.DEV) {
-          console.warn('Failed to load mini app dashboard', error)
-        }
-
-        setDashboard(null)
-      }
+      await loadDashboard(initData)
     } catch {
       if (import.meta.env.DEV) {
         setSession(demoSession)
@@ -168,7 +237,58 @@ function App() {
         reason: 'error'
       })
     }
+  }
+
+  onMount(() => {
+    void bootstrap()
   })
+
+  async function handleJoinHousehold() {
+    const initData = webApp?.initData?.trim()
+    const joinToken = joinContext().joinToken
+
+    if (!initData || !joinToken || joining()) {
+      return
+    }
+
+    setJoining(true)
+
+    try {
+      const payload = await joinMiniAppHousehold(initData, joinToken)
+      if (payload.authorized && payload.member && payload.telegramUser) {
+        setSession({
+          status: 'ready',
+          mode: 'live',
+          member: payload.member,
+          telegramUser: payload.telegramUser
+        })
+        await loadDashboard(initData)
+        return
+      }
+
+      setSession({
+        status: 'onboarding',
+        mode: payload.onboarding?.status ?? 'pending',
+        ...(payload.onboarding?.householdName
+          ? {
+              householdName: payload.onboarding.householdName
+            }
+          : {}),
+        telegramUser: payload.telegramUser ?? {
+          firstName: null,
+          username: null,
+          languageCode: null
+        }
+      })
+    } catch {
+      setSession({
+        status: 'blocked',
+        reason: 'error'
+      })
+    } finally {
+      setJoining(false)
+    }
+  }
 
   const renderPanel = () => {
     switch (activeNav()) {
@@ -291,16 +411,67 @@ function App() {
             <h2>
               {blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyTitle
-                : copy().unauthorizedTitle}
+                : copy().unexpectedErrorTitle}
             </h2>
             <p>
               {blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyBody
-                : copy().unauthorizedBody}
+                : copy().unexpectedErrorBody}
             </p>
             <button class="ghost-button" type="button" onClick={() => window.location.reload()}>
               {copy().reload}
             </button>
+          </section>
+        </Match>
+
+        <Match when={session().status === 'onboarding'}>
+          <section class="hero-card">
+            <span class="pill">{copy().navHint}</span>
+            <h2>
+              {onboardingSession()?.mode === 'pending'
+                ? copy().pendingTitle
+                : onboardingSession()?.mode === 'open_from_group'
+                  ? copy().openFromGroupTitle
+                  : copy().joinTitle}
+            </h2>
+            <p>
+              {onboardingSession()?.mode === 'pending'
+                ? copy().pendingBody.replace(
+                    '{household}',
+                    onboardingSession()?.householdName ?? copy().householdFallback
+                  )
+                : onboardingSession()?.mode === 'open_from_group'
+                  ? copy().openFromGroupBody
+                  : copy().joinBody.replace(
+                      '{household}',
+                      onboardingSession()?.householdName ?? copy().householdFallback
+                    )}
+            </p>
+            <div class="nav-grid">
+              {onboardingSession()?.mode === 'join_required' ? (
+                <button
+                  class="ghost-button"
+                  type="button"
+                  disabled={joining()}
+                  onClick={handleJoinHousehold}
+                >
+                  {joining() ? copy().joining : copy().joinAction}
+                </button>
+              ) : null}
+              {joinDeepLink() ? (
+                <a
+                  class="ghost-button"
+                  href={joinDeepLink() ?? '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {copy().botLinkAction}
+                </a>
+              ) : null}
+              <button class="ghost-button" type="button" onClick={() => window.location.reload()}>
+                {copy().reload}
+              </button>
+            </div>
           </section>
         </Match>
 

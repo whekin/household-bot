@@ -1,4 +1,4 @@
-import type { FinanceCommandService } from '@household/application'
+import type { FinanceCommandService, HouseholdOnboardingService } from '@household/application'
 import type { Logger } from '@household/observability'
 
 import {
@@ -6,20 +6,21 @@ import {
   createMiniAppSessionService,
   miniAppErrorResponse,
   miniAppJsonResponse,
-  readMiniAppInitData
+  readMiniAppRequestPayload
 } from './miniapp-auth'
 
 export function createMiniAppDashboardHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeService: FinanceCommandService
+  onboardingService: HouseholdOnboardingService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
   const sessionService = createMiniAppSessionService({
     botToken: options.botToken,
-    getMemberByTelegramUserId: options.financeService.getMemberByTelegramUserId
+    onboardingService: options.onboardingService
   })
 
   return {
@@ -35,12 +36,12 @@ export function createMiniAppDashboardHandler(options: {
       }
 
       try {
-        const initData = await readMiniAppInitData(request)
-        if (!initData) {
+        const payload = await readMiniAppRequestPayload(request)
+        if (!payload.initData) {
           return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
         }
 
-        const session = await sessionService.authenticate(initData)
+        const session = await sessionService.authenticate(payload)
         if (!session) {
           return miniAppJsonResponse(
             { ok: false, error: 'Invalid Telegram init data' },
@@ -54,7 +55,7 @@ export function createMiniAppDashboardHandler(options: {
             {
               ok: true,
               authorized: false,
-              reason: 'not_member'
+              onboarding: session.onboarding
             },
             403,
             origin

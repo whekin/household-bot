@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
-import { createFinanceCommandService } from '@household/application'
-import type { FinanceRepository } from '@household/ports'
+import {
+  createFinanceCommandService,
+  createHouseholdOnboardingService
+} from '@household/application'
+import type {
+  FinanceRepository,
+  HouseholdConfigurationRepository,
+  HouseholdTopicBindingRecord
+} from '@household/ports'
 
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
@@ -62,6 +69,52 @@ function repository(
   }
 }
 
+function onboardingRepository(): HouseholdConfigurationRepository {
+  const household = {
+    householdId: 'household-1',
+    householdName: 'Kojori House',
+    telegramChatId: '-100123',
+    telegramChatType: 'supergroup',
+    title: 'Kojori House'
+  }
+
+  return {
+    registerTelegramHouseholdChat: async () => ({
+      status: 'existing',
+      household
+    }),
+    getTelegramHouseholdChat: async () => household,
+    bindHouseholdTopic: async (input) =>
+      ({
+        householdId: input.householdId,
+        role: input.role,
+        telegramThreadId: input.telegramThreadId,
+        topicName: input.topicName?.trim() || null
+      }) satisfies HouseholdTopicBindingRecord,
+    getHouseholdTopicBinding: async () => null,
+    findHouseholdTopicByTelegramContext: async () => null,
+    listHouseholdTopicBindings: async () => [],
+    upsertHouseholdJoinToken: async (input) => ({
+      householdId: household.householdId,
+      householdName: household.householdName,
+      token: input.token,
+      createdByTelegramUserId: input.createdByTelegramUserId ?? null
+    }),
+    getHouseholdJoinToken: async () => null,
+    getHouseholdByJoinToken: async () => null,
+    upsertPendingHouseholdMember: async (input) => ({
+      householdId: household.householdId,
+      householdName: household.householdName,
+      telegramUserId: input.telegramUserId,
+      displayName: input.displayName,
+      username: input.username?.trim() || null,
+      languageCode: input.languageCode?.trim() || null
+    }),
+    getPendingHouseholdMember: async () => null,
+    findPendingHouseholdMemberByTelegramUserId: async () => null
+  }
+}
+
 describe('createMiniAppDashboardHandler', () => {
   test('returns a dashboard for an authenticated household member', async () => {
     const authDate = Math.floor(Date.now() / 1000)
@@ -77,7 +130,11 @@ describe('createMiniAppDashboardHandler', () => {
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      financeService
+      financeService,
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository(),
+        getMemberByTelegramUserId: financeService.getMemberByTelegramUserId
+      })
     })
 
     const response = await dashboard.handler(
@@ -140,7 +197,11 @@ describe('createMiniAppDashboardHandler', () => {
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
-      financeService
+      financeService,
+      onboardingService: createHouseholdOnboardingService({
+        repository: onboardingRepository(),
+        getMemberByTelegramUserId: financeService.getMemberByTelegramUserId
+      })
     })
 
     const response = await dashboard.handler(

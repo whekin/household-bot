@@ -66,6 +66,47 @@ export const householdTopicBindings = pgTable(
   })
 )
 
+export const householdJoinTokens = pgTable(
+  'household_join_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    createdByTelegramUserId: text('created_by_telegram_user_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdUnique: uniqueIndex('household_join_tokens_household_unique').on(table.householdId),
+    tokenUnique: uniqueIndex('household_join_tokens_token_unique').on(table.token)
+  })
+)
+
+export const householdPendingMembers = pgTable(
+  'household_pending_members',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    telegramUserId: text('telegram_user_id').notNull(),
+    displayName: text('display_name').notNull(),
+    username: text('username'),
+    languageCode: text('language_code'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdUserUnique: uniqueIndex('household_pending_members_household_user_unique').on(
+      table.householdId,
+      table.telegramUserId
+    ),
+    telegramUserIdx: index('household_pending_members_telegram_user_idx').on(table.telegramUserId)
+  })
+)
+
 export const members = pgTable(
   'members',
   {
