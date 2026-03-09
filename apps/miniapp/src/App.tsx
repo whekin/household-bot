@@ -13,6 +13,7 @@ import {
   joinMiniAppHousehold,
   openMiniAppBillingCycle,
   promoteMiniAppMember,
+  updateMiniAppMemberRentWeight,
   type MiniAppAdminCycleState,
   type MiniAppAdminSettingsPayload,
   updateMiniAppLocalePreference,
@@ -143,6 +144,8 @@ function App() {
   const [joining, setJoining] = createSignal(false)
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
+  const [savingRentWeightMemberId, setSavingRentWeightMemberId] = createSignal<string | null>(null)
+  const [rentWeightDrafts, setRentWeightDrafts] = createSignal<Record<string, string>>({})
   const [savingMemberLocale, setSavingMemberLocale] = createSignal(false)
   const [savingHouseholdLocale, setSavingHouseholdLocale] = createSignal(false)
   const [savingBillingSettings, setSavingBillingSettings] = createSignal(false)
@@ -212,6 +215,11 @@ function App() {
     try {
       const payload = await fetchMiniAppAdminSettings(initData)
       setAdminSettings(payload)
+      setRentWeightDrafts(
+        Object.fromEntries(
+          payload.members.map((member) => [member.id, String(member.rentShareWeight)])
+        )
+      )
       setCycleForm((current) => ({
         ...current,
         utilityCategorySlug:
@@ -721,8 +729,47 @@ function App() {
             }
           : current
       )
+      setRentWeightDrafts((current) => ({
+        ...current,
+        [member.id]: String(member.rentShareWeight)
+      }))
     } finally {
       setPromotingMemberId(null)
+    }
+  }
+
+  async function handleSaveRentWeight(memberId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const nextWeight = Number(rentWeightDrafts()[memberId] ?? '')
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !Number.isInteger(nextWeight) ||
+      nextWeight <= 0
+    ) {
+      return
+    }
+
+    setSavingRentWeightMemberId(memberId)
+
+    try {
+      const member = await updateMiniAppMemberRentWeight(initData, memberId, nextWeight)
+      setAdminSettings((current) =>
+        current
+          ? {
+              ...current,
+              members: current.members.map((item) => (item.id === member.id ? member : item))
+            }
+          : current
+      )
+      setRentWeightDrafts((current) => ({
+        ...current,
+        [member.id]: String(member.rentShareWeight)
+      }))
+    } finally {
+      setSavingRentWeightMemberId(null)
     }
   }
 
@@ -1223,6 +1270,32 @@ function App() {
                       <strong>{member.displayName}</strong>
                       <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
                     </header>
+                    <label class="settings-field settings-field--wide">
+                      <span>{copy().rentWeightLabel}</span>
+                      <input
+                        inputmode="numeric"
+                        value={rentWeightDrafts()[member.id] ?? String(member.rentShareWeight)}
+                        onInput={(event) =>
+                          setRentWeightDrafts((current) => ({
+                            ...current,
+                            [member.id]: event.currentTarget.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      disabled={
+                        savingRentWeightMemberId() === member.id ||
+                        Number(rentWeightDrafts()[member.id] ?? member.rentShareWeight) <= 0
+                      }
+                      onClick={() => void handleSaveRentWeight(member.id)}
+                    >
+                      {savingRentWeightMemberId() === member.id
+                        ? copy().savingRentWeight
+                        : copy().saveRentWeightAction}
+                    </button>
                     {!member.isAdmin ? (
                       <button
                         class="ghost-button"

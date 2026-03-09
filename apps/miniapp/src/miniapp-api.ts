@@ -37,6 +37,7 @@ export interface MiniAppPendingMember {
 export interface MiniAppMember {
   id: string
   displayName: string
+  rentShareWeight: number
   isAdmin: boolean
 }
 
@@ -447,6 +448,37 @@ export async function promoteMiniAppMember(
 
   if (!response.ok || !payload.authorized || !payload.member) {
     throw new Error(payload.error ?? 'Failed to promote member')
+  }
+
+  return payload.member
+}
+
+export async function updateMiniAppMemberRentWeight(
+  initData: string,
+  memberId: string,
+  rentShareWeight: number
+): Promise<MiniAppMember> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/rent-weight`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId,
+      rentShareWeight
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppMember
+    error?: string
+  }
+
+  if (!response.ok || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to update member rent weight')
   }
 
   return payload.member

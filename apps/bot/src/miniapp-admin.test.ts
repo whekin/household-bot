@@ -69,6 +69,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       displayName: input.displayName,
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: household.defaultLocale,
+      rentShareWeight: 1,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -94,6 +95,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             displayName: 'Mia',
             preferredLocale: null,
             householdDefaultLocale: household.defaultLocale,
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null,
@@ -110,6 +112,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             displayName: 'Mia',
             preferredLocale: locale,
             householdDefaultLocale: household.defaultLocale,
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null,
@@ -151,6 +154,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
           displayName: 'Stan',
           preferredLocale: null,
           householdDefaultLocale: household.defaultLocale,
+          rentShareWeight: 1,
           isAdmin: false
         }
       ].find((entry) => entry.id === memberId)
@@ -161,7 +165,20 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             isAdmin: true
           }
         : null
-    }
+    },
+    updateHouseholdMemberRentShareWeight: async (_householdId, memberId, rentShareWeight) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId: household.householdId,
+            telegramUserId: '123456',
+            displayName: 'Stan',
+            preferredLocale: null,
+            householdDefaultLocale: household.defaultLocale,
+            rentShareWeight,
+            isAdmin: false
+          }
+        : null
   }
 }
 
@@ -177,6 +194,7 @@ describe('createMiniAppPendingMembersHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -239,6 +257,7 @@ describe('createMiniAppApproveMemberHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -282,6 +301,7 @@ describe('createMiniAppApproveMemberHandler', () => {
         displayName: 'Mia',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: false
       }
     })
@@ -300,6 +320,7 @@ describe('createMiniAppSettingsHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -311,6 +332,7 @@ describe('createMiniAppSettingsHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -365,6 +387,7 @@ describe('createMiniAppSettingsHandler', () => {
           displayName: 'Stan',
           preferredLocale: null,
           householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
           isAdmin: true
         }
       ]
@@ -384,6 +407,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -452,6 +476,7 @@ describe('createMiniAppPromoteMemberHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     ]
@@ -495,6 +520,7 @@ describe('createMiniAppPromoteMemberHandler', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     })

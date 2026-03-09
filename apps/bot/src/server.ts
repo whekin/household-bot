@@ -56,6 +56,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpdateMemberRentWeight?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppBillingCycle?:
     | {
         path?: string
@@ -136,6 +142,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpsertUtilityCategory?.path ?? '/api/miniapp/admin/utility-categories/upsert'
   const miniAppPromoteMemberPath =
     options.miniAppPromoteMember?.path ?? '/api/miniapp/admin/members/promote'
+  const miniAppUpdateMemberRentWeightPath =
+    options.miniAppUpdateMemberRentWeight?.path ?? '/api/miniapp/admin/members/rent-weight'
   const miniAppBillingCyclePath =
     options.miniAppBillingCycle?.path ?? '/api/miniapp/admin/billing-cycle'
   const miniAppOpenCyclePath =
@@ -196,6 +204,13 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppPromoteMember && url.pathname === miniAppPromoteMemberPath) {
         return await options.miniAppPromoteMember.handler(request)
+      }
+
+      if (
+        options.miniAppUpdateMemberRentWeight &&
+        url.pathname === miniAppUpdateMemberRentWeightPath
+      ) {
+        return await options.miniAppUpdateMemberRentWeight.handler(request)
       }
 
       if (options.miniAppBillingCycle && url.pathname === miniAppBillingCyclePath) {

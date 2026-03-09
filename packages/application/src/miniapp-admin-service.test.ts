@@ -55,6 +55,7 @@ function repository(): HouseholdConfigurationRepository {
       displayName: input.displayName,
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: 'ru',
+      rentShareWeight: 1,
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
@@ -80,6 +81,7 @@ function repository(): HouseholdConfigurationRepository {
             displayName: 'Stan',
             preferredLocale: null,
             householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null,
@@ -100,6 +102,7 @@ function repository(): HouseholdConfigurationRepository {
             displayName: 'Stan',
             preferredLocale: locale,
             householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null,
@@ -141,7 +144,21 @@ function repository(): HouseholdConfigurationRepository {
             displayName: 'Stan',
             preferredLocale: null,
             householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
             isAdmin: true
+          }
+        : null,
+    updateHouseholdMemberRentShareWeight: async (_householdId, memberId, rentShareWeight) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId: 'household-1',
+            telegramUserId: '123456',
+            displayName: 'Stan',
+            preferredLocale: null,
+            householdDefaultLocale: 'ru',
+            rentShareWeight,
+            isAdmin: false
           }
         : null
   }
@@ -283,6 +300,7 @@ describe('createMiniAppAdminService', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: false
       }
     })
@@ -306,6 +324,7 @@ describe('createMiniAppAdminService', () => {
         displayName: 'Stan',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
         isAdmin: true
       }
     })

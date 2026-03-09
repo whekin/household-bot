@@ -108,6 +108,21 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
+  updateMemberRentShareWeight(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+    rentShareWeight: number
+  }): Promise<
+    | {
+        status: 'ok'
+        member: HouseholdMemberRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'invalid_weight' | 'member_not_found'
+      }
+  >
 }
 
 export function createMiniAppAdminService(
@@ -281,6 +296,39 @@ export function createMiniAppAdminService(
       }
 
       const member = await repository.promoteHouseholdAdmin(input.householdId, input.memberId)
+      if (!member) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        member
+      }
+    },
+
+    async updateMemberRentShareWeight(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      if (!Number.isInteger(input.rentShareWeight) || input.rentShareWeight <= 0) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_weight'
+        }
+      }
+
+      const member = await repository.updateHouseholdMemberRentShareWeight(
+        input.householdId,
+        input.memberId,
+        input.rentShareWeight
+      )
       if (!member) {
         return {
           status: 'rejected',

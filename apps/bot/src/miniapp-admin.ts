@@ -178,6 +178,37 @@ async function readPromoteMemberPayload(request: Request): Promise<{
   }
 }
 
+async function readRentWeightPayload(request: Request): Promise<{
+  initData: string
+  memberId: string
+  rentShareWeight: number
+}> {
+  const clonedRequest = request.clone()
+  const payload = await readMiniAppRequestPayload(request)
+  if (!payload.initData) {
+    throw new Error('Missing initData')
+  }
+
+  const text = await clonedRequest.text()
+  let parsed: { memberId?: string; rentShareWeight?: number }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
+
+  const memberId = parsed.memberId?.trim()
+  if (!memberId || typeof parsed.rentShareWeight !== 'number') {
+    throw new Error('Missing member rent weight fields')
+  }
+
+  return {
+    initData: payload.initData,
+    memberId,
+    rentShareWeight: parsed.rentShareWeight
+  }
+}
+
 function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
   return {
     householdId: settings.householdId,
@@ -609,6 +640,97 @@ export function createMiniAppPromoteMemberHandler(options: {
                 result.reason === 'member_not_found' ? 'Member not found' : 'Admin access required'
             },
             result.reason === 'member_not_found' ? 404 : 403,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            member: result.member
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppUpdateMemberRentWeightHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readRentWeightPayload(request)
+        const session = await sessionService.authenticate({
+          initData: payload.initData
+        })
+
+        if (!session) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Invalid Telegram init data' },
+            401,
+            origin
+          )
+        }
+
+        if (!session.authorized || !session.member) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Access limited to active household members' },
+            403,
+            origin
+          )
+        }
+
+        const result = await options.miniAppAdminService.updateMemberRentShareWeight({
+          householdId: session.member.householdId,
+          actorIsAdmin: session.member.isAdmin,
+          memberId: payload.memberId,
+          rentShareWeight: payload.rentShareWeight
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            {
+              ok: false,
+              error:
+                result.reason === 'invalid_weight'
+                  ? 'Invalid rent share weight'
+                  : result.reason === 'member_not_found'
+                    ? 'Member not found'
+                    : 'Admin access required'
+            },
+            result.reason === 'invalid_weight'
+              ? 400
+              : result.reason === 'member_not_found'
+                ? 404
+                : 403,
             origin
           )
         }
