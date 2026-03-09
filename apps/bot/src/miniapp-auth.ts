@@ -20,7 +20,7 @@ export function miniAppJsonResponse(body: object, status = 200, origin?: string)
     headers.set('vary', 'origin')
   }
 
-  return new Response(JSON.stringify(body), {
+  return new Response(status === 204 ? null : JSON.stringify(body), {
     status,
     headers
   })
