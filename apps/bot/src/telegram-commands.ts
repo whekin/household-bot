@@ -1,5 +1,8 @@
+import { getBotTranslations, type BotLocale } from './i18n'
+import type { TelegramCommandName } from './i18n/types'
+
 export interface TelegramCommandDefinition {
-  command: string
+  command: TelegramCommandName
   description: string
 }
 
@@ -8,82 +11,71 @@ export interface ScopedTelegramCommands {
   commands: readonly TelegramCommandDefinition[]
 }
 
-const DEFAULT_COMMANDS = [
-  {
-    command: 'help',
-    description: 'Show command list'
-  },
-  {
-    command: 'household_status',
-    description: 'Show current household status'
-  }
-] as const satisfies readonly TelegramCommandDefinition[]
+const DEFAULT_COMMAND_NAMES = [
+  'help',
+  'household_status'
+] as const satisfies readonly TelegramCommandName[]
+const PRIVATE_CHAT_COMMAND_NAMES = [
+  ...DEFAULT_COMMAND_NAMES,
+  'anon',
+  'cancel'
+] as const satisfies readonly TelegramCommandName[]
+const GROUP_CHAT_COMMAND_NAMES = DEFAULT_COMMAND_NAMES
+const GROUP_ADMIN_COMMAND_NAMES = [
+  ...GROUP_CHAT_COMMAND_NAMES,
+  'setup',
+  'bind_purchase_topic',
+  'bind_feedback_topic',
+  'pending_members',
+  'approve_member'
+] as const satisfies readonly TelegramCommandName[]
 
-const PRIVATE_CHAT_COMMANDS = [
-  ...DEFAULT_COMMANDS,
-  {
-    command: 'anon',
-    description: 'Send anonymous household feedback'
-  },
-  {
-    command: 'cancel',
-    description: 'Cancel the current prompt'
-  }
-] as const satisfies readonly TelegramCommandDefinition[]
+function mapCommands(
+  locale: BotLocale,
+  names: readonly TelegramCommandName[]
+): readonly TelegramCommandDefinition[] {
+  const descriptions = getBotTranslations(locale).commands
 
-const GROUP_CHAT_COMMANDS = DEFAULT_COMMANDS
+  return names.map((command) => ({
+    command,
+    description: descriptions[command]
+  }))
+}
 
-const GROUP_ADMIN_COMMANDS = [
-  ...GROUP_CHAT_COMMANDS,
-  {
-    command: 'setup',
-    description: 'Register this group as a household'
-  },
-  {
-    command: 'bind_purchase_topic',
-    description: 'Bind the current topic as purchases'
-  },
-  {
-    command: 'bind_feedback_topic',
-    description: 'Bind the current topic as feedback'
-  },
-  {
-    command: 'pending_members',
-    description: 'List pending household join requests'
-  },
-  {
-    command: 'approve_member',
-    description: 'Approve a pending household member'
-  }
-] as const satisfies readonly TelegramCommandDefinition[]
-
-export const TELEGRAM_COMMAND_SCOPES = [
-  {
-    scope: 'default',
-    commands: DEFAULT_COMMANDS
-  },
-  {
-    scope: 'all_private_chats',
-    commands: PRIVATE_CHAT_COMMANDS
-  },
-  {
-    scope: 'all_group_chats',
-    commands: GROUP_CHAT_COMMANDS
-  },
-  {
-    scope: 'all_chat_administrators',
-    commands: GROUP_ADMIN_COMMANDS
-  }
-] as const satisfies readonly ScopedTelegramCommands[]
-
-export function formatTelegramHelpText(): string {
+export function getTelegramCommandScopes(locale: BotLocale): readonly ScopedTelegramCommands[] {
   return [
-    'Household bot scaffold is live.',
-    'Private chat:',
-    ...PRIVATE_CHAT_COMMANDS.map((command) => `/${command.command} - ${command.description}`),
-    'Group admins:',
-    ...GROUP_ADMIN_COMMANDS.filter(
-      (command) => !DEFAULT_COMMANDS.some((baseCommand) => baseCommand.command === command.command)
-    ).map((command) => `/${command.command} - ${command.description}`)
+    {
+      scope: 'default',
+      commands: mapCommands(locale, DEFAULT_COMMAND_NAMES)
+    },
+    {
+      scope: 'all_private_chats',
+      commands: mapCommands(locale, PRIVATE_CHAT_COMMAND_NAMES)
+    },
+    {
+      scope: 'all_group_chats',
+      commands: mapCommands(locale, GROUP_CHAT_COMMAND_NAMES)
+    },
+    {
+      scope: 'all_chat_administrators',
+      commands: mapCommands(locale, GROUP_ADMIN_COMMAND_NAMES)
+    }
+  ]
+}
+
+export function formatTelegramHelpText(locale: BotLocale): string {
+  const t = getBotTranslations(locale)
+  const defaultCommands = new Set<TelegramCommandName>(DEFAULT_COMMAND_NAMES)
+  const privateCommands = mapCommands(locale, PRIVATE_CHAT_COMMAND_NAMES)
+  const adminCommands = mapCommands(locale, GROUP_ADMIN_COMMAND_NAMES).filter(
+    (command) => !defaultCommands.has(command.command)
+  )
+
+  return [
+    t.help.intro,
+    t.help.privateChatHeading,
+    ...privateCommands.map((command) => `/${command.command} - ${command.description}`),
+    t.help.groupAdminsHeading,
+    ...adminCommands.map((command) => `/${command.command} - ${command.description}`)
   ].join('\n')
 }

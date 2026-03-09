@@ -1,10 +1,36 @@
-import { TELEGRAM_COMMAND_SCOPES } from '../../apps/bot/src/telegram-commands'
+import {
+  getTelegramCommandScopes,
+  type ScopedTelegramCommands
+} from '../../apps/bot/src/telegram-commands'
+import type { BotLocale } from '../../apps/bot/src/i18n'
 
 type CommandsCommand = 'info' | 'set' | 'delete'
+
+type CommandLanguageTarget = 'default' | BotLocale
 
 interface TelegramScopePayload {
   type: 'default' | 'all_private_chats' | 'all_group_chats' | 'all_chat_administrators'
 }
+
+interface CommandLanguageConfig {
+  target: CommandLanguageTarget
+  locale: BotLocale
+}
+
+const COMMAND_LANGUAGES: readonly CommandLanguageConfig[] = [
+  {
+    target: 'default',
+    locale: 'en'
+  },
+  {
+    target: 'en',
+    locale: 'en'
+  },
+  {
+    target: 'ru',
+    locale: 'ru'
+  }
+]
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
@@ -50,10 +76,19 @@ function appendScope(params: URLSearchParams, scope: TelegramScopePayload): void
   params.set('scope', JSON.stringify(scope))
 }
 
-async function setCommands(botToken: string): Promise<void> {
-  const languageCode = process.env.TELEGRAM_COMMANDS_LANGUAGE_CODE?.trim()
+function appendLanguageCode(params: URLSearchParams, target: CommandLanguageTarget): void {
+  if (target !== 'default') {
+    params.set('language_code', target)
+  }
+}
 
-  for (const scopeConfig of TELEGRAM_COMMAND_SCOPES) {
+async function setCommandsForLanguage(
+  botToken: string,
+  language: CommandLanguageConfig
+): Promise<readonly ScopedTelegramCommands[]> {
+  const scopes = getTelegramCommandScopes(language.locale)
+
+  for (const scopeConfig of scopes) {
     const params = new URLSearchParams({
       commands: JSON.stringify(scopeConfig.commands)
     })
@@ -61,78 +96,86 @@ async function setCommands(botToken: string): Promise<void> {
     appendScope(params, {
       type: scopeConfig.scope
     })
-
-    if (languageCode) {
-      params.set('language_code', languageCode)
-    }
+    appendLanguageCode(params, language.target)
 
     await telegramRequest(botToken, 'setMyCommands', params)
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        scopes: TELEGRAM_COMMAND_SCOPES.map((scope) => ({
-          scope: scope.scope,
-          commandCount: scope.commands.length
-        }))
-      },
-      null,
-      2
-    )
-  )
+  return scopes
+}
+
+async function setCommands(botToken: string): Promise<void> {
+  const results = []
+
+  for (const language of COMMAND_LANGUAGES) {
+    const scopes = await setCommandsForLanguage(botToken, language)
+    results.push({
+      language: language.target,
+      locale: language.locale,
+      scopes: scopes.map((scope) => ({
+        scope: scope.scope,
+        commandCount: scope.commands.length
+      }))
+    })
+  }
+
+  console.log(JSON.stringify({ ok: true, results }, null, 2))
 }
 
 async function deleteCommands(botToken: string): Promise<void> {
-  const languageCode = process.env.TELEGRAM_COMMANDS_LANGUAGE_CODE?.trim()
+  const deletedScopes = []
 
-  for (const scopeConfig of TELEGRAM_COMMAND_SCOPES) {
-    const params = new URLSearchParams()
-    appendScope(params, {
-      type: scopeConfig.scope
-    })
+  for (const language of COMMAND_LANGUAGES) {
+    for (const scopeConfig of getTelegramCommandScopes(language.locale)) {
+      const params = new URLSearchParams()
+      appendScope(params, {
+        type: scopeConfig.scope
+      })
+      appendLanguageCode(params, language.target)
 
-    if (languageCode) {
-      params.set('language_code', languageCode)
+      await telegramRequest(botToken, 'deleteMyCommands', params)
     }
 
-    await telegramRequest(botToken, 'deleteMyCommands', params)
+    deletedScopes.push({
+      language: language.target,
+      scopes: getTelegramCommandScopes(language.locale).map((scope) => scope.scope)
+    })
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        deletedScopes: TELEGRAM_COMMAND_SCOPES.map((scope) => scope.scope)
-      },
-      null,
-      2
-    )
-  )
+  console.log(JSON.stringify({ ok: true, deletedScopes }, null, 2))
 }
 
 async function getCommands(botToken: string): Promise<void> {
-  const languageCode = process.env.TELEGRAM_COMMANDS_LANGUAGE_CODE?.trim()
   const result: Array<{
-    scope: string
-    commands: unknown
+    language: CommandLanguageTarget
+    locale: BotLocale
+    scopes: Array<{
+      scope: string
+      commands: unknown
+    }>
   }> = []
 
-  for (const scopeConfig of TELEGRAM_COMMAND_SCOPES) {
-    const params = new URLSearchParams()
-    appendScope(params, {
-      type: scopeConfig.scope
-    })
+  for (const language of COMMAND_LANGUAGES) {
+    const scopes = []
 
-    if (languageCode) {
-      params.set('language_code', languageCode)
+    for (const scopeConfig of getTelegramCommandScopes(language.locale)) {
+      const params = new URLSearchParams()
+      appendScope(params, {
+        type: scopeConfig.scope
+      })
+      appendLanguageCode(params, language.target)
+
+      const commands = await telegramRequest(botToken, 'getMyCommands', params)
+      scopes.push({
+        scope: scopeConfig.scope,
+        commands
+      })
     }
 
-    const commands = await telegramRequest(botToken, 'getMyCommands', params)
     result.push({
-      scope: scopeConfig.scope,
-      commands
+      language: language.target,
+      locale: language.locale,
+      scopes
     })
   }
 
