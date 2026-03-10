@@ -229,7 +229,9 @@ button {
 
 .balance-list,
 .ledger-list,
-.home-grid {
+.home-grid,
+.admin-layout,
+.admin-sublist {
   display: grid;
   gap: 12px;
 }
@@ -316,6 +318,52 @@ button {
   margin-top: 12px;
 }
 
+.admin-layout {
+  gap: 18px;
+}
+
+.admin-hero {
+  gap: 16px;
+}
+
+.admin-summary-grid,
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.admin-section {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-section__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-section__header h3 {
+  margin: 0;
+  font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+  letter-spacing: -0.04em;
+  font-size: 1.15rem;
+}
+
+.admin-section__header p {
+  margin-top: 6px;
+}
+
+.admin-sublist {
+  margin-top: 12px;
+}
+
+.admin-card--wide {
+  min-width: 0;
+}
+
 .settings-field {
   display: grid;
   gap: 6px;
@@ -374,11 +422,23 @@ button {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .admin-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panel--wide {
+    grid-column: 1 / -1;
+  }
+
+  .admin-card--wide {
     grid-column: 1 / -1;
   }
 }
