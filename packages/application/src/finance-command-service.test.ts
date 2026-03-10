@@ -68,7 +68,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async getCycleByPeriod(): Promise<FinanceCycleRecord | null> {
-    return this.cycleByPeriodRecord
+    return this.cycleByPeriodRecord ?? this.openCycleRecord ?? this.latestCycleRecord
   }
 
   async getLatestCycle(): Promise<FinanceCycleRecord | null> {
@@ -76,11 +76,14 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async openCycle(period: string, currency: 'USD' | 'GEL'): Promise<void> {
-    this.openCycleRecord = {
+    const cycle = {
       id: 'opened-cycle',
       period,
       currency
     }
+    this.openCycleRecord = cycle
+    this.cycleByPeriodRecord = cycle
+    this.latestCycleRecord = cycle
   }
 
   async closeCycle(): Promise<void> {}
@@ -126,6 +129,40 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async deleteUtilityBill() {
+    return false
+  }
+
+  async updateParsedPurchase() {
+    return null
+  }
+
+  async deleteParsedPurchase() {
+    return false
+  }
+
+  async addPaymentRecord(input: {
+    cycleId: string
+    memberId: string
+    kind: 'rent' | 'utilities'
+    amountMinor: bigint
+    currency: 'USD' | 'GEL'
+    recordedAt: Instant
+  }) {
+    return {
+      id: 'payment-record-1',
+      memberId: input.memberId,
+      kind: input.kind,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      recordedAt: input.recordedAt
+    }
+  }
+
+  async updatePaymentRecord() {
+    return null
+  }
+
+  async deletePaymentRecord() {
     return false
   }
 
@@ -304,14 +341,21 @@ describe('createFinanceCommandService', () => {
     })
   })
 
-  test('addUtilityBill returns null when no open cycle exists', async () => {
+  test('addUtilityBill auto-opens the expected cycle when none is active', async () => {
     const repository = new FinanceRepositoryStub()
     const service = createService(repository)
 
     const result = await service.addUtilityBill('Electricity', '55.20', 'member-1')
 
-    expect(result).toBeNull()
-    expect(repository.lastUtilityBill).toBeNull()
+    expect(result).not.toBeNull()
+    expect(result?.period).toBe('2026-03')
+    expect(repository.lastUtilityBill).toEqual({
+      cycleId: 'opened-cycle',
+      billName: 'Electricity',
+      amountMinor: 5520n,
+      currency: 'GEL',
+      createdByMemberId: 'member-1'
+    })
   })
 
   test('generateStatement settles into cycle currency and persists snapshot', async () => {

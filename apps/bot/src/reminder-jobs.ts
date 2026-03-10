@@ -76,6 +76,7 @@ async function readBody(request: Request): Promise<ReminderJobRequestBody> {
 
 export function createReminderJobsHandler(options: {
   listReminderTargets: () => Promise<readonly ReminderTarget[]>
+  ensureBillingCycle?: (input: { householdId: string; at: Temporal.Instant }) => Promise<void>
   releaseReminderDispatch: (input: {
     householdId: string
     period: string
@@ -132,6 +133,11 @@ export function createReminderJobsHandler(options: {
         }> = []
 
         for (const target of targets) {
+          await options.ensureBillingCycle?.({
+            householdId: target.householdId,
+            at: currentInstant
+          })
+
           if (!requestedPeriod && !isReminderDueToday(target, reminderType, currentInstant)) {
             continue
           }

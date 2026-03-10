@@ -296,6 +296,63 @@ export function createDbFinanceRepository(
       })
     },
 
+    async updateParsedPurchase(input) {
+      const rows = await db
+        .update(schema.purchaseMessages)
+        .set({
+          parsedAmountMinor: input.amountMinor,
+          parsedCurrency: input.currency,
+          parsedItemDescription: input.description,
+          needsReview: 0,
+          processingStatus: 'parsed',
+          parserError: null
+        })
+        .where(
+          and(
+            eq(schema.purchaseMessages.householdId, householdId),
+            eq(schema.purchaseMessages.id, input.purchaseId)
+          )
+        )
+        .returning({
+          id: schema.purchaseMessages.id,
+          payerMemberId: schema.purchaseMessages.senderMemberId,
+          amountMinor: schema.purchaseMessages.parsedAmountMinor,
+          currency: schema.purchaseMessages.parsedCurrency,
+          description: schema.purchaseMessages.parsedItemDescription,
+          occurredAt: schema.purchaseMessages.messageSentAt
+        })
+
+      const row = rows[0]
+      if (!row || !row.payerMemberId || row.amountMinor == null || row.currency == null) {
+        return null
+      }
+
+      return {
+        id: row.id,
+        payerMemberId: row.payerMemberId,
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        description: row.description,
+        occurredAt: instantFromDatabaseValue(row.occurredAt)
+      }
+    },
+
+    async deleteParsedPurchase(purchaseId) {
+      const rows = await db
+        .delete(schema.purchaseMessages)
+        .where(
+          and(
+            eq(schema.purchaseMessages.householdId, householdId),
+            eq(schema.purchaseMessages.id, purchaseId)
+          )
+        )
+        .returning({
+          id: schema.purchaseMessages.id
+        })
+
+      return rows.length > 0
+    },
+
     async updateUtilityBill(input) {
       const rows = await db
         .update(schema.utilityBills)
@@ -339,6 +396,97 @@ export function createDbFinanceRepository(
         )
         .returning({
           id: schema.utilityBills.id
+        })
+
+      return rows.length > 0
+    },
+
+    async addPaymentRecord(input) {
+      const rows = await db
+        .insert(schema.paymentRecords)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          memberId: input.memberId,
+          kind: input.kind,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .returning({
+          id: schema.paymentRecords.id,
+          memberId: schema.paymentRecords.memberId,
+          kind: schema.paymentRecords.kind,
+          amountMinor: schema.paymentRecords.amountMinor,
+          currency: schema.paymentRecords.currency,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to add payment record')
+      }
+
+      return {
+        id: row.id,
+        memberId: row.memberId,
+        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
+      }
+    },
+
+    async updatePaymentRecord(input) {
+      const rows = await db
+        .update(schema.paymentRecords)
+        .set({
+          memberId: input.memberId,
+          kind: input.kind,
+          amountMinor: input.amountMinor,
+          currency: input.currency
+        })
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentRecords.id, input.paymentId)
+          )
+        )
+        .returning({
+          id: schema.paymentRecords.id,
+          memberId: schema.paymentRecords.memberId,
+          kind: schema.paymentRecords.kind,
+          amountMinor: schema.paymentRecords.amountMinor,
+          currency: schema.paymentRecords.currency,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        id: row.id,
+        memberId: row.memberId,
+        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
+      }
+    },
+
+    async deletePaymentRecord(paymentId) {
+      const rows = await db
+        .delete(schema.paymentRecords)
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentRecords.id, paymentId)
+          )
+        )
+        .returning({
+          id: schema.paymentRecords.id
         })
 
       return rows.length > 0

@@ -18,6 +18,12 @@ import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 function repository(
   member: Awaited<ReturnType<FinanceRepository['getMemberByTelegramUserId']>>
 ): FinanceRepository {
+  const cycle = {
+    id: 'cycle-1',
+    period: '2026-03',
+    currency: 'GEL' as const
+  }
+
   return {
     getMemberByTelegramUserId: async () => member,
     listMembers: async () => [
@@ -29,25 +35,29 @@ function repository(
         isAdmin: true
       }
     ],
-    getOpenCycle: async () => ({
-      id: 'cycle-1',
-      period: '2026-03',
-      currency: 'GEL'
-    }),
-    getCycleByPeriod: async () => null,
-    getLatestCycle: async () => ({
-      id: 'cycle-1',
-      period: '2026-03',
-      currency: 'GEL'
-    }),
+    getOpenCycle: async () => cycle,
+    getCycleByPeriod: async (period) => (period === cycle.period ? cycle : null),
+    getLatestCycle: async () => cycle,
     openCycle: async () => {},
     closeCycle: async () => {},
     saveRentRule: async () => {},
     getCycleExchangeRate: async () => null,
     saveCycleExchangeRate: async (input) => input,
     addUtilityBill: async () => {},
+    updateParsedPurchase: async () => null,
+    deleteParsedPurchase: async () => false,
     updateUtilityBill: async () => null,
     deleteUtilityBill: async () => false,
+    addPaymentRecord: async (input) => ({
+      id: 'payment-new',
+      memberId: input.memberId,
+      kind: input.kind,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      recordedAt: input.recordedAt
+    }),
+    updatePaymentRecord: async () => null,
+    deletePaymentRecord: async () => false,
     getRentRuleForPeriod: async () => ({
       amountMinor: 70000n,
       currency: 'USD'

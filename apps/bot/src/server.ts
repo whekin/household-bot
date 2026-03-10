@@ -104,6 +104,36 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpdatePurchase?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppDeletePurchase?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppAddPayment?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppUpdatePayment?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppDeletePayment?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -169,6 +199,15 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpdateUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/update'
   const miniAppDeleteUtilityBillPath =
     options.miniAppDeleteUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/delete'
+  const miniAppUpdatePurchasePath =
+    options.miniAppUpdatePurchase?.path ?? '/api/miniapp/admin/purchases/update'
+  const miniAppDeletePurchasePath =
+    options.miniAppDeletePurchase?.path ?? '/api/miniapp/admin/purchases/delete'
+  const miniAppAddPaymentPath = options.miniAppAddPayment?.path ?? '/api/miniapp/admin/payments/add'
+  const miniAppUpdatePaymentPath =
+    options.miniAppUpdatePayment?.path ?? '/api/miniapp/admin/payments/update'
+  const miniAppDeletePaymentPath =
+    options.miniAppDeletePayment?.path ?? '/api/miniapp/admin/payments/delete'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler
@@ -255,6 +294,26 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppDeleteUtilityBill && url.pathname === miniAppDeleteUtilityBillPath) {
         return await options.miniAppDeleteUtilityBill.handler(request)
+      }
+
+      if (options.miniAppUpdatePurchase && url.pathname === miniAppUpdatePurchasePath) {
+        return await options.miniAppUpdatePurchase.handler(request)
+      }
+
+      if (options.miniAppDeletePurchase && url.pathname === miniAppDeletePurchasePath) {
+        return await options.miniAppDeletePurchase.handler(request)
+      }
+
+      if (options.miniAppAddPayment && url.pathname === miniAppAddPaymentPath) {
+        return await options.miniAppAddPayment.handler(request)
+      }
+
+      if (options.miniAppUpdatePayment && url.pathname === miniAppUpdatePaymentPath) {
+        return await options.miniAppUpdatePayment.handler(request)
+      }
+
+      if (options.miniAppDeletePayment && url.pathname === miniAppDeletePaymentPath) {
+        return await options.miniAppDeletePayment.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {

@@ -165,6 +165,13 @@ export interface FinanceRepository {
     currency: CurrencyCode
     createdByMemberId: string
   }): Promise<void>
+  updateParsedPurchase(input: {
+    purchaseId: string
+    amountMinor: bigint
+    currency: CurrencyCode
+    description: string | null
+  }): Promise<FinanceParsedPurchaseRecord | null>
+  deleteParsedPurchase(purchaseId: string): Promise<boolean>
   updateUtilityBill(input: {
     billId: string
     billName: string
@@ -172,6 +179,22 @@ export interface FinanceRepository {
     currency: CurrencyCode
   }): Promise<FinanceUtilityBillRecord | null>
   deleteUtilityBill(billId: string): Promise<boolean>
+  addPaymentRecord(input: {
+    cycleId: string
+    memberId: string
+    kind: FinancePaymentKind
+    amountMinor: bigint
+    currency: CurrencyCode
+    recordedAt: Instant
+  }): Promise<FinancePaymentRecord>
+  updatePaymentRecord(input: {
+    paymentId: string
+    memberId: string
+    kind: FinancePaymentKind
+    amountMinor: bigint
+    currency: CurrencyCode
+  }): Promise<FinancePaymentRecord | null>
+  deletePaymentRecord(paymentId: string): Promise<boolean>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>

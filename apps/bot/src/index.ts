@@ -46,12 +46,17 @@ import {
   createMiniAppUpsertUtilityCategoryHandler
 } from './miniapp-admin'
 import {
+  createMiniAppAddPaymentHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
   createMiniAppCloseCycleHandler,
+  createMiniAppDeletePaymentHandler,
+  createMiniAppDeletePurchaseHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
   createMiniAppRentUpdateHandler,
+  createMiniAppUpdatePaymentHandler,
+  createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
@@ -268,6 +273,9 @@ const reminderJobs = runtime.reminderJobsEnabled
       return createReminderJobsHandler({
         listReminderTargets: () =>
           householdConfigurationRepositoryClient!.repository.listReminderTargets(),
+        ensureBillingCycle: async ({ householdId, at }) => {
+          await financeServiceForHousehold(householdId).ensureExpectedCycle(at)
+        },
         releaseReminderDispatch: (input) =>
           reminderRepositoryClient.repository.releaseReminderDispatch(input),
         sendReminderMessage: async (target, text) => {
@@ -476,6 +484,51 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppDeleteUtilityBill: householdOnboardingService
     ? createMiniAppDeleteUtilityBillHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppUpdatePurchase: householdOnboardingService
+    ? createMiniAppUpdatePurchaseHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppDeletePurchase: householdOnboardingService
+    ? createMiniAppDeletePurchaseHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppAddPayment: householdOnboardingService
+    ? createMiniAppAddPaymentHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppUpdatePayment: householdOnboardingService
+    ? createMiniAppUpdatePaymentHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppDeletePayment: householdOnboardingService
+    ? createMiniAppDeletePaymentHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

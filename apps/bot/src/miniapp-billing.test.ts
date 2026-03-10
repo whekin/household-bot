@@ -135,6 +135,11 @@ function onboardingRepository(): HouseholdConfigurationRepository {
 function createFinanceServiceStub(): FinanceCommandService {
   return {
     getMemberByTelegramUserId: async () => null,
+    ensureExpectedCycle: async () => ({
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'USD'
+    }),
     getOpenCycle: async () => ({
       id: 'cycle-2026-03',
       period: '2026-03',
@@ -187,6 +192,24 @@ function createFinanceServiceStub(): FinanceCommandService {
       currency: 'USD'
     }),
     deleteUtilityBill: async () => true,
+    updatePurchase: async () => ({
+      purchaseId: 'purchase-1',
+      amount: Money.fromMinor(3000n, 'USD'),
+      currency: 'USD'
+    }),
+    deletePurchase: async () => true,
+    addPayment: async () => ({
+      paymentId: 'payment-1',
+      amount: Money.fromMinor(10000n, 'USD'),
+      currency: 'USD',
+      period: '2026-03'
+    }),
+    updatePayment: async () => ({
+      paymentId: 'payment-1',
+      amount: Money.fromMinor(10000n, 'USD'),
+      currency: 'USD'
+    }),
+    deletePayment: async () => true,
     generateDashboard: async () => null,
     generateStatement: async () => null
   }

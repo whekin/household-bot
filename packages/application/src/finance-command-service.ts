@@ -80,6 +80,23 @@ function localDateInTimezone(timezone: string): Temporal.PlainDate {
   return nowInstant().toZonedDateTimeISO(timezone).toPlainDate()
 }
 
+function periodFromLocalDate(localDate: Temporal.PlainDate): BillingPeriod {
+  return BillingPeriod.fromString(`${localDate.year}-${String(localDate.month).padStart(2, '0')}`)
+}
+
+function expectedOpenCyclePeriod(
+  settings: {
+    rentDueDay: number
+    timezone: string
+  },
+  instant: Temporal.Instant
+): BillingPeriod {
+  const localDate = instant.toZonedDateTimeISO(settings.timezone).toPlainDate()
+  const currentPeriod = periodFromLocalDate(localDate)
+
+  return localDate.day > settings.rentDueDay ? currentPeriod.next() : currentPeriod
+}
+
 export interface FinanceDashboardMemberLine {
   memberId: string
   displayName: string
@@ -96,6 +113,7 @@ export interface FinanceDashboardLedgerEntry {
   id: string
   kind: 'purchase' | 'utility' | 'payment'
   title: string
+  memberId: string | null
   amount: Money
   currency: CurrencyCode
   displayAmount: Money
@@ -372,6 +390,7 @@ async function buildFinanceDashboard(
       id: bill.id,
       kind: 'utility' as const,
       title: bill.billName,
+      memberId: bill.createdByMemberId,
       amount: converted.originalAmount,
       currency: bill.currency,
       displayAmount: converted.settlementAmount,
@@ -388,6 +407,7 @@ async function buildFinanceDashboard(
       id: purchase.id,
       kind: 'purchase' as const,
       title: purchase.description ?? 'Shared purchase',
+      memberId: purchase.payerMemberId,
       amount: converted.originalAmount,
       currency: purchase.currency,
       displayAmount: converted.settlementAmount,
@@ -402,6 +422,7 @@ async function buildFinanceDashboard(
       id: payment.id,
       kind: 'payment' as const,
       title: payment.kind,
+      memberId: payment.memberId,
       amount: Money.fromMinor(payment.amountMinor, payment.currency),
       currency: payment.currency,
       displayAmount: Money.fromMinor(payment.amountMinor, payment.currency),
@@ -444,6 +465,7 @@ async function buildFinanceDashboard(
 export interface FinanceCommandService {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
+  ensureExpectedCycle(referenceInstant?: Temporal.Instant): Promise<FinanceCycleRecord>
   getAdminCycleState(periodArg?: string): Promise<FinanceAdminCycleState>
   openCycle(periodArg: string, currencyArg?: string): Promise<FinanceCycleRecord>
   closeCycle(periodArg?: string): Promise<FinanceCycleRecord | null>
@@ -477,6 +499,40 @@ export interface FinanceCommandService {
     currency: CurrencyCode
   } | null>
   deleteUtilityBill(billId: string): Promise<boolean>
+  updatePurchase(
+    purchaseId: string,
+    description: string,
+    amountArg: string,
+    currencyArg?: string
+  ): Promise<{
+    purchaseId: string
+    amount: Money
+    currency: CurrencyCode
+  } | null>
+  deletePurchase(purchaseId: string): Promise<boolean>
+  addPayment(
+    memberId: string,
+    kind: FinancePaymentKind,
+    amountArg: string,
+    currencyArg?: string
+  ): Promise<{
+    paymentId: string
+    amount: Money
+    currency: CurrencyCode
+    period: string
+  } | null>
+  updatePayment(
+    paymentId: string,
+    memberId: string,
+    kind: FinancePaymentKind,
+    amountArg: string,
+    currencyArg?: string
+  ): Promise<{
+    paymentId: string
+    amount: Money
+    currency: CurrencyCode
+  } | null>
+  deletePayment(paymentId: string): Promise<boolean>
   generateDashboard(periodArg?: string): Promise<FinanceDashboard | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -485,6 +541,34 @@ export function createFinanceCommandService(
   dependencies: FinanceCommandServiceDependencies
 ): FinanceCommandService {
   const { repository, householdConfigurationRepository } = dependencies
+
+  async function ensureExpectedCycle(referenceInstant = nowInstant()): Promise<FinanceCycleRecord> {
+    const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+      dependencies.householdId
+    )
+    const period = expectedOpenCyclePeriod(settings, referenceInstant).toString()
+    let cycle = await repository.getCycleByPeriod(period)
+
+    if (!cycle) {
+      await repository.openCycle(period, settings.settlementCurrency)
+      cycle = await repository.getCycleByPeriod(period)
+    }
+
+    if (!cycle) {
+      throw new Error(`Failed to ensure billing cycle for period ${period}`)
+    }
+
+    const openCycle = await repository.getOpenCycle()
+    if (openCycle && openCycle.id !== cycle.id) {
+      await repository.closeCycle(openCycle.id, referenceInstant)
+    }
+
+    if (settings.rentAmountMinor !== null) {
+      await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency)
+    }
+
+    return cycle
+  }
 
   return {
     getMemberByTelegramUserId(telegramUserId) {
@@ -495,10 +579,14 @@ export function createFinanceCommandService(
       return repository.getOpenCycle()
     },
 
+    ensureExpectedCycle(referenceInstant) {
+      return ensureExpectedCycle(referenceInstant)
+    },
+
     async getAdminCycleState(periodArg) {
       const cycle = periodArg
         ? await repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
-        : ((await repository.getOpenCycle()) ?? (await repository.getLatestCycle()))
+        : await ensureExpectedCycle()
 
       if (!cycle) {
         return {
@@ -555,11 +643,11 @@ export function createFinanceCommandService(
     },
 
     async setRent(amountArg, currencyArg, periodArg) {
-      const [openCycle, settings] = await Promise.all([
-        repository.getOpenCycle(),
-        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
+      const [settings, cycle] = await Promise.all([
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+        periodArg ? Promise.resolve(null) : ensureExpectedCycle()
       ])
-      const period = periodArg ?? openCycle?.period
+      const period = periodArg ?? cycle?.period
       if (!period) {
         return null
       }
@@ -582,12 +670,9 @@ export function createFinanceCommandService(
 
     async addUtilityBill(billName, amountArg, createdByMemberId, currencyArg) {
       const [openCycle, settings] = await Promise.all([
-        repository.getOpenCycle(),
+        ensureExpectedCycle(),
         householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
       ])
-      if (!openCycle) {
-        return null
-      }
 
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
@@ -635,7 +720,93 @@ export function createFinanceCommandService(
       return repository.deleteUtilityBill(billId)
     },
 
+    async updatePurchase(purchaseId, description, amountArg, currencyArg) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+      const amount = Money.fromMajor(amountArg, currency)
+      const updated = await repository.updateParsedPurchase({
+        purchaseId,
+        amountMinor: amount.amountMinor,
+        currency,
+        description: description.trim().length > 0 ? description.trim() : null
+      })
+
+      if (!updated) {
+        return null
+      }
+
+      return {
+        purchaseId: updated.id,
+        amount,
+        currency
+      }
+    },
+
+    deletePurchase(purchaseId) {
+      return repository.deleteParsedPurchase(purchaseId)
+    },
+
+    async addPayment(memberId, kind, amountArg, currencyArg) {
+      const [openCycle, settings] = await Promise.all([
+        ensureExpectedCycle(),
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
+      ])
+
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+      const amount = Money.fromMajor(amountArg, currency)
+      const payment = await repository.addPaymentRecord({
+        cycleId: openCycle.id,
+        memberId,
+        kind,
+        amountMinor: amount.amountMinor,
+        currency,
+        recordedAt: nowInstant()
+      })
+
+      return {
+        paymentId: payment.id,
+        amount,
+        currency,
+        period: openCycle.period
+      }
+    },
+
+    async updatePayment(paymentId, memberId, kind, amountArg, currencyArg) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+      const amount = Money.fromMajor(amountArg, currency)
+      const payment = await repository.updatePaymentRecord({
+        paymentId,
+        memberId,
+        kind,
+        amountMinor: amount.amountMinor,
+        currency
+      })
+
+      if (!payment) {
+        return null
+      }
+
+      return {
+        paymentId: payment.id,
+        amount,
+        currency
+      }
+    },
+
+    deletePayment(paymentId) {
+      return repository.deletePaymentRecord(paymentId)
+    },
+
     async generateStatement(periodArg) {
+      if (!periodArg) {
+        await ensureExpectedCycle()
+      }
+
       const dashboard = await buildFinanceDashboard(dependencies, periodArg)
       if (!dashboard) {
         return null
@@ -661,7 +832,9 @@ export function createFinanceCommandService(
     },
 
     generateDashboard(periodArg) {
-      return buildFinanceDashboard(dependencies, periodArg)
+      return periodArg
+        ? buildFinanceDashboard(dependencies, periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies))
     }
   }
 }

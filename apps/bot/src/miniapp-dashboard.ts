@@ -111,6 +111,7 @@ export function createMiniAppDashboardHandler(options: {
                 id: entry.id,
                 kind: entry.kind,
                 title: entry.title,
+                memberId: entry.memberId,
                 paymentKind: entry.paymentKind,
                 amountMajor: entry.amount.toMajorString(),
                 currency: entry.currency,
