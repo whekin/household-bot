@@ -385,6 +385,103 @@ describe('registerPurchaseTopicIngestion', () => {
     })
   })
 
+  test('sends a processing reply and edits it when an interpreter is configured', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async save() {
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-1',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'toilet paper',
+          parserConfidence: 92,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'purchase',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        itemDescription: 'toilet paper',
+        confidence: 92,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Bought toilet paper 30 gel') as never)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: Number(config.householdChatId),
+        text: 'Checking that purchase...',
+        reply_parameters: {
+          message_id: 55
+        }
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        chat_id: Number(config.householdChatId),
+        message_id: 1,
+        text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Confirm',
+                callback_data: 'purchase:confirm:proposal-1'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'purchase:cancel:proposal-1'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
   test('does not reply for duplicate deliveries or non-purchase chatter', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []

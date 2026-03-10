@@ -122,6 +122,7 @@ export interface BotTranslationCatalog {
   }
   assistant: {
     unavailable: string
+    processing: string
     noHousehold: string
     multipleHouseholds: string
     rateLimited: (retryDelay: string) => string
@@ -207,6 +208,7 @@ export interface BotTranslationCatalog {
   }
   purchase: {
     sharedPurchaseFallback: string
+    processing: string
     proposal: (summary: string) => string
     clarification: (question: string) => string
     clarificationMissingAmountAndCurrency: string

@@ -114,6 +114,7 @@ export const enBotTranslations: BotTranslationCatalog = {
   },
   assistant: {
     unavailable: 'The assistant is temporarily unavailable. Try again in a moment.',
+    processing: 'Working on it...',
     noHousehold:
       'I can help after your Telegram account is linked to a household. Open the household group and complete the join flow first.',
     multipleHouseholds:
@@ -190,6 +191,7 @@ export const enBotTranslations: BotTranslationCatalog = {
   },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
+    processing: 'Checking that purchase...',
     proposal: (summary) => `I think this shared purchase was: ${summary}. Confirm or cancel below.`,
     clarification: (question) => question,
     clarificationMissingAmountAndCurrency:

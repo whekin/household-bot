@@ -321,6 +321,22 @@ describe('registerDmAssistant', () => {
 
     bot.api.config.use(async (_prev, method, payload) => {
       calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: 123456,
+              type: 'private'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
       return {
         ok: true,
         result: true
@@ -356,11 +372,19 @@ describe('registerDmAssistant', () => {
 
     await bot.handleUpdate(privateMessageUpdate('How much do I still owe this month?') as never)
 
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
         chat_id: 123456,
+        text: 'Working on it...'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        chat_id: 123456,
+        message_id: 1,
         text: 'You still owe 350.00 GEL this cycle.'
       }
     })

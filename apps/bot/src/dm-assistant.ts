@@ -234,6 +234,57 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   }
 }
 
+interface PendingAssistantReply {
+  chatId: number
+  messageId: number
+}
+
+async function sendAssistantProcessingReply(
+  ctx: Context,
+  text: string
+): Promise<PendingAssistantReply | null> {
+  const message = await ctx.reply(text)
+
+  if (!message?.chat?.id || typeof message.message_id !== 'number') {
+    return null
+  }
+
+  return {
+    chatId: message.chat.id,
+    messageId: message.message_id
+  }
+}
+
+async function finalizeAssistantReply(
+  ctx: Context,
+  pendingReply: PendingAssistantReply | null,
+  text: string,
+  replyMarkup?: {
+    inline_keyboard: Array<
+      Array<{
+        text: string
+        callback_data: string
+      }>
+    >
+  }
+): Promise<void> {
+  if (!pendingReply) {
+    await ctx.reply(text, replyMarkup ? { reply_markup: replyMarkup } : undefined)
+    return
+  }
+
+  try {
+    await ctx.api.editMessageText(
+      pendingReply.chatId,
+      pendingReply.messageId,
+      text,
+      replyMarkup ? { reply_markup: replyMarkup } : {}
+    )
+  } catch {
+    await ctx.reply(text, replyMarkup ? { reply_markup: replyMarkup } : undefined)
+  }
+}
+
 function parsePaymentProposalPayload(
   payload: Record<string, unknown>
 ): PaymentProposalPayload | null {
@@ -669,6 +720,7 @@ export function registerDmAssistant(options: {
       householdConfigurationRepository: options.householdConfigurationRepository,
       financeService
     })
+    const pendingReply = await sendAssistantProcessingReply(ctx, t.processing)
 
     try {
       const reply = await options.assistant.respond({
@@ -706,7 +758,7 @@ export function registerDmAssistant(options: {
         'DM assistant reply generated'
       )
 
-      await ctx.reply(reply.text)
+      await finalizeAssistantReply(ctx, pendingReply, reply.text)
     } catch (error) {
       options.logger?.error(
         {
@@ -717,7 +769,7 @@ export function registerDmAssistant(options: {
         },
         'DM assistant reply failed'
       )
-      await ctx.reply(t.unavailable)
+      await finalizeAssistantReply(ctx, pendingReply, t.unavailable)
     }
   })
 }

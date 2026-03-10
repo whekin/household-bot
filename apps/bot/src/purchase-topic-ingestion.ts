@@ -292,6 +292,76 @@ async function replyToPurchaseMessage(
   })
 }
 
+interface PendingPurchaseReply {
+  chatId: number
+  messageId: number
+}
+
+async function sendPurchaseProcessingReply(
+  ctx: Context,
+  text: string
+): Promise<PendingPurchaseReply | null> {
+  const message = ctx.msg
+  if (!message) {
+    return null
+  }
+
+  const reply = await ctx.reply(text, {
+    reply_parameters: {
+      message_id: message.message_id
+    }
+  })
+
+  if (!reply?.chat?.id || typeof reply.message_id !== 'number') {
+    return null
+  }
+
+  return {
+    chatId: reply.chat.id,
+    messageId: reply.message_id
+  }
+}
+
+async function finalizePurchaseReply(
+  ctx: Context,
+  pendingReply: PendingPurchaseReply | null,
+  text: string | null,
+  replyMarkup?: {
+    inline_keyboard: Array<
+      Array<{
+        text: string
+        callback_data: string
+      }>
+    >
+  }
+): Promise<void> {
+  if (!text) {
+    if (pendingReply) {
+      try {
+        await ctx.api.deleteMessage(pendingReply.chatId, pendingReply.messageId)
+      } catch {}
+    }
+
+    return
+  }
+
+  if (!pendingReply) {
+    await replyToPurchaseMessage(ctx, text, replyMarkup)
+    return
+  }
+
+  try {
+    await ctx.api.editMessageText(
+      pendingReply.chatId,
+      pendingReply.messageId,
+      text,
+      replyMarkup ? { reply_markup: replyMarkup } : {}
+    )
+  } catch {
+    await replyToPurchaseMessage(ctx, text, replyMarkup)
+  }
+}
+
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
   const message = ctx.message
   if (!message || !('text' in message)) {
@@ -728,7 +798,8 @@ async function handlePurchaseMessageResult(
   record: PurchaseTopicRecord,
   result: PurchaseMessageIngestionResult,
   locale: BotLocale,
-  logger: Logger | undefined
+  logger: Logger | undefined,
+  pendingReply: PendingPurchaseReply | null = null
 ): Promise<void> {
   if (result.status !== 'duplicate') {
     logger?.info(
@@ -747,12 +818,9 @@ async function handlePurchaseMessageResult(
   }
 
   const acknowledgement = buildPurchaseAcknowledgement(result, locale)
-  if (!acknowledgement) {
-    return
-  }
-
-  await replyToPurchaseMessage(
+  await finalizePurchaseReply(
     ctx,
+    pendingReply,
     acknowledgement,
     result.status === 'pending_confirmation'
       ? purchaseProposalReplyMarkup(locale, result.purchaseMessageId)
@@ -921,8 +989,11 @@ export function registerPurchaseTopicIngestion(
     }
 
     try {
+      const pendingReply = options.interpreter
+        ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
+        : null
       const result = await repository.save(record, options.interpreter, 'GEL')
-      await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger)
+      await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
     } catch (error) {
       options.logger?.error(
         {
@@ -986,13 +1057,16 @@ export function registerConfiguredPurchaseTopicIngestion(
         householdConfigurationRepository,
         record.householdId
       )
+      const pendingReply = options.interpreter
+        ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
+        : null
       const result = await repository.save(
         record,
         options.interpreter,
         billingSettings.settlementCurrency
       )
 
-      await handlePurchaseMessageResult(ctx, record, result, locale, options.logger)
+      await handlePurchaseMessageResult(ctx, record, result, locale, options.logger, pendingReply)
     } catch (error) {
       options.logger?.error(
         {
