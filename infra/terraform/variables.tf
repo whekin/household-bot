@@ -76,6 +76,62 @@ variable "bot_parser_model" {
   nullable    = true
 }
 
+variable "bot_purchase_parser_model" {
+  description = "Optional PURCHASE_PARSER_MODEL override for bot runtime"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_model" {
+  description = "Optional ASSISTANT_MODEL override for bot runtime"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_timeout_ms" {
+  description = "Optional ASSISTANT_TIMEOUT_MS override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_memory_max_turns" {
+  description = "Optional ASSISTANT_MEMORY_MAX_TURNS override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_rate_limit_burst" {
+  description = "Optional ASSISTANT_RATE_LIMIT_BURST override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_rate_limit_burst_window_ms" {
+  description = "Optional ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_rate_limit_rolling" {
+  description = "Optional ASSISTANT_RATE_LIMIT_ROLLING override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_rate_limit_rolling_window_ms" {
+  description = "Optional ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS override for bot runtime"
+  type        = number
+  default     = null
+  nullable    = true
+}
+
 variable "bot_mini_app_allowed_origins" {
   description = "Optional allow-list of mini app origins for bot CORS handling"
   type        = list(string)

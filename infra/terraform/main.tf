@@ -93,6 +93,30 @@ module "bot_api_service" {
     var.bot_parser_model == null ? {} : {
       PARSER_MODEL = var.bot_parser_model
     },
+    var.bot_purchase_parser_model == null ? {} : {
+      PURCHASE_PARSER_MODEL = var.bot_purchase_parser_model
+    },
+    var.bot_assistant_model == null ? {} : {
+      ASSISTANT_MODEL = var.bot_assistant_model
+    },
+    var.bot_assistant_timeout_ms == null ? {} : {
+      ASSISTANT_TIMEOUT_MS = tostring(var.bot_assistant_timeout_ms)
+    },
+    var.bot_assistant_memory_max_turns == null ? {} : {
+      ASSISTANT_MEMORY_MAX_TURNS = tostring(var.bot_assistant_memory_max_turns)
+    },
+    var.bot_assistant_rate_limit_burst == null ? {} : {
+      ASSISTANT_RATE_LIMIT_BURST = tostring(var.bot_assistant_rate_limit_burst)
+    },
+    var.bot_assistant_rate_limit_burst_window_ms == null ? {} : {
+      ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS = tostring(var.bot_assistant_rate_limit_burst_window_ms)
+    },
+    var.bot_assistant_rate_limit_rolling == null ? {} : {
+      ASSISTANT_RATE_LIMIT_ROLLING = tostring(var.bot_assistant_rate_limit_rolling)
+    },
+    var.bot_assistant_rate_limit_rolling_window_ms == null ? {} : {
+      ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS = tostring(var.bot_assistant_rate_limit_rolling_window_ms)
+    },
     length(var.bot_mini_app_allowed_origins) == 0 ? {} : {
       MINI_APP_ALLOWED_ORIGINS = join(",", var.bot_mini_app_allowed_origins)
     },

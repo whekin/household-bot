@@ -73,6 +73,15 @@ Recommended approach:
 - Keep `project_id` separate for dev/prod when possible
 - Keep non-secret bot config in `*.tfvars`:
   - optional `bot_parser_model`
+  - optional `bot_purchase_parser_model`
+  - optional `bot_assistant_model`
+  - optional assistant runtime knobs:
+    `bot_assistant_timeout_ms`,
+    `bot_assistant_memory_max_turns`,
+    `bot_assistant_rate_limit_burst`,
+    `bot_assistant_rate_limit_burst_window_ms`,
+    `bot_assistant_rate_limit_rolling`,
+    `bot_assistant_rate_limit_rolling_window_ms`
   - optional `bot_mini_app_allowed_origins`
 
 ## CI validation
