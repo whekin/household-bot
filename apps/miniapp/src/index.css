@@ -327,6 +327,26 @@ button {
   margin-top: 12px;
 }
 
+.section-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.section-switch button {
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 16px;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: rgb(255 255 255 / 0.04);
+  color: inherit;
+}
+
+.section-switch button.is-active {
+  border-color: rgb(247 179 137 / 0.7);
+  background: rgb(247 179 137 / 0.14);
+}
+
 .admin-layout {
   gap: 18px;
 }
@@ -396,7 +416,8 @@ button {
   padding: 12px 14px;
   background: rgb(255 255 255 / 0.04);
   color: inherit;
-  line-height: 1.35;
+  font-size: 1rem;
+  line-height: 1.2;
 }
 
 .settings-field__value {
@@ -452,6 +473,13 @@ button {
   grid-column: 1 / -1;
 }
 
+.activity-row p,
+.ledger-item p,
+.utility-bill-row p,
+.balance-item p {
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 760px) {
   .shell {
     max-width: 920px;
@@ -497,6 +525,10 @@ button {
 
   .balance-item--wide {
     grid-column: 1 / -1;
+  }
+
+  .section-switch {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

@@ -96,6 +96,7 @@ export interface MiniAppDashboard {
     id: string
     kind: 'purchase' | 'utility' | 'payment'
     title: string
+    memberId: string | null
     paymentKind: 'rent' | 'utilities' | null
     amountMajor: string
     currency: 'USD' | 'GEL'
@@ -730,4 +731,119 @@ export async function deleteMiniAppUtilityBill(
   }
 
   return payload.cycleState
+}
+
+export async function updateMiniAppPurchase(
+  initData: string,
+  input: {
+    purchaseId: string
+    description: string
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to update purchase')
+  }
+}
+
+export async function deleteMiniAppPurchase(initData: string, purchaseId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/delete`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      purchaseId
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to delete purchase')
+  }
+}
+
+export async function addMiniAppPayment(
+  initData: string,
+  input: {
+    memberId: string
+    kind: 'rent' | 'utilities'
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/payments/add`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to add payment')
+  }
+}
+
+export async function updateMiniAppPayment(
+  initData: string,
+  input: {
+    paymentId: string
+    memberId: string
+    kind: 'rent' | 'utilities'
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/payments/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to update payment')
+  }
+}
+
+export async function deleteMiniAppPayment(initData: string, paymentId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/payments/delete`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      paymentId
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to delete payment')
+  }
 }

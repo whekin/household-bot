@@ -3,8 +3,11 @@ import { Match, Show, Switch, createMemo, createSignal, onMount, type JSX } from
 import { dictionary, type Locale } from './i18n'
 import {
   addMiniAppUtilityBill,
+  addMiniAppPayment,
   approveMiniAppPendingMember,
   closeMiniAppBillingCycle,
+  deleteMiniAppPayment,
+  deleteMiniAppPurchase,
   deleteMiniAppUtilityBill,
   fetchMiniAppAdminSettings,
   fetchMiniAppBillingCycle,
@@ -20,6 +23,8 @@ import {
   updateMiniAppLocalePreference,
   updateMiniAppBillingSettings,
   updateMiniAppCycleRent,
+  updateMiniAppPayment,
+  updateMiniAppPurchase,
   upsertMiniAppUtilityCategory,
   updateMiniAppUtilityBill,
   type MiniAppDashboard,
@@ -63,9 +68,23 @@ type SessionState =
     }
 
 type NavigationKey = 'home' | 'balances' | 'ledger' | 'house'
+type HouseSectionKey = 'billing' | 'utilities' | 'members' | 'topics'
 
 type UtilityBillDraft = {
   billName: string
+  amountMajor: string
+  currency: 'USD' | 'GEL'
+}
+
+type PurchaseDraft = {
+  description: string
+  amountMajor: string
+  currency: 'USD' | 'GEL'
+}
+
+type PaymentDraft = {
+  memberId: string
+  kind: 'rent' | 'utilities'
   amountMajor: string
   currency: 'USD' | 'GEL'
 }
@@ -209,12 +228,48 @@ function cycleUtilityBillDrafts(
   )
 }
 
+function purchaseDrafts(
+  entries: readonly MiniAppDashboard['ledger'][number][]
+): Record<string, PurchaseDraft> {
+  return Object.fromEntries(
+    entries
+      .filter((entry) => entry.kind === 'purchase')
+      .map((entry) => [
+        entry.id,
+        {
+          description: entry.title,
+          amountMajor: entry.amountMajor,
+          currency: entry.currency
+        }
+      ])
+  )
+}
+
+function paymentDrafts(
+  entries: readonly MiniAppDashboard['ledger'][number][]
+): Record<string, PaymentDraft> {
+  return Object.fromEntries(
+    entries
+      .filter((entry) => entry.kind === 'payment')
+      .map((entry) => [
+        entry.id,
+        {
+          memberId: entry.memberId ?? '',
+          kind: entry.paymentKind ?? 'rent',
+          amountMajor: entry.amountMajor,
+          currency: entry.currency
+        }
+      ])
+  )
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
     status: 'loading'
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
+  const [activeHouseSection, setActiveHouseSection] = createSignal<HouseSectionKey>('billing')
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
@@ -237,6 +292,13 @@ function App() {
   const [utilityBillDrafts, setUtilityBillDrafts] = createSignal<Record<string, UtilityBillDraft>>(
     {}
   )
+  const [purchaseDraftMap, setPurchaseDraftMap] = createSignal<Record<string, PurchaseDraft>>({})
+  const [paymentDraftMap, setPaymentDraftMap] = createSignal<Record<string, PaymentDraft>>({})
+  const [savingPurchaseId, setSavingPurchaseId] = createSignal<string | null>(null)
+  const [deletingPurchaseId, setDeletingPurchaseId] = createSignal<string | null>(null)
+  const [savingPaymentId, setSavingPaymentId] = createSignal<string | null>(null)
+  const [deletingPaymentId, setDeletingPaymentId] = createSignal<string | null>(null)
+  const [addingPayment, setAddingPayment] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
     rentAmountMajor: '',
@@ -255,6 +317,12 @@ function App() {
     rentAmountMajor: '',
     utilityCategorySlug: '',
     utilityAmountMajor: ''
+  })
+  const [paymentForm, setPaymentForm] = createSignal<PaymentDraft>({
+    memberId: '',
+    kind: 'rent',
+    amountMajor: '',
+    currency: 'GEL'
   })
 
   const copy = createMemo(() => dictionary[locale()])
@@ -316,13 +384,18 @@ function App() {
 
   async function loadDashboard(initData: string) {
     try {
-      setDashboard(await fetchMiniAppDashboard(initData))
+      const nextDashboard = await fetchMiniAppDashboard(initData)
+      setDashboard(nextDashboard)
+      setPurchaseDraftMap(purchaseDrafts(nextDashboard.ledger))
+      setPaymentDraftMap(paymentDrafts(nextDashboard.ledger))
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to load mini app dashboard', error)
       }
 
       setDashboard(null)
+      setPurchaseDraftMap({})
+      setPaymentDraftMap({})
     }
   }
 
@@ -368,6 +441,11 @@ function App() {
         utilitiesReminderDay: payload.settings.utilitiesReminderDay,
         timezone: payload.settings.timezone
       })
+      setPaymentForm((current) => ({
+        ...current,
+        memberId: current.memberId || payload.members[0]?.id || '',
+        currency: payload.settings.settlementCurrency
+      }))
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to load mini app admin settings', error)
@@ -405,6 +483,28 @@ function App() {
       }
 
       setCycleState(null)
+    }
+  }
+
+  async function refreshHouseholdData(initData: string, includeAdmin = false) {
+    await loadDashboard(initData)
+
+    if (includeAdmin) {
+      await Promise.all([
+        loadAdminSettings(initData),
+        loadCycleState(initData),
+        loadPendingMembers(initData)
+      ])
+      return
+    }
+
+    const currentReady = readySession()
+    if (currentReady?.mode === 'live' && currentReady.member.isAdmin) {
+      await Promise.all([
+        loadAdminSettings(initData),
+        loadCycleState(initData),
+        loadPendingMembers(initData)
+      ])
     }
   }
 
@@ -513,6 +613,7 @@ function App() {
               id: 'purchase-1',
               kind: 'purchase',
               title: 'Soap',
+              memberId: 'member-2',
               paymentKind: null,
               amountMajor: '30.00',
               currency: 'GEL',
@@ -527,6 +628,7 @@ function App() {
               id: 'utility-1',
               kind: 'utility',
               title: 'Electricity',
+              memberId: null,
               paymentKind: null,
               amountMajor: '120.00',
               currency: 'GEL',
@@ -541,6 +643,7 @@ function App() {
               id: 'payment-1',
               kind: 'payment',
               title: 'rent',
+              memberId: 'demo-member',
               paymentKind: 'rent',
               amountMajor: '501.00',
               currency: 'GEL',
@@ -902,6 +1005,130 @@ function App() {
     }
   }
 
+  async function handleUpdatePurchase(purchaseId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const draft = purchaseDraftMap()[purchaseId]
+
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !draft ||
+      draft.description.trim().length === 0 ||
+      draft.amountMajor.trim().length === 0
+    ) {
+      return
+    }
+
+    setSavingPurchaseId(purchaseId)
+
+    try {
+      await updateMiniAppPurchase(initData, {
+        purchaseId,
+        description: draft.description,
+        amountMajor: draft.amountMajor,
+        currency: draft.currency
+      })
+      await refreshHouseholdData(initData, true)
+    } finally {
+      setSavingPurchaseId(null)
+    }
+  }
+
+  async function handleDeletePurchase(purchaseId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setDeletingPurchaseId(purchaseId)
+
+    try {
+      await deleteMiniAppPurchase(initData, purchaseId)
+      await refreshHouseholdData(initData, true)
+    } finally {
+      setDeletingPurchaseId(null)
+    }
+  }
+
+  async function handleAddPayment() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const draft = paymentForm()
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      draft.memberId.trim().length === 0 ||
+      draft.amountMajor.trim().length === 0
+    ) {
+      return
+    }
+
+    setAddingPayment(true)
+
+    try {
+      await addMiniAppPayment(initData, draft)
+      setPaymentForm((current) => ({
+        ...current,
+        amountMajor: ''
+      }))
+      await refreshHouseholdData(initData, true)
+    } finally {
+      setAddingPayment(false)
+    }
+  }
+
+  async function handleUpdatePayment(paymentId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const draft = paymentDraftMap()[paymentId]
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !draft ||
+      draft.memberId.trim().length === 0 ||
+      draft.amountMajor.trim().length === 0
+    ) {
+      return
+    }
+
+    setSavingPaymentId(paymentId)
+
+    try {
+      await updateMiniAppPayment(initData, {
+        paymentId,
+        memberId: draft.memberId,
+        kind: draft.kind,
+        amountMajor: draft.amountMajor,
+        currency: draft.currency
+      })
+      await refreshHouseholdData(initData, true)
+    } finally {
+      setSavingPaymentId(null)
+    }
+  }
+
+  async function handleDeletePayment(paymentId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setDeletingPaymentId(paymentId)
+
+    try {
+      await deleteMiniAppPayment(initData, paymentId)
+      await refreshHouseholdData(initData, true)
+    } finally {
+      setDeletingPaymentId(null)
+    }
+  }
+
   async function handleSaveUtilityCategory(input: {
     slug?: string
     name: string
@@ -1106,22 +1333,130 @@ function App() {
                 <>
                   <article class="balance-item">
                     <header>
-                      <strong>{copy().purchasesTitle}</strong>
+                      <strong>
+                        {readySession()?.member.isAdmin
+                          ? copy().purchaseReviewTitle
+                          : copy().purchasesTitle}
+                      </strong>
                     </header>
+                    <Show when={readySession()?.member.isAdmin}>
+                      <p>{copy().purchaseReviewBody}</p>
+                    </Show>
                     {purchaseLedger().length === 0 ? (
                       <p>{copy().purchasesEmpty}</p>
                     ) : (
                       <div class="ledger-list">
                         {purchaseLedger().map((entry) => (
-                          <article class="ledger-item">
+                          <article class="utility-bill-row">
                             <header>
-                              <strong>{ledgerTitle(entry)}</strong>
-                              <span>{ledgerPrimaryAmount(entry)}</span>
+                              <strong>
+                                {entry.actorDisplayName ?? copy().ledgerActorFallback}
+                              </strong>
+                              <span>{entry.occurredAt?.slice(0, 10) ?? '—'}</span>
                             </header>
-                            <Show when={ledgerSecondaryAmount(entry)}>
-                              {(secondary) => <p>{secondary()}</p>}
-                            </Show>
-                            <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
+                            {readySession()?.member.isAdmin ? (
+                              <>
+                                <div class="settings-grid">
+                                  <label class="settings-field settings-field--wide">
+                                    <span>{copy().purchaseReviewTitle}</span>
+                                    <input
+                                      value={
+                                        purchaseDraftMap()[entry.id]?.description ?? entry.title
+                                      }
+                                      onInput={(event) =>
+                                        setPurchaseDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              description: entry.title,
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            description: event.currentTarget.value
+                                          }
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label class="settings-field">
+                                    <span>{copy().paymentAmount}</span>
+                                    <input
+                                      value={
+                                        purchaseDraftMap()[entry.id]?.amountMajor ??
+                                        entry.amountMajor
+                                      }
+                                      onInput={(event) =>
+                                        setPurchaseDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              description: entry.title,
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            amountMajor: event.currentTarget.value
+                                          }
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label class="settings-field">
+                                    <span>{copy().settlementCurrency}</span>
+                                    <select
+                                      value={
+                                        purchaseDraftMap()[entry.id]?.currency ?? entry.currency
+                                      }
+                                      onChange={(event) =>
+                                        setPurchaseDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              description: entry.title,
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            currency: event.currentTarget.value as 'USD' | 'GEL'
+                                          }
+                                        }))
+                                      }
+                                    >
+                                      <option value="GEL">GEL</option>
+                                      <option value="USD">USD</option>
+                                    </select>
+                                  </label>
+                                </div>
+                                <div class="inline-actions">
+                                  <button
+                                    class="ghost-button"
+                                    type="button"
+                                    disabled={savingPurchaseId() === entry.id}
+                                    onClick={() => void handleUpdatePurchase(entry.id)}
+                                  >
+                                    {savingPurchaseId() === entry.id
+                                      ? copy().savingPurchase
+                                      : copy().purchaseSaveAction}
+                                  </button>
+                                  <button
+                                    class="ghost-button ghost-button--danger"
+                                    type="button"
+                                    disabled={deletingPurchaseId() === entry.id}
+                                    onClick={() => void handleDeletePurchase(entry.id)}
+                                  >
+                                    {deletingPurchaseId() === entry.id
+                                      ? copy().deletingPurchase
+                                      : copy().purchaseDeleteAction}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <p>{ledgerPrimaryAmount(entry)}</p>
+                                <Show when={ledgerSecondaryAmount(entry)}>
+                                  {(secondary) => <p>{secondary()}</p>}
+                                </Show>
+                                <p>{entry.title}</p>
+                              </>
+                            )}
                           </article>
                         ))}
                       </div>
@@ -1152,22 +1487,232 @@ function App() {
                   </article>
                   <article class="balance-item">
                     <header>
-                      <strong>{copy().paymentsTitle}</strong>
+                      <strong>{copy().paymentsAdminTitle}</strong>
                     </header>
+                    <Show when={readySession()?.member.isAdmin}>
+                      <p>{copy().paymentsAdminBody}</p>
+                      <div class="settings-grid">
+                        <label class="settings-field settings-field--wide">
+                          <span>{copy().paymentMember}</span>
+                          <select
+                            value={paymentForm().memberId}
+                            onChange={(event) =>
+                              setPaymentForm((current) => ({
+                                ...current,
+                                memberId: event.currentTarget.value
+                              }))
+                            }
+                          >
+                            {adminSettings()?.members.map((member) => (
+                              <option value={member.id}>{member.displayName}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label class="settings-field">
+                          <span>{copy().paymentKind}</span>
+                          <select
+                            value={paymentForm().kind}
+                            onChange={(event) =>
+                              setPaymentForm((current) => ({
+                                ...current,
+                                kind: event.currentTarget.value as 'rent' | 'utilities'
+                              }))
+                            }
+                          >
+                            <option value="rent">{copy().paymentLedgerRent}</option>
+                            <option value="utilities">{copy().paymentLedgerUtilities}</option>
+                          </select>
+                        </label>
+                        <label class="settings-field">
+                          <span>{copy().paymentAmount}</span>
+                          <input
+                            value={paymentForm().amountMajor}
+                            onInput={(event) =>
+                              setPaymentForm((current) => ({
+                                ...current,
+                                amountMajor: event.currentTarget.value
+                              }))
+                            }
+                          />
+                        </label>
+                        <label class="settings-field">
+                          <span>{copy().settlementCurrency}</span>
+                          <select
+                            value={paymentForm().currency}
+                            onChange={(event) =>
+                              setPaymentForm((current) => ({
+                                ...current,
+                                currency: event.currentTarget.value as 'USD' | 'GEL'
+                              }))
+                            }
+                          >
+                            <option value="GEL">GEL</option>
+                            <option value="USD">USD</option>
+                          </select>
+                        </label>
+                      </div>
+                      <button
+                        class="ghost-button"
+                        type="button"
+                        disabled={addingPayment() || paymentForm().amountMajor.trim().length === 0}
+                        onClick={() => void handleAddPayment()}
+                      >
+                        {addingPayment() ? copy().addingPayment : copy().paymentsAddAction}
+                      </button>
+                    </Show>
                     {paymentLedger().length === 0 ? (
                       <p>{copy().paymentsEmpty}</p>
                     ) : (
                       <div class="ledger-list">
                         {paymentLedger().map((entry) => (
-                          <article class="ledger-item">
+                          <article class="utility-bill-row">
                             <header>
-                              <strong>{ledgerTitle(entry)}</strong>
-                              <span>{ledgerPrimaryAmount(entry)}</span>
+                              <strong>
+                                {entry.actorDisplayName ?? copy().ledgerActorFallback}
+                              </strong>
+                              <span>{entry.occurredAt?.slice(0, 10) ?? '—'}</span>
                             </header>
-                            <Show when={ledgerSecondaryAmount(entry)}>
-                              {(secondary) => <p>{secondary()}</p>}
-                            </Show>
-                            <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
+                            {readySession()?.member.isAdmin ? (
+                              <>
+                                <div class="settings-grid">
+                                  <label class="settings-field settings-field--wide">
+                                    <span>{copy().paymentMember}</span>
+                                    <select
+                                      value={
+                                        paymentDraftMap()[entry.id]?.memberId ??
+                                        entry.memberId ??
+                                        ''
+                                      }
+                                      onChange={(event) =>
+                                        setPaymentDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              memberId: entry.memberId ?? '',
+                                              kind: entry.paymentKind ?? 'rent',
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            memberId: event.currentTarget.value
+                                          }
+                                        }))
+                                      }
+                                    >
+                                      {adminSettings()?.members.map((member) => (
+                                        <option value={member.id}>{member.displayName}</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label class="settings-field">
+                                    <span>{copy().paymentKind}</span>
+                                    <select
+                                      value={
+                                        paymentDraftMap()[entry.id]?.kind ??
+                                        entry.paymentKind ??
+                                        'rent'
+                                      }
+                                      onChange={(event) =>
+                                        setPaymentDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              memberId: entry.memberId ?? '',
+                                              kind: entry.paymentKind ?? 'rent',
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            kind: event.currentTarget.value as 'rent' | 'utilities'
+                                          }
+                                        }))
+                                      }
+                                    >
+                                      <option value="rent">{copy().paymentLedgerRent}</option>
+                                      <option value="utilities">
+                                        {copy().paymentLedgerUtilities}
+                                      </option>
+                                    </select>
+                                  </label>
+                                  <label class="settings-field">
+                                    <span>{copy().paymentAmount}</span>
+                                    <input
+                                      value={
+                                        paymentDraftMap()[entry.id]?.amountMajor ??
+                                        entry.amountMajor
+                                      }
+                                      onInput={(event) =>
+                                        setPaymentDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              memberId: entry.memberId ?? '',
+                                              kind: entry.paymentKind ?? 'rent',
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            amountMajor: event.currentTarget.value
+                                          }
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label class="settings-field">
+                                    <span>{copy().settlementCurrency}</span>
+                                    <select
+                                      value={
+                                        paymentDraftMap()[entry.id]?.currency ?? entry.currency
+                                      }
+                                      onChange={(event) =>
+                                        setPaymentDraftMap((current) => ({
+                                          ...current,
+                                          [entry.id]: {
+                                            ...(current[entry.id] ?? {
+                                              memberId: entry.memberId ?? '',
+                                              kind: entry.paymentKind ?? 'rent',
+                                              amountMajor: entry.amountMajor,
+                                              currency: entry.currency
+                                            }),
+                                            currency: event.currentTarget.value as 'USD' | 'GEL'
+                                          }
+                                        }))
+                                      }
+                                    >
+                                      <option value="GEL">GEL</option>
+                                      <option value="USD">USD</option>
+                                    </select>
+                                  </label>
+                                </div>
+                                <div class="inline-actions">
+                                  <button
+                                    class="ghost-button"
+                                    type="button"
+                                    disabled={savingPaymentId() === entry.id}
+                                    onClick={() => void handleUpdatePayment(entry.id)}
+                                  >
+                                    {savingPaymentId() === entry.id
+                                      ? copy().addingPayment
+                                      : copy().paymentSaveAction}
+                                  </button>
+                                  <button
+                                    class="ghost-button ghost-button--danger"
+                                    type="button"
+                                    disabled={deletingPaymentId() === entry.id}
+                                    onClick={() => void handleDeletePayment(entry.id)}
+                                  >
+                                    {deletingPaymentId() === entry.id
+                                      ? copy().deletingPayment
+                                      : copy().paymentDeleteAction}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <p>{ledgerPrimaryAmount(entry)}</p>
+                                <Show when={ledgerSecondaryAmount(entry)}>
+                                  {(secondary) => <p>{secondary()}</p>}
+                                </Show>
+                                <p>{ledgerTitle(entry)}</p>
+                              </>
+                            )}
                           </article>
                         ))}
                       </div>
@@ -1207,644 +1752,85 @@ function App() {
               </div>
             </article>
 
-            <section class="admin-section">
-              <header class="admin-section__header">
-                <div>
-                  <h3>{copy().billingCycleTitle}</h3>
-                  <p>{copy().billingSettingsTitle}</p>
-                </div>
-              </header>
-              <div class="admin-grid">
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().billingCycleTitle}</strong>
-                    <span>{cycleState()?.cycle?.period ?? copy().billingCycleEmpty}</span>
-                  </header>
-                  {cycleState()?.cycle ? (
-                    <>
-                      <p>
-                        {copy().billingCycleStatus.replace(
-                          '{currency}',
-                          cycleState()?.cycle?.currency ?? billingForm().settlementCurrency
-                        )}
-                      </p>
-                      <Show when={dashboard()}>
-                        {(data) => (
-                          <p>
-                            {copy().shareRent}: {data().rentSourceAmountMajor}{' '}
-                            {data().rentSourceCurrency}
-                            {data().rentSourceCurrency !== data().currency
-                              ? ` -> ${data().rentDisplayAmountMajor} ${data().currency}`
-                              : ''}
-                          </p>
-                        )}
-                      </Show>
-                      <div class="settings-grid">
-                        <label class="settings-field">
-                          <span>{copy().rentAmount}</span>
-                          <input
-                            value={cycleForm().rentAmountMajor}
-                            onInput={(event) =>
-                              setCycleForm((current) => ({
-                                ...current,
-                                rentAmountMajor: event.currentTarget.value
-                              }))
-                            }
-                          />
-                        </label>
-                        <label class="settings-field">
-                          <span>{copy().shareRent}</span>
-                          <select
-                            value={cycleForm().rentCurrency}
-                            onChange={(event) =>
-                              setCycleForm((current) => ({
-                                ...current,
-                                rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                              }))
-                            }
-                          >
-                            <option value="USD">USD</option>
-                            <option value="GEL">GEL</option>
-                          </select>
-                        </label>
-                      </div>
-                      <div class="inline-actions">
-                        <button
-                          class="ghost-button"
-                          type="button"
-                          disabled={
-                            savingCycleRent() || cycleForm().rentAmountMajor.trim().length === 0
-                          }
-                          onClick={() => void handleSaveCycleRent()}
-                        >
-                          {savingCycleRent() ? copy().savingCycleRent : copy().saveCycleRentAction}
-                        </button>
-                        <button
-                          class="ghost-button"
-                          type="button"
-                          disabled={closingCycle()}
-                          onClick={() => void handleCloseCycle()}
-                        >
-                          {closingCycle() ? copy().closingCycle : copy().closeCycleAction}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p>{copy().billingCycleOpenHint}</p>
-                      <div class="settings-grid">
-                        <label class="settings-field">
-                          <span>{copy().billingCyclePeriod}</span>
-                          <input
-                            value={cycleForm().period}
-                            onInput={(event) =>
-                              setCycleForm((current) => ({
-                                ...current,
-                                period: event.currentTarget.value
-                              }))
-                            }
-                          />
-                        </label>
-                        <div class="settings-field">
-                          <span>{copy().settlementCurrency}</span>
-                          <div class="settings-field__value">
-                            {billingForm().settlementCurrency}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        class="ghost-button"
-                        type="button"
-                        disabled={openingCycle()}
-                        onClick={() => void handleOpenCycle()}
-                      >
-                        {openingCycle() ? copy().openingCycle : copy().openCycleAction}
-                      </button>
-                    </>
-                  )}
-                </article>
+            <div class="section-switch">
+              {(
+                [
+                  ['billing', copy().houseSectionBilling],
+                  ['utilities', copy().houseSectionUtilities],
+                  ['members', copy().houseSectionMembers],
+                  ['topics', copy().houseSectionTopics]
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  classList={{ 'is-active': activeHouseSection() === key }}
+                  type="button"
+                  onClick={() => setActiveHouseSection(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().billingSettingsTitle}</strong>
-                    <span>{billingForm().settlementCurrency}</span>
-                  </header>
-                  <div class="settings-grid">
-                    <label class="settings-field">
-                      <span>{copy().settlementCurrency}</span>
-                      <select
-                        value={billingForm().settlementCurrency}
-                        onChange={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            settlementCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="GEL">GEL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().rentAmount}</span>
-                      <input
-                        value={billingForm().rentAmountMajor}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentAmountMajor: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().shareRent}</span>
-                      <select
-                        value={billingForm().rentCurrency}
-                        onChange={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="USD">USD</option>
-                        <option value="GEL">GEL</option>
-                      </select>
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().rentDueDay}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().rentDueDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentDueDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().rentWarningDay}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().rentWarningDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentWarningDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().utilitiesDueDay}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().utilitiesDueDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            utilitiesDueDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().utilitiesReminderDay}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().utilitiesReminderDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            utilitiesReminderDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field settings-field--wide">
-                      <span>{copy().timezone}</span>
-                      <input
-                        value={billingForm().timezone}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            timezone: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </label>
+            <Show when={activeHouseSection() === 'billing'}>
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <div>
+                    <h3>{copy().billingCycleTitle}</h3>
+                    <p>{copy().billingSettingsTitle}</p>
                   </div>
-                  <button
-                    class="ghost-button"
-                    type="button"
-                    disabled={savingBillingSettings()}
-                    onClick={() => void handleSaveBillingSettings()}
-                  >
-                    {savingBillingSettings() ? copy().savingSettings : copy().saveSettingsAction}
-                  </button>
-                </article>
-
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().householdLanguage}</strong>
-                    <span>{readySession()?.member.householdDefaultLocale.toUpperCase()}</span>
-                  </header>
-                  <p>{copy().householdSettingsBody}</p>
-                  <div class="locale-switch__buttons">
-                    <button
-                      classList={{
-                        'is-active': readySession()?.member.householdDefaultLocale === 'en'
-                      }}
-                      type="button"
-                      disabled={savingHouseholdLocale()}
-                      onClick={() => void handleHouseholdLocaleChange('en')}
-                    >
-                      EN
-                    </button>
-                    <button
-                      classList={{
-                        'is-active': readySession()?.member.householdDefaultLocale === 'ru'
-                      }}
-                      type="button"
-                      disabled={savingHouseholdLocale()}
-                      onClick={() => void handleHouseholdLocaleChange('ru')}
-                    >
-                      RU
-                    </button>
-                  </div>
-                </article>
-
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().topicBindingsTitle}</strong>
-                    <span>{String(adminSettings()?.topics.length ?? 0)}/4</span>
-                  </header>
-                  <p>{copy().topicBindingsBody}</p>
-                  <div class="balance-list admin-sublist">
-                    {(['purchase', 'feedback', 'reminders', 'payments'] as const).map((role) => {
-                      const binding = adminSettings()?.topics.find((topic) => topic.role === role)
-
-                      return (
-                        <article class="ledger-item">
-                          <header>
-                            <strong>{topicRoleLabel(role)}</strong>
-                            <span>{binding ? copy().topicBound : copy().topicUnbound}</span>
-                          </header>
-                          <p>
-                            {binding
-                              ? `${binding.topicName ?? `Topic #${binding.telegramThreadId}`} · #${binding.telegramThreadId}`
-                              : copy().topicUnbound}
-                          </p>
-                        </article>
-                      )
-                    })}
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <section class="admin-section">
-              <header class="admin-section__header">
-                <div>
-                  <h3>{copy().utilityCategoriesTitle}</h3>
-                  <p>{copy().utilityCategoriesBody}</p>
-                </div>
-              </header>
-              <div class="admin-grid">
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().utilityLedgerTitle}</strong>
-                    <span>{cycleForm().utilityCurrency}</span>
-                  </header>
-                  <div class="settings-grid">
-                    <label class="settings-field">
-                      <span>{copy().utilityCategoryLabel}</span>
-                      <select
-                        value={cycleForm().utilityCategorySlug}
-                        onChange={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityCategorySlug: event.currentTarget.value
-                          }))
-                        }
-                      >
-                        {adminSettings()
-                          ?.categories.filter((category) => category.isActive)
-                          .map((category) => (
-                            <option value={category.slug}>{category.name}</option>
-                          ))}
-                      </select>
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().utilityAmount}</span>
-                      <input
-                        value={cycleForm().utilityAmountMajor}
-                        onInput={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityAmountMajor: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </label>
-                    <label class="settings-field">
-                      <span>{copy().settlementCurrency}</span>
-                      <select
-                        value={cycleForm().utilityCurrency}
-                        onChange={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="GEL">GEL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </label>
-                  </div>
-                  <button
-                    class="ghost-button"
-                    type="button"
-                    disabled={
-                      savingUtilityBill() || cycleForm().utilityAmountMajor.trim().length === 0
-                    }
-                    onClick={() => void handleAddUtilityBill()}
-                  >
-                    {savingUtilityBill() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-                  </button>
-                  <div class="admin-sublist admin-sublist--plain">
-                    {cycleState()?.utilityBills.length ? (
-                      cycleState()?.utilityBills.map((bill) => (
-                        <article class="utility-bill-row">
-                          <header>
-                            <strong>
-                              {utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
-                            </strong>
-                            <span>{bill.createdAt.slice(0, 10)}</span>
-                          </header>
-                          <div class="settings-grid">
-                            <label class="settings-field settings-field--wide">
-                              <span>{copy().utilityCategoryName}</span>
-                              <input
-                                value={utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
-                                onInput={(event) =>
-                                  setUtilityBillDrafts((current) => ({
-                                    ...current,
-                                    [bill.id]: {
-                                      ...(current[bill.id] ?? {
-                                        billName: bill.billName,
-                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
-                                        currency: bill.currency
-                                      }),
-                                      billName: event.currentTarget.value
-                                    }
-                                  }))
-                                }
-                              />
-                            </label>
-                            <label class="settings-field">
-                              <span>{copy().utilityAmount}</span>
-                              <input
-                                value={
-                                  utilityBillDrafts()[bill.id]?.amountMajor ??
-                                  minorToMajorString(BigInt(bill.amountMinor))
-                                }
-                                onInput={(event) =>
-                                  setUtilityBillDrafts((current) => ({
-                                    ...current,
-                                    [bill.id]: {
-                                      ...(current[bill.id] ?? {
-                                        billName: bill.billName,
-                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
-                                        currency: bill.currency
-                                      }),
-                                      amountMajor: event.currentTarget.value
-                                    }
-                                  }))
-                                }
-                              />
-                            </label>
-                            <label class="settings-field">
-                              <span>{copy().settlementCurrency}</span>
-                              <select
-                                value={utilityBillDrafts()[bill.id]?.currency ?? bill.currency}
-                                onChange={(event) =>
-                                  setUtilityBillDrafts((current) => ({
-                                    ...current,
-                                    [bill.id]: {
-                                      ...(current[bill.id] ?? {
-                                        billName: bill.billName,
-                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
-                                        currency: bill.currency
-                                      }),
-                                      currency: event.currentTarget.value as 'USD' | 'GEL'
-                                    }
-                                  }))
-                                }
-                              >
-                                <option value="GEL">GEL</option>
-                                <option value="USD">USD</option>
-                              </select>
-                            </label>
-                          </div>
-                          <div class="inline-actions">
-                            <button
-                              class="ghost-button"
-                              type="button"
-                              disabled={savingUtilityBillId() === bill.id}
-                              onClick={() => void handleUpdateUtilityBill(bill.id)}
-                            >
-                              {savingUtilityBillId() === bill.id
-                                ? copy().savingUtilityBill
-                                : copy().saveUtilityBillAction}
-                            </button>
-                            <button
-                              class="ghost-button ghost-button--danger"
-                              type="button"
-                              disabled={deletingUtilityBillId() === bill.id}
-                              onClick={() => void handleDeleteUtilityBill(bill.id)}
-                            >
-                              {deletingUtilityBillId() === bill.id
-                                ? copy().deletingUtilityBill
-                                : copy().deleteUtilityBillAction}
-                            </button>
-                          </div>
-                        </article>
-                      ))
-                    ) : (
-                      <p>{copy().utilityBillsEmpty}</p>
-                    )}
-                  </div>
-                </article>
-
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().utilityCategoriesTitle}</strong>
-                    <span>{String(adminSettings()?.categories.length ?? 0)}</span>
-                  </header>
-                  <div class="admin-sublist admin-sublist--plain">
-                    {adminSettings()?.categories.map((category) => (
-                      <article class="utility-bill-row">
-                        <header>
-                          <strong>{category.name}</strong>
-                          <span>{category.isActive ? 'ON' : 'OFF'}</span>
-                        </header>
+                </header>
+                <div class="admin-grid">
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().billingCycleTitle}</strong>
+                      <span>{cycleState()?.cycle?.period ?? copy().billingCycleEmpty}</span>
+                    </header>
+                    {cycleState()?.cycle ? (
+                      <>
+                        <p>
+                          {copy().billingCycleStatus.replace(
+                            '{currency}',
+                            cycleState()?.cycle?.currency ?? billingForm().settlementCurrency
+                          )}
+                        </p>
+                        <Show when={dashboard()}>
+                          {(data) => (
+                            <p>
+                              {copy().shareRent}: {data().rentSourceAmountMajor}{' '}
+                              {data().rentSourceCurrency}
+                              {data().rentSourceCurrency !== data().currency
+                                ? ` -> ${data().rentDisplayAmountMajor} ${data().currency}`
+                                : ''}
+                            </p>
+                          )}
+                        </Show>
                         <div class="settings-grid">
-                          <label class="settings-field settings-field--wide">
-                            <span>{copy().utilityCategoryName}</span>
+                          <label class="settings-field">
+                            <span>{copy().rentAmount}</span>
                             <input
-                              value={category.name}
+                              value={cycleForm().rentAmountMajor}
                               onInput={(event) =>
-                                setAdminSettings((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        categories: current.categories.map((item) =>
-                                          item.slug === category.slug
-                                            ? {
-                                                ...item,
-                                                name: event.currentTarget.value
-                                              }
-                                            : item
-                                        )
-                                      }
-                                    : current
-                                )
+                                setCycleForm((current) => ({
+                                  ...current,
+                                  rentAmountMajor: event.currentTarget.value
+                                }))
                               }
                             />
                           </label>
                           <label class="settings-field">
-                            <span>{copy().utilityCategoryActive}</span>
+                            <span>{copy().shareRent}</span>
                             <select
-                              value={category.isActive ? 'true' : 'false'}
+                              value={cycleForm().rentCurrency}
                               onChange={(event) =>
-                                setAdminSettings((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        categories: current.categories.map((item) =>
-                                          item.slug === category.slug
-                                            ? {
-                                                ...item,
-                                                isActive: event.currentTarget.value === 'true'
-                                              }
-                                            : item
-                                        )
-                                      }
-                                    : current
-                                )
-                              }
-                            >
-                              <option value="true">ON</option>
-                              <option value="false">OFF</option>
-                            </select>
-                          </label>
-                        </div>
-                        <button
-                          class="ghost-button"
-                          type="button"
-                          disabled={savingCategorySlug() === category.slug}
-                          onClick={() =>
-                            void handleSaveUtilityCategory({
-                              slug: category.slug,
-                              name:
-                                adminSettings()?.categories.find(
-                                  (item) => item.slug === category.slug
-                                )?.name ?? category.name,
-                              sortOrder: category.sortOrder,
-                              isActive:
-                                adminSettings()?.categories.find(
-                                  (item) => item.slug === category.slug
-                                )?.isActive ?? category.isActive
-                            })
-                          }
-                        >
-                          {savingCategorySlug() === category.slug
-                            ? copy().savingCategory
-                            : copy().saveCategoryAction}
-                        </button>
-                      </article>
-                    ))}
-                    <article class="ledger-item">
-                      <label class="settings-field settings-field--wide">
-                        <span>{copy().utilityCategoryName}</span>
-                        <input
-                          value={newCategoryName()}
-                          onInput={(event) => setNewCategoryName(event.currentTarget.value)}
-                        />
-                      </label>
-                      <button
-                        class="ghost-button"
-                        type="button"
-                        disabled={
-                          newCategoryName().trim().length === 0 ||
-                          savingCategorySlug() === '__new__'
-                        }
-                        onClick={() =>
-                          void handleSaveUtilityCategory({
-                            name: newCategoryName(),
-                            sortOrder: adminSettings()?.categories.length ?? 0,
-                            isActive: true
-                          })
-                        }
-                      >
-                        {savingCategorySlug() === '__new__'
-                          ? copy().savingCategory
-                          : copy().addCategoryAction}
-                      </button>
-                    </article>
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <section class="admin-section">
-              <header class="admin-section__header">
-                <div>
-                  <h3>{copy().adminsTitle}</h3>
-                  <p>{copy().adminsBody}</p>
-                </div>
-              </header>
-              <div class="admin-grid">
-                <article class="balance-item admin-card--wide">
-                  <header>
-                    <strong>{copy().adminsTitle}</strong>
-                    <span>{String(adminSettings()?.members.length ?? 0)}</span>
-                  </header>
-                  <div class="balance-list admin-sublist">
-                    {adminSettings()?.members.map((member) => (
-                      <article class="utility-bill-row">
-                        <header>
-                          <strong>{member.displayName}</strong>
-                          <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
-                        </header>
-                        <div class="settings-grid">
-                          <label class="settings-field settings-field--wide">
-                            <span>{copy().rentWeightLabel}</span>
-                            <input
-                              inputmode="numeric"
-                              value={
-                                rentWeightDrafts()[member.id] ?? String(member.rentShareWeight)
-                              }
-                              onInput={(event) =>
-                                setRentWeightDrafts((current) => ({
+                                setCycleForm((current) => ({
                                   ...current,
-                                  [member.id]: event.currentTarget.value
+                                  rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
                                 }))
                               }
-                            />
+                            >
+                              <option value="USD">USD</option>
+                              <option value="GEL">GEL</option>
+                            </select>
                           </label>
                         </div>
                         <div class="inline-actions">
@@ -1852,71 +1838,668 @@ function App() {
                             class="ghost-button"
                             type="button"
                             disabled={
-                              savingRentWeightMemberId() === member.id ||
-                              Number(rentWeightDrafts()[member.id] ?? member.rentShareWeight) <= 0
+                              savingCycleRent() || cycleForm().rentAmountMajor.trim().length === 0
                             }
-                            onClick={() => void handleSaveRentWeight(member.id)}
+                            onClick={() => void handleSaveCycleRent()}
                           >
-                            {savingRentWeightMemberId() === member.id
-                              ? copy().savingRentWeight
-                              : copy().saveRentWeightAction}
+                            {savingCycleRent()
+                              ? copy().savingCycleRent
+                              : copy().saveCycleRentAction}
                           </button>
-                          {!member.isAdmin ? (
-                            <button
-                              class="ghost-button"
-                              type="button"
-                              disabled={promotingMemberId() === member.id}
-                              onClick={() => void handlePromoteMember(member.id)}
-                            >
-                              {promotingMemberId() === member.id
-                                ? copy().promotingAdmin
-                                : copy().promoteAdminAction}
-                            </button>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </article>
-
-                <article class="balance-item">
-                  <header>
-                    <strong>{copy().pendingMembersTitle}</strong>
-                    <span>{String(pendingMembers().length)}</span>
-                  </header>
-                  <p>{copy().pendingMembersBody}</p>
-                  {pendingMembers().length === 0 ? (
-                    <p>{copy().pendingMembersEmpty}</p>
-                  ) : (
-                    <div class="admin-sublist admin-sublist--plain">
-                      {pendingMembers().map((member) => (
-                        <article class="ledger-item">
-                          <header>
-                            <strong>{member.displayName}</strong>
-                            <span>{member.telegramUserId}</span>
-                          </header>
-                          <p>
-                            {member.username
-                              ? copy().pendingMemberHandle.replace('{username}', member.username)
-                              : (member.languageCode ?? 'Telegram')}
-                          </p>
                           <button
                             class="ghost-button"
                             type="button"
-                            disabled={approvingTelegramUserId() === member.telegramUserId}
-                            onClick={() => void handleApprovePendingMember(member.telegramUserId)}
+                            disabled={closingCycle()}
+                            onClick={() => void handleCloseCycle()}
                           >
-                            {approvingTelegramUserId() === member.telegramUserId
-                              ? copy().approvingMember
-                              : copy().approveMemberAction}
+                            {closingCycle() ? copy().closingCycle : copy().closeCycleAction}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p>{copy().billingCycleOpenHint}</p>
+                        <div class="settings-grid">
+                          <label class="settings-field">
+                            <span>{copy().billingCyclePeriod}</span>
+                            <input
+                              value={cycleForm().period}
+                              onInput={(event) =>
+                                setCycleForm((current) => ({
+                                  ...current,
+                                  period: event.currentTarget.value
+                                }))
+                              }
+                            />
+                          </label>
+                          <div class="settings-field">
+                            <span>{copy().settlementCurrency}</span>
+                            <div class="settings-field__value">
+                              {billingForm().settlementCurrency}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          class="ghost-button"
+                          type="button"
+                          disabled={openingCycle()}
+                          onClick={() => void handleOpenCycle()}
+                        >
+                          {openingCycle() ? copy().openingCycle : copy().openCycleAction}
+                        </button>
+                      </>
+                    )}
+                  </article>
+
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().billingSettingsTitle}</strong>
+                      <span>{billingForm().settlementCurrency}</span>
+                    </header>
+                    <div class="settings-grid">
+                      <label class="settings-field">
+                        <span>{copy().settlementCurrency}</span>
+                        <select
+                          value={billingForm().settlementCurrency}
+                          onChange={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              settlementCurrency: event.currentTarget.value as 'USD' | 'GEL'
+                            }))
+                          }
+                        >
+                          <option value="GEL">GEL</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().rentAmount}</span>
+                        <input
+                          value={billingForm().rentAmountMajor}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              rentAmountMajor: event.currentTarget.value
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().shareRent}</span>
+                        <select
+                          value={billingForm().rentCurrency}
+                          onChange={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
+                            }))
+                          }
+                        >
+                          <option value="USD">USD</option>
+                          <option value="GEL">GEL</option>
+                        </select>
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().rentDueDay}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={String(billingForm().rentDueDay)}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              rentDueDay: Number(event.currentTarget.value)
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().rentWarningDay}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={String(billingForm().rentWarningDay)}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              rentWarningDay: Number(event.currentTarget.value)
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().utilitiesDueDay}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={String(billingForm().utilitiesDueDay)}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              utilitiesDueDay: Number(event.currentTarget.value)
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().utilitiesReminderDay}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={String(billingForm().utilitiesReminderDay)}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              utilitiesReminderDay: Number(event.currentTarget.value)
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field settings-field--wide">
+                        <span>{copy().timezone}</span>
+                        <input
+                          value={billingForm().timezone}
+                          onInput={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              timezone: event.currentTarget.value
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      disabled={savingBillingSettings()}
+                      onClick={() => void handleSaveBillingSettings()}
+                    >
+                      {savingBillingSettings() ? copy().savingSettings : copy().saveSettingsAction}
+                    </button>
+                  </article>
+
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().householdLanguage}</strong>
+                      <span>{readySession()?.member.householdDefaultLocale.toUpperCase()}</span>
+                    </header>
+                    <p>{copy().householdSettingsBody}</p>
+                    <div class="locale-switch__buttons">
+                      <button
+                        classList={{
+                          'is-active': readySession()?.member.householdDefaultLocale === 'en'
+                        }}
+                        type="button"
+                        disabled={savingHouseholdLocale()}
+                        onClick={() => void handleHouseholdLocaleChange('en')}
+                      >
+                        EN
+                      </button>
+                      <button
+                        classList={{
+                          'is-active': readySession()?.member.householdDefaultLocale === 'ru'
+                        }}
+                        type="button"
+                        disabled={savingHouseholdLocale()}
+                        onClick={() => void handleHouseholdLocaleChange('ru')}
+                      >
+                        RU
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </Show>
+
+            <Show when={activeHouseSection() === 'utilities'}>
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <div>
+                    <h3>{copy().utilityCategoriesTitle}</h3>
+                    <p>{copy().utilityCategoriesBody}</p>
+                  </div>
+                </header>
+                <div class="admin-grid">
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().utilityLedgerTitle}</strong>
+                      <span>{cycleForm().utilityCurrency}</span>
+                    </header>
+                    <div class="settings-grid">
+                      <label class="settings-field">
+                        <span>{copy().utilityCategoryLabel}</span>
+                        <select
+                          value={cycleForm().utilityCategorySlug}
+                          onChange={(event) =>
+                            setCycleForm((current) => ({
+                              ...current,
+                              utilityCategorySlug: event.currentTarget.value
+                            }))
+                          }
+                        >
+                          {adminSettings()
+                            ?.categories.filter((category) => category.isActive)
+                            .map((category) => (
+                              <option value={category.slug}>{category.name}</option>
+                            ))}
+                        </select>
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().utilityAmount}</span>
+                        <input
+                          value={cycleForm().utilityAmountMajor}
+                          onInput={(event) =>
+                            setCycleForm((current) => ({
+                              ...current,
+                              utilityAmountMajor: event.currentTarget.value
+                            }))
+                          }
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>{copy().settlementCurrency}</span>
+                        <select
+                          value={cycleForm().utilityCurrency}
+                          onChange={(event) =>
+                            setCycleForm((current) => ({
+                              ...current,
+                              utilityCurrency: event.currentTarget.value as 'USD' | 'GEL'
+                            }))
+                          }
+                        >
+                          <option value="GEL">GEL</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </label>
+                    </div>
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      disabled={
+                        savingUtilityBill() || cycleForm().utilityAmountMajor.trim().length === 0
+                      }
+                      onClick={() => void handleAddUtilityBill()}
+                    >
+                      {savingUtilityBill() ? copy().savingUtilityBill : copy().addUtilityBillAction}
+                    </button>
+                    <div class="admin-sublist admin-sublist--plain">
+                      {cycleState()?.utilityBills.length ? (
+                        cycleState()?.utilityBills.map((bill) => (
+                          <article class="utility-bill-row">
+                            <header>
+                              <strong>
+                                {utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
+                              </strong>
+                              <span>{bill.createdAt.slice(0, 10)}</span>
+                            </header>
+                            <div class="settings-grid">
+                              <label class="settings-field settings-field--wide">
+                                <span>{copy().utilityCategoryName}</span>
+                                <input
+                                  value={utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
+                                  onInput={(event) =>
+                                    setUtilityBillDrafts((current) => ({
+                                      ...current,
+                                      [bill.id]: {
+                                        ...(current[bill.id] ?? {
+                                          billName: bill.billName,
+                                          amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                          currency: bill.currency
+                                        }),
+                                        billName: event.currentTarget.value
+                                      }
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label class="settings-field">
+                                <span>{copy().utilityAmount}</span>
+                                <input
+                                  value={
+                                    utilityBillDrafts()[bill.id]?.amountMajor ??
+                                    minorToMajorString(BigInt(bill.amountMinor))
+                                  }
+                                  onInput={(event) =>
+                                    setUtilityBillDrafts((current) => ({
+                                      ...current,
+                                      [bill.id]: {
+                                        ...(current[bill.id] ?? {
+                                          billName: bill.billName,
+                                          amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                          currency: bill.currency
+                                        }),
+                                        amountMajor: event.currentTarget.value
+                                      }
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label class="settings-field">
+                                <span>{copy().settlementCurrency}</span>
+                                <select
+                                  value={utilityBillDrafts()[bill.id]?.currency ?? bill.currency}
+                                  onChange={(event) =>
+                                    setUtilityBillDrafts((current) => ({
+                                      ...current,
+                                      [bill.id]: {
+                                        ...(current[bill.id] ?? {
+                                          billName: bill.billName,
+                                          amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                          currency: bill.currency
+                                        }),
+                                        currency: event.currentTarget.value as 'USD' | 'GEL'
+                                      }
+                                    }))
+                                  }
+                                >
+                                  <option value="GEL">GEL</option>
+                                  <option value="USD">USD</option>
+                                </select>
+                              </label>
+                            </div>
+                            <div class="inline-actions">
+                              <button
+                                class="ghost-button"
+                                type="button"
+                                disabled={savingUtilityBillId() === bill.id}
+                                onClick={() => void handleUpdateUtilityBill(bill.id)}
+                              >
+                                {savingUtilityBillId() === bill.id
+                                  ? copy().savingUtilityBill
+                                  : copy().saveUtilityBillAction}
+                              </button>
+                              <button
+                                class="ghost-button ghost-button--danger"
+                                type="button"
+                                disabled={deletingUtilityBillId() === bill.id}
+                                onClick={() => void handleDeleteUtilityBill(bill.id)}
+                              >
+                                {deletingUtilityBillId() === bill.id
+                                  ? copy().deletingUtilityBill
+                                  : copy().deleteUtilityBillAction}
+                              </button>
+                            </div>
+                          </article>
+                        ))
+                      ) : (
+                        <p>{copy().utilityBillsEmpty}</p>
+                      )}
+                    </div>
+                  </article>
+
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().utilityCategoriesTitle}</strong>
+                      <span>{String(adminSettings()?.categories.length ?? 0)}</span>
+                    </header>
+                    <div class="admin-sublist admin-sublist--plain">
+                      {adminSettings()?.categories.map((category) => (
+                        <article class="utility-bill-row">
+                          <header>
+                            <strong>{category.name}</strong>
+                            <span>{category.isActive ? 'ON' : 'OFF'}</span>
+                          </header>
+                          <div class="settings-grid">
+                            <label class="settings-field settings-field--wide">
+                              <span>{copy().utilityCategoryName}</span>
+                              <input
+                                value={category.name}
+                                onInput={(event) =>
+                                  setAdminSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          categories: current.categories.map((item) =>
+                                            item.slug === category.slug
+                                              ? {
+                                                  ...item,
+                                                  name: event.currentTarget.value
+                                                }
+                                              : item
+                                          )
+                                        }
+                                      : current
+                                  )
+                                }
+                              />
+                            </label>
+                            <label class="settings-field">
+                              <span>{copy().utilityCategoryActive}</span>
+                              <select
+                                value={category.isActive ? 'true' : 'false'}
+                                onChange={(event) =>
+                                  setAdminSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          categories: current.categories.map((item) =>
+                                            item.slug === category.slug
+                                              ? {
+                                                  ...item,
+                                                  isActive: event.currentTarget.value === 'true'
+                                                }
+                                              : item
+                                          )
+                                        }
+                                      : current
+                                  )
+                                }
+                              >
+                                <option value="true">ON</option>
+                                <option value="false">OFF</option>
+                              </select>
+                            </label>
+                          </div>
+                          <button
+                            class="ghost-button"
+                            type="button"
+                            disabled={savingCategorySlug() === category.slug}
+                            onClick={() =>
+                              void handleSaveUtilityCategory({
+                                slug: category.slug,
+                                name:
+                                  adminSettings()?.categories.find(
+                                    (item) => item.slug === category.slug
+                                  )?.name ?? category.name,
+                                sortOrder: category.sortOrder,
+                                isActive:
+                                  adminSettings()?.categories.find(
+                                    (item) => item.slug === category.slug
+                                  )?.isActive ?? category.isActive
+                              })
+                            }
+                          >
+                            {savingCategorySlug() === category.slug
+                              ? copy().savingCategory
+                              : copy().saveCategoryAction}
                           </button>
                         </article>
                       ))}
+                      <article class="ledger-item">
+                        <label class="settings-field settings-field--wide">
+                          <span>{copy().utilityCategoryName}</span>
+                          <input
+                            value={newCategoryName()}
+                            onInput={(event) => setNewCategoryName(event.currentTarget.value)}
+                          />
+                        </label>
+                        <button
+                          class="ghost-button"
+                          type="button"
+                          disabled={
+                            newCategoryName().trim().length === 0 ||
+                            savingCategorySlug() === '__new__'
+                          }
+                          onClick={() =>
+                            void handleSaveUtilityCategory({
+                              name: newCategoryName(),
+                              sortOrder: adminSettings()?.categories.length ?? 0,
+                              isActive: true
+                            })
+                          }
+                        >
+                          {savingCategorySlug() === '__new__'
+                            ? copy().savingCategory
+                            : copy().addCategoryAction}
+                        </button>
+                      </article>
                     </div>
-                  )}
-                </article>
-              </div>
-            </section>
+                  </article>
+                </div>
+              </section>
+            </Show>
+
+            <Show when={activeHouseSection() === 'members'}>
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <div>
+                    <h3>{copy().adminsTitle}</h3>
+                    <p>{copy().adminsBody}</p>
+                  </div>
+                </header>
+                <div class="admin-grid">
+                  <article class="balance-item admin-card--wide">
+                    <header>
+                      <strong>{copy().adminsTitle}</strong>
+                      <span>{String(adminSettings()?.members.length ?? 0)}</span>
+                    </header>
+                    <div class="balance-list admin-sublist">
+                      {adminSettings()?.members.map((member) => (
+                        <article class="utility-bill-row">
+                          <header>
+                            <strong>{member.displayName}</strong>
+                            <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
+                          </header>
+                          <div class="settings-grid">
+                            <label class="settings-field settings-field--wide">
+                              <span>{copy().rentWeightLabel}</span>
+                              <input
+                                inputmode="numeric"
+                                value={
+                                  rentWeightDrafts()[member.id] ?? String(member.rentShareWeight)
+                                }
+                                onInput={(event) =>
+                                  setRentWeightDrafts((current) => ({
+                                    ...current,
+                                    [member.id]: event.currentTarget.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div class="inline-actions">
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={
+                                savingRentWeightMemberId() === member.id ||
+                                Number(rentWeightDrafts()[member.id] ?? member.rentShareWeight) <= 0
+                              }
+                              onClick={() => void handleSaveRentWeight(member.id)}
+                            >
+                              {savingRentWeightMemberId() === member.id
+                                ? copy().savingRentWeight
+                                : copy().saveRentWeightAction}
+                            </button>
+                            {!member.isAdmin ? (
+                              <button
+                                class="ghost-button"
+                                type="button"
+                                disabled={promotingMemberId() === member.id}
+                                onClick={() => void handlePromoteMember(member.id)}
+                              >
+                                {promotingMemberId() === member.id
+                                  ? copy().promotingAdmin
+                                  : copy().promoteAdminAction}
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().pendingMembersTitle}</strong>
+                      <span>{String(pendingMembers().length)}</span>
+                    </header>
+                    <p>{copy().pendingMembersBody}</p>
+                    {pendingMembers().length === 0 ? (
+                      <p>{copy().pendingMembersEmpty}</p>
+                    ) : (
+                      <div class="admin-sublist admin-sublist--plain">
+                        {pendingMembers().map((member) => (
+                          <article class="ledger-item">
+                            <header>
+                              <strong>{member.displayName}</strong>
+                              <span>{member.telegramUserId}</span>
+                            </header>
+                            <p>
+                              {member.username
+                                ? copy().pendingMemberHandle.replace('{username}', member.username)
+                                : (member.languageCode ?? 'Telegram')}
+                            </p>
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={approvingTelegramUserId() === member.telegramUserId}
+                              onClick={() => void handleApprovePendingMember(member.telegramUserId)}
+                            >
+                              {approvingTelegramUserId() === member.telegramUserId
+                                ? copy().approvingMember
+                                : copy().approveMemberAction}
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                </div>
+              </section>
+            </Show>
+
+            <Show when={activeHouseSection() === 'topics'}>
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <div>
+                    <h3>{copy().topicBindingsTitle}</h3>
+                    <p>{copy().topicBindingsBody}</p>
+                  </div>
+                </header>
+                <div class="admin-grid">
+                  <article class="balance-item admin-card--wide">
+                    <header>
+                      <strong>{copy().topicBindingsTitle}</strong>
+                      <span>{String(adminSettings()?.topics.length ?? 0)}/4</span>
+                    </header>
+                    <div class="balance-list admin-sublist">
+                      {(['purchase', 'feedback', 'reminders', 'payments'] as const).map((role) => {
+                        const binding = adminSettings()?.topics.find((topic) => topic.role === role)
+
+                        return (
+                          <article class="ledger-item">
+                            <header>
+                              <strong>{topicRoleLabel(role)}</strong>
+                              <span>{binding ? copy().topicBound : copy().topicUnbound}</span>
+                            </header>
+                            <p>
+                              {binding
+                                ? `${binding.topicName ?? `Topic #${binding.telegramThreadId}`} · #${binding.telegramThreadId}`
+                                : copy().topicUnbound}
+                            </p>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </Show>
           </div>
         ) : (
           <div class="balance-list">
