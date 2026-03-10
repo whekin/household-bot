@@ -272,6 +272,19 @@ function App() {
       : copy().paymentLedgerRent
   }
 
+  function topicRoleLabel(role: 'purchase' | 'feedback' | 'reminders' | 'payments'): string {
+    switch (role) {
+      case 'purchase':
+        return copy().topicPurchase
+      case 'feedback':
+        return copy().topicFeedback
+      case 'reminders':
+        return copy().topicReminders
+      case 'payments':
+        return copy().topicPayments
+    }
+  }
+
   async function loadDashboard(initData: string) {
     try {
       setDashboard(await fetchMiniAppDashboard(initData))
@@ -1391,6 +1404,33 @@ function App() {
                     >
                       RU
                     </button>
+                  </div>
+                </article>
+
+                <article class="balance-item">
+                  <header>
+                    <strong>{copy().topicBindingsTitle}</strong>
+                    <span>{String(adminSettings()?.topics.length ?? 0)}/4</span>
+                  </header>
+                  <p>{copy().topicBindingsBody}</p>
+                  <div class="balance-list admin-sublist">
+                    {(['purchase', 'feedback', 'reminders', 'payments'] as const).map((role) => {
+                      const binding = adminSettings()?.topics.find((topic) => topic.role === role)
+
+                      return (
+                        <article class="ledger-item">
+                          <header>
+                            <strong>{topicRoleLabel(role)}</strong>
+                            <span>{binding ? copy().topicBound : copy().topicUnbound}</span>
+                          </header>
+                          <p>
+                            {binding
+                              ? `${binding.topicName ?? `Topic #${binding.telegramThreadId}`} · #${binding.telegramThreadId}`
+                              : copy().topicUnbound}
+                          </p>
+                        </article>
+                      )
+                    })}
                   </div>
                 </article>
               </div>

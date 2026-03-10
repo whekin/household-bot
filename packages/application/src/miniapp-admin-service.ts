@@ -3,6 +3,7 @@ import type {
   HouseholdConfigurationRepository,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
+  HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
 import { Money, type CurrencyCode } from '@household/domain'
@@ -27,6 +28,7 @@ export interface MiniAppAdminService {
         settings: HouseholdBillingSettingsRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
         members: readonly HouseholdMemberRecord[]
+        topics: readonly HouseholdTopicBindingRecord[]
       }
     | {
         status: 'rejected'
@@ -138,17 +140,19 @@ export function createMiniAppAdminService(
         }
       }
 
-      const [settings, categories, members] = await Promise.all([
+      const [settings, categories, members, topics] = await Promise.all([
         repository.getHouseholdBillingSettings(input.householdId),
         repository.listHouseholdUtilityCategories(input.householdId),
-        repository.listHouseholdMembers(input.householdId)
+        repository.listHouseholdMembers(input.householdId),
+        repository.listHouseholdTopicBindings(input.householdId)
       ])
 
       return {
         status: 'ok',
         settings,
         categories,
-        members
+        members,
+        topics
       }
     },
 

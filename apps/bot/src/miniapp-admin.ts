@@ -384,6 +384,7 @@ export function createMiniAppSettingsHandler(options: {
             ok: true,
             authorized: true,
             settings: serializeBillingSettings(result.settings),
+            topics: result.topics,
             categories: result.categories,
             members: result.members
           },

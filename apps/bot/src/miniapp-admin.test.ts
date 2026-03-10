@@ -41,7 +41,14 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       }) satisfies HouseholdTopicBindingRecord,
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
-    listHouseholdTopicBindings: async () => [],
+    listHouseholdTopicBindings: async () => [
+      {
+        householdId: household.householdId,
+        role: 'purchase',
+        telegramThreadId: '2',
+        topicName: 'Общие покупки'
+      }
+    ],
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async (input) => ({
       householdId: household.householdId,
@@ -381,6 +388,14 @@ describe('createMiniAppSettingsHandler', () => {
         utilitiesReminderDay: 3,
         timezone: 'Asia/Tbilisi'
       },
+      topics: [
+        {
+          householdId: 'household-1',
+          role: 'purchase',
+          telegramThreadId: '2',
+          topicName: 'Общие покупки'
+        }
+      ],
       categories: [],
       members: [
         {

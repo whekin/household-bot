@@ -64,6 +64,12 @@ export interface MiniAppUtilityCategory {
   isActive: boolean
 }
 
+export interface MiniAppTopicBinding {
+  role: 'purchase' | 'feedback' | 'reminders' | 'payments'
+  telegramThreadId: string
+  topicName: string | null
+}
+
 export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
@@ -104,6 +110,7 @@ export interface MiniAppDashboard {
 
 export interface MiniAppAdminSettingsPayload {
   settings: MiniAppBillingSettings
+  topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
   members: readonly MiniAppMember[]
 }
@@ -349,6 +356,7 @@ export async function fetchMiniAppAdminSettings(
     ok: boolean
     authorized?: boolean
     settings?: MiniAppBillingSettings
+    topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
     members?: MiniAppMember[]
     error?: string
@@ -358,6 +366,7 @@ export async function fetchMiniAppAdminSettings(
     !response.ok ||
     !payload.authorized ||
     !payload.settings ||
+    !payload.topics ||
     !payload.categories ||
     !payload.members
   ) {
@@ -366,6 +375,7 @@ export async function fetchMiniAppAdminSettings(
 
   return {
     settings: payload.settings,
+    topics: payload.topics,
     categories: payload.categories,
     members: payload.members
   }

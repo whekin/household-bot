@@ -27,7 +27,14 @@ function repository(): HouseholdConfigurationRepository {
     }),
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
-    listHouseholdTopicBindings: async () => [],
+    listHouseholdTopicBindings: async () => [
+      {
+        householdId: 'household-1',
+        role: 'purchase',
+        telegramThreadId: '2',
+        topicName: 'Общие покупки'
+      }
+    ],
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => ({
       householdId: 'household-1',
@@ -167,7 +174,7 @@ function repository(): HouseholdConfigurationRepository {
 }
 
 describe('createMiniAppAdminService', () => {
-  test('returns billing settings, utility categories, and members for admins', async () => {
+  test('returns billing settings, topic bindings, utility categories, and members for admins', async () => {
     const service = createMiniAppAdminService(repository())
 
     const result = await service.getSettings({
@@ -188,6 +195,14 @@ describe('createMiniAppAdminService', () => {
         utilitiesReminderDay: 3,
         timezone: 'Asia/Tbilisi'
       },
+      topics: [
+        {
+          householdId: 'household-1',
+          role: 'purchase',
+          telegramThreadId: '2',
+          topicName: 'Общие покупки'
+        }
+      ],
       categories: [],
       members: []
     })
