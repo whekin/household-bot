@@ -6,6 +6,12 @@ export {
   type ReminderTarget,
   type ReminderType
 } from './reminders'
+export type {
+  ClaimProcessedBotMessageInput,
+  ClaimProcessedBotMessageResult,
+  ProcessedBotMessageRepository,
+  ReleaseProcessedBotMessageInput
+} from './processed-bot-messages'
 export {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdConfigurationRepository,

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import type { FinanceCommandService } from '@household/application'
 import type {
   HouseholdConfigurationRepository,
+  ProcessedBotMessageRepository,
   TelegramPendingActionRecord,
   TelegramPendingActionRepository
 } from '@household/ports'
@@ -313,6 +314,30 @@ function createPromptRepository(): TelegramPendingActionRepository {
   }
 }
 
+function createProcessedBotMessageRepository(): ProcessedBotMessageRepository {
+  const claims = new Set<string>()
+
+  return {
+    async claimMessage(input) {
+      const key = `${input.householdId}:${input.source}:${input.sourceMessageKey}`
+      if (claims.has(key)) {
+        return {
+          claimed: false
+        }
+      }
+
+      claims.add(key)
+
+      return {
+        claimed: true
+      }
+    },
+    async releaseMessage(input) {
+      claims.delete(`${input.householdId}:${input.source}:${input.sourceMessageKey}`)
+    }
+  }
+}
+
 describe('registerDmAssistant', () => {
   test('replies with a conversational DM answer and records token usage', async () => {
     const bot = createTestBot()
@@ -372,19 +397,26 @@ describe('registerDmAssistant', () => {
 
     await bot.handleUpdate(privateMessageUpdate('How much do I still owe this month?') as never)
 
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: 123456,
+        action: 'typing'
+      }
+    })
+    expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
         chat_id: 123456,
         text: 'Working on it...'
       }
     })
-    expect(calls[1]).toMatchObject({
+    expect(calls[2]).toMatchObject({
       method: 'editMessageText',
       payload: {
         chat_id: 123456,
-        message_id: 1,
+        message_id: 2,
         text: 'You still owe 350.00 GEL this cycle.'
       }
     })
@@ -460,6 +492,82 @@ describe('registerDmAssistant', () => {
       amountMinor: '70000',
       currency: 'GEL'
     })
+  })
+
+  test('ignores duplicate deliveries of the same DM update', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const usageTracker = createInMemoryAssistantUsageTracker()
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: 123456,
+              type: 'private'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          return {
+            text: 'You still owe 350.00 GEL this cycle.',
+            usage: {
+              inputTokens: 100,
+              outputTokens: 25,
+              totalTokens: 125
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      messageProcessingRepository: createProcessedBotMessageRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker
+    })
+
+    const update = privateMessageUpdate('How much do I still owe this month?')
+    await bot.handleUpdate(update as never)
+    await bot.handleUpdate(update as never)
+
+    expect(calls).toHaveLength(3)
+    expect(usageTracker.listHouseholdUsage('household-1')).toEqual([
+      {
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        requestCount: 1,
+        inputTokens: 100,
+        outputTokens: 25,
+        totalTokens: 125,
+        updatedAt: expect.any(String)
+      }
+    ])
   })
 
   test('confirms a pending payment proposal from DM callback', async () => {

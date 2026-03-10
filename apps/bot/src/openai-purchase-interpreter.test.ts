@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  buildPurchaseInterpretationInput,
   createOpenAiPurchaseInterpreter,
   type PurchaseInterpretation
 } from './openai-purchase-interpreter'
@@ -15,6 +16,22 @@ function successfulResponse(payload: unknown): Response {
 }
 
 describe('createOpenAiPurchaseInterpreter', () => {
+  test('includes clarification context when provided', () => {
+    expect(
+      buildPurchaseInterpretationInput('лари', {
+        recentMessages: ['Купил сосисоны, отдал 45 кровных']
+      })
+    ).toBe(
+      [
+        'Recent relevant messages from the same sender in this purchase topic:',
+        '1. Купил сосисоны, отдал 45 кровных',
+        '',
+        'Latest message to interpret:',
+        'лари'
+      ].join('\n')
+    )
+  })
+
   test('parses nested responses api content output', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
     expect(interpreter).toBeDefined()
@@ -132,6 +149,50 @@ describe('createOpenAiPurchaseInterpreter', () => {
         currency: 'GEL',
         itemDescription: 'шампунь',
         confidence: 92,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('defaults omitted purchase currency to the household currency', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'clarification',
+                  amountMinor: '4500',
+                  currency: null,
+                  itemDescription: 'сосисоны',
+                  confidence: 85,
+                  clarificationQuestion: 'В какой валюте 45?'
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Купил сосисоны, отдал 45 кровных', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 4500n,
+        currency: 'GEL',
+        itemDescription: 'сосисоны',
+        confidence: 85,
         parserMode: 'llm',
         clarificationQuestion: null
       })

@@ -447,8 +447,16 @@ describe('registerPurchaseTopicIngestion', () => {
 
     await bot.handleUpdate(purchaseUpdate('Bought toilet paper 30 gel') as never)
 
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: Number(config.householdChatId),
+        action: 'typing',
+        message_thread_id: config.purchaseTopicId
+      }
+    })
+    expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
         chat_id: Number(config.householdChatId),
@@ -458,11 +466,11 @@ describe('registerPurchaseTopicIngestion', () => {
         }
       }
     })
-    expect(calls[1]).toMatchObject({
+    expect(calls[2]).toMatchObject({
       method: 'editMessageText',
       payload: {
         chat_id: Number(config.householdChatId),
-        message_id: 1,
+        message_id: 2,
         text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.',
         reply_markup: {
           inline_keyboard: [

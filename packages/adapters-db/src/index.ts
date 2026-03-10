@@ -1,5 +1,6 @@
 export { createDbAnonymousFeedbackRepository } from './anonymous-feedback-repository'
 export { createDbFinanceRepository } from './finance-repository'
 export { createDbHouseholdConfigurationRepository } from './household-config-repository'
+export { createDbProcessedBotMessageRepository } from './processed-bot-message-repository'
 export { createDbReminderDispatchRepository } from './reminder-dispatch-repository'
 export { createDbTelegramPendingActionRepository } from './telegram-pending-action-repository'

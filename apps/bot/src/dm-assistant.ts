@@ -3,6 +3,7 @@ import { Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
+  ProcessedBotMessageRepository,
   TelegramPendingActionRepository
 } from '@household/ports'
 import type { Bot, Context } from 'grammy'
@@ -10,10 +11,12 @@ import type { Bot, Context } from 'grammy'
 import { resolveReplyLocale } from './bot-locale'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantReply, ConversationalAssistant } from './openai-chat-assistant'
+import { startTypingIndicator } from './telegram-chat-action'
 
 const ASSISTANT_PAYMENT_ACTION = 'assistant_payment_confirmation' as const
 const ASSISTANT_PAYMENT_CONFIRM_CALLBACK_PREFIX = 'assistant_payment:confirm:'
 const ASSISTANT_PAYMENT_CANCEL_CALLBACK_PREFIX = 'assistant_payment:cancel:'
+const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
 const MEMORY_SUMMARY_MAX_CHARS = 1200
 
 interface AssistantConversationTurn {
@@ -465,6 +468,7 @@ export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
   householdConfigurationRepository: HouseholdConfigurationRepository
+  messageProcessingRepository?: ProcessedBotMessageRepository
   promptRepository: TelegramPendingActionRepository
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   memoryStore: AssistantConversationMemoryStore
@@ -641,135 +645,181 @@ export function registerDmAssistant(options: {
     }
 
     const member = memberships[0]!
-    const rateLimit = options.rateLimiter.consume(`${member.householdId}:${telegramUserId}`)
-    if (!rateLimit.allowed) {
-      await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
-      return
-    }
+    const updateId = ctx.update.update_id?.toString()
+    const dedupeClaim =
+      options.messageProcessingRepository && typeof updateId === 'string'
+        ? {
+            repository: options.messageProcessingRepository,
+            updateId
+          }
+        : null
 
-    const financeService = options.financeServiceForHousehold(member.householdId)
-    const paymentProposal = await maybeCreatePaymentProposal({
-      rawText: ctx.msg.text,
-      householdId: member.householdId,
-      memberId: member.id,
-      financeService,
-      householdConfigurationRepository: options.householdConfigurationRepository
-    })
-
-    if (paymentProposal.status === 'clarification') {
-      await ctx.reply(t.paymentClarification)
-      return
-    }
-
-    if (paymentProposal.status === 'unsupported_currency') {
-      await ctx.reply(t.paymentUnsupportedCurrency)
-      return
-    }
-
-    if (paymentProposal.status === 'no_balance') {
-      await ctx.reply(t.paymentNoBalance)
-      return
-    }
-
-    if (paymentProposal.status === 'proposal') {
-      await options.promptRepository.upsertPendingAction({
-        telegramUserId,
-        telegramChatId,
-        action: ASSISTANT_PAYMENT_ACTION,
-        payload: {
-          ...paymentProposal.payload
-        },
-        expiresAt: null
+    if (dedupeClaim) {
+      const claim = await dedupeClaim.repository.claimMessage({
+        householdId: member.householdId,
+        source: DM_ASSISTANT_MESSAGE_SOURCE,
+        sourceMessageKey: dedupeClaim.updateId
       })
 
-      const amount = Money.fromMinor(
-        BigInt(paymentProposal.payload.amountMinor),
-        paymentProposal.payload.currency
-      )
-      const proposalText = t.paymentProposal(
-        paymentProposal.payload.kind,
-        amount.toMajorString(),
-        amount.currency
-      )
-      options.memoryStore.appendTurn(telegramUserId, {
-        role: 'user',
-        text: ctx.msg.text
-      })
-      options.memoryStore.appendTurn(telegramUserId, {
-        role: 'assistant',
-        text: proposalText
-      })
-
-      await ctx.reply(proposalText, {
-        reply_markup: paymentProposalReplyMarkup(locale, paymentProposal.payload.proposalId)
-      })
-      return
+      if (!claim.claimed) {
+        options.logger?.info(
+          {
+            event: 'assistant.duplicate_update',
+            householdId: member.householdId,
+            telegramUserId,
+            updateId: dedupeClaim.updateId
+          },
+          'Duplicate DM assistant update ignored'
+        )
+        return
+      }
     }
-
-    if (!options.assistant) {
-      await ctx.reply(t.unavailable)
-      return
-    }
-
-    const memory = options.memoryStore.get(telegramUserId)
-    const householdContext = await buildHouseholdContext({
-      householdId: member.householdId,
-      memberId: member.id,
-      memberDisplayName: member.displayName,
-      locale,
-      householdConfigurationRepository: options.householdConfigurationRepository,
-      financeService
-    })
-    const pendingReply = await sendAssistantProcessingReply(ctx, t.processing)
 
     try {
-      const reply = await options.assistant.respond({
-        locale,
-        householdContext,
-        memorySummary: memory.summary,
-        recentTurns: memory.turns,
-        userMessage: ctx.msg.text
-      })
+      const rateLimit = options.rateLimiter.consume(`${member.householdId}:${telegramUserId}`)
+      if (!rateLimit.allowed) {
+        await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
+        return
+      }
 
-      options.usageTracker.record({
+      const financeService = options.financeServiceForHousehold(member.householdId)
+      const paymentProposal = await maybeCreatePaymentProposal({
+        rawText: ctx.msg.text,
         householdId: member.householdId,
-        telegramUserId,
-        displayName: member.displayName,
-        usage: reply.usage
-      })
-      options.memoryStore.appendTurn(telegramUserId, {
-        role: 'user',
-        text: ctx.msg.text
-      })
-      options.memoryStore.appendTurn(telegramUserId, {
-        role: 'assistant',
-        text: reply.text
+        memberId: member.id,
+        financeService,
+        householdConfigurationRepository: options.householdConfigurationRepository
       })
 
-      options.logger?.info(
-        {
-          event: 'assistant.reply',
+      if (paymentProposal.status === 'clarification') {
+        await ctx.reply(t.paymentClarification)
+        return
+      }
+
+      if (paymentProposal.status === 'unsupported_currency') {
+        await ctx.reply(t.paymentUnsupportedCurrency)
+        return
+      }
+
+      if (paymentProposal.status === 'no_balance') {
+        await ctx.reply(t.paymentNoBalance)
+        return
+      }
+
+      if (paymentProposal.status === 'proposal') {
+        await options.promptRepository.upsertPendingAction({
+          telegramUserId,
+          telegramChatId,
+          action: ASSISTANT_PAYMENT_ACTION,
+          payload: {
+            ...paymentProposal.payload
+          },
+          expiresAt: null
+        })
+
+        const amount = Money.fromMinor(
+          BigInt(paymentProposal.payload.amountMinor),
+          paymentProposal.payload.currency
+        )
+        const proposalText = t.paymentProposal(
+          paymentProposal.payload.kind,
+          amount.toMajorString(),
+          amount.currency
+        )
+        options.memoryStore.appendTurn(telegramUserId, {
+          role: 'user',
+          text: ctx.msg.text
+        })
+        options.memoryStore.appendTurn(telegramUserId, {
+          role: 'assistant',
+          text: proposalText
+        })
+
+        await ctx.reply(proposalText, {
+          reply_markup: paymentProposalReplyMarkup(locale, paymentProposal.payload.proposalId)
+        })
+        return
+      }
+
+      if (!options.assistant) {
+        await ctx.reply(t.unavailable)
+        return
+      }
+
+      const memory = options.memoryStore.get(telegramUserId)
+      const typingIndicator = startTypingIndicator(ctx)
+      let pendingReply: PendingAssistantReply | null = null
+
+      try {
+        const householdContext = await buildHouseholdContext({
+          householdId: member.householdId,
+          memberId: member.id,
+          memberDisplayName: member.displayName,
+          locale,
+          householdConfigurationRepository: options.householdConfigurationRepository,
+          financeService
+        })
+        pendingReply = await sendAssistantProcessingReply(ctx, t.processing)
+        const reply = await options.assistant.respond({
+          locale,
+          householdContext,
+          memorySummary: memory.summary,
+          recentTurns: memory.turns,
+          userMessage: ctx.msg.text
+        })
+
+        options.usageTracker.record({
           householdId: member.householdId,
           telegramUserId,
-          inputTokens: reply.usage.inputTokens,
-          outputTokens: reply.usage.outputTokens,
-          totalTokens: reply.usage.totalTokens
-        },
-        'DM assistant reply generated'
-      )
+          displayName: member.displayName,
+          usage: reply.usage
+        })
+        options.memoryStore.appendTurn(telegramUserId, {
+          role: 'user',
+          text: ctx.msg.text
+        })
+        options.memoryStore.appendTurn(telegramUserId, {
+          role: 'assistant',
+          text: reply.text
+        })
 
-      await finalizeAssistantReply(ctx, pendingReply, reply.text)
+        options.logger?.info(
+          {
+            event: 'assistant.reply',
+            householdId: member.householdId,
+            telegramUserId,
+            inputTokens: reply.usage.inputTokens,
+            outputTokens: reply.usage.outputTokens,
+            totalTokens: reply.usage.totalTokens
+          },
+          'DM assistant reply generated'
+        )
+
+        await finalizeAssistantReply(ctx, pendingReply, reply.text)
+      } catch (error) {
+        options.logger?.error(
+          {
+            event: 'assistant.reply_failed',
+            householdId: member.householdId,
+            telegramUserId,
+            error
+          },
+          'DM assistant reply failed'
+        )
+        await finalizeAssistantReply(ctx, pendingReply, t.unavailable)
+      } finally {
+        typingIndicator.stop()
+      }
     } catch (error) {
-      options.logger?.error(
-        {
-          event: 'assistant.reply_failed',
+      if (dedupeClaim) {
+        await dedupeClaim.repository.releaseMessage({
           householdId: member.householdId,
-          telegramUserId,
-          error
-        },
-        'DM assistant reply failed'
-      )
-      await finalizeAssistantReply(ctx, pendingReply, t.unavailable)
+          source: DM_ASSISTANT_MESSAGE_SOURCE,
+          sourceMessageKey: dedupeClaim.updateId
+        })
+      }
+
+      throw error
     }
   })
 }

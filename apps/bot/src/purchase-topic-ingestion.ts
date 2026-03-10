@@ -1,5 +1,5 @@
 import { instantFromEpochSeconds, instantToDate, Money, type Instant } from '@household/domain'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -13,6 +13,7 @@ import type {
   PurchaseInterpretation,
   PurchaseMessageInterpreter
 } from './openai-purchase-interpreter'
+import { startTypingIndicator } from './telegram-chat-action'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
@@ -145,6 +146,9 @@ interface PurchasePersistenceDecision {
   parserError: string | null
   needsReview: boolean
 }
+
+const CLARIFICATION_CONTEXT_MAX_AGE_MS = 30 * 60_000
+const MAX_CLARIFICATION_CONTEXT_MESSAGES = 3
 
 function normalizeInterpretation(
   interpretation: PurchaseInterpretation | null,
@@ -459,6 +463,47 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     prepare: false
   })
 
+  async function getClarificationContext(
+    record: PurchaseTopicRecord
+  ): Promise<readonly string[] | undefined> {
+    const rows = await db
+      .select({
+        rawText: schema.purchaseMessages.rawText,
+        messageSentAt: schema.purchaseMessages.messageSentAt,
+        ingestedAt: schema.purchaseMessages.ingestedAt
+      })
+      .from(schema.purchaseMessages)
+      .where(
+        and(
+          eq(schema.purchaseMessages.householdId, record.householdId),
+          eq(schema.purchaseMessages.senderTelegramUserId, record.senderTelegramUserId),
+          eq(schema.purchaseMessages.telegramThreadId, record.threadId),
+          eq(schema.purchaseMessages.processingStatus, 'clarification_needed')
+        )
+      )
+      .orderBy(
+        desc(schema.purchaseMessages.messageSentAt),
+        desc(schema.purchaseMessages.ingestedAt)
+      )
+      .limit(MAX_CLARIFICATION_CONTEXT_MESSAGES)
+
+    const currentMessageTimestamp = instantToDate(record.messageSentAt).getTime()
+    const recentMessages = rows
+      .filter((row) => {
+        const referenceTimestamp = (row.messageSentAt ?? row.ingestedAt)?.getTime()
+        return (
+          referenceTimestamp !== undefined &&
+          currentMessageTimestamp - referenceTimestamp >= 0 &&
+          currentMessageTimestamp - referenceTimestamp <= CLARIFICATION_CONTEXT_MAX_AGE_MS
+        )
+      })
+      .reverse()
+      .map((row) => row.rawText.trim())
+      .filter((value) => value.length > 0)
+
+    return recentMessages.length > 0 ? recentMessages : undefined
+  }
+
   async function getStoredMessage(
     purchaseMessageId: string
   ): Promise<StoredPurchaseMessageRow | null> {
@@ -595,10 +640,18 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
 
       const senderMemberId = matchedMember[0]?.id ?? null
       let parserError: string | null = null
+      const clarificationContext = interpreter ? await getClarificationContext(record) : undefined
 
       const interpretation = interpreter
         ? await interpreter(record.rawText, {
-            defaultCurrency: defaultCurrency ?? 'GEL'
+            defaultCurrency: defaultCurrency ?? 'GEL',
+            ...(clarificationContext
+              ? {
+                  clarificationContext: {
+                    recentMessages: clarificationContext
+                  }
+                }
+              : {})
           }).catch((error) => {
             parserError = error instanceof Error ? error.message : 'Unknown interpreter error'
             return null
@@ -988,6 +1041,8 @@ export function registerPurchaseTopicIngestion(
       return
     }
 
+    const typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+
     try {
       const pendingReply = options.interpreter
         ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
@@ -1006,6 +1061,8 @@ export function registerPurchaseTopicIngestion(
         },
         'Failed to ingest purchase topic message'
       )
+    } finally {
+      typingIndicator?.stop()
     }
   })
 }
@@ -1049,6 +1106,8 @@ export function registerConfiguredPurchaseTopicIngestion(
       return
     }
 
+    const typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+
     try {
       const billingSettings = await householdConfigurationRepository.getHouseholdBillingSettings(
         record.householdId
@@ -1080,6 +1139,8 @@ export function registerConfiguredPurchaseTopicIngestion(
         },
         'Failed to ingest purchase topic message'
       )
+    } finally {
+      typingIndicator?.stop()
     }
   })
 }

@@ -12,10 +12,15 @@ export interface PurchaseInterpretation {
   clarificationQuestion: string | null
 }
 
+export interface PurchaseClarificationContext {
+  recentMessages: readonly string[]
+}
+
 export type PurchaseMessageInterpreter = (
   rawText: string,
   options: {
     defaultCurrency: 'GEL' | 'USD'
+    clarificationContext?: PurchaseClarificationContext
   }
 ) => Promise<PurchaseInterpretation | null>
 
@@ -51,6 +56,49 @@ function normalizeConfidence(value: number): number {
   return Math.max(0, Math.min(100, Math.round(scaled)))
 }
 
+function resolveMissingCurrency(input: {
+  decision: PurchaseInterpretationDecision
+  amountMinor: bigint | null
+  currency: 'GEL' | 'USD' | null
+  itemDescription: string | null
+  defaultCurrency: 'GEL' | 'USD'
+}): 'GEL' | 'USD' | null {
+  if (input.currency !== null) {
+    return input.currency
+  }
+
+  if (
+    input.decision === 'not_purchase' ||
+    input.amountMinor === null ||
+    input.itemDescription === null
+  ) {
+    return null
+  }
+
+  return input.defaultCurrency
+}
+
+export function buildPurchaseInterpretationInput(
+  rawText: string,
+  clarificationContext?: PurchaseClarificationContext
+): string {
+  if (!clarificationContext || clarificationContext.recentMessages.length === 0) {
+    return rawText
+  }
+
+  const history = clarificationContext.recentMessages
+    .map((message, index) => `${index + 1}. ${message}`)
+    .join('\n')
+
+  return [
+    'Recent relevant messages from the same sender in this purchase topic:',
+    history,
+    '',
+    'Latest message to interpret:',
+    rawText
+  ].join('\n')
+}
+
 export function createOpenAiPurchaseInterpreter(
   apiKey: string | undefined,
   model: string
@@ -72,9 +120,12 @@ export function createOpenAiPurchaseInterpreter(
           {
             role: 'system',
             content: [
-              'You classify a single Telegram message from a household shared-purchases topic.',
-              'Decide whether the message is a real shared purchase, needs clarification, or is not a shared purchase at all.',
-              `The household default currency is ${options.defaultCurrency}, but do not assume that omitted currency means ${options.defaultCurrency}.`,
+              'You classify a purchase candidate from a household shared-purchases topic.',
+              'Decide whether the latest message is a real shared purchase, needs clarification, or is not a shared purchase at all.',
+              `The household default currency is ${options.defaultCurrency}. If a real purchase clearly omits currency, use ${options.defaultCurrency}.`,
+              'If recent messages from the same sender are provided, treat them as clarification context for the latest message.',
+              'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
+              'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',
               'Use clarification when the amount, currency, item, or overall intent is missing or uncertain.',
               'Return a clarification question in the same language as the user message when clarification is needed.',
               'Return only JSON that matches the schema.'
@@ -82,7 +133,7 @@ export function createOpenAiPurchaseInterpreter(
           },
           {
             role: 'user',
-            content: rawText
+            content: buildPurchaseInterpretationInput(rawText, options.clarificationContext)
           }
         ],
         text: {
@@ -165,19 +216,35 @@ export function createOpenAiPurchaseInterpreter(
       return null
     }
 
+    const amountMinor = asOptionalBigInt(parsedJson.amountMinor)
+    const itemDescription = normalizeOptionalText(parsedJson.itemDescription)
+    const currency = resolveMissingCurrency({
+      decision: parsedJson.decision,
+      amountMinor,
+      currency: normalizeCurrency(parsedJson.currency),
+      itemDescription,
+      defaultCurrency: options.defaultCurrency
+    })
+    const decision =
+      parsedJson.decision === 'clarification' &&
+      amountMinor !== null &&
+      currency !== null &&
+      itemDescription
+        ? 'purchase'
+        : parsedJson.decision
     const clarificationQuestion = normalizeOptionalText(parsedJson.clarificationQuestion)
-    if (parsedJson.decision === 'clarification' && !clarificationQuestion) {
+    if (decision === 'clarification' && !clarificationQuestion) {
       return null
     }
 
     return {
-      decision: parsedJson.decision,
-      amountMinor: asOptionalBigInt(parsedJson.amountMinor),
-      currency: normalizeCurrency(parsedJson.currency),
-      itemDescription: normalizeOptionalText(parsedJson.itemDescription),
+      decision,
+      amountMinor,
+      currency,
+      itemDescription,
       confidence: normalizeConfidence(parsedJson.confidence),
       parserMode: 'llm',
-      clarificationQuestion
+      clarificationQuestion: decision === 'clarification' ? clarificationQuestion : null
     }
   }
 }

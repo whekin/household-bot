@@ -15,6 +15,7 @@ import {
   createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
+  createDbProcessedBotMessageRepository,
   createDbReminderDispatchRepository,
   createDbTelegramPendingActionRepository
 } from '@household/adapters-db'
@@ -85,7 +86,9 @@ const bot = createTelegramBot(
   getLogger('telegram'),
   householdConfigurationRepositoryClient?.repository
 )
-const webhookHandler = webhookCallback(bot, 'std/http')
+const webhookHandler = webhookCallback(bot, 'std/http', {
+  onTimeout: 'return'
+})
 const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
 const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
 const paymentConfirmationServices = new Map<
@@ -109,6 +112,10 @@ const localePreferenceService = householdConfigurationRepositoryClient
 const telegramPendingActionRepositoryClient =
   runtime.databaseUrl && (runtime.anonymousFeedbackEnabled || runtime.assistantEnabled)
     ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
+    : null
+const processedBotMessageRepositoryClient =
+  runtime.databaseUrl && runtime.assistantEnabled
+    ? createDbProcessedBotMessageRepository(runtime.databaseUrl!)
     : null
 const assistantMemoryStore = createInMemoryAssistantConversationMemoryStore(
   runtime.assistantMemoryMaxTurns
@@ -201,6 +208,10 @@ if (householdConfigurationRepositoryClient) {
 
 if (telegramPendingActionRepositoryClient) {
   shutdownTasks.push(telegramPendingActionRepositoryClient.close)
+}
+
+if (processedBotMessageRepositoryClient) {
+  shutdownTasks.push(processedBotMessageRepositoryClient.close)
 }
 
 if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
@@ -366,21 +377,40 @@ if (
   householdConfigurationRepositoryClient &&
   telegramPendingActionRepositoryClient
 ) {
-  registerDmAssistant({
-    bot,
-    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-    promptRepository: telegramPendingActionRepositoryClient.repository,
-    financeServiceForHousehold,
-    memoryStore: assistantMemoryStore,
-    rateLimiter: assistantRateLimiter,
-    usageTracker: assistantUsageTracker,
-    ...(conversationalAssistant
-      ? {
-          assistant: conversationalAssistant
-        }
-      : {}),
-    logger: getLogger('dm-assistant')
-  })
+  if (processedBotMessageRepositoryClient) {
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      messageProcessingRepository: processedBotMessageRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      financeServiceForHousehold,
+      memoryStore: assistantMemoryStore,
+      rateLimiter: assistantRateLimiter,
+      usageTracker: assistantUsageTracker,
+      ...(conversationalAssistant
+        ? {
+            assistant: conversationalAssistant
+          }
+        : {}),
+      logger: getLogger('dm-assistant')
+    })
+  } else {
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      financeServiceForHousehold,
+      memoryStore: assistantMemoryStore,
+      rateLimiter: assistantRateLimiter,
+      usageTracker: assistantUsageTracker,
+      ...(conversationalAssistant
+        ? {
+            assistant: conversationalAssistant
+          }
+        : {}),
+      logger: getLogger('dm-assistant')
+    })
+  }
 }
 
 const server = createBotWebhookServer({
