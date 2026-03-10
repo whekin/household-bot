@@ -25,7 +25,7 @@ import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
-import { createOpenAiParserFallback } from './openai-parser-fallback'
+import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
 import {
   createPurchaseMessageRepository,
   registerConfiguredPurchaseTopicIngestion
@@ -184,16 +184,19 @@ if (telegramPendingActionRepositoryClient) {
 if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
   const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
   shutdownTasks.push(purchaseRepositoryClient.close)
-  const llmFallback = createOpenAiParserFallback(runtime.openaiApiKey, runtime.parserModel)
+  const purchaseInterpreter = createOpenAiPurchaseInterpreter(
+    runtime.openaiApiKey,
+    runtime.purchaseParserModel
+  )
 
   registerConfiguredPurchaseTopicIngestion(
     bot,
     householdConfigurationRepositoryClient.repository,
     purchaseRepositoryClient.repository,
     {
-      ...(llmFallback
+      ...(purchaseInterpreter
         ? {
-            llmFallback
+            interpreter: purchaseInterpreter
           }
         : {}),
       logger: getLogger('purchase-ingestion')

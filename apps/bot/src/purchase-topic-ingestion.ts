@@ -1,4 +1,3 @@
-import { parsePurchaseMessage, type PurchaseParserLlmFallback } from '@household/application'
 import { instantFromEpochSeconds, instantToDate, Money, type Instant } from '@household/domain'
 import { and, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
@@ -10,6 +9,60 @@ import type {
 
 import { createDbClient, schema } from '@household/db'
 import { getBotTranslations, type BotLocale } from './i18n'
+import type {
+  PurchaseInterpretation,
+  PurchaseMessageInterpreter
+} from './openai-purchase-interpreter'
+
+const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
+const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
+const MIN_PROPOSAL_CONFIDENCE = 70
+
+type StoredPurchaseProcessingStatus =
+  | 'pending_confirmation'
+  | 'clarification_needed'
+  | 'ignored_not_purchase'
+  | 'parse_failed'
+  | 'confirmed'
+  | 'cancelled'
+  | 'parsed'
+  | 'needs_review'
+
+interface StoredPurchaseMessageRow {
+  id: string
+  householdId: string
+  senderTelegramUserId: string
+  parsedAmountMinor: bigint | null
+  parsedCurrency: 'GEL' | 'USD' | null
+  parsedItemDescription: string | null
+  parserConfidence: number | null
+  parserMode: 'llm' | null
+  processingStatus: StoredPurchaseProcessingStatus
+}
+
+interface PurchaseProposalFields {
+  parsedAmountMinor: bigint | null
+  parsedCurrency: 'GEL' | 'USD' | null
+  parsedItemDescription: string | null
+  parserConfidence: number | null
+  parserMode: 'llm' | null
+}
+
+interface PurchaseClarificationResult extends PurchaseProposalFields {
+  status: 'clarification_needed'
+  purchaseMessageId: string
+  clarificationQuestion: string | null
+}
+
+interface PurchasePendingConfirmationResult extends PurchaseProposalFields {
+  status: 'pending_confirmation'
+  purchaseMessageId: string
+  parsedAmountMinor: bigint
+  parsedCurrency: 'GEL' | 'USD'
+  parsedItemDescription: string
+  parserConfidence: number
+  parserMode: 'llm'
+}
 
 export interface PurchaseTopicIngestionConfig {
   householdId: string
@@ -32,28 +85,247 @@ export interface PurchaseTopicRecord extends PurchaseTopicCandidate {
   householdId: string
 }
 
-export type PurchaseMessageProcessingStatus = 'parsed' | 'needs_review' | 'parse_failed'
-
 export type PurchaseMessageIngestionResult =
   | {
       status: 'duplicate'
     }
   | {
-      status: 'created'
-      processingStatus: PurchaseMessageProcessingStatus
-      parsedAmountMinor: bigint | null
-      parsedCurrency: 'GEL' | 'USD' | null
-      parsedItemDescription: string | null
-      parserConfidence: number | null
-      parserMode: 'rules' | 'llm' | null
+      status: 'ignored_not_purchase'
+      purchaseMessageId: string
+    }
+  | PurchaseClarificationResult
+  | PurchasePendingConfirmationResult
+  | {
+      status: 'parse_failed'
+      purchaseMessageId: string
+    }
+
+export type PurchaseProposalActionResult =
+  | ({
+      status: 'confirmed' | 'already_confirmed' | 'cancelled' | 'already_cancelled'
+      purchaseMessageId: string
+      householdId: string
+    } & PurchaseProposalFields)
+  | {
+      status: 'forbidden'
+      householdId: string
+    }
+  | {
+      status: 'not_pending'
+      householdId: string
+    }
+  | {
+      status: 'not_found'
     }
 
 export interface PurchaseMessageIngestionRepository {
   save(
     record: PurchaseTopicRecord,
-    llmFallback?: PurchaseParserLlmFallback,
+    interpreter?: PurchaseMessageInterpreter,
     defaultCurrency?: 'GEL' | 'USD'
   ): Promise<PurchaseMessageIngestionResult>
+  confirm(
+    purchaseMessageId: string,
+    actorTelegramUserId: string
+  ): Promise<PurchaseProposalActionResult>
+  cancel(
+    purchaseMessageId: string,
+    actorTelegramUserId: string
+  ): Promise<PurchaseProposalActionResult>
+}
+
+interface PurchasePersistenceDecision {
+  status: 'pending_confirmation' | 'clarification_needed' | 'ignored_not_purchase' | 'parse_failed'
+  parsedAmountMinor: bigint | null
+  parsedCurrency: 'GEL' | 'USD' | null
+  parsedItemDescription: string | null
+  parserConfidence: number | null
+  parserMode: 'llm' | null
+  clarificationQuestion: string | null
+  parserError: string | null
+  needsReview: boolean
+}
+
+function normalizeInterpretation(
+  interpretation: PurchaseInterpretation | null,
+  parserError: string | null
+): PurchasePersistenceDecision {
+  if (parserError !== null || interpretation === null) {
+    return {
+      status: 'parse_failed',
+      parsedAmountMinor: null,
+      parsedCurrency: null,
+      parsedItemDescription: null,
+      parserConfidence: null,
+      parserMode: null,
+      clarificationQuestion: null,
+      parserError: parserError ?? 'Purchase interpreter returned no result',
+      needsReview: true
+    }
+  }
+
+  if (interpretation.decision === 'not_purchase') {
+    return {
+      status: 'ignored_not_purchase',
+      parsedAmountMinor: interpretation.amountMinor,
+      parsedCurrency: interpretation.currency,
+      parsedItemDescription: interpretation.itemDescription,
+      parserConfidence: interpretation.confidence,
+      parserMode: interpretation.parserMode,
+      clarificationQuestion: null,
+      parserError: null,
+      needsReview: false
+    }
+  }
+
+  const missingRequiredFields =
+    interpretation.amountMinor === null ||
+    interpretation.currency === null ||
+    interpretation.itemDescription === null
+
+  if (
+    interpretation.decision === 'clarification' ||
+    missingRequiredFields ||
+    interpretation.confidence < MIN_PROPOSAL_CONFIDENCE
+  ) {
+    return {
+      status: 'clarification_needed',
+      parsedAmountMinor: interpretation.amountMinor,
+      parsedCurrency: interpretation.currency,
+      parsedItemDescription: interpretation.itemDescription,
+      parserConfidence: interpretation.confidence,
+      parserMode: interpretation.parserMode,
+      clarificationQuestion: interpretation.clarificationQuestion,
+      parserError: null,
+      needsReview: true
+    }
+  }
+
+  return {
+    status: 'pending_confirmation',
+    parsedAmountMinor: interpretation.amountMinor,
+    parsedCurrency: interpretation.currency,
+    parsedItemDescription: interpretation.itemDescription,
+    parserConfidence: interpretation.confidence,
+    parserMode: interpretation.parserMode,
+    clarificationQuestion: null,
+    parserError: null,
+    needsReview: false
+  }
+}
+
+function needsReviewAsInt(value: boolean): number {
+  return value ? 1 : 0
+}
+
+function toStoredPurchaseRow(row: {
+  id: string
+  householdId: string
+  senderTelegramUserId: string
+  parsedAmountMinor: bigint | null
+  parsedCurrency: string | null
+  parsedItemDescription: string | null
+  parserConfidence: number | null
+  parserMode: string | null
+  processingStatus: string
+}): StoredPurchaseMessageRow {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    senderTelegramUserId: row.senderTelegramUserId,
+    parsedAmountMinor: row.parsedAmountMinor,
+    parsedCurrency:
+      row.parsedCurrency === 'USD' || row.parsedCurrency === 'GEL' ? row.parsedCurrency : null,
+    parsedItemDescription: row.parsedItemDescription,
+    parserConfidence: row.parserConfidence,
+    parserMode: row.parserMode === 'llm' ? 'llm' : null,
+    processingStatus:
+      row.processingStatus === 'pending_confirmation' ||
+      row.processingStatus === 'clarification_needed' ||
+      row.processingStatus === 'ignored_not_purchase' ||
+      row.processingStatus === 'parse_failed' ||
+      row.processingStatus === 'confirmed' ||
+      row.processingStatus === 'cancelled' ||
+      row.processingStatus === 'parsed' ||
+      row.processingStatus === 'needs_review'
+        ? row.processingStatus
+        : 'parse_failed'
+  }
+}
+
+function toProposalFields(row: StoredPurchaseMessageRow): PurchaseProposalFields {
+  return {
+    parsedAmountMinor: row.parsedAmountMinor,
+    parsedCurrency: row.parsedCurrency,
+    parsedItemDescription: row.parsedItemDescription,
+    parserConfidence: row.parserConfidence,
+    parserMode: row.parserMode
+  }
+}
+
+async function replyToPurchaseMessage(
+  ctx: Context,
+  text: string,
+  replyMarkup?: {
+    inline_keyboard: Array<
+      Array<{
+        text: string
+        callback_data: string
+      }>
+    >
+  }
+): Promise<void> {
+  const message = ctx.msg
+  if (!message) {
+    return
+  }
+
+  await ctx.reply(text, {
+    reply_parameters: {
+      message_id: message.message_id
+    },
+    ...(replyMarkup
+      ? {
+          reply_markup: replyMarkup
+        }
+      : {})
+  })
+}
+
+function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
+  const message = ctx.message
+  if (!message || !('text' in message)) {
+    return null
+  }
+
+  if (!message.is_topic_message || message.message_thread_id === undefined) {
+    return null
+  }
+
+  const senderTelegramUserId = ctx.from?.id?.toString()
+  if (!senderTelegramUserId) {
+    return null
+  }
+
+  const senderDisplayName = [ctx.from?.first_name, ctx.from?.last_name]
+    .filter((part) => !!part && part.trim().length > 0)
+    .join(' ')
+
+  const candidate: PurchaseTopicCandidate = {
+    updateId: ctx.update.update_id,
+    chatId: message.chat.id.toString(),
+    messageId: message.message_id.toString(),
+    threadId: message.message_thread_id.toString(),
+    senderTelegramUserId,
+    rawText: message.text,
+    messageSentAt: instantFromEpochSeconds(message.date)
+  }
+
+  if (senderDisplayName.length > 0) {
+    candidate.senderDisplayName = senderDisplayName
+  }
+
+  return candidate
 }
 
 export function extractPurchaseTopicCandidate(
@@ -108,10 +380,6 @@ export function resolveConfiguredPurchaseTopicRecord(
   }
 }
 
-function needsReviewAsInt(value: boolean): number {
-  return value ? 1 : 0
-}
-
 export function createPurchaseMessageRepository(databaseUrl: string): {
   repository: PurchaseMessageIngestionRepository
   close: () => Promise<void>
@@ -121,8 +389,129 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     prepare: false
   })
 
+  async function getStoredMessage(
+    purchaseMessageId: string
+  ): Promise<StoredPurchaseMessageRow | null> {
+    const rows = await db
+      .select({
+        id: schema.purchaseMessages.id,
+        householdId: schema.purchaseMessages.householdId,
+        senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
+        parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
+        parsedCurrency: schema.purchaseMessages.parsedCurrency,
+        parsedItemDescription: schema.purchaseMessages.parsedItemDescription,
+        parserConfidence: schema.purchaseMessages.parserConfidence,
+        parserMode: schema.purchaseMessages.parserMode,
+        processingStatus: schema.purchaseMessages.processingStatus
+      })
+      .from(schema.purchaseMessages)
+      .where(eq(schema.purchaseMessages.id, purchaseMessageId))
+      .limit(1)
+
+    const row = rows[0]
+    return row ? toStoredPurchaseRow(row) : null
+  }
+
+  async function mutateProposalStatus(
+    purchaseMessageId: string,
+    actorTelegramUserId: string,
+    targetStatus: 'confirmed' | 'cancelled'
+  ): Promise<PurchaseProposalActionResult> {
+    const existing = await getStoredMessage(purchaseMessageId)
+    if (!existing) {
+      return {
+        status: 'not_found'
+      }
+    }
+
+    if (existing.senderTelegramUserId !== actorTelegramUserId) {
+      return {
+        status: 'forbidden',
+        householdId: existing.householdId
+      }
+    }
+
+    if (existing.processingStatus === targetStatus) {
+      return {
+        status: targetStatus === 'confirmed' ? 'already_confirmed' : 'already_cancelled',
+        purchaseMessageId: existing.id,
+        householdId: existing.householdId,
+        ...toProposalFields(existing)
+      }
+    }
+
+    if (existing.processingStatus !== 'pending_confirmation') {
+      return {
+        status: 'not_pending',
+        householdId: existing.householdId
+      }
+    }
+
+    const rows = await db
+      .update(schema.purchaseMessages)
+      .set({
+        processingStatus: targetStatus,
+        ...(targetStatus === 'confirmed'
+          ? {
+              needsReview: 0
+            }
+          : {})
+      })
+      .where(
+        and(
+          eq(schema.purchaseMessages.id, purchaseMessageId),
+          eq(schema.purchaseMessages.senderTelegramUserId, actorTelegramUserId),
+          eq(schema.purchaseMessages.processingStatus, 'pending_confirmation')
+        )
+      )
+      .returning({
+        id: schema.purchaseMessages.id,
+        householdId: schema.purchaseMessages.householdId,
+        senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
+        parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
+        parsedCurrency: schema.purchaseMessages.parsedCurrency,
+        parsedItemDescription: schema.purchaseMessages.parsedItemDescription,
+        parserConfidence: schema.purchaseMessages.parserConfidence,
+        parserMode: schema.purchaseMessages.parserMode,
+        processingStatus: schema.purchaseMessages.processingStatus
+      })
+
+    const updated = rows[0]
+    if (!updated) {
+      const reloaded = await getStoredMessage(purchaseMessageId)
+      if (!reloaded) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (reloaded.processingStatus === 'confirmed' || reloaded.processingStatus === 'cancelled') {
+        return {
+          status:
+            reloaded.processingStatus === 'confirmed' ? 'already_confirmed' : 'already_cancelled',
+          purchaseMessageId: reloaded.id,
+          householdId: reloaded.householdId,
+          ...toProposalFields(reloaded)
+        }
+      }
+
+      return {
+        status: 'not_pending',
+        householdId: reloaded.householdId
+      }
+    }
+
+    const stored = toStoredPurchaseRow(updated)
+    return {
+      status: targetStatus,
+      purchaseMessageId: stored.id,
+      householdId: stored.householdId,
+      ...toProposalFields(stored)
+    }
+  }
+
   const repository: PurchaseMessageIngestionRepository = {
-    async save(record, llmFallback, defaultCurrency) {
+    async save(record, interpreter, defaultCurrency) {
       const matchedMember = await db
         .select({ id: schema.members.id })
         .from(schema.members)
@@ -137,35 +526,19 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       const senderMemberId = matchedMember[0]?.id ?? null
       let parserError: string | null = null
 
-      const parsed = await parsePurchaseMessage(
-        {
-          rawText: record.rawText
-        },
-        {
-          ...(llmFallback
-            ? {
-                llmFallback
-              }
-            : {}),
-          ...(defaultCurrency
-            ? {
-                defaultCurrency
-              }
-            : {})
-        }
-      ).catch((error) => {
-        parserError = error instanceof Error ? error.message : 'Unknown parser error'
-        return null
-      })
+      const interpretation = interpreter
+        ? await interpreter(record.rawText, {
+            defaultCurrency: defaultCurrency ?? 'GEL'
+          }).catch((error) => {
+            parserError = error instanceof Error ? error.message : 'Unknown interpreter error'
+            return null
+          })
+        : null
 
-      const processingStatus =
-        parserError !== null
-          ? 'parse_failed'
-          : parsed === null
-            ? 'needs_review'
-            : parsed.needsReview
-              ? 'needs_review'
-              : 'parsed'
+      const decision = normalizeInterpretation(
+        interpretation,
+        parserError ?? (interpreter ? null : 'Purchase interpreter is unavailable')
+      )
 
       const inserted = await db
         .insert(schema.purchaseMessages)
@@ -180,14 +553,14 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
           telegramThreadId: record.threadId,
           telegramUpdateId: String(record.updateId),
           messageSentAt: instantToDate(record.messageSentAt),
-          parsedAmountMinor: parsed?.amountMinor,
-          parsedCurrency: parsed?.currency,
-          parsedItemDescription: parsed?.itemDescription,
-          parserMode: parsed?.parserMode,
-          parserConfidence: parsed?.confidence,
-          needsReview: needsReviewAsInt(parsed?.needsReview ?? true),
-          parserError,
-          processingStatus
+          parsedAmountMinor: decision.parsedAmountMinor,
+          parsedCurrency: decision.parsedCurrency,
+          parsedItemDescription: decision.parsedItemDescription,
+          parserMode: decision.parserMode,
+          parserConfidence: decision.parserConfidence,
+          needsReview: needsReviewAsInt(decision.needsReview),
+          parserError: decision.parserError,
+          processingStatus: decision.status
         })
         .onConflictDoNothing({
           target: [
@@ -198,21 +571,54 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         })
         .returning({ id: schema.purchaseMessages.id })
 
-      if (inserted.length === 0) {
+      const insertedRow = inserted[0]
+      if (!insertedRow) {
         return {
           status: 'duplicate'
         }
       }
 
-      return {
-        status: 'created',
-        processingStatus,
-        parsedAmountMinor: parsed?.amountMinor ?? null,
-        parsedCurrency: parsed?.currency ?? null,
-        parsedItemDescription: parsed?.itemDescription ?? null,
-        parserConfidence: parsed?.confidence ?? null,
-        parserMode: parsed?.parserMode ?? null
+      switch (decision.status) {
+        case 'ignored_not_purchase':
+          return {
+            status: 'ignored_not_purchase',
+            purchaseMessageId: insertedRow.id
+          }
+        case 'clarification_needed':
+          return {
+            status: 'clarification_needed',
+            purchaseMessageId: insertedRow.id,
+            clarificationQuestion: decision.clarificationQuestion,
+            parsedAmountMinor: decision.parsedAmountMinor,
+            parsedCurrency: decision.parsedCurrency,
+            parsedItemDescription: decision.parsedItemDescription,
+            parserConfidence: decision.parserConfidence,
+            parserMode: decision.parserMode
+          }
+        case 'pending_confirmation':
+          return {
+            status: 'pending_confirmation',
+            purchaseMessageId: insertedRow.id,
+            parsedAmountMinor: decision.parsedAmountMinor!,
+            parsedCurrency: decision.parsedCurrency!,
+            parsedItemDescription: decision.parsedItemDescription!,
+            parserConfidence: decision.parserConfidence ?? MIN_PROPOSAL_CONFIDENCE,
+            parserMode: decision.parserMode ?? 'llm'
+          }
+        case 'parse_failed':
+          return {
+            status: 'parse_failed',
+            purchaseMessageId: insertedRow.id
+          }
       }
+    },
+
+    async confirm(purchaseMessageId, actorTelegramUserId) {
+      return mutateProposalStatus(purchaseMessageId, actorTelegramUserId, 'confirmed')
+    },
+
+    async cancel(purchaseMessageId, actorTelegramUserId) {
+      return mutateProposalStatus(purchaseMessageId, actorTelegramUserId, 'cancelled')
     }
   }
 
@@ -226,7 +632,11 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
 
 function formatPurchaseSummary(
   locale: BotLocale,
-  result: Extract<PurchaseMessageIngestionResult, { status: 'created' }>
+  result: {
+    parsedAmountMinor: bigint | null
+    parsedCurrency: 'GEL' | 'USD' | null
+    parsedItemDescription: string | null
+  }
 ): string {
   if (
     result.parsedAmountMinor === null ||
@@ -240,73 +650,250 @@ function formatPurchaseSummary(
   return `${result.parsedItemDescription} - ${amount.toMajorString()} ${result.parsedCurrency}`
 }
 
+function clarificationFallback(locale: BotLocale, result: PurchaseClarificationResult): string {
+  const t = getBotTranslations(locale).purchase
+
+  if (result.parsedAmountMinor === null && result.parsedCurrency === null) {
+    return t.clarificationMissingAmountAndCurrency
+  }
+
+  if (result.parsedAmountMinor === null) {
+    return t.clarificationMissingAmount
+  }
+
+  if (result.parsedCurrency === null) {
+    return t.clarificationMissingCurrency
+  }
+
+  if (result.parsedItemDescription === null) {
+    return t.clarificationMissingItem
+  }
+
+  return t.clarificationLowConfidence
+}
+
 export function buildPurchaseAcknowledgement(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale = 'en'
 ): string | null {
-  if (result.status === 'duplicate') {
-    return null
-  }
-
   const t = getBotTranslations(locale).purchase
 
-  switch (result.processingStatus) {
-    case 'parsed':
-      return t.recorded(formatPurchaseSummary(locale, result))
-    case 'needs_review':
-      return t.savedForReview(formatPurchaseSummary(locale, result))
+  switch (result.status) {
+    case 'duplicate':
+    case 'ignored_not_purchase':
+      return null
+    case 'pending_confirmation':
+      return t.proposal(formatPurchaseSummary(locale, result))
+    case 'clarification_needed':
+      return t.clarification(result.clarificationQuestion ?? clarificationFallback(locale, result))
     case 'parse_failed':
       return t.parseFailed
   }
 }
 
-async function replyToPurchaseMessage(ctx: Context, text: string): Promise<void> {
-  const message = ctx.msg
-  if (!message) {
+function purchaseProposalReplyMarkup(locale: BotLocale, purchaseMessageId: string) {
+  const t = getBotTranslations(locale).purchase
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: t.confirmButton,
+          callback_data: `${PURCHASE_CONFIRM_CALLBACK_PREFIX}${purchaseMessageId}`
+        },
+        {
+          text: t.cancelButton,
+          callback_data: `${PURCHASE_CANCEL_CALLBACK_PREFIX}${purchaseMessageId}`
+        }
+      ]
+    ]
+  }
+}
+
+async function resolveHouseholdLocale(
+  householdConfigurationRepository: HouseholdConfigurationRepository | undefined,
+  householdId: string
+): Promise<BotLocale> {
+  if (!householdConfigurationRepository) {
+    return 'en'
+  }
+
+  const householdChat =
+    await householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
+  return householdChat?.defaultLocale ?? 'en'
+}
+
+async function handlePurchaseMessageResult(
+  ctx: Context,
+  record: PurchaseTopicRecord,
+  result: PurchaseMessageIngestionResult,
+  locale: BotLocale,
+  logger: Logger | undefined
+): Promise<void> {
+  if (result.status !== 'duplicate') {
+    logger?.info(
+      {
+        event: 'purchase.ingested',
+        householdId: record.householdId,
+        status: result.status,
+        chatId: record.chatId,
+        threadId: record.threadId,
+        messageId: record.messageId,
+        updateId: record.updateId,
+        senderTelegramUserId: record.senderTelegramUserId
+      },
+      'Purchase topic message processed'
+    )
+  }
+
+  const acknowledgement = buildPurchaseAcknowledgement(result, locale)
+  if (!acknowledgement) {
     return
   }
 
-  await ctx.reply(text, {
-    reply_parameters: {
-      message_id: message.message_id
-    }
-  })
+  await replyToPurchaseMessage(
+    ctx,
+    acknowledgement,
+    result.status === 'pending_confirmation'
+      ? purchaseProposalReplyMarkup(locale, result.purchaseMessageId)
+      : undefined
+  )
 }
 
-function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
-  const message = ctx.message
-  if (!message || !('text' in message)) {
-    return null
+function emptyInlineKeyboard() {
+  return {
+    inline_keyboard: []
+  }
+}
+
+function buildPurchaseActionMessage(
+  locale: BotLocale,
+  result: Extract<
+    PurchaseProposalActionResult,
+    { status: 'confirmed' | 'already_confirmed' | 'cancelled' | 'already_cancelled' }
+  >
+): string {
+  const t = getBotTranslations(locale).purchase
+  const summary = formatPurchaseSummary(locale, result)
+
+  if (result.status === 'confirmed' || result.status === 'already_confirmed') {
+    return t.confirmed(summary)
   }
 
-  if (!message.is_topic_message || message.message_thread_id === undefined) {
-    return null
-  }
+  return t.cancelled(summary)
+}
 
-  const senderTelegramUserId = ctx.from?.id?.toString()
-  if (!senderTelegramUserId) {
-    return null
-  }
+function registerPurchaseProposalCallbacks(
+  bot: Bot,
+  repository: PurchaseMessageIngestionRepository,
+  resolveLocale: (householdId: string) => Promise<BotLocale>,
+  logger?: Logger
+): void {
+  bot.callbackQuery(new RegExp(`^${PURCHASE_CONFIRM_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
+    const purchaseMessageId = ctx.match[1]
+    const actorTelegramUserId = ctx.from?.id?.toString()
 
-  const senderDisplayName = [ctx.from?.first_name, ctx.from?.last_name]
-    .filter((part) => !!part && part.trim().length > 0)
-    .join(' ')
+    if (!actorTelegramUserId || !purchaseMessageId) {
+      await ctx.answerCallbackQuery({
+        text: getBotTranslations('en').purchase.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
 
-  const candidate: PurchaseTopicCandidate = {
-    updateId: ctx.update.update_id,
-    chatId: message.chat.id.toString(),
-    messageId: message.message_id.toString(),
-    threadId: message.message_thread_id.toString(),
-    senderTelegramUserId,
-    rawText: message.text,
-    messageSentAt: instantFromEpochSeconds(message.date)
-  }
+    const result = await repository.confirm(purchaseMessageId, actorTelegramUserId)
+    const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
+    const t = getBotTranslations(locale).purchase
 
-  if (senderDisplayName.length > 0) {
-    candidate.senderDisplayName = senderDisplayName
-  }
+    if (result.status === 'not_found' || result.status === 'not_pending') {
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
 
-  return candidate
+    if (result.status === 'forbidden') {
+      await ctx.answerCallbackQuery({
+        text: t.notYourProposal,
+        show_alert: true
+      })
+      return
+    }
+
+    await ctx.answerCallbackQuery({
+      text: result.status === 'confirmed' ? t.confirmedToast : t.alreadyConfirmed
+    })
+
+    if (ctx.msg) {
+      await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+        reply_markup: emptyInlineKeyboard()
+      })
+    }
+
+    logger?.info(
+      {
+        event: 'purchase.confirmation',
+        purchaseMessageId,
+        actorTelegramUserId,
+        status: result.status
+      },
+      'Purchase proposal confirmation handled'
+    )
+  })
+
+  bot.callbackQuery(new RegExp(`^${PURCHASE_CANCEL_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
+    const purchaseMessageId = ctx.match[1]
+    const actorTelegramUserId = ctx.from?.id?.toString()
+
+    if (!actorTelegramUserId || !purchaseMessageId) {
+      await ctx.answerCallbackQuery({
+        text: getBotTranslations('en').purchase.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    const result = await repository.cancel(purchaseMessageId, actorTelegramUserId)
+    const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
+    const t = getBotTranslations(locale).purchase
+
+    if (result.status === 'not_found' || result.status === 'not_pending') {
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    if (result.status === 'forbidden') {
+      await ctx.answerCallbackQuery({
+        text: t.notYourProposal,
+        show_alert: true
+      })
+      return
+    }
+
+    await ctx.answerCallbackQuery({
+      text: result.status === 'cancelled' ? t.cancelledToast : t.alreadyCancelled
+    })
+
+    if (ctx.msg) {
+      await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+        reply_markup: emptyInlineKeyboard()
+      })
+    }
+
+    logger?.info(
+      {
+        event: 'purchase.cancellation',
+        purchaseMessageId,
+        actorTelegramUserId,
+        status: result.status
+      },
+      'Purchase proposal cancellation handled'
+    )
+  })
 }
 
 export function registerPurchaseTopicIngestion(
@@ -314,10 +901,12 @@ export function registerPurchaseTopicIngestion(
   config: PurchaseTopicIngestionConfig,
   repository: PurchaseMessageIngestionRepository,
   options: {
-    llmFallback?: PurchaseParserLlmFallback
+    interpreter?: PurchaseMessageInterpreter
     logger?: Logger
   } = {}
 ): void {
+  void registerPurchaseProposalCallbacks(bot, repository, async () => 'en', options.logger)
+
   bot.on('message:text', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
@@ -332,27 +921,8 @@ export function registerPurchaseTopicIngestion(
     }
 
     try {
-      const status = await repository.save(record, options.llmFallback, 'GEL')
-      const acknowledgement = buildPurchaseAcknowledgement(status, 'en')
-
-      if (status.status === 'created') {
-        options.logger?.info(
-          {
-            event: 'purchase.ingested',
-            processingStatus: status.processingStatus,
-            chatId: record.chatId,
-            threadId: record.threadId,
-            messageId: record.messageId,
-            updateId: record.updateId,
-            senderTelegramUserId: record.senderTelegramUserId
-          },
-          'Purchase topic message ingested'
-        )
-      }
-
-      if (acknowledgement) {
-        await replyToPurchaseMessage(ctx, acknowledgement)
-      }
+      const result = await repository.save(record, options.interpreter, 'GEL')
+      await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger)
     } catch (error) {
       options.logger?.error(
         {
@@ -374,10 +944,17 @@ export function registerConfiguredPurchaseTopicIngestion(
   householdConfigurationRepository: HouseholdConfigurationRepository,
   repository: PurchaseMessageIngestionRepository,
   options: {
-    llmFallback?: PurchaseParserLlmFallback
+    interpreter?: PurchaseMessageInterpreter
     logger?: Logger
   } = {}
 ): void {
+  void registerPurchaseProposalCallbacks(
+    bot,
+    repository,
+    async (householdId) => resolveHouseholdLocale(householdConfigurationRepository, householdId),
+    options.logger
+  )
+
   bot.on('message:text', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
@@ -405,38 +982,17 @@ export function registerConfiguredPurchaseTopicIngestion(
       const billingSettings = await householdConfigurationRepository.getHouseholdBillingSettings(
         record.householdId
       )
-      const status = await repository.save(
-        record,
-        options.llmFallback,
-        billingSettings.settlementCurrency
-      )
-      const householdChat = await householdConfigurationRepository.getHouseholdChatByHouseholdId(
+      const locale = await resolveHouseholdLocale(
+        householdConfigurationRepository,
         record.householdId
       )
-      const acknowledgement = buildPurchaseAcknowledgement(
-        status,
-        householdChat?.defaultLocale ?? 'en'
+      const result = await repository.save(
+        record,
+        options.interpreter,
+        billingSettings.settlementCurrency
       )
 
-      if (status.status === 'created') {
-        options.logger?.info(
-          {
-            event: 'purchase.ingested',
-            householdId: record.householdId,
-            processingStatus: status.processingStatus,
-            chatId: record.chatId,
-            threadId: record.threadId,
-            messageId: record.messageId,
-            updateId: record.updateId,
-            senderTelegramUserId: record.senderTelegramUserId
-          },
-          'Purchase topic message ingested'
-        )
-      }
-
-      if (acknowledgement) {
-        await replyToPurchaseMessage(ctx, acknowledgement)
-      }
+      await handlePurchaseMessageResult(ctx, record, result, locale, options.logger)
     } catch (error) {
       options.logger?.error(
         {

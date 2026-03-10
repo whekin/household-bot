@@ -167,9 +167,27 @@ export const ruBotTranslations: BotTranslationCatalog = {
   },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
-    recorded: (summary) => `Покупка сохранена: ${summary}`,
-    savedForReview: (summary) => `Сохранено на проверку: ${summary}`,
-    parseFailed: 'Сохранено на проверку: пока не удалось распознать эту покупку.'
+    proposal: (summary) => `Похоже, это общая покупка: ${summary}. Подтвердите или отмените ниже.`,
+    clarification: (question) => question,
+    clarificationMissingAmountAndCurrency:
+      'Какую сумму и валюту нужно записать для этой общей покупки?',
+    clarificationMissingAmount: 'Какую сумму нужно записать для этой общей покупки?',
+    clarificationMissingCurrency: 'В какой валюте была эта покупка?',
+    clarificationMissingItem: 'Что именно было куплено?',
+    clarificationLowConfidence:
+      'Я не уверен, что правильно понял сообщение. Переформулируйте покупку с предметом, суммой и валютой.',
+    confirmButton: 'Подтвердить',
+    cancelButton: 'Отменить',
+    confirmed: (summary) => `Покупка подтверждена: ${summary}`,
+    cancelled: (summary) => `Предложение покупки отменено: ${summary}`,
+    confirmedToast: 'Покупка подтверждена.',
+    cancelledToast: 'Покупка отменена.',
+    alreadyConfirmed: 'Эта покупка уже подтверждена.',
+    alreadyCancelled: 'Это предложение покупки уже отменено.',
+    notYourProposal: 'Подтвердить или отменить эту покупку может только отправитель сообщения.',
+    proposalUnavailable: 'Это предложение покупки уже недоступно.',
+    parseFailed:
+      'Пока не удалось распознать это как общую покупку. Напишите предмет, сумму и валюту явно.'
   },
   payments: {
     topicMissing:

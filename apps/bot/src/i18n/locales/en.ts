@@ -164,9 +164,27 @@ export const enBotTranslations: BotTranslationCatalog = {
   },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
-    recorded: (summary) => `Recorded purchase: ${summary}`,
-    savedForReview: (summary) => `Saved for review: ${summary}`,
-    parseFailed: "Saved for review: I couldn't parse this purchase yet."
+    proposal: (summary) => `I think this shared purchase was: ${summary}. Confirm or cancel below.`,
+    clarification: (question) => question,
+    clarificationMissingAmountAndCurrency:
+      'What amount and currency should I record for this shared purchase?',
+    clarificationMissingAmount: 'What amount should I record for this shared purchase?',
+    clarificationMissingCurrency: 'Which currency was this purchase in?',
+    clarificationMissingItem: 'What exactly was purchased?',
+    clarificationLowConfidence:
+      'I am not confident I understood this. Please restate the shared purchase with item, amount, and currency.',
+    confirmButton: 'Confirm',
+    cancelButton: 'Cancel',
+    confirmed: (summary) => `Purchase confirmed: ${summary}`,
+    cancelled: (summary) => `Purchase proposal cancelled: ${summary}`,
+    confirmedToast: 'Purchase confirmed.',
+    cancelledToast: 'Purchase cancelled.',
+    alreadyConfirmed: 'This purchase was already confirmed.',
+    alreadyCancelled: 'This purchase was already cancelled.',
+    notYourProposal: 'Only the original sender can confirm or cancel this purchase.',
+    proposalUnavailable: 'This purchase proposal is no longer available.',
+    parseFailed:
+      "I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
   },
   payments: {
     topicMissing:

@@ -187,8 +187,23 @@ export interface BotTranslationCatalog {
   }
   purchase: {
     sharedPurchaseFallback: string
-    recorded: (summary: string) => string
-    savedForReview: (summary: string) => string
+    proposal: (summary: string) => string
+    clarification: (question: string) => string
+    clarificationMissingAmountAndCurrency: string
+    clarificationMissingAmount: string
+    clarificationMissingCurrency: string
+    clarificationMissingItem: string
+    clarificationLowConfidence: string
+    confirmButton: string
+    cancelButton: string
+    confirmed: (summary: string) => string
+    cancelled: (summary: string) => string
+    confirmedToast: string
+    cancelledToast: string
+    alreadyConfirmed: string
+    alreadyCancelled: string
+    notYourProposal: string
+    proposalUnavailable: string
     parseFailed: string
   }
   payments: {

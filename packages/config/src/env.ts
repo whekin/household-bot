@@ -32,6 +32,7 @@ const server = {
     .transform((value) => parseOptionalCsv(value)),
   OPENAI_API_KEY: z.string().min(1).optional(),
   PARSER_MODEL: z.string().min(1).default('gpt-4.1-mini'),
+  PURCHASE_PARSER_MODEL: z.string().min(1).default('gpt-5-mini'),
   SCHEDULER_SHARED_SECRET: z.string().min(1).optional()
 }
 

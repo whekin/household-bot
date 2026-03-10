@@ -304,7 +304,7 @@ export function createDbFinanceRepository(
           parsedCurrency: input.currency,
           parsedItemDescription: input.description,
           needsReview: 0,
-          processingStatus: 'parsed',
+          processingStatus: 'confirmed',
           parserError: null
         })
         .where(
@@ -597,6 +597,10 @@ export function createDbFinanceRepository(
             isNotNull(schema.purchaseMessages.senderMemberId),
             isNotNull(schema.purchaseMessages.parsedAmountMinor),
             isNotNull(schema.purchaseMessages.parsedCurrency),
+            or(
+              eq(schema.purchaseMessages.processingStatus, 'parsed'),
+              eq(schema.purchaseMessages.processingStatus, 'confirmed')
+            ),
             gte(schema.purchaseMessages.messageSentAt, instantToDate(start)),
             lt(schema.purchaseMessages.messageSentAt, instantToDate(end))
           )

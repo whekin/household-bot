@@ -15,6 +15,7 @@ export interface BotRuntimeConfig {
   reminderJobsEnabled: boolean
   openaiApiKey?: string
   parserModel: string
+  purchaseParserModel: string
 }
 
 function parsePort(raw: string | undefined): number {
@@ -103,7 +104,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
     reminderJobsEnabled,
-    parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini'
+    parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini',
+    purchaseParserModel:
+      env.PURCHASE_PARSER_MODEL?.trim() || env.PARSER_MODEL?.trim() || 'gpt-5-mini'
   }
 
   if (databaseUrl !== undefined) {
