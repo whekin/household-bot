@@ -61,7 +61,16 @@ function repository(
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ],
-    listPaymentRecordsForCycle: async () => [],
+    listPaymentRecordsForCycle: async () => [
+      {
+        id: 'payment-1',
+        memberId: member?.id ?? 'member-1',
+        kind: 'rent',
+        amountMinor: 50000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
+      }
+    ],
     listParsedPurchasesForRange: async () => [
       {
         id: 'purchase-1',
@@ -272,6 +281,8 @@ describe('createMiniAppDashboardHandler', () => {
         period: '2026-03',
         currency: 'GEL',
         totalDueMajor: '2010.00',
+        totalPaidMajor: '500.00',
+        totalRemainingMajor: '1510.00',
         rentSourceAmountMajor: '700.00',
         rentSourceCurrency: 'USD',
         rentDisplayAmountMajor: '1890.00',
@@ -279,6 +290,8 @@ describe('createMiniAppDashboardHandler', () => {
           {
             displayName: 'Stan',
             netDueMajor: '2010.00',
+            paidMajor: '500.00',
+            remainingMajor: '1510.00',
             rentShareMajor: '1890.00',
             utilityShareMajor: '120.00',
             purchaseOffsetMajor: '0.00'
@@ -292,6 +305,13 @@ describe('createMiniAppDashboardHandler', () => {
           },
           {
             title: 'Electricity',
+            currency: 'GEL',
+            displayCurrency: 'GEL'
+          },
+          {
+            kind: 'payment',
+            title: 'rent',
+            paymentKind: 'rent',
             currency: 'GEL',
             displayCurrency: 'GEL'
           }

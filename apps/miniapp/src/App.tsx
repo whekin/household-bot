@@ -257,7 +257,20 @@ function App() {
   const utilityLedger = createMemo(() =>
     (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'utility')
   )
+  const paymentLedger = createMemo(() =>
+    (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'payment')
+  )
   const webApp = getTelegramWebApp()
+
+  function ledgerTitle(entry: MiniAppDashboard['ledger'][number]): string {
+    if (entry.kind !== 'payment') {
+      return entry.title
+    }
+
+    return entry.paymentKind === 'utilities'
+      ? copy().paymentLedgerUtilities
+      : copy().paymentLedgerRent
+  }
 
   async function loadDashboard(initData: string) {
     try {
@@ -455,6 +468,7 @@ function App() {
               id: 'purchase-1',
               kind: 'purchase',
               title: 'Soap',
+              paymentKind: null,
               amountMajor: '30.00',
               currency: 'GEL',
               displayAmountMajor: '30.00',
@@ -468,6 +482,7 @@ function App() {
               id: 'utility-1',
               kind: 'utility',
               title: 'Electricity',
+              paymentKind: null,
               amountMajor: '120.00',
               currency: 'GEL',
               displayAmountMajor: '120.00',
@@ -476,6 +491,20 @@ function App() {
               fxEffectiveDate: null,
               actorDisplayName: 'Alice',
               occurredAt: '2026-03-12T12:00:00.000Z'
+            },
+            {
+              id: 'payment-1',
+              kind: 'payment',
+              title: 'rent',
+              paymentKind: 'rent',
+              amountMajor: '501.00',
+              currency: 'GEL',
+              displayAmountMajor: '501.00',
+              displayCurrency: 'GEL',
+              fxRateMicros: null,
+              fxEffectiveDate: null,
+              actorDisplayName: 'Demo Resident',
+              occurredAt: '2026-03-18T15:10:00.000Z'
             }
           ]
         })
@@ -986,7 +1015,7 @@ function App() {
                         {purchaseLedger().map((entry) => (
                           <article class="ledger-item">
                             <header>
-                              <strong>{entry.title}</strong>
+                              <strong>{ledgerTitle(entry)}</strong>
                               <span>{ledgerPrimaryAmount(entry)}</span>
                             </header>
                             <Show when={ledgerSecondaryAmount(entry)}>
@@ -1009,7 +1038,30 @@ function App() {
                         {utilityLedger().map((entry) => (
                           <article class="ledger-item">
                             <header>
-                              <strong>{entry.title}</strong>
+                              <strong>{ledgerTitle(entry)}</strong>
+                              <span>{ledgerPrimaryAmount(entry)}</span>
+                            </header>
+                            <Show when={ledgerSecondaryAmount(entry)}>
+                              {(secondary) => <p>{secondary()}</p>}
+                            </Show>
+                            <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                  <article class="balance-item">
+                    <header>
+                      <strong>{copy().paymentsTitle}</strong>
+                    </header>
+                    {paymentLedger().length === 0 ? (
+                      <p>{copy().paymentsEmpty}</p>
+                    ) : (
+                      <div class="ledger-list">
+                        {paymentLedger().map((entry) => (
+                          <article class="ledger-item">
+                            <header>
+                              <strong>{ledgerTitle(entry)}</strong>
                               <span>{ledgerPrimaryAmount(entry)}</span>
                             </header>
                             <Show when={ledgerSecondaryAmount(entry)}>
@@ -1775,7 +1827,7 @@ function App() {
                       {data.ledger.slice(0, 3).map((entry) => (
                         <article class="ledger-item">
                           <header>
-                            <strong>{entry.title}</strong>
+                            <strong>{ledgerTitle(entry)}</strong>
                             <span>{ledgerPrimaryAmount(entry)}</span>
                           </header>
                           <Show when={ledgerSecondaryAmount(entry)}>

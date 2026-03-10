@@ -32,6 +32,14 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string | null
     createdAt: Instant
   }[] = []
+  paymentRecords: readonly {
+    id: string
+    memberId: string
+    kind: 'rent' | 'utilities'
+    amountMinor: bigint
+    currency: 'USD' | 'GEL'
+    recordedAt: Instant
+  }[] = []
   lastSavedRentRule: {
     period: string
     amountMinor: bigint
@@ -126,7 +134,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async listPaymentRecordsForCycle() {
-    return []
+    return this.paymentRecords
   }
 
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
@@ -345,6 +353,16 @@ describe('createFinanceCommandService', () => {
         occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
     ]
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 50000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
+      }
+    ]
 
     const service = createService(repository)
     const dashboard = await service.generateDashboard()
@@ -355,18 +373,20 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.rentSourceAmount.toMajorString()).toBe('700.00')
     expect(dashboard?.rentDisplayAmount.toMajorString()).toBe('1890.00')
     expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([99000n, 102000n])
-    expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity'])
-    expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'GEL'])
-    expect(dashboard?.ledger.map((entry) => entry.displayCurrency)).toEqual(['GEL', 'GEL'])
+    expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity', 'rent'])
+    expect(dashboard?.ledger.map((entry) => entry.kind)).toEqual(['purchase', 'utility', 'payment'])
+    expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'GEL', 'GEL'])
+    expect(dashboard?.ledger.map((entry) => entry.displayCurrency)).toEqual(['GEL', 'GEL', 'GEL'])
+    expect(dashboard?.ledger.map((entry) => entry.paymentKind)).toEqual([null, null, 'rent'])
     expect(statement).toBe(
       [
         'Statement for 2026-03',
         'Rent: 700.00 USD (~1890.00 GEL)',
-        '- Alice: due 990.00 GEL, paid 0.00 GEL, remaining 990.00 GEL',
+        '- Alice: due 990.00 GEL, paid 500.00 GEL, remaining 490.00 GEL',
         '- Bob: due 1020.00 GEL, paid 0.00 GEL, remaining 1020.00 GEL',
         'Total due: 2010.00 GEL',
-        'Total paid: 0.00 GEL',
-        'Total remaining: 2010.00 GEL'
+        'Total paid: 500.00 GEL',
+        'Total remaining: 1510.00 GEL'
       ].join('\n')
     )
     expect(repository.replacedSnapshot).not.toBeNull()

@@ -4,6 +4,7 @@ import type {
   ExchangeRateProvider,
   FinanceCycleRecord,
   FinanceMemberRecord,
+  FinancePaymentKind,
   FinanceRentRuleRecord,
   FinanceRepository,
   HouseholdConfigurationRepository
@@ -93,7 +94,7 @@ export interface FinanceDashboardMemberLine {
 
 export interface FinanceDashboardLedgerEntry {
   id: string
-  kind: 'purchase' | 'utility'
+  kind: 'purchase' | 'utility' | 'payment'
   title: string
   amount: Money
   currency: CurrencyCode
@@ -103,6 +104,7 @@ export interface FinanceDashboardLedgerEntry {
   fxEffectiveDate: string | null
   actorDisplayName: string | null
   occurredAt: string | null
+  paymentKind: FinancePaymentKind | null
 }
 
 export interface FinanceDashboard {
@@ -379,7 +381,8 @@ async function buildFinanceDashboard(
       actorDisplayName: bill.createdByMemberId
         ? (memberNameById.get(bill.createdByMemberId) ?? null)
         : null,
-      occurredAt: bill.createdAt.toString()
+      occurredAt: bill.createdAt.toString(),
+      paymentKind: null
     })),
     ...convertedPurchases.map(({ purchase, converted }) => ({
       id: purchase.id,
@@ -392,7 +395,22 @@ async function buildFinanceDashboard(
       fxRateMicros: converted.fxRateMicros,
       fxEffectiveDate: converted.fxEffectiveDate,
       actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
-      occurredAt: purchase.occurredAt?.toString() ?? null
+      occurredAt: purchase.occurredAt?.toString() ?? null,
+      paymentKind: null
+    })),
+    ...paymentRecords.map((payment) => ({
+      id: payment.id,
+      kind: 'payment' as const,
+      title: payment.kind,
+      amount: Money.fromMinor(payment.amountMinor, payment.currency),
+      currency: payment.currency,
+      displayAmount: Money.fromMinor(payment.amountMinor, payment.currency),
+      displayCurrency: payment.currency,
+      fxRateMicros: null,
+      fxEffectiveDate: null,
+      actorDisplayName: memberNameById.get(payment.memberId) ?? null,
+      occurredAt: payment.recordedAt.toString(),
+      paymentKind: payment.kind
     }))
   ].sort((left, right) => {
     if (left.occurredAt === right.occurredAt) {

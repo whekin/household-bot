@@ -88,8 +88,9 @@ export interface MiniAppDashboard {
   }[]
   ledger: {
     id: string
-    kind: 'purchase' | 'utility'
+    kind: 'purchase' | 'utility' | 'payment'
     title: string
+    paymentKind: 'rent' | 'utilities' | null
     amountMajor: string
     currency: 'USD' | 'GEL'
     displayAmountMajor: string
