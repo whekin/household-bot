@@ -58,7 +58,7 @@ async function getCycleByPeriodOrLatest(
     return repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
   }
 
-  return repository.getLatestCycle()
+  return (await repository.getOpenCycle()) ?? repository.getLatestCycle()
 }
 
 function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {

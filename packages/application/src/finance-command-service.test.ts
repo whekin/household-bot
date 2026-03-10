@@ -450,4 +450,36 @@ describe('createFinanceCommandService', () => {
       102000n
     ])
   })
+
+  test('generateDashboard prefers the open cycle over a later latest cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'stas',
+        telegramUserId: '100',
+        displayName: 'Stas',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+
+    expect(dashboard?.period).toBe('2026-03')
+  })
 })
