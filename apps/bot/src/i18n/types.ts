@@ -44,9 +44,6 @@ export interface BotTranslationCatalog {
     groupHeading: string
     groupAdminsHeading: string
   }
-  bot: {
-    householdStatusPending: string
-  }
   common: {
     unableToIdentifySender: string
     useHelp: string
@@ -154,6 +151,29 @@ export interface BotTranslationCatalog {
     ) => string
     paymentAddFailed: (message: string) => string
     noStatementCycle: string
+    householdStatusTitle: (period: string) => string
+    householdStatusRentDirect: (amount: string, currency: string) => string
+    householdStatusRentConverted: (
+      sourceAmount: string,
+      sourceCurrency: string,
+      displayAmount: string,
+      displayCurrency: string
+    ) => string
+    householdStatusUtilities: (amount: string, currency: string) => string
+    householdStatusPurchases: (amount: string, currency: string) => string
+    householdStatusMember: (
+      displayName: string,
+      due: string,
+      paid: string,
+      remaining: string,
+      currency: string
+    ) => string
+    householdStatusTotals: (
+      due: string,
+      paid: string,
+      remaining: string,
+      currency: string
+    ) => string
     statementTitle: (period: string) => string
     statementLine: (displayName: string, amount: string, currency: string) => string
     statementTotal: (amount: string, currency: string) => string

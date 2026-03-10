@@ -22,9 +22,6 @@ export const enBotTranslations: BotTranslationCatalog = {
     groupHeading: 'Group chat:',
     groupAdminsHeading: 'Group admins:'
   },
-  bot: {
-    householdStatusPending: 'Household status is not connected yet. Data integration is next.'
-  },
   common: {
     unableToIdentifySender: 'Unable to identify sender for this command.',
     useHelp: 'Send /help to see available commands.'
@@ -144,6 +141,16 @@ export const enBotTranslations: BotTranslationCatalog = {
       `Payment recorded: ${kind === 'rent' ? 'rent' : 'utilities'} ${amount} ${currency} for ${period}`,
     paymentAddFailed: (message) => `Failed to record payment: ${message}`,
     noStatementCycle: 'No cycle found for statement.',
+    householdStatusTitle: (period) => `Household status for ${period}`,
+    householdStatusRentDirect: (amount, currency) => `Rent: ${amount} ${currency}`,
+    householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
+      `Rent: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
+    householdStatusUtilities: (amount, currency) => `Utilities: ${amount} ${currency}`,
+    householdStatusPurchases: (amount, currency) => `Shared purchases: ${amount} ${currency}`,
+    householdStatusMember: (displayName, due, paid, remaining, currency) =>
+      `- ${displayName}: due ${due} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
+    householdStatusTotals: (due, paid, remaining, currency) =>
+      `Totals: due ${due} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,

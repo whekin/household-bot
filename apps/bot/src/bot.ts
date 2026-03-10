@@ -2,7 +2,6 @@ import { Bot, type Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
-import { getBotTranslations } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import { formatTelegramHelpText } from './telegram-commands'
 
@@ -66,15 +65,6 @@ export function createTelegramBot(
       })
     )
   })
-
-  bot.command('household_status', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: householdConfigurationRepository
-    })
-    await ctx.reply(getBotTranslations(locale).bot.householdStatusPending)
-  })
-
   bot.catch((error) => {
     logger?.error(
       {

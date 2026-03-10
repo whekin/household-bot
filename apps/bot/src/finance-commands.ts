@@ -1,4 +1,5 @@
 import type { FinanceCommandService } from '@household/application'
+import { Money } from '@household/domain'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
@@ -36,6 +37,54 @@ export function createFinanceCommandsService(options: {
         t.statementLine(line.displayName, line.netDue.toMajorString(), dashboard.currency)
       ),
       t.statementTotal(dashboard.totalDue.toMajorString(), dashboard.currency)
+    ].join('\n')
+  }
+
+  function formatHouseholdStatus(
+    locale: Parameters<typeof getBotTranslations>[0],
+    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  ): string {
+    const t = getBotTranslations(locale).finance
+    const utilityTotal = dashboard.ledger
+      .filter((entry) => entry.kind === 'utility')
+      .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
+    const purchaseTotal = dashboard.ledger
+      .filter((entry) => entry.kind === 'purchase')
+      .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
+
+    const rentLine =
+      dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency
+        ? t.householdStatusRentDirect(
+            dashboard.rentDisplayAmount.toMajorString(),
+            dashboard.currency
+          )
+        : t.householdStatusRentConverted(
+            dashboard.rentSourceAmount.toMajorString(),
+            dashboard.rentSourceAmount.currency,
+            dashboard.rentDisplayAmount.toMajorString(),
+            dashboard.currency
+          )
+
+    return [
+      t.householdStatusTitle(dashboard.period),
+      rentLine,
+      t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency),
+      t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency),
+      ...dashboard.members.map((member) =>
+        t.householdStatusMember(
+          member.displayName,
+          member.netDue.toMajorString(),
+          member.paid.toMajorString(),
+          member.remaining.toMajorString(),
+          dashboard.currency
+        )
+      ),
+      t.householdStatusTotals(
+        dashboard.totalDue.toMajorString(),
+        dashboard.totalPaid.toMajorString(),
+        dashboard.totalRemaining.toMajorString(),
+        dashboard.currency
+      )
     ].join('\n')
   }
 
@@ -117,6 +166,30 @@ export function createFinanceCommandsService(options: {
   }
 
   function register(bot: Bot): void {
+    bot.command('household_status', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
+      const resolved = await requireMember(ctx)
+      if (!resolved) {
+        return
+      }
+
+      try {
+        const dashboard = await resolved.service.generateDashboard(commandArgs(ctx)[0])
+        if (!dashboard) {
+          await ctx.reply(t.noStatementCycle)
+          return
+        }
+
+        await ctx.reply(formatHouseholdStatus(locale, dashboard))
+      } catch (error) {
+        await ctx.reply(t.statementFailed((error as Error).message))
+      }
+    })
+
     bot.command('cycle_open', async (ctx) => {
       const locale = await resolveReplyLocale({
         ctx,
