@@ -81,6 +81,7 @@ export interface MiniAppDashboard {
     kind: 'purchase' | 'utility'
     title: string
     amountMajor: string
+    currency: 'USD' | 'GEL'
     actorDisplayName: string | null
     occurredAt: string | null
   }[]

@@ -283,6 +283,7 @@ export function createDbFinanceRepository(
           id: schema.purchaseMessages.id,
           payerMemberId: schema.purchaseMessages.senderMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
+          currency: schema.purchaseMessages.parsedCurrency,
           description: schema.purchaseMessages.parsedItemDescription,
           occurredAt: schema.purchaseMessages.messageSentAt
         })
@@ -292,6 +293,7 @@ export function createDbFinanceRepository(
             eq(schema.purchaseMessages.householdId, householdId),
             isNotNull(schema.purchaseMessages.senderMemberId),
             isNotNull(schema.purchaseMessages.parsedAmountMinor),
+            isNotNull(schema.purchaseMessages.parsedCurrency),
             gte(schema.purchaseMessages.messageSentAt, instantToDate(start)),
             lt(schema.purchaseMessages.messageSentAt, instantToDate(end))
           )
@@ -301,6 +303,7 @@ export function createDbFinanceRepository(
         id: row.id,
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
+        currency: toCurrencyCode(row.currency!),
         description: row.description,
         occurredAt: instantFromDatabaseValue(row.occurredAt)
       }))

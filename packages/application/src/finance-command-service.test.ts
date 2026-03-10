@@ -247,6 +247,7 @@ describe('createFinanceCommandService', () => {
         id: 'purchase-1',
         payerMemberId: 'alice',
         amountMinor: 3000n,
+        currency: 'GEL',
         description: 'Soap',
         occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
@@ -259,6 +260,7 @@ describe('createFinanceCommandService', () => {
     expect(dashboard).not.toBeNull()
     expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([39500n, 42500n])
     expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity'])
+    expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'USD'])
     expect(statement).toBe(
       [
         'Statement for 2026-03',

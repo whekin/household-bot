@@ -413,6 +413,7 @@ function App() {
               kind: 'purchase',
               title: 'Soap',
               amountMajor: '30.00',
+              currency: 'GEL',
               actorDisplayName: 'Alice',
               occurredAt: '2026-03-12T11:00:00.000Z'
             },
@@ -421,6 +422,7 @@ function App() {
               kind: 'utility',
               title: 'Electricity',
               amountMajor: '120.00',
+              currency: 'GEL',
               actorDisplayName: 'Alice',
               occurredAt: '2026-03-12T12:00:00.000Z'
             }
@@ -898,7 +900,7 @@ function App() {
             <ShowDashboard
               dashboard={dashboard()}
               fallback={<p>{copy().emptyDashboard}</p>}
-              render={(data) => (
+              render={() => (
                 <>
                   <article class="balance-item">
                     <header>
@@ -913,7 +915,7 @@ function App() {
                             <header>
                               <strong>{entry.title}</strong>
                               <span>
-                                {entry.amountMajor} {data.currency}
+                                {entry.amountMajor} {entry.currency}
                               </span>
                             </header>
                             <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
@@ -935,7 +937,7 @@ function App() {
                             <header>
                               <strong>{entry.title}</strong>
                               <span>
-                                {entry.amountMajor} {data.currency}
+                                {entry.amountMajor} {entry.currency}
                               </span>
                             </header>
                             <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
@@ -1564,7 +1566,7 @@ function App() {
                           <header>
                             <strong>{entry.title}</strong>
                             <span>
-                              {entry.amountMajor} {data.currency}
+                              {entry.amountMajor} {entry.currency}
                             </span>
                           </header>
                           <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>

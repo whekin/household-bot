@@ -103,6 +103,7 @@ export function createMiniAppDashboardHandler(options: {
                 kind: entry.kind,
                 title: entry.title,
                 amountMajor: entry.amount.toMajorString(),
+                currency: entry.currency,
                 actorDisplayName: entry.actorDisplayName,
                 occurredAt: entry.occurredAt
               }))

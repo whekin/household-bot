@@ -63,6 +63,7 @@ function repository(
         id: 'purchase-1',
         payerMemberId: member?.id ?? 'member-1',
         amountMinor: 3000n,
+        currency: 'GEL',
         description: 'Soap',
         occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
@@ -244,10 +245,12 @@ describe('createMiniAppDashboardHandler', () => {
         ],
         ledger: [
           {
-            title: 'Soap'
+            title: 'Soap',
+            currency: 'GEL'
           },
           {
-            title: 'Electricity'
+            title: 'Electricity',
+            currency: 'USD'
           }
         ]
       }

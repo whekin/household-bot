@@ -23,6 +23,7 @@ export interface FinanceParsedPurchaseRecord {
   id: string
   payerMemberId: string
   amountMinor: bigint
+  currency: CurrencyCode
   description: string | null
   occurredAt: Instant | null
 }

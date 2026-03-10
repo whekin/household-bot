@@ -72,6 +72,7 @@ export interface FinanceDashboardLedgerEntry {
   kind: 'purchase' | 'utility'
   title: string
   amount: Money
+  currency: CurrencyCode
   actorDisplayName: string | null
   occurredAt: string | null
 }
@@ -182,6 +183,7 @@ async function buildFinanceDashboard(
       kind: 'utility' as const,
       title: bill.billName,
       amount: Money.fromMinor(bill.amountMinor, bill.currency),
+      currency: bill.currency,
       actorDisplayName: bill.createdByMemberId
         ? (memberNameById.get(bill.createdByMemberId) ?? null)
         : null,
@@ -191,7 +193,8 @@ async function buildFinanceDashboard(
       id: purchase.id,
       kind: 'purchase' as const,
       title: purchase.description ?? 'Shared purchase',
-      amount: Money.fromMinor(purchase.amountMinor, rentRule.currency),
+      amount: Money.fromMinor(purchase.amountMinor, purchase.currency),
+      currency: purchase.currency,
       actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
       occurredAt: purchase.occurredAt?.toString() ?? null
     }))
