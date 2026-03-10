@@ -11,13 +11,6 @@ mini_app_image  = "europe-west1-docker.pkg.dev/my-gcp-project/household-bot/mini
 database_url_secret_id   = "database-url"
 telegram_bot_token_secret_id = "telegram-bot-token"
 openai_api_key_secret_id = "openai-api-key"
-# supabase_url_secret_id             = "supabase-url"
-# supabase_publishable_key_secret_id = "supabase-publishable-key"
-
-bot_household_id       = "11111111-1111-4111-8111-111111111111"
-bot_household_chat_id  = "-1001234567890"
-bot_purchase_topic_id  = 777
-bot_feedback_topic_id  = 778
 bot_parser_model       = "gpt-4.1-mini"
 bot_mini_app_allowed_origins = [
   "https://household-dev-mini-app-abc123-ew.a.run.app"

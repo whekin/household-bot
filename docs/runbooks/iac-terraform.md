@@ -54,10 +54,6 @@ If `create_workload_identity = true`, Terraform also grants the GitHub deploy se
 
 Keep bot runtime config that is not secret in your `*.tfvars` file:
 
-- `bot_household_id`
-- `bot_household_chat_id`
-- `bot_purchase_topic_id`
-- optional `bot_feedback_topic_id`
 - `bot_mini_app_allowed_origins`
 - optional `bot_parser_model`
 

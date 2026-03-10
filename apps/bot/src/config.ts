@@ -5,9 +5,6 @@ export interface BotRuntimeConfig {
   telegramWebhookSecret: string
   telegramWebhookPath: string
   databaseUrl?: string
-  telegramHouseholdChatId?: string
-  telegramPurchaseTopicId?: number
-  telegramFeedbackTopicId?: number
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
   anonymousFeedbackEnabled: boolean
@@ -60,19 +57,6 @@ function requireValue(value: string | undefined, key: string): string {
   return value
 }
 
-function parseOptionalTopicId(raw: string | undefined): number | undefined {
-  if (!raw) {
-    return undefined
-  }
-
-  const parsed = Number(raw)
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`Invalid Telegram topic id value: ${raw}`)
-  }
-
-  return parsed
-}
-
 function parseOptionalValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : undefined
@@ -93,9 +77,6 @@ function parseOptionalCsv(value: string | undefined): readonly string[] {
 
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
   const databaseUrl = parseOptionalValue(env.DATABASE_URL)
-  const telegramHouseholdChatId = parseOptionalValue(env.TELEGRAM_HOUSEHOLD_CHAT_ID)
-  const telegramPurchaseTopicId = parseOptionalTopicId(env.TELEGRAM_PURCHASE_TOPIC_ID)
-  const telegramFeedbackTopicId = parseOptionalTopicId(env.TELEGRAM_FEEDBACK_TOPIC_ID)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
@@ -127,15 +108,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
 
   if (databaseUrl !== undefined) {
     runtime.databaseUrl = databaseUrl
-  }
-  if (telegramHouseholdChatId !== undefined) {
-    runtime.telegramHouseholdChatId = telegramHouseholdChatId
-  }
-  if (telegramPurchaseTopicId !== undefined) {
-    runtime.telegramPurchaseTopicId = telegramPurchaseTopicId
-  }
-  if (telegramFeedbackTopicId !== undefined) {
-    runtime.telegramFeedbackTopicId = telegramFeedbackTopicId
   }
   if (schedulerSharedSecret !== undefined) {
     runtime.schedulerSharedSecret = schedulerSharedSecret

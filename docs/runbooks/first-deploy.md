@@ -25,22 +25,19 @@ Required in your environment `*.tfvars`:
 - `environment`
 - `bot_api_image`
 - `mini_app_image`
-- `bot_household_id`
-- `bot_household_chat_id`
-- `bot_purchase_topic_id`
 
 Recommended:
 
 - `database_url_secret_id = "database-url"`
 - `telegram_bot_token_secret_id = "telegram-bot-token"`
 - `openai_api_key_secret_id = "openai-api-key"`
-- optional `supabase_url_secret_id = "supabase-url"`
-- optional `supabase_publishable_key_secret_id = "supabase-publishable-key"`
-- `bot_feedback_topic_id`
 - `bot_mini_app_allowed_origins`
 - `scheduler_timezone`
 - `scheduler_paused = true`
 - `scheduler_dry_run = true`
+
+Household chat/topic bindings are no longer deployment config. Configure them in Telegram with
+`/setup`, `/bind_purchase_topic`, `/bind_feedback_topic`, and `/bind_payments_topic` after deploy.
 
 ### Secret Manager values
 

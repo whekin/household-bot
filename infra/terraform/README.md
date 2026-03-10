@@ -72,10 +72,6 @@ Recommended approach:
 - Use `terraform.tfvars` per environment (`dev.tfvars`, `prod.tfvars`)
 - Keep `project_id` separate for dev/prod when possible
 - Keep non-secret bot config in `*.tfvars`:
-  - `bot_household_id`
-  - `bot_household_chat_id`
-  - `bot_purchase_topic_id`
-  - optional `bot_feedback_topic_id`
   - optional `bot_parser_model`
   - optional `bot_mini_app_allowed_origins`
 

@@ -90,18 +90,6 @@ module "bot_api_service" {
     {
       NODE_ENV = var.environment
     },
-    var.bot_household_id == null ? {} : {
-      HOUSEHOLD_ID = var.bot_household_id
-    },
-    var.bot_household_chat_id == null ? {} : {
-      TELEGRAM_HOUSEHOLD_CHAT_ID = var.bot_household_chat_id
-    },
-    var.bot_purchase_topic_id == null ? {} : {
-      TELEGRAM_PURCHASE_TOPIC_ID = tostring(var.bot_purchase_topic_id)
-    },
-    var.bot_feedback_topic_id == null ? {} : {
-      TELEGRAM_FEEDBACK_TOPIC_ID = tostring(var.bot_feedback_topic_id)
-    },
     var.bot_parser_model == null ? {} : {
       PARSER_MODEL = var.bot_parser_model
     },
@@ -117,12 +105,6 @@ module "bot_api_service" {
     {
       TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret_id
       SCHEDULER_SHARED_SECRET = var.scheduler_shared_secret_id
-    },
-    var.supabase_url_secret_id == null ? {} : {
-      SUPABASE_URL = var.supabase_url_secret_id
-    },
-    var.supabase_publishable_key_secret_id == null ? {} : {
-      SUPABASE_PUBLISHABLE_KEY = var.supabase_publishable_key_secret_id
     },
     var.database_url_secret_id == null ? {} : {
       DATABASE_URL = var.database_url_secret_id
