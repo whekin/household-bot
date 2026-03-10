@@ -1,5 +1,7 @@
 import { extractOpenAiResponseText, type OpenAiResponsePayload } from './openai-responses'
 
+const ASSISTANT_MAX_OUTPUT_TOKENS = 220
+
 export interface AssistantUsage {
   inputTokens: number
   outputTokens: number
@@ -31,6 +33,10 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'If the user asks you to mutate household state, do not claim the action is complete unless the system explicitly says it was confirmed and saved.',
   'For unsupported writes, explain the limitation briefly and suggest the explicit command or confirmation flow.',
   'Prefer concise, practical answers.',
+  'Default to one to three short sentences.',
+  'For simple greetings or small talk, reply in a single short sentence unless the user asks for more.',
+  'Do not restate the full household context unless the user explicitly asks for details.',
+  'Avoid bullet lists unless the user asked for a list or several distinct items.',
   'Reply in the user language inferred from the latest user message and locale context.'
 ].join(' ')
 
@@ -58,6 +64,7 @@ export function createOpenAiChatAssistant(
           },
           body: JSON.stringify({
             model,
+            max_output_tokens: ASSISTANT_MAX_OUTPUT_TOKENS,
             input: [
               {
                 role: 'system',
