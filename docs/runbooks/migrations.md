@@ -47,8 +47,8 @@ bun run build
 
 ## CD behavior
 
-- CD deploy can run migrations before deploy **if** `DATABASE_URL` secret is present.
-- If `DATABASE_URL` is not set, deploy continues without auto-migration.
+- CD deploy runs migrations before deploy and now requires the `DATABASE_URL` GitHub secret.
+- If `DATABASE_URL` is missing, CD fails fast instead of deploying schema-dependent code without migrations.
 
 ## Safety rules
 

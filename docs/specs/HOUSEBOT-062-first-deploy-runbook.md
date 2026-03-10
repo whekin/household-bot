@@ -45,7 +45,7 @@ Document the exact first-deploy sequence so one engineer can provision, deploy, 
 ## Edge Cases and Failure Modes
 
 - First Terraform apply may not know the final mini app URL; runbook includes a second apply to set allowed origins.
-- Missing `DATABASE_URL` in GitHub secrets skips migration automation.
+- Missing `DATABASE_URL` in GitHub secrets blocks CD entirely so schema-dependent deploys cannot ship without migrations.
 - Scheduler jobs remain paused and dry-run by default to prevent accidental sends.
 
 ## Test Plan

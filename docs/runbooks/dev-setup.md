@@ -82,7 +82,7 @@ bun run review:coderabbit
   - `GCP_PROJECT_ID`
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT`
-  - optional for automated migrations: `DATABASE_URL`
+  - `DATABASE_URL`
 - Optional GitHub variables for deploy:
   - `GCP_REGION` (default `europe-west1`)
   - `ARTIFACT_REPOSITORY` (default `household-bot`)

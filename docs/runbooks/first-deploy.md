@@ -62,7 +62,7 @@ Required for CD:
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_SERVICE_ACCOUNT`
 
-Recommended:
+Required for a real deploy:
 
 - `DATABASE_URL`
 
@@ -152,7 +152,7 @@ Populate GitHub repository secrets with the Terraform outputs:
 - `GCP_PROJECT_ID`
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_SERVICE_ACCOUNT`
-- optional `DATABASE_URL`
+- `DATABASE_URL`
 
 If you prefer the GitHub CLI:
 
@@ -177,7 +177,7 @@ You have two safe options:
 
 The workflow will:
 
-- optionally run `bun run db:migrate` if `DATABASE_URL` secret is configured
+- run `bun run db:migrate` before deploy
 - build and push bot and mini app images
 - deploy both Cloud Run services
 
