@@ -152,6 +152,7 @@ export interface BotTranslationCatalog {
     paymentAddFailed: (message: string) => string
     noStatementCycle: string
     householdStatusTitle: (period: string) => string
+    householdStatusDueDate: (dueDate: string) => string
     householdStatusRentDirect: (amount: string, currency: string) => string
     householdStatusRentConverted: (
       sourceAmount: string,
@@ -163,13 +164,13 @@ export interface BotTranslationCatalog {
     householdStatusPurchases: (amount: string, currency: string) => string
     householdStatusMember: (
       displayName: string,
-      due: string,
+      balance: string,
       paid: string,
       remaining: string,
       currency: string
     ) => string
     householdStatusTotals: (
-      due: string,
+      balance: string,
       paid: string,
       remaining: string,
       currency: string

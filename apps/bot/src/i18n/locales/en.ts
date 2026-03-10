@@ -142,15 +142,16 @@ export const enBotTranslations: BotTranslationCatalog = {
     paymentAddFailed: (message) => `Failed to record payment: ${message}`,
     noStatementCycle: 'No cycle found for statement.',
     householdStatusTitle: (period) => `Household status for ${period}`,
+    householdStatusDueDate: (dueDate) => `Rent due by ${dueDate}`,
     householdStatusRentDirect: (amount, currency) => `Rent: ${amount} ${currency}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
       `Rent: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
     householdStatusUtilities: (amount, currency) => `Utilities: ${amount} ${currency}`,
     householdStatusPurchases: (amount, currency) => `Shared purchases: ${amount} ${currency}`,
-    householdStatusMember: (displayName, due, paid, remaining, currency) =>
-      `- ${displayName}: due ${due} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
-    householdStatusTotals: (due, paid, remaining, currency) =>
-      `Totals: due ${due} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
+    householdStatusMember: (displayName, balance, paid, remaining, currency) =>
+      `- ${displayName}: balance ${balance} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
+    householdStatusTotals: (balance, paid, remaining, currency) =>
+      `Household total: balance ${balance} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,

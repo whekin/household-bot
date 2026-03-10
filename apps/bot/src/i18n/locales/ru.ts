@@ -144,16 +144,17 @@ export const ruBotTranslations: BotTranslationCatalog = {
       `Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${amount} ${currency} за ${period}`,
     paymentAddFailed: (message) => `Не удалось сохранить оплату: ${message}`,
     noStatementCycle: 'Для выписки период не найден.',
-    householdStatusTitle: (period) => `Статус дома за ${period}`,
+    householdStatusTitle: (period) => `Статус на ${period}`,
+    householdStatusDueDate: (dueDate) => `Срок оплаты аренды: до ${dueDate}`,
     householdStatusRentDirect: (amount, currency) => `Аренда: ${amount} ${currency}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
       `Аренда: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
     householdStatusUtilities: (amount, currency) => `Коммуналка: ${amount} ${currency}`,
     householdStatusPurchases: (amount, currency) => `Общие покупки: ${amount} ${currency}`,
-    householdStatusMember: (displayName, due, paid, remaining, currency) =>
-      `- ${displayName}: должен ${due} ${currency}, оплачено ${paid} ${currency}, осталось ${remaining} ${currency}`,
-    householdStatusTotals: (due, paid, remaining, currency) =>
-      `Итого: должен ${due} ${currency}, оплачено ${paid} ${currency}, осталось ${remaining} ${currency}`,
+    householdStatusMember: (displayName, balance, paid, remaining, currency) =>
+      `- ${displayName}: баланс ${balance} ${currency}, оплачено ${paid} ${currency}, остаток ${remaining} ${currency}`,
+    householdStatusTotals: (balance, paid, remaining, currency) =>
+      `Итого по дому: баланс ${balance} ${currency}, оплачено ${paid} ${currency}, остаток ${remaining} ${currency}`,
     statementTitle: (period) => `Выписка за ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Итого: ${amount} ${currency}`,

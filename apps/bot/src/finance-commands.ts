@@ -15,6 +15,51 @@ function commandArgs(ctx: Context): string[] {
   return raw.split(/\s+/).filter(Boolean)
 }
 
+function formatBillingPeriodLabel(
+  locale: Parameters<typeof getBotTranslations>[0],
+  period: string
+): string {
+  const [yearRaw, monthRaw] = period.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return period
+  }
+
+  const formatter = new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC'
+  })
+
+  return formatter.format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
+function formatCycleDueDate(
+  locale: Parameters<typeof getBotTranslations>[0],
+  period: string,
+  dueDay: number
+): string {
+  const [yearRaw, monthRaw] = period.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return period
+  }
+
+  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const day = Math.min(Math.max(dueDay, 1), maxDay)
+  const formatter = new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC'
+  })
+
+  return formatter.format(new Date(Date.UTC(year, month - 1, day)))
+}
+
 function isGroupChat(ctx: Context): boolean {
   return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
 }
@@ -42,7 +87,8 @@ export function createFinanceCommandsService(options: {
 
   function formatHouseholdStatus(
     locale: Parameters<typeof getBotTranslations>[0],
-    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>,
+    dueDay: number
   ): string {
     const t = getBotTranslations(locale).finance
     const utilityTotal = dashboard.ledger
@@ -66,7 +112,8 @@ export function createFinanceCommandsService(options: {
           )
 
     return [
-      t.householdStatusTitle(dashboard.period),
+      t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period)),
+      t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay)),
       rentLine,
       t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency),
       t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency),
@@ -184,7 +231,11 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await ctx.reply(formatHouseholdStatus(locale, dashboard))
+        const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
+          resolved.householdId
+        )
+
+        await ctx.reply(formatHouseholdStatus(locale, dashboard, settings.rentDueDay))
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

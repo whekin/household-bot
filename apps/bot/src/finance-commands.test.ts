@@ -275,12 +275,13 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(householdStatusUpdate('ru') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('Статус дома за 2026-03')
+    expect(payload?.text).toContain('Статус на март 2026')
     expect(payload?.text).toContain('Аренда: 700.00 USD (~1890.00 GEL)')
     expect(payload?.text).toContain('Коммуналка: 82.00 GEL')
     expect(payload?.text).toContain('Общие покупки: 30.00 GEL')
+    expect(payload?.text).toContain('Срок оплаты аренды: до 20 марта')
     expect(payload?.text).toContain(
-      '- Стас: должен 210.00 GEL, оплачено 100.00 GEL, осталось 110.00 GEL'
+      '- Стас: баланс 210.00 GEL, оплачено 100.00 GEL, остаток 110.00 GEL'
     )
   })
 })
