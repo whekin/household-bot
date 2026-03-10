@@ -305,6 +305,88 @@ describe('registerAnonymousFeedback', () => {
     })
   })
 
+
+  test('uses household locale for the posted anonymous note even when member locale differs', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const repository = createHouseholdConfigurationRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: 'en',
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: method === 'sendMessage' ? -100222333 : 123456,
+            type: method === 'sendMessage' ? 'supergroup' : 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit: async () => ({
+          status: 'accepted',
+          submissionId: 'submission-1',
+          sanitizedText: 'Проверка локали дома'
+        }),
+        markPosted: async () => undefined,
+        markFailed: async () => undefined
+      }),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(
+      anonUpdate({
+        updateId: 99,
+        chatType: 'private',
+        text: '/anon Проверка локали дома',
+        languageCode: 'en'
+      }) as never
+    )
+
+    const sendMessagePayloads = calls
+      .filter((call) => call.method === 'sendMessage')
+      .map((call) => call.payload as { text?: string })
+
+    expect(sendMessagePayloads.some((payload) => payload.text?.startsWith('Анонимное сообщение по дому'))).toBe(true)
+    expect(sendMessagePayloads.some((payload) => payload.text?.startsWith('Anonymous household note'))).toBe(false)
+  })
+
   test('rejects group usage and keeps feedback private', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

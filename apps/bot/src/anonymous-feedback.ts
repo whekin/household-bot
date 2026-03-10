@@ -244,7 +244,7 @@ async function submitAnonymousFeedback(options: {
   try {
     const posted = await options.ctx.api.sendMessage(
       householdChat.telegramChatId,
-      feedbackText(locale, result.sanitizedText),
+      feedbackText(householdChat.defaultLocale, result.sanitizedText),
       {
         message_thread_id: Number(feedbackTopic.telegramThreadId)
       }
