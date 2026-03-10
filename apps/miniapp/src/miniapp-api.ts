@@ -668,3 +668,66 @@ export async function addMiniAppUtilityBill(
 
   return payload.cycleState
 }
+
+export async function updateMiniAppUtilityBill(
+  initData: string,
+  input: {
+    billId: string
+    billName: string
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/utility-bills/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to update utility bill')
+  }
+
+  return payload.cycleState
+}
+
+export async function deleteMiniAppUtilityBill(
+  initData: string,
+  billId: string
+): Promise<MiniAppAdminCycleState> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/utility-bills/delete`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      billId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    cycleState?: MiniAppAdminCycleState
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.cycleState) {
+    throw new Error(payload.error ?? 'Failed to delete utility bill')
+  }
+
+  return payload.cycleState
+}

@@ -49,8 +49,10 @@ import {
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
   createMiniAppCloseCycleHandler,
+  createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
-  createMiniAppRentUpdateHandler
+  createMiniAppRentUpdateHandler,
+  createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
 import { createNbgExchangeRateProvider } from './nbg-exchange-rates'
@@ -456,6 +458,24 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppAddUtilityBill: householdOnboardingService
     ? createMiniAppAddUtilityBillHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppUpdateUtilityBill: householdOnboardingService
+    ? createMiniAppUpdateUtilityBillHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppDeleteUtilityBill: householdOnboardingService
+    ? createMiniAppDeleteUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

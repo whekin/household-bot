@@ -11,8 +11,10 @@ import type {
 import {
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
+  createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
-  createMiniAppRentUpdateHandler
+  createMiniAppRentUpdateHandler,
+  createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
@@ -179,6 +181,12 @@ function createFinanceServiceStub(): FinanceCommandService {
       currency: 'USD',
       period: '2026-03'
     }),
+    updateUtilityBill: async () => ({
+      billId: 'utility-1',
+      amount: Money.fromMinor(4500n, 'USD'),
+      currency: 'USD'
+    }),
+    deleteUtilityBill: async () => true,
     generateDashboard: async () => null,
     generateStatement: async () => null
   }
@@ -246,6 +254,87 @@ describe('createMiniAppBillingCycleHandler', () => {
         ]
       }
     })
+  })
+})
+
+test('createMiniAppUpdateUtilityBillHandler updates a utility bill for the current cycle', async () => {
+  const repository = onboardingRepository()
+  const handler = createMiniAppUpdateUtilityBillHandler({
+    allowedOrigins: ['http://localhost:5173'],
+    botToken: 'test-bot-token',
+    onboardingService: createHouseholdOnboardingService({
+      repository
+    }),
+    financeServiceForHousehold: () => createFinanceServiceStub()
+  })
+
+  const response = await handler.handler(
+    new Request('http://localhost/api/miniapp/admin/utility-bills/update', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        initData: initData(),
+        billId: 'utility-1',
+        billName: 'Electricity',
+        amountMajor: '45.00',
+        currency: 'GEL'
+      })
+    })
+  )
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({
+    ok: true,
+    authorized: true,
+    cycleState: {
+      utilityBills: [
+        {
+          id: 'utility-1'
+        }
+      ]
+    }
+  })
+})
+
+test('createMiniAppDeleteUtilityBillHandler deletes a utility bill for the current cycle', async () => {
+  const repository = onboardingRepository()
+  const handler = createMiniAppDeleteUtilityBillHandler({
+    allowedOrigins: ['http://localhost:5173'],
+    botToken: 'test-bot-token',
+    onboardingService: createHouseholdOnboardingService({
+      repository
+    }),
+    financeServiceForHousehold: () => createFinanceServiceStub()
+  })
+
+  const response = await handler.handler(
+    new Request('http://localhost/api/miniapp/admin/utility-bills/delete', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        initData: initData(),
+        billId: 'utility-1'
+      })
+    })
+  )
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({
+    ok: true,
+    authorized: true,
+    cycleState: {
+      utilityBills: [
+        {
+          id: 'utility-1'
+        }
+      ]
+    }
   })
 })
 

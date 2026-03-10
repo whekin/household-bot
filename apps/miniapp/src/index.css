@@ -231,14 +231,17 @@ button {
 .ledger-list,
 .home-grid,
 .admin-layout,
-.admin-sublist {
+.admin-sublist,
+.activity-list {
   display: grid;
   gap: 12px;
 }
 
 .balance-item,
 .ledger-item,
-.stat-card {
+.stat-card,
+.activity-row,
+.utility-bill-row {
   border: 1px solid rgb(255 255 255 / 0.08);
   border-radius: 18px;
   padding: 14px;
@@ -253,7 +256,9 @@ button {
 }
 
 .balance-item header,
-.ledger-item header {
+.ledger-item header,
+.activity-row header,
+.utility-bill-row header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -262,13 +267,17 @@ button {
 }
 
 .balance-item strong,
-.ledger-item strong {
+.ledger-item strong,
+.activity-row strong,
+.utility-bill-row strong {
   font-size: 1rem;
   overflow-wrap: anywhere;
 }
 
 .balance-item p,
-.ledger-item p {
+.ledger-item p,
+.activity-row p,
+.utility-bill-row p {
   margin-top: 6px;
 }
 
@@ -285,7 +294,7 @@ button {
 }
 
 .home-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .stat-card {
@@ -360,6 +369,10 @@ button {
   margin-top: 12px;
 }
 
+.admin-sublist--plain {
+  gap: 10px;
+}
+
 .admin-card--wide {
   min-width: 0;
 }
@@ -377,6 +390,19 @@ button {
 .settings-field input,
 .settings-field select {
   width: 100%;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 14px;
+  min-height: 48px;
+  padding: 12px 14px;
+  background: rgb(255 255 255 / 0.04);
+  color: inherit;
+  line-height: 1.35;
+}
+
+.settings-field__value {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
   border: 1px solid rgb(255 255 255 / 0.12);
   border-radius: 14px;
   padding: 12px 14px;
@@ -399,8 +425,31 @@ button {
   margin-top: 0;
 }
 
+.ghost-button--danger {
+  border-color: rgb(247 115 115 / 0.28);
+  color: #ffc5c5;
+}
+
 .panel--wide {
   min-height: 170px;
+}
+
+.activity-row,
+.utility-bill-row {
+  background: rgb(255 255 255 / 0.02);
+}
+
+.activity-row header,
+.utility-bill-row header {
+  margin-bottom: 4px;
+}
+
+.activity-row strong {
+  word-break: break-word;
+}
+
+.balance-item--wide {
+  grid-column: 1 / -1;
 }
 
 @media (min-width: 760px) {
@@ -415,6 +464,10 @@ button {
   }
 
   .home-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .home-grid--summary {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -441,10 +494,48 @@ button {
   .admin-card--wide {
     grid-column: 1 / -1;
   }
+
+  .balance-item--wide {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (min-width: 980px) {
   .settings-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 759px) {
+  .shell {
+    padding: 18px 14px 28px;
+  }
+
+  .topbar {
+    flex-direction: column;
+  }
+
+  .locale-switch {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .nav-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .balance-breakdown {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-section__header {
+    align-items: start;
+  }
+
+  .activity-row header,
+  .ledger-item header,
+  .utility-bill-row header,
+  .balance-item header {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

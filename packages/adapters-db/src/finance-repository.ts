@@ -296,6 +296,54 @@ export function createDbFinanceRepository(
       })
     },
 
+    async updateUtilityBill(input) {
+      const rows = await db
+        .update(schema.utilityBills)
+        .set({
+          billName: input.billName,
+          amountMinor: input.amountMinor,
+          currency: input.currency
+        })
+        .where(
+          and(
+            eq(schema.utilityBills.householdId, householdId),
+            eq(schema.utilityBills.id, input.billId)
+          )
+        )
+        .returning({
+          id: schema.utilityBills.id,
+          billName: schema.utilityBills.billName,
+          amountMinor: schema.utilityBills.amountMinor,
+          currency: schema.utilityBills.currency,
+          createdByMemberId: schema.utilityBills.createdByMemberId,
+          createdAt: schema.utilityBills.createdAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
+    },
+
+    async deleteUtilityBill(billId) {
+      const rows = await db
+        .delete(schema.utilityBills)
+        .where(
+          and(eq(schema.utilityBills.householdId, householdId), eq(schema.utilityBills.id, billId))
+        )
+        .returning({
+          id: schema.utilityBills.id
+        })
+
+      return rows.length > 0
+    },
+
     async getRentRuleForPeriod(period) {
       const rows = await db
         .select({

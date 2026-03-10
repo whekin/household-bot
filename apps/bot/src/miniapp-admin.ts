@@ -449,6 +449,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
         const result = await options.miniAppAdminService.updateSettings({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
+          ...(payload.settlementCurrency
+            ? {
+                settlementCurrency: payload.settlementCurrency
+              }
+            : {}),
           ...(payload.rentAmountMajor !== undefined
             ? {
                 rentAmountMajor: payload.rentAmountMajor

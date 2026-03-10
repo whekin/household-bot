@@ -5,6 +5,7 @@ import {
   addMiniAppUtilityBill,
   approveMiniAppPendingMember,
   closeMiniAppBillingCycle,
+  deleteMiniAppUtilityBill,
   fetchMiniAppAdminSettings,
   fetchMiniAppBillingCycle,
   fetchMiniAppDashboard,
@@ -20,6 +21,7 @@ import {
   updateMiniAppBillingSettings,
   updateMiniAppCycleRent,
   upsertMiniAppUtilityCategory,
+  updateMiniAppUtilityBill,
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from './miniapp-api'
@@ -61,6 +63,12 @@ type SessionState =
     }
 
 type NavigationKey = 'home' | 'balances' | 'ledger' | 'house'
+
+type UtilityBillDraft = {
+  billName: string
+  amountMajor: string
+  currency: 'USD' | 'GEL'
+}
 
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
   status: 'ready',
@@ -186,6 +194,21 @@ function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number]): strin
   return `${entry.amountMajor} ${entry.currency}`
 }
 
+function cycleUtilityBillDrafts(
+  bills: MiniAppAdminCycleState['utilityBills']
+): Record<string, UtilityBillDraft> {
+  return Object.fromEntries(
+    bills.map((bill) => [
+      bill.id,
+      {
+        billName: bill.billName,
+        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+        currency: bill.currency
+      }
+    ])
+  )
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -209,6 +232,11 @@ function App() {
   const [closingCycle, setClosingCycle] = createSignal(false)
   const [savingCycleRent, setSavingCycleRent] = createSignal(false)
   const [savingUtilityBill, setSavingUtilityBill] = createSignal(false)
+  const [savingUtilityBillId, setSavingUtilityBillId] = createSignal<string | null>(null)
+  const [deletingUtilityBillId, setDeletingUtilityBillId] = createSignal<string | null>(null)
+  const [utilityBillDrafts, setUtilityBillDrafts] = createSignal<Record<string, UtilityBillDraft>>(
+    {}
+  )
   const [billingForm, setBillingForm] = createSignal({
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
     rentAmountMajor: '',
@@ -222,7 +250,8 @@ function App() {
   const [newCategoryName, setNewCategoryName] = createSignal('')
   const [cycleForm, setCycleForm] = createSignal({
     period: defaultCyclePeriod(),
-    currency: 'GEL' as 'USD' | 'GEL',
+    rentCurrency: 'USD' as 'USD' | 'GEL',
+    utilityCurrency: 'GEL' as 'USD' | 'GEL',
     rentAmountMajor: '',
     utilityCategorySlug: '',
     utilityAmountMajor: ''
@@ -320,7 +349,8 @@ function App() {
       )
       setCycleForm((current) => ({
         ...current,
-        currency: current.currency || payload.settings.settlementCurrency,
+        rentCurrency: payload.settings.rentCurrency,
+        utilityCurrency: payload.settings.settlementCurrency,
         utilityCategorySlug:
           current.utilityCategorySlug ||
           payload.categories.find((category) => category.isActive)?.slug ||
@@ -351,13 +381,15 @@ function App() {
     try {
       const payload = await fetchMiniAppBillingCycle(initData)
       setCycleState(payload)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(payload.utilityBills))
       setCycleForm((current) => ({
         ...current,
         period: payload.cycle?.period ?? current.period,
-        currency:
-          payload.cycle?.currency ??
-          adminSettings()?.settings.settlementCurrency ??
-          current.currency,
+        rentCurrency:
+          payload.rentRule?.currency ??
+          adminSettings()?.settings.rentCurrency ??
+          current.rentCurrency,
+        utilityCurrency: adminSettings()?.settings.settlementCurrency ?? current.utilityCurrency,
         rentAmountMajor: payload.rentRule
           ? (Number(payload.rentRule.amountMinor) / 100).toFixed(2)
           : '',
@@ -707,7 +739,8 @@ function App() {
       )
       setCycleForm((current) => ({
         ...current,
-        currency: cycleState()?.cycle?.currency ?? settings.settlementCurrency
+        rentCurrency: settings.rentCurrency,
+        utilityCurrency: settings.settlementCurrency
       }))
     } finally {
       setSavingBillingSettings(false)
@@ -726,13 +759,14 @@ function App() {
     try {
       const state = await openMiniAppBillingCycle(initData, {
         period: cycleForm().period,
-        currency: cycleForm().currency
+        currency: billingForm().settlementCurrency
       })
       setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
       setCycleForm((current) => ({
         ...current,
         period: state.cycle?.period ?? current.period,
-        currency: state.cycle?.currency ?? current.currency
+        utilityCurrency: billingForm().settlementCurrency
       }))
     } finally {
       setOpeningCycle(false)
@@ -751,6 +785,7 @@ function App() {
     try {
       const state = await closeMiniAppBillingCycle(initData, cycleState()?.cycle?.period)
       setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
     } finally {
       setClosingCycle(false)
     }
@@ -768,7 +803,7 @@ function App() {
     try {
       const state = await updateMiniAppCycleRent(initData, {
         amountMajor: cycleForm().rentAmountMajor,
-        currency: cycleForm().currency,
+        currency: cycleForm().rentCurrency,
         ...(cycleState()?.cycle?.period
           ? {
               period: cycleState()!.cycle!.period
@@ -776,6 +811,7 @@ function App() {
           : {})
       })
       setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
     } finally {
       setSavingCycleRent(false)
     }
@@ -803,15 +839,66 @@ function App() {
       const state = await addMiniAppUtilityBill(initData, {
         billName: selectedCategory.name,
         amountMajor: cycleForm().utilityAmountMajor,
-        currency: cycleForm().currency
+        currency: cycleForm().utilityCurrency
       })
       setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
       setCycleForm((current) => ({
         ...current,
         utilityAmountMajor: ''
       }))
     } finally {
       setSavingUtilityBill(false)
+    }
+  }
+
+  async function handleUpdateUtilityBill(billId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const draft = utilityBillDrafts()[billId]
+
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !draft ||
+      draft.billName.trim().length === 0 ||
+      draft.amountMajor.trim().length === 0
+    ) {
+      return
+    }
+
+    setSavingUtilityBillId(billId)
+
+    try {
+      const state = await updateMiniAppUtilityBill(initData, {
+        billId,
+        billName: draft.billName,
+        amountMajor: draft.amountMajor,
+        currency: draft.currency
+      })
+      setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
+    } finally {
+      setSavingUtilityBillId(null)
+    }
+  }
+
+  async function handleDeleteUtilityBill(billId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
+      return
+    }
+
+    setDeletingUtilityBillId(billId)
+
+    try {
+      const state = await deleteMiniAppUtilityBill(initData, billId)
+      setCycleState(state)
+      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
+    } finally {
+      setDeletingUtilityBillId(null)
     }
   }
 
@@ -1138,7 +1225,7 @@ function App() {
                       <p>
                         {copy().billingCycleStatus.replace(
                           '{currency}',
-                          cycleState()?.cycle?.currency ?? cycleForm().currency
+                          cycleState()?.cycle?.currency ?? billingForm().settlementCurrency
                         )}
                       </p>
                       <Show when={dashboard()}>
@@ -1168,11 +1255,11 @@ function App() {
                         <label class="settings-field">
                           <span>{copy().shareRent}</span>
                           <select
-                            value={cycleForm().currency}
+                            value={cycleForm().rentCurrency}
                             onChange={(event) =>
                               setCycleForm((current) => ({
                                 ...current,
-                                currency: event.currentTarget.value as 'USD' | 'GEL'
+                                rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
                               }))
                             }
                           >
@@ -1218,21 +1305,12 @@ function App() {
                             }
                           />
                         </label>
-                        <label class="settings-field">
+                        <div class="settings-field">
                           <span>{copy().settlementCurrency}</span>
-                          <select
-                            value={cycleForm().currency}
-                            onChange={(event) =>
-                              setCycleForm((current) => ({
-                                ...current,
-                                currency: event.currentTarget.value as 'USD' | 'GEL'
-                              }))
-                            }
-                          >
-                            <option value="USD">USD</option>
-                            <option value="GEL">GEL</option>
-                          </select>
-                        </label>
+                          <div class="settings-field__value">
+                            {billingForm().settlementCurrency}
+                          </div>
+                        </div>
                       </div>
                       <button
                         class="ghost-button"
@@ -1447,7 +1525,7 @@ function App() {
                 <article class="balance-item">
                   <header>
                     <strong>{copy().utilityLedgerTitle}</strong>
-                    <span>{cycleState()?.cycle?.currency ?? billingForm().settlementCurrency}</span>
+                    <span>{cycleForm().utilityCurrency}</span>
                   </header>
                   <div class="settings-grid">
                     <label class="settings-field">
@@ -1480,6 +1558,21 @@ function App() {
                         }
                       />
                     </label>
+                    <label class="settings-field">
+                      <span>{copy().settlementCurrency}</span>
+                      <select
+                        value={cycleForm().utilityCurrency}
+                        onChange={(event) =>
+                          setCycleForm((current) => ({
+                            ...current,
+                            utilityCurrency: event.currentTarget.value as 'USD' | 'GEL'
+                          }))
+                        }
+                      >
+                        <option value="GEL">GEL</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </label>
                   </div>
                   <button
                     class="ghost-button"
@@ -1491,17 +1584,103 @@ function App() {
                   >
                     {savingUtilityBill() ? copy().savingUtilityBill : copy().addUtilityBillAction}
                   </button>
-                  <div class="balance-list admin-sublist">
+                  <div class="admin-sublist admin-sublist--plain">
                     {cycleState()?.utilityBills.length ? (
                       cycleState()?.utilityBills.map((bill) => (
-                        <article class="ledger-item">
+                        <article class="utility-bill-row">
                           <header>
-                            <strong>{bill.billName}</strong>
-                            <span>
-                              {(Number(bill.amountMinor) / 100).toFixed(2)} {bill.currency}
-                            </span>
+                            <strong>
+                              {utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
+                            </strong>
+                            <span>{bill.createdAt.slice(0, 10)}</span>
                           </header>
-                          <p>{bill.createdAt.slice(0, 10)}</p>
+                          <div class="settings-grid">
+                            <label class="settings-field settings-field--wide">
+                              <span>{copy().utilityCategoryName}</span>
+                              <input
+                                value={utilityBillDrafts()[bill.id]?.billName ?? bill.billName}
+                                onInput={(event) =>
+                                  setUtilityBillDrafts((current) => ({
+                                    ...current,
+                                    [bill.id]: {
+                                      ...(current[bill.id] ?? {
+                                        billName: bill.billName,
+                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                        currency: bill.currency
+                                      }),
+                                      billName: event.currentTarget.value
+                                    }
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label class="settings-field">
+                              <span>{copy().utilityAmount}</span>
+                              <input
+                                value={
+                                  utilityBillDrafts()[bill.id]?.amountMajor ??
+                                  minorToMajorString(BigInt(bill.amountMinor))
+                                }
+                                onInput={(event) =>
+                                  setUtilityBillDrafts((current) => ({
+                                    ...current,
+                                    [bill.id]: {
+                                      ...(current[bill.id] ?? {
+                                        billName: bill.billName,
+                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                        currency: bill.currency
+                                      }),
+                                      amountMajor: event.currentTarget.value
+                                    }
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label class="settings-field">
+                              <span>{copy().settlementCurrency}</span>
+                              <select
+                                value={utilityBillDrafts()[bill.id]?.currency ?? bill.currency}
+                                onChange={(event) =>
+                                  setUtilityBillDrafts((current) => ({
+                                    ...current,
+                                    [bill.id]: {
+                                      ...(current[bill.id] ?? {
+                                        billName: bill.billName,
+                                        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
+                                        currency: bill.currency
+                                      }),
+                                      currency: event.currentTarget.value as 'USD' | 'GEL'
+                                    }
+                                  }))
+                                }
+                              >
+                                <option value="GEL">GEL</option>
+                                <option value="USD">USD</option>
+                              </select>
+                            </label>
+                          </div>
+                          <div class="inline-actions">
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={savingUtilityBillId() === bill.id}
+                              onClick={() => void handleUpdateUtilityBill(bill.id)}
+                            >
+                              {savingUtilityBillId() === bill.id
+                                ? copy().savingUtilityBill
+                                : copy().saveUtilityBillAction}
+                            </button>
+                            <button
+                              class="ghost-button ghost-button--danger"
+                              type="button"
+                              disabled={deletingUtilityBillId() === bill.id}
+                              onClick={() => void handleDeleteUtilityBill(bill.id)}
+                            >
+                              {deletingUtilityBillId() === bill.id
+                                ? copy().deletingUtilityBill
+                                : copy().deleteUtilityBillAction}
+                            </button>
+                          </div>
                         </article>
                       ))
                     ) : (
@@ -1515,9 +1694,9 @@ function App() {
                     <strong>{copy().utilityCategoriesTitle}</strong>
                     <span>{String(adminSettings()?.categories.length ?? 0)}</span>
                   </header>
-                  <div class="balance-list admin-sublist">
+                  <div class="admin-sublist admin-sublist--plain">
                     {adminSettings()?.categories.map((category) => (
-                      <article class="ledger-item">
+                      <article class="utility-bill-row">
                         <header>
                           <strong>{category.name}</strong>
                           <span>{category.isActive ? 'ON' : 'OFF'}</span>
@@ -1646,7 +1825,7 @@ function App() {
                   </header>
                   <div class="balance-list admin-sublist">
                     {adminSettings()?.members.map((member) => (
-                      <article class="ledger-item">
+                      <article class="utility-bill-row">
                         <header>
                           <strong>{member.displayName}</strong>
                           <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
@@ -1709,7 +1888,7 @@ function App() {
                   {pendingMembers().length === 0 ? (
                     <p>{copy().pendingMembersEmpty}</p>
                   ) : (
-                    <div class="balance-list admin-sublist">
+                    <div class="admin-sublist admin-sublist--plain">
                       {pendingMembers().map((member) => (
                         <article class="ledger-item">
                           <header>
@@ -1751,7 +1930,7 @@ function App() {
         )
       default:
         return (
-          <div class="home-grid">
+          <div class="home-grid home-grid--summary">
             <article class="stat-card">
               <span>{copy().totalDue}</span>
               <strong>
@@ -1852,7 +2031,7 @@ function App() {
               </article>
             )}
 
-            <article class="balance-item">
+            <article class="balance-item balance-item--wide">
               <header>
                 <strong>{copy().latestActivityTitle}</strong>
               </header>
@@ -1863,9 +2042,9 @@ function App() {
                   data.ledger.length === 0 ? (
                     <p>{copy().latestActivityEmpty}</p>
                   ) : (
-                    <div class="ledger-list">
+                    <div class="activity-list">
                       {data.ledger.slice(0, 3).map((entry) => (
-                        <article class="ledger-item">
+                        <article class="activity-row">
                           <header>
                             <strong>{ledgerTitle(entry)}</strong>
                             <span>{ledgerPrimaryAmount(entry)}</span>

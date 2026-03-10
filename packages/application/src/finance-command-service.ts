@@ -466,6 +466,17 @@ export interface FinanceCommandService {
     currency: CurrencyCode
     period: string
   } | null>
+  updateUtilityBill(
+    billId: string,
+    billName: string,
+    amountArg: string,
+    currencyArg?: string
+  ): Promise<{
+    billId: string
+    amount: Money
+    currency: CurrencyCode
+  } | null>
+  deleteUtilityBill(billId: string): Promise<boolean>
   generateDashboard(periodArg?: string): Promise<FinanceDashboard | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -594,6 +605,34 @@ export function createFinanceCommandService(
         currency,
         period: openCycle.period
       }
+    },
+
+    async updateUtilityBill(billId, billName, amountArg, currencyArg) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+      const amount = Money.fromMajor(amountArg, currency)
+      const updated = await repository.updateUtilityBill({
+        billId,
+        billName,
+        amountMinor: amount.amountMinor,
+        currency
+      })
+
+      if (!updated) {
+        return null
+      }
+
+      return {
+        billId: updated.id,
+        amount,
+        currency
+      }
+    },
+
+    deleteUtilityBill(billId) {
+      return repository.deleteUtilityBill(billId)
     },
 
     async generateStatement(periodArg) {

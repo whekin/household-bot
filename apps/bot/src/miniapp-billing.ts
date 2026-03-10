@@ -217,6 +217,72 @@ async function readUtilityBillPayload(request: Request): Promise<{
   }
 }
 
+async function readUtilityBillUpdatePayload(request: Request): Promise<{
+  initData: string
+  billId: string
+  billName: string
+  amountMajor: string
+  currency?: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    billId?: string
+    billName?: string
+    amountMajor?: string
+    currency?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  const billId = parsed.billId?.trim()
+  const billName = parsed.billName?.trim()
+  const amountMajor = parsed.amountMajor?.trim()
+
+  if (!billId) {
+    throw new Error('Missing utility bill id')
+  }
+  if (!billName) {
+    throw new Error('Missing utility bill name')
+  }
+  if (!amountMajor) {
+    throw new Error('Missing utility bill amount')
+  }
+
+  const currency = parsed.currency?.trim()
+
+  return {
+    initData,
+    billId,
+    billName,
+    amountMajor,
+    ...(currency ? { currency } : {})
+  }
+}
+
+async function readUtilityBillDeletePayload(request: Request): Promise<{
+  initData: string
+  billId: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    billId?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  const billId = parsed.billId?.trim()
+  if (!billId) {
+    throw new Error('Missing utility bill id')
+  }
+
+  return {
+    initData,
+    billId
+  }
+}
+
 export function createMiniAppBillingCycleHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
@@ -507,6 +573,135 @@ export function createMiniAppAddUtilityBillHandler(options: {
         }
 
         const cycleState = await service.getAdminCycleState(result.period)
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            cycleState: serializeCycleState(cycleState)
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppUpdateUtilityBillHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateAdminSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityBillUpdatePayload(request)
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const result = await service.updateUtilityBill(
+          payload.billId,
+          payload.billName,
+          payload.amountMajor,
+          payload.currency
+        )
+
+        if (!result) {
+          return miniAppJsonResponse({ ok: false, error: 'Utility bill not found' }, 404, origin)
+        }
+
+        const cycleState = await service.getAdminCycleState()
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            cycleState: serializeCycleState(cycleState)
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppDeleteUtilityBillHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateAdminSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityBillDeletePayload(request)
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const deleted = await service.deleteUtilityBill(payload.billId)
+
+        if (!deleted) {
+          return miniAppJsonResponse({ ok: false, error: 'Utility bill not found' }, 404, origin)
+        }
+
+        const cycleState = await service.getAdminCycleState()
 
         return miniAppJsonResponse(
           {

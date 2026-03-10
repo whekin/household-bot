@@ -165,6 +165,13 @@ export interface FinanceRepository {
     currency: CurrencyCode
     createdByMemberId: string
   }): Promise<void>
+  updateUtilityBill(input: {
+    billId: string
+    billName: string
+    amountMinor: bigint
+    currency: CurrencyCode
+  }): Promise<FinanceUtilityBillRecord | null>
+  deleteUtilityBill(billId: string): Promise<boolean>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>

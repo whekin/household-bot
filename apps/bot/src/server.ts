@@ -92,6 +92,18 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpdateUtilityBill?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppDeleteUtilityBill?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -153,6 +165,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppRentUpdatePath = options.miniAppRentUpdate?.path ?? '/api/miniapp/admin/rent/update'
   const miniAppAddUtilityBillPath =
     options.miniAppAddUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/add'
+  const miniAppUpdateUtilityBillPath =
+    options.miniAppUpdateUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/update'
+  const miniAppDeleteUtilityBillPath =
+    options.miniAppDeleteUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/delete'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler
@@ -231,6 +247,14 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppAddUtilityBill && url.pathname === miniAppAddUtilityBillPath) {
         return await options.miniAppAddUtilityBill.handler(request)
+      }
+
+      if (options.miniAppUpdateUtilityBill && url.pathname === miniAppUpdateUtilityBillPath) {
+        return await options.miniAppUpdateUtilityBill.handler(request)
+      }
+
+      if (options.miniAppDeleteUtilityBill && url.pathname === miniAppDeleteUtilityBillPath) {
+        return await options.miniAppDeleteUtilityBill.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {

@@ -121,6 +121,14 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.lastUtilityBill = input
   }
 
+  async updateUtilityBill() {
+    return null
+  }
+
+  async deleteUtilityBill() {
+    return false
+  }
+
   async getRentRuleForPeriod(): Promise<FinanceRentRuleRecord | null> {
     return this.rentRule
   }

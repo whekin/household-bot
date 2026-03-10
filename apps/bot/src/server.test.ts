@@ -127,6 +127,24 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppUpdateUtilityBill: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppDeleteUtilityBill: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     miniAppApproveMember: {
       handler: async () =>
         new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
@@ -398,6 +416,38 @@ describe('createBotWebhookServer', () => {
       new Request('http://localhost/api/miniapp/admin/utility-bills/add', {
         method: 'POST',
         body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app utility bill update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/utility-bills/update', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload', billId: 'utility-1' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      cycleState: {}
+    })
+  })
+
+  test('accepts mini app utility bill delete request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/utility-bills/delete', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload', billId: 'utility-1' })
       })
     )
 

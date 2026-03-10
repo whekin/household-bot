@@ -46,6 +46,8 @@ function repository(
     getCycleExchangeRate: async () => null,
     saveCycleExchangeRate: async (input) => input,
     addUtilityBill: async () => {},
+    updateUtilityBill: async () => null,
+    deleteUtilityBill: async () => false,
     getRentRuleForPeriod: async () => ({
       amountMinor: 70000n,
       currency: 'USD'
