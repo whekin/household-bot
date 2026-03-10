@@ -1,3 +1,5 @@
+import { extractOpenAiResponseText, type OpenAiResponsePayload } from './openai-responses'
+
 export interface AssistantUsage {
   inputTokens: number
   outputTokens: number
@@ -20,15 +22,6 @@ export interface ConversationalAssistant {
     }[]
     userMessage: string
   }): Promise<AssistantReply>
-}
-
-interface OpenAiResponsePayload {
-  output_text?: string
-  usage?: {
-    input_tokens?: number
-    output_tokens?: number
-    total_tokens?: number
-  }
 }
 
 const ASSISTANT_SYSTEM_PROMPT = [
@@ -99,8 +92,14 @@ export function createOpenAiChatAssistant(
           throw new Error(`Assistant request failed with status ${response.status}`)
         }
 
-        const payload = (await response.json()) as OpenAiResponsePayload
-        const text = payload.output_text?.trim()
+        const payload = (await response.json()) as OpenAiResponsePayload & {
+          usage?: {
+            input_tokens?: number
+            output_tokens?: number
+            total_tokens?: number
+          }
+        }
+        const text = extractOpenAiResponseText(payload)
         if (!text) {
           throw new Error('Assistant response did not contain text')
         }

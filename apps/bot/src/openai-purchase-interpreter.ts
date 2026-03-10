@@ -1,3 +1,5 @@
+import { extractOpenAiResponseText, parseJsonFromResponseText } from './openai-responses'
+
 export type PurchaseInterpretationDecision = 'purchase' | 'clarification' | 'not_purchase'
 
 export interface PurchaseInterpretation {
@@ -133,17 +135,20 @@ export function createOpenAiPurchaseInterpreter(
     }
 
     const payload = (await response.json()) as {
-      output_text?: string
+      output_text?: string | null
+      output?: Array<{
+        content?: Array<{
+          text?: string | { value?: string | null } | null
+        }> | null
+      }> | null
     }
-
-    if (!payload.output_text) {
+    const responseText = extractOpenAiResponseText(payload)
+    if (!responseText) {
       return null
     }
 
-    let parsedJson: OpenAiStructuredResult
-    try {
-      parsedJson = JSON.parse(payload.output_text) as OpenAiStructuredResult
-    } catch {
+    const parsedJson = parseJsonFromResponseText<OpenAiStructuredResult>(responseText)
+    if (!parsedJson) {
       return null
     }
 
