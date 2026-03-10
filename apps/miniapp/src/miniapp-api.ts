@@ -68,6 +68,8 @@ export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
   totalDueMajor: string
+  totalPaidMajor: string
+  totalRemainingMajor: string
   rentSourceAmountMajor: string
   rentSourceCurrency: 'USD' | 'GEL'
   rentDisplayAmountMajor: string
@@ -80,6 +82,8 @@ export interface MiniAppDashboard {
     utilityShareMajor: string
     purchaseOffsetMajor: string
     netDueMajor: string
+    paidMajor: string
+    remainingMajor: string
     explanations: readonly string[]
   }[]
   ledger: {

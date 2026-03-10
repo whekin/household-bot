@@ -11,6 +11,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     bind_purchase_topic: 'Назначить текущий топик для покупок',
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
+    bind_payments_topic: 'Назначить текущий топик для оплат',
     pending_members: 'Показать ожидающие заявки на вступление',
     approve_member: 'Подтвердить участника дома'
   },
@@ -55,7 +56,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
       [
         `${created ? 'Дом создан' : 'Дом уже подключён'}: ${householdName}`,
         `ID чата: ${telegramChatId}`,
-        'Дальше: откройте топик покупок и выполните /bind_purchase_topic, затем откройте топик обратной связи и выполните /bind_feedback_topic. Если хотите отдельный топик для напоминаний, откройте его и выполните /bind_reminders_topic.',
+        'Дальше: откройте топик покупок и выполните /bind_purchase_topic, затем откройте топик обратной связи и выполните /bind_feedback_topic. Если хотите отдельные топики для напоминаний или оплат, откройте их и выполните /bind_reminders_topic или /bind_payments_topic.',
         'Участники должны открыть чат с ботом по кнопке ниже и подтвердить заявку на вступление.'
       ].join('\n'),
     useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
@@ -67,6 +68,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     useBindRemindersTopicInGroup: 'Используйте /bind_reminders_topic внутри топика группы дома.',
     remindersTopicSaved: (householdName, threadId) =>
       `Топик напоминаний сохранён для ${householdName} (тред ${threadId}).`,
+    useBindPaymentsTopicInGroup: 'Используйте /bind_payments_topic внутри топика группы дома.',
+    paymentsTopicSaved: (householdName, threadId) =>
+      `Топик оплат сохранён для ${householdName} (тред ${threadId}).`,
     usePendingMembersInGroup: 'Используйте /pending_members внутри группы дома.',
     useApproveMemberInGroup: 'Используйте /approve_member внутри группы дома.',
     approveMemberUsage: 'Использование: /approve_member <telegram_user_id>',
@@ -150,5 +154,13 @@ export const ruBotTranslations: BotTranslationCatalog = {
     recorded: (summary) => `Покупка сохранена: ${summary}`,
     savedForReview: (summary) => `Сохранено на проверку: ${summary}`,
     parseFailed: 'Сохранено на проверку: пока не удалось распознать эту покупку.'
+  },
+  payments: {
+    topicMissing:
+      'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /bind_payments_topic.',
+    recorded: (kind, amount, currency) =>
+      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${amount} ${currency}`,
+    savedForReview: 'Это подтверждение оплаты сохранено на проверку.',
+    duplicate: 'Это подтверждение оплаты уже было обработано.'
   }
 }

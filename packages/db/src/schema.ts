@@ -481,6 +481,83 @@ export const anonymousMessages = pgTable(
   })
 )
 
+export const paymentConfirmations = pgTable(
+  'payment_confirmations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id').references(() => billingCycles.id, { onDelete: 'set null' }),
+    memberId: uuid('member_id').references(() => members.id, { onDelete: 'set null' }),
+    senderTelegramUserId: text('sender_telegram_user_id').notNull(),
+    rawText: text('raw_text').notNull(),
+    normalizedText: text('normalized_text').notNull(),
+    detectedKind: text('detected_kind'),
+    explicitAmountMinor: bigint('explicit_amount_minor', { mode: 'bigint' }),
+    explicitCurrency: text('explicit_currency'),
+    resolvedAmountMinor: bigint('resolved_amount_minor', { mode: 'bigint' }),
+    resolvedCurrency: text('resolved_currency'),
+    status: text('status').notNull(),
+    reviewReason: text('review_reason'),
+    attachmentCount: integer('attachment_count').default(0).notNull(),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramMessageId: text('telegram_message_id').notNull(),
+    telegramThreadId: text('telegram_thread_id').notNull(),
+    telegramUpdateId: text('telegram_update_id').notNull(),
+    messageSentAt: timestamp('message_sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdMessageUnique: uniqueIndex('payment_confirmations_household_tg_message_unique').on(
+      table.householdId,
+      table.telegramChatId,
+      table.telegramMessageId
+    ),
+    householdUpdateUnique: uniqueIndex('payment_confirmations_household_tg_update_unique').on(
+      table.householdId,
+      table.telegramUpdateId
+    ),
+    householdStatusIdx: index('payment_confirmations_household_status_idx').on(
+      table.householdId,
+      table.status
+    ),
+    memberCreatedIdx: index('payment_confirmations_member_created_idx').on(
+      table.memberId,
+      table.createdAt
+    )
+  })
+)
+
+export const paymentRecords = pgTable(
+  'payment_records',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    confirmationId: uuid('confirmation_id').references(() => paymentConfirmations.id, {
+      onDelete: 'set null'
+    }),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cycleMemberIdx: index('payment_records_cycle_member_idx').on(table.cycleId, table.memberId),
+    cycleKindIdx: index('payment_records_cycle_kind_idx').on(table.cycleId, table.kind),
+    confirmationUnique: uniqueIndex('payment_records_confirmation_unique').on(table.confirmationId)
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {
@@ -548,4 +625,6 @@ export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseEntry = typeof purchaseEntries.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
+export type PaymentConfirmation = typeof paymentConfirmations.$inferSelect
+export type PaymentRecord = typeof paymentRecords.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

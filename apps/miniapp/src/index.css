@@ -270,6 +270,18 @@ button {
   margin-top: 6px;
 }
 
+.balance-status.is-credit {
+  color: #95e2b0;
+}
+
+.balance-status.is-settled {
+  color: #d6d0c9;
+}
+
+.balance-status.is-due {
+  color: #f7b389;
+}
+
 .home-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

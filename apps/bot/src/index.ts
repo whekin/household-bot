@@ -8,7 +8,8 @@ import {
   createLocalePreferenceService,
   createMiniAppAdminService,
   createHouseholdSetupService,
-  createReminderJobService
+  createReminderJobService,
+  createPaymentConfirmationService
 } from '@household/application'
 import {
   createDbAnonymousFeedbackRepository,
@@ -29,6 +30,7 @@ import {
   createPurchaseMessageRepository,
   registerConfiguredPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
+import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
 import { createReminderJobsHandler } from './reminder-jobs'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
@@ -72,6 +74,10 @@ const bot = createTelegramBot(
 const webhookHandler = webhookCallback(bot, 'std/http')
 const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
 const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
+const paymentConfirmationServices = new Map<
+  string,
+  ReturnType<typeof createPaymentConfirmationService>
+>()
 const exchangeRateProvider = createNbgExchangeRateProvider({
   logger: getLogger('fx')
 })
@@ -105,10 +111,7 @@ function financeServiceForHousehold(householdId: string) {
     return existing
   }
 
-  const repositoryClient = createDbFinanceRepository(runtime.databaseUrl!, householdId)
-  financeRepositoryClients.set(householdId, repositoryClient)
-  shutdownTasks.push(repositoryClient.close)
-
+  const repositoryClient = financeRepositoryForHousehold(householdId)
   const service = createFinanceCommandService({
     householdId,
     repository: repositoryClient.repository,
@@ -116,6 +119,35 @@ function financeServiceForHousehold(householdId: string) {
     exchangeRateProvider
   })
   financeServices.set(householdId, service)
+  return service
+}
+
+function financeRepositoryForHousehold(householdId: string) {
+  const existing = financeRepositoryClients.get(householdId)
+  if (existing) {
+    return existing
+  }
+
+  const repositoryClient = createDbFinanceRepository(runtime.databaseUrl!, householdId)
+  financeRepositoryClients.set(householdId, repositoryClient)
+  shutdownTasks.push(repositoryClient.close)
+  return repositoryClient
+}
+
+function paymentConfirmationServiceForHousehold(householdId: string) {
+  const existing = paymentConfirmationServices.get(householdId)
+  if (existing) {
+    return existing
+  }
+
+  const service = createPaymentConfirmationService({
+    householdId,
+    financeService: financeServiceForHousehold(householdId),
+    repository: financeRepositoryForHousehold(householdId).repository,
+    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    exchangeRateProvider
+  })
+  paymentConfirmationServices.set(householdId, service)
   return service
 }
 
@@ -158,6 +190,15 @@ if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
           }
         : {}),
       logger: getLogger('purchase-ingestion')
+    }
+  )
+
+  registerConfiguredPaymentTopicIngestion(
+    bot,
+    householdConfigurationRepositoryClient.repository,
+    paymentConfirmationServiceForHousehold,
+    {
+      logger: getLogger('payment-ingestion')
     }
   )
 } else {

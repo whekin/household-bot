@@ -160,6 +160,20 @@ function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string
   )
 }
 
+function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {
+  const remainingMinor = majorStringToMinor(member.remainingMajor)
+
+  if (remainingMinor < 0n) {
+    return 'is-credit'
+  }
+
+  if (remainingMinor === 0n) {
+    return 'is-settled'
+  }
+
+  return 'is-due'
+}
+
 function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
   return `${entry.displayAmountMajor} ${entry.displayCurrency}`
 }
@@ -405,6 +419,8 @@ function App() {
           period: '2026-03',
           currency: 'GEL',
           totalDueMajor: '1030.00',
+          totalPaidMajor: '501.00',
+          totalRemainingMajor: '529.00',
           rentSourceAmountMajor: '700.00',
           rentSourceCurrency: 'USD',
           rentDisplayAmountMajor: '1932.00',
@@ -418,6 +434,8 @@ function App() {
               utilityShareMajor: '32.00',
               purchaseOffsetMajor: '-14.00',
               netDueMajor: '501.00',
+              paidMajor: '501.00',
+              remainingMajor: '0.00',
               explanations: ['Equal utility split', 'Shared purchase offset']
             },
             {
@@ -427,6 +445,8 @@ function App() {
               utilityShareMajor: '32.00',
               purchaseOffsetMajor: '14.00',
               netDueMajor: '529.00',
+              paidMajor: '0.00',
+              remainingMajor: '529.00',
               explanations: ['Equal utility split']
             }
           ],
@@ -893,6 +913,18 @@ function App() {
                             {currentMemberLine()!.netDueMajor} {data.currency}
                           </strong>
                         </div>
+                        <div class="stat-card">
+                          <span>{copy().paidLabel}</span>
+                          <strong>
+                            {currentMemberLine()!.paidMajor} {data.currency}
+                          </strong>
+                        </div>
+                        <div class="stat-card">
+                          <span>{copy().remainingLabel}</span>
+                          <strong>
+                            {currentMemberLine()!.remainingMajor} {data.currency}
+                          </strong>
+                        </div>
                       </div>
                     </article>
                   ) : null}
@@ -907,7 +939,7 @@ function App() {
                       <header>
                         <strong>{member.displayName}</strong>
                         <span>
-                          {member.netDueMajor} {data.currency}
+                          {member.remainingMajor} {data.currency}
                         </span>
                       </header>
                       <p>
@@ -921,6 +953,12 @@ function App() {
                       </p>
                       <p>
                         {copy().shareOffset}: {member.purchaseOffsetMajor} {data.currency}
+                      </p>
+                      <p>
+                        {copy().paidLabel}: {member.paidMajor} {data.currency}
+                      </p>
+                      <p class={`balance-status ${memberRemainingClass(member)}`}>
+                        {copy().remainingLabel}: {member.remainingMajor} {data.currency}
                       </p>
                     </article>
                   ))}
@@ -1555,6 +1593,18 @@ function App() {
               </strong>
             </article>
             <article class="stat-card">
+              <span>{copy().paidLabel}</span>
+              <strong>
+                {dashboard() ? `${dashboard()!.totalPaidMajor} ${dashboard()!.currency}` : '—'}
+              </strong>
+            </article>
+            <article class="stat-card">
+              <span>{copy().remainingLabel}</span>
+              <strong>
+                {dashboard() ? `${dashboard()!.totalRemainingMajor} ${dashboard()!.currency}` : '—'}
+              </strong>
+            </article>
+            <article class="stat-card">
               <span>{copy().membersCount}</span>
               <strong>{dashboardMemberCount(dashboard())}</strong>
             </article>
@@ -1578,7 +1628,7 @@ function App() {
                 <header>
                   <strong>{copy().yourBalanceTitle}</strong>
                   <span>
-                    {currentMemberLine()!.netDueMajor} {dashboard()?.currency ?? ''}
+                    {currentMemberLine()!.remainingMajor} {dashboard()?.currency ?? ''}
                   </span>
                 </header>
                 <p>{copy().yourBalanceBody}</p>
@@ -1611,6 +1661,18 @@ function App() {
                     <span>{copy().finalDue}</span>
                     <strong>
                       {currentMemberLine()!.netDueMajor} {dashboard()?.currency ?? ''}
+                    </strong>
+                  </div>
+                  <div class="stat-card">
+                    <span>{copy().paidLabel}</span>
+                    <strong>
+                      {currentMemberLine()!.paidMajor} {dashboard()?.currency ?? ''}
+                    </strong>
+                  </div>
+                  <div class="stat-card">
+                    <span>{copy().remainingLabel}</span>
+                    <strong>
+                      {currentMemberLine()!.remainingMajor} {dashboard()?.currency ?? ''}
                     </strong>
                   </div>
                 </div>

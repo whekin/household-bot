@@ -360,6 +360,30 @@ export function createDbFinanceRepository(
       }))
     },
 
+    async listPaymentRecordsForCycle(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.paymentRecords.id,
+          memberId: schema.paymentRecords.memberId,
+          kind: schema.paymentRecords.kind,
+          amountMinor: schema.paymentRecords.amountMinor,
+          currency: schema.paymentRecords.currency,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+        .from(schema.paymentRecords)
+        .where(eq(schema.paymentRecords.cycleId, cycleId))
+        .orderBy(schema.paymentRecords.recordedAt)
+
+      return rows.map((row) => ({
+        id: row.id,
+        memberId: row.memberId,
+        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
+      }))
+    },
+
     async listParsedPurchasesForRange(start, end) {
       const rows = await db
         .select({
@@ -390,6 +414,121 @@ export function createDbFinanceRepository(
         description: row.description,
         occurredAt: instantFromDatabaseValue(row.occurredAt)
       }))
+    },
+
+    async getSettlementSnapshotLines(cycleId) {
+      const rows = await db
+        .select({
+          memberId: schema.settlementLines.memberId,
+          rentShareMinor: schema.settlementLines.rentShareMinor,
+          utilityShareMinor: schema.settlementLines.utilityShareMinor,
+          purchaseOffsetMinor: schema.settlementLines.purchaseOffsetMinor,
+          netDueMinor: schema.settlementLines.netDueMinor
+        })
+        .from(schema.settlementLines)
+        .innerJoin(
+          schema.settlements,
+          eq(schema.settlementLines.settlementId, schema.settlements.id)
+        )
+        .where(eq(schema.settlements.cycleId, cycleId))
+
+      return rows.map((row) => ({
+        memberId: row.memberId,
+        rentShareMinor: row.rentShareMinor,
+        utilityShareMinor: row.utilityShareMinor,
+        purchaseOffsetMinor: row.purchaseOffsetMinor,
+        netDueMinor: row.netDueMinor
+      }))
+    },
+
+    async savePaymentConfirmation(input) {
+      return db.transaction(async (tx) => {
+        const insertedConfirmation = await tx
+          .insert(schema.paymentConfirmations)
+          .values({
+            householdId,
+            cycleId: input.cycleId,
+            memberId: input.memberId,
+            senderTelegramUserId: input.senderTelegramUserId,
+            rawText: input.rawText,
+            normalizedText: input.normalizedText,
+            detectedKind: input.kind,
+            explicitAmountMinor: input.explicitAmountMinor,
+            explicitCurrency: input.explicitCurrency,
+            resolvedAmountMinor: input.amountMinor,
+            resolvedCurrency: input.currency,
+            status: input.status,
+            reviewReason: input.status === 'needs_review' ? input.reviewReason : null,
+            attachmentCount: input.attachmentCount,
+            telegramChatId: input.telegramChatId,
+            telegramMessageId: input.telegramMessageId,
+            telegramThreadId: input.telegramThreadId,
+            telegramUpdateId: input.telegramUpdateId,
+            messageSentAt: input.messageSentAt ? instantToDate(input.messageSentAt) : null
+          })
+          .onConflictDoNothing({
+            target: [
+              schema.paymentConfirmations.householdId,
+              schema.paymentConfirmations.telegramChatId,
+              schema.paymentConfirmations.telegramMessageId
+            ]
+          })
+          .returning({
+            id: schema.paymentConfirmations.id
+          })
+
+        const confirmationId = insertedConfirmation[0]?.id
+        if (!confirmationId) {
+          return {
+            status: 'duplicate' as const
+          }
+        }
+
+        if (input.status === 'needs_review') {
+          return {
+            status: 'needs_review' as const,
+            reviewReason: input.reviewReason
+          }
+        }
+
+        const insertedPayment = await tx
+          .insert(schema.paymentRecords)
+          .values({
+            householdId,
+            cycleId: input.cycleId,
+            memberId: input.memberId,
+            kind: input.kind,
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            confirmationId,
+            recordedAt: instantToDate(input.recordedAt)
+          })
+          .returning({
+            id: schema.paymentRecords.id,
+            memberId: schema.paymentRecords.memberId,
+            kind: schema.paymentRecords.kind,
+            amountMinor: schema.paymentRecords.amountMinor,
+            currency: schema.paymentRecords.currency,
+            recordedAt: schema.paymentRecords.recordedAt
+          })
+
+        const paymentRow = insertedPayment[0]
+        if (!paymentRow) {
+          throw new Error('Failed to persist payment record')
+        }
+
+        return {
+          status: 'recorded' as const,
+          paymentRecord: {
+            id: paymentRow.id,
+            memberId: paymentRow.memberId,
+            kind: paymentRow.kind === 'utilities' ? 'utilities' : 'rent',
+            amountMinor: paymentRow.amountMinor,
+            currency: toCurrencyCode(paymentRow.currency),
+            recordedAt: instantFromDatabaseValue(paymentRow.recordedAt)!
+          }
+        }
+      })
     },
 
     async replaceSettlementSnapshot(snapshot) {

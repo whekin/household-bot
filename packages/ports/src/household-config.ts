@@ -1,7 +1,7 @@
 import type { CurrencyCode, SupportedLocale } from '@household/domain'
 import type { ReminderTarget } from './reminders'
 
-export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders'] as const
+export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders', 'payments'] as const
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
 

@@ -46,6 +46,83 @@ export interface FinanceUtilityBillRecord {
   createdAt: Instant
 }
 
+export type FinancePaymentKind = 'rent' | 'utilities'
+
+export interface FinancePaymentRecord {
+  id: string
+  memberId: string
+  kind: FinancePaymentKind
+  amountMinor: bigint
+  currency: CurrencyCode
+  recordedAt: Instant
+}
+
+export interface FinanceSettlementSnapshotLineRecord {
+  memberId: string
+  rentShareMinor: bigint
+  utilityShareMinor: bigint
+  purchaseOffsetMinor: bigint
+  netDueMinor: bigint
+}
+
+export interface FinancePaymentConfirmationMessage {
+  senderTelegramUserId: string
+  rawText: string
+  normalizedText: string
+  telegramChatId: string
+  telegramMessageId: string
+  telegramThreadId: string
+  telegramUpdateId: string
+  attachmentCount: number
+  messageSentAt: Instant | null
+}
+
+export type FinancePaymentConfirmationReviewReason =
+  | 'member_not_found'
+  | 'cycle_not_found'
+  | 'settlement_not_ready'
+  | 'intent_missing'
+  | 'kind_ambiguous'
+  | 'multiple_members'
+  | 'non_positive_amount'
+
+export type FinancePaymentConfirmationSaveInput =
+  | (FinancePaymentConfirmationMessage & {
+      status: 'recorded'
+      cycleId: string
+      memberId: string
+      kind: FinancePaymentKind
+      amountMinor: bigint
+      currency: CurrencyCode
+      explicitAmountMinor: bigint | null
+      explicitCurrency: CurrencyCode | null
+      recordedAt: Instant
+    })
+  | (FinancePaymentConfirmationMessage & {
+      status: 'needs_review'
+      cycleId: string | null
+      memberId: string | null
+      kind: FinancePaymentKind | null
+      amountMinor: bigint | null
+      currency: CurrencyCode | null
+      explicitAmountMinor: bigint | null
+      explicitCurrency: CurrencyCode | null
+      reviewReason: FinancePaymentConfirmationReviewReason
+    })
+
+export type FinancePaymentConfirmationSaveResult =
+  | {
+      status: 'duplicate'
+    }
+  | {
+      status: 'recorded'
+      paymentRecord: FinancePaymentRecord
+    }
+  | {
+      status: 'needs_review'
+      reviewReason: FinancePaymentConfirmationReviewReason
+    }
+
 export interface SettlementSnapshotLineRecord {
   memberId: string
   rentShareMinor: bigint
@@ -91,9 +168,16 @@ export interface FinanceRepository {
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
+  listPaymentRecordsForCycle(cycleId: string): Promise<readonly FinancePaymentRecord[]>
   listParsedPurchasesForRange(
     start: Instant,
     end: Instant
   ): Promise<readonly FinanceParsedPurchaseRecord[]>
+  getSettlementSnapshotLines(
+    cycleId: string
+  ): Promise<readonly FinanceSettlementSnapshotLineRecord[]>
+  savePaymentConfirmation(
+    input: FinancePaymentConfirmationSaveInput
+  ): Promise<FinancePaymentConfirmationSaveResult>
   replaceSettlementSnapshot(snapshot: SettlementSnapshotRecord): Promise<void>
 }

@@ -9,6 +9,7 @@ export type TelegramCommandName =
   | 'bind_purchase_topic'
   | 'bind_feedback_topic'
   | 'bind_reminders_topic'
+  | 'bind_payments_topic'
   | 'pending_members'
   | 'approve_member'
 
@@ -21,6 +22,7 @@ export interface BotCommandDescriptions {
   bind_purchase_topic: string
   bind_feedback_topic: string
   bind_reminders_topic: string
+  bind_payments_topic: string
   pending_members: string
   approve_member: string
 }
@@ -77,6 +79,8 @@ export interface BotTranslationCatalog {
     feedbackTopicSaved: (householdName: string, threadId: string) => string
     useBindRemindersTopicInGroup: string
     remindersTopicSaved: (householdName: string, threadId: string) => string
+    useBindPaymentsTopicInGroup: string
+    paymentsTopicSaved: (householdName: string, threadId: string) => string
     usePendingMembersInGroup: string
     useApproveMemberInGroup: string
     approveMemberUsage: string
@@ -152,5 +156,11 @@ export interface BotTranslationCatalog {
     recorded: (summary: string) => string
     savedForReview: (summary: string) => string
     parseFailed: string
+  }
+  payments: {
+    topicMissing: string
+    recorded: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    savedForReview: string
+    duplicate: string
   }
 }

@@ -42,6 +42,8 @@ export const dictionary = {
     overviewBody:
       'Use the sections below to review balances, ledger entries, and household access.',
     totalDue: 'Total due',
+    paidLabel: 'Paid',
+    remainingLabel: 'Remaining',
     membersCount: 'Members',
     ledgerEntries: 'Ledger entries',
     pendingRequests: 'Pending requests',
@@ -159,6 +161,8 @@ export const dictionary = {
     overviewTitle: 'Текущий цикл',
     overviewBody: 'Ниже можно посмотреть балансы, записи леджера и доступ к household.',
     totalDue: 'Итого к оплате',
+    paidLabel: 'Оплачено',
+    remainingLabel: 'Осталось',
     membersCount: 'Участники',
     ledgerEntries: 'Записи леджера',
     pendingRequests: 'Ожидают подтверждения',

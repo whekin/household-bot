@@ -67,7 +67,7 @@ function bindRejectionMessage(
 
 function bindTopicUsageMessage(
   locale: BotLocale,
-  role: 'purchase' | 'feedback' | 'reminders'
+  role: 'purchase' | 'feedback' | 'reminders' | 'payments'
 ): string {
   const t = getBotTranslations(locale).setup
 
@@ -78,12 +78,14 @@ function bindTopicUsageMessage(
       return t.useBindFeedbackTopicInGroup
     case 'reminders':
       return t.useBindRemindersTopicInGroup
+    case 'payments':
+      return t.useBindPaymentsTopicInGroup
   }
 }
 
 function bindTopicSuccessMessage(
   locale: BotLocale,
-  role: 'purchase' | 'feedback' | 'reminders',
+  role: 'purchase' | 'feedback' | 'reminders' | 'payments',
   householdName: string,
   threadId: string
 ): string {
@@ -96,6 +98,8 @@ function bindTopicSuccessMessage(
       return t.feedbackTopicSaved(householdName, threadId)
     case 'reminders':
       return t.remindersTopicSaved(householdName, threadId)
+    case 'payments':
+      return t.paymentsTopicSaved(householdName, threadId)
   }
 }
 
@@ -218,7 +222,7 @@ export function registerHouseholdSetupCommands(options: {
 }): void {
   async function handleBindTopicCommand(
     ctx: Context,
-    role: 'purchase' | 'feedback' | 'reminders'
+    role: 'purchase' | 'feedback' | 'reminders' | 'payments'
   ): Promise<void> {
     const locale = await resolveReplyLocale({
       ctx,
@@ -453,6 +457,10 @@ export function registerHouseholdSetupCommands(options: {
 
   options.bot.command('bind_reminders_topic', async (ctx) => {
     await handleBindTopicCommand(ctx, 'reminders')
+  })
+
+  options.bot.command('bind_payments_topic', async (ctx) => {
+    await handleBindTopicCommand(ctx, 'payments')
   })
 
   options.bot.command('pending_members', async (ctx) => {

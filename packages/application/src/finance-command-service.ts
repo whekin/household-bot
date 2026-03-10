@@ -86,6 +86,8 @@ export interface FinanceDashboardMemberLine {
   utilityShare: Money
   purchaseOffset: Money
   netDue: Money
+  paid: Money
+  remaining: Money
   explanations: readonly string[]
 }
 
@@ -107,6 +109,8 @@ export interface FinanceDashboard {
   period: string
   currency: CurrencyCode
   totalDue: Money
+  totalPaid: Money
+  totalRemaining: Money
   rentSourceAmount: Money
   rentDisplayAmount: Money
   rentFxRateMicros: bigint | null
@@ -238,6 +242,7 @@ async function buildFinanceDashboard(
     dependencies.repository.listParsedPurchasesForRange(start, end),
     dependencies.repository.listUtilityBillsForCycle(cycle.id)
   ])
+  const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
 
   const convertedRent = await convertIntoCycleCurrency(dependencies, {
     cycle,
@@ -338,6 +343,14 @@ async function buildFinanceDashboard(
   })
 
   const memberNameById = new Map(members.map((member) => [member.id, member.displayName]))
+  const paymentsByMemberId = new Map<string, Money>()
+  for (const payment of paymentRecords) {
+    const current = paymentsByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)
+    paymentsByMemberId.set(
+      payment.memberId,
+      current.add(Money.fromMinor(payment.amountMinor, payment.currency))
+    )
+  }
   const dashboardMembers = settlement.lines.map((line) => ({
     memberId: line.memberId.toString(),
     displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
@@ -345,6 +358,10 @@ async function buildFinanceDashboard(
     utilityShare: line.utilityShare,
     purchaseOffset: line.purchaseOffset,
     netDue: line.netDue,
+    paid: paymentsByMemberId.get(line.memberId.toString()) ?? Money.zero(cycle.currency),
+    remaining: line.netDue.subtract(
+      paymentsByMemberId.get(line.memberId.toString()) ?? Money.zero(cycle.currency)
+    ),
     explanations: line.explanations
   }))
 
@@ -389,6 +406,14 @@ async function buildFinanceDashboard(
     period: cycle.period,
     currency: cycle.currency,
     totalDue: settlement.totalDue,
+    totalPaid: paymentRecords.reduce(
+      (sum, payment) => sum.add(Money.fromMinor(payment.amountMinor, payment.currency)),
+      Money.zero(cycle.currency)
+    ),
+    totalRemaining: dashboardMembers.reduce(
+      (sum, member) => sum.add(member.remaining),
+      Money.zero(cycle.currency)
+    ),
     rentSourceAmount: convertedRent.originalAmount,
     rentDisplayAmount: convertedRent.settlementAmount,
     rentFxRateMicros: convertedRent.fxRateMicros,
@@ -560,7 +585,7 @@ export function createFinanceCommandService(
       }
 
       const statementLines = dashboard.members.map((line) => {
-        return `- ${line.displayName}: ${line.netDue.toMajorString()} ${dashboard.currency}`
+        return `- ${line.displayName}: due ${line.netDue.toMajorString()} ${dashboard.currency}, paid ${line.paid.toMajorString()} ${dashboard.currency}, remaining ${line.remaining.toMajorString()} ${dashboard.currency}`
       })
 
       const rentLine =
@@ -572,7 +597,9 @@ export function createFinanceCommandService(
         `Statement for ${dashboard.period}`,
         rentLine,
         ...statementLines,
-        `Total: ${dashboard.totalDue.toMajorString()} ${dashboard.currency}`
+        `Total due: ${dashboard.totalDue.toMajorString()} ${dashboard.currency}`,
+        `Total paid: ${dashboard.totalPaid.toMajorString()} ${dashboard.currency}`,
+        `Total remaining: ${dashboard.totalRemaining.toMajorString()} ${dashboard.currency}`
       ].join('\n')
     },
 

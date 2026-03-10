@@ -61,6 +61,7 @@ function repository(
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ],
+    listPaymentRecordsForCycle: async () => [],
     listParsedPurchasesForRange: async () => [
       {
         id: 'purchase-1',
@@ -71,6 +72,12 @@ function repository(
         occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
     ],
+    getSettlementSnapshotLines: async () => [],
+    savePaymentConfirmation: async () =>
+      ({
+        status: 'needs_review',
+        reviewReason: 'settlement_not_ready'
+      }) as const,
     replaceSettlementSnapshot: async () => {}
   }
 }

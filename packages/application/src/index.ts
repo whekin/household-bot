@@ -31,3 +31,8 @@ export {
   type PurchaseParserLlmFallback,
   type PurchaseParserMode
 } from './purchase-parser'
+export {
+  createPaymentConfirmationService,
+  type PaymentConfirmationService,
+  type PaymentConfirmationSubmitResult
+} from './payment-confirmation-service'

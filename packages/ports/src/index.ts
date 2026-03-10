@@ -31,6 +31,12 @@ export type {
 export type {
   FinanceCycleRecord,
   FinanceCycleExchangeRateRecord,
+  FinancePaymentConfirmationReviewReason,
+  FinancePaymentConfirmationSaveInput,
+  FinancePaymentConfirmationSaveResult,
+  FinancePaymentKind,
+  FinancePaymentRecord,
+  FinanceSettlementSnapshotLineRecord,
   FinanceMemberRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,

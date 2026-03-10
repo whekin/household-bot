@@ -11,6 +11,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     bind_purchase_topic: 'Bind the current topic as purchases',
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
+    bind_payments_topic: 'Bind the current topic as payments',
     pending_members: 'List pending household join requests',
     approve_member: 'Approve a pending household member'
   },
@@ -53,7 +54,7 @@ export const enBotTranslations: BotTranslationCatalog = {
       [
         `Household ${created ? 'created' : 'already registered'}: ${householdName}`,
         `Chat ID: ${telegramChatId}`,
-        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic. If you want a dedicated reminders topic, open it and run /bind_reminders_topic.',
+        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic. If you want dedicated reminders or payments topics, open them and run /bind_reminders_topic or /bind_payments_topic.',
         'Members should open the bot chat from the button below and confirm the join request there.'
       ].join('\n'),
     useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
@@ -65,6 +66,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     useBindRemindersTopicInGroup: 'Use /bind_reminders_topic inside the household group topic.',
     remindersTopicSaved: (householdName, threadId) =>
       `Reminders topic saved for ${householdName} (thread ${threadId}).`,
+    useBindPaymentsTopicInGroup: 'Use /bind_payments_topic inside the household group topic.',
+    paymentsTopicSaved: (householdName, threadId) =>
+      `Payments topic saved for ${householdName} (thread ${threadId}).`,
     usePendingMembersInGroup: 'Use /pending_members inside the household group.',
     useApproveMemberInGroup: 'Use /approve_member inside the household group.',
     approveMemberUsage: 'Usage: /approve_member <telegram_user_id>',
@@ -147,5 +151,13 @@ export const enBotTranslations: BotTranslationCatalog = {
     recorded: (summary) => `Recorded purchase: ${summary}`,
     savedForReview: (summary) => `Saved for review: ${summary}`,
     parseFailed: "Saved for review: I couldn't parse this purchase yet."
+  },
+  payments: {
+    topicMissing:
+      'Payments topic is not configured for this household yet. Ask an admin to run /bind_payments_topic.',
+    recorded: (kind, amount, currency) =>
+      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}`,
+    savedForReview: 'Saved this payment confirmation for review.',
+    duplicate: 'This payment confirmation was already processed.'
   }
 }

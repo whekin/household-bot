@@ -125,8 +125,23 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.utilityBills
   }
 
+  async listPaymentRecordsForCycle() {
+    return []
+  }
+
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
     return this.purchases
+  }
+
+  async getSettlementSnapshotLines() {
+    return []
+  }
+
+  async savePaymentConfirmation() {
+    return {
+      status: 'needs_review' as const,
+      reviewReason: 'settlement_not_ready' as const
+    }
   }
 
   async replaceSettlementSnapshot(snapshot: SettlementSnapshotRecord): Promise<void> {
@@ -347,9 +362,11 @@ describe('createFinanceCommandService', () => {
       [
         'Statement for 2026-03',
         'Rent: 700.00 USD (~1890.00 GEL)',
-        '- Alice: 990.00 GEL',
-        '- Bob: 1020.00 GEL',
-        'Total: 2010.00 GEL'
+        '- Alice: due 990.00 GEL, paid 0.00 GEL, remaining 990.00 GEL',
+        '- Bob: due 1020.00 GEL, paid 0.00 GEL, remaining 1020.00 GEL',
+        'Total due: 2010.00 GEL',
+        'Total paid: 0.00 GEL',
+        'Total remaining: 2010.00 GEL'
       ].join('\n')
     )
     expect(repository.replacedSnapshot).not.toBeNull()

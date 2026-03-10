@@ -89,6 +89,8 @@ export function createMiniAppDashboardHandler(options: {
               period: dashboard.period,
               currency: dashboard.currency,
               totalDueMajor: dashboard.totalDue.toMajorString(),
+              totalPaidMajor: dashboard.totalPaid.toMajorString(),
+              totalRemainingMajor: dashboard.totalRemaining.toMajorString(),
               rentSourceAmountMajor: dashboard.rentSourceAmount.toMajorString(),
               rentSourceCurrency: dashboard.rentSourceAmount.currency,
               rentDisplayAmountMajor: dashboard.rentDisplayAmount.toMajorString(),
@@ -101,6 +103,8 @@ export function createMiniAppDashboardHandler(options: {
                 utilityShareMajor: line.utilityShare.toMajorString(),
                 purchaseOffsetMajor: line.purchaseOffset.toMajorString(),
                 netDueMajor: line.netDue.toMajorString(),
+                paidMajor: line.paid.toMajorString(),
+                remainingMajor: line.remaining.toMajorString(),
                 explanations: line.explanations
               })),
               ledger: dashboard.ledger.map((entry) => ({
