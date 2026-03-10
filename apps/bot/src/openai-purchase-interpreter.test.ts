@@ -95,4 +95,48 @@ describe('createOpenAiPurchaseInterpreter', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('scales 0-1 confidence values into 0-100', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '5000',
+                  currency: 'GEL',
+                  itemDescription: 'шампунь',
+                  confidence: 0.92,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Купил шампунь на 50 лари', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        itemDescription: 'шампунь',
+        confidence: 92,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

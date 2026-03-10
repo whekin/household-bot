@@ -46,6 +46,11 @@ function normalizeCurrency(value: string | null): 'GEL' | 'USD' | null {
   return value === 'GEL' || value === 'USD' ? value : null
 }
 
+function normalizeConfidence(value: number): number {
+  const scaled = value >= 0 && value <= 1 ? value * 100 : value
+  return Math.max(0, Math.min(100, Math.round(scaled)))
+}
+
 export function createOpenAiPurchaseInterpreter(
   apiKey: string | undefined,
   model: string
@@ -170,7 +175,7 @@ export function createOpenAiPurchaseInterpreter(
       amountMinor: asOptionalBigInt(parsedJson.amountMinor),
       currency: normalizeCurrency(parsedJson.currency),
       itemDescription: normalizeOptionalText(parsedJson.itemDescription),
-      confidence: Math.max(0, Math.min(100, Math.round(parsedJson.confidence))),
+      confidence: normalizeConfidence(parsedJson.confidence),
       parserMode: 'llm',
       clarificationQuestion
     }

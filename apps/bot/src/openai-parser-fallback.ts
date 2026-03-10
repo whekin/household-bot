@@ -19,6 +19,11 @@ function asBigInt(value: string): bigint | null {
   return parsed > 0n ? parsed : null
 }
 
+function normalizeConfidence(value: number): number {
+  const scaled = value >= 0 && value <= 1 ? value * 100 : value
+  return Math.max(0, Math.min(100, Math.round(scaled)))
+}
+
 export function createOpenAiParserFallback(
   apiKey: string | undefined,
   model: string
@@ -116,7 +121,7 @@ export function createOpenAiParserFallback(
       amountMinor,
       currency: parsedJson.currency,
       itemDescription: parsedJson.itemDescription,
-      confidence: Math.max(0, Math.min(100, Math.round(parsedJson.confidence))),
+      confidence: normalizeConfidence(parsedJson.confidence),
       parserMode: 'llm',
       needsReview: parsedJson.needsReview
     }
