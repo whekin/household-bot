@@ -34,7 +34,7 @@ const server = {
   PARSER_MODEL: z.string().min(1).default('gpt-4.1-mini'),
   PURCHASE_PARSER_MODEL: z.string().min(1).default('gpt-5-mini'),
   ASSISTANT_MODEL: z.string().min(1).default('gpt-5-mini'),
-  ASSISTANT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+  ASSISTANT_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
   ASSISTANT_MEMORY_MAX_TURNS: z.coerce.number().int().positive().default(12),
   ASSISTANT_RATE_LIMIT_BURST: z.coerce.number().int().positive().default(5),
   ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS: z.coerce.number().int().positive().default(60000),

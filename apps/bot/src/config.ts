@@ -133,7 +133,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5-mini',
     assistantTimeoutMs: parsePositiveInteger(
       env.ASSISTANT_TIMEOUT_MS,
-      15_000,
+      20_000,
       'ASSISTANT_TIMEOUT_MS'
     ),
     assistantMemoryMaxTurns: parsePositiveInteger(

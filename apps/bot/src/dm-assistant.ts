@@ -73,6 +73,26 @@ interface PaymentProposalPayload {
   currency: 'GEL' | 'USD'
 }
 
+function describeError(error: unknown): {
+  errorMessage?: string
+  errorName?: string
+} {
+  if (error instanceof Error) {
+    return {
+      errorMessage: error.message,
+      errorName: error.name
+    }
+  }
+
+  if (typeof error === 'string') {
+    return {
+      errorMessage: error
+    }
+  }
+
+  return {}
+}
+
 function isPrivateChat(ctx: Context): boolean {
   return ctx.chat?.type === 'private'
 }
@@ -749,8 +769,13 @@ export function registerDmAssistant(options: {
       const memory = options.memoryStore.get(telegramUserId)
       const typingIndicator = startTypingIndicator(ctx)
       let pendingReply: PendingAssistantReply | null = null
+      const assistantStartedAt = Date.now()
+      let stage: 'household_context' | 'assistant_response' = 'household_context'
+      let contextBuildMs: number | null = null
+      let assistantResponseMs: number | null = null
 
       try {
+        const contextStartedAt = Date.now()
         const householdContext = await buildHouseholdContext({
           householdId: member.householdId,
           memberId: member.id,
@@ -759,7 +784,10 @@ export function registerDmAssistant(options: {
           householdConfigurationRepository: options.householdConfigurationRepository,
           financeService
         })
+        contextBuildMs = Date.now() - contextStartedAt
         pendingReply = await sendAssistantProcessingReply(ctx, t.processing)
+        stage = 'assistant_response'
+        const assistantResponseStartedAt = Date.now()
         const reply = await options.assistant.respond({
           locale,
           householdContext,
@@ -767,6 +795,7 @@ export function registerDmAssistant(options: {
           recentTurns: memory.turns,
           userMessage: ctx.msg.text
         })
+        assistantResponseMs = Date.now() - assistantResponseStartedAt
 
         options.usageTracker.record({
           householdId: member.householdId,
@@ -788,6 +817,12 @@ export function registerDmAssistant(options: {
             event: 'assistant.reply',
             householdId: member.householdId,
             telegramUserId,
+            contextBuildMs,
+            assistantResponseMs,
+            totalDurationMs: Date.now() - assistantStartedAt,
+            householdContextChars: householdContext.length,
+            recentTurnsCount: memory.turns.length,
+            memorySummaryChars: memory.summary?.length ?? 0,
             inputTokens: reply.usage.inputTokens,
             outputTokens: reply.usage.outputTokens,
             totalTokens: reply.usage.totalTokens
@@ -802,6 +837,11 @@ export function registerDmAssistant(options: {
             event: 'assistant.reply_failed',
             householdId: member.householdId,
             telegramUserId,
+            stage,
+            contextBuildMs,
+            assistantResponseMs,
+            totalDurationMs: Date.now() - assistantStartedAt,
+            ...describeError(error),
             error
           },
           'DM assistant reply failed'
