@@ -14,6 +14,15 @@ export interface FinanceCycleRecord {
   currency: CurrencyCode
 }
 
+export interface FinanceCycleExchangeRateRecord {
+  cycleId: string
+  sourceCurrency: CurrencyCode
+  targetCurrency: CurrencyCode
+  rateMicros: bigint
+  effectiveDate: string
+  source: 'nbg'
+}
+
 export interface FinanceRentRuleRecord {
   amountMinor: bigint
   currency: CurrencyCode
@@ -64,6 +73,14 @@ export interface FinanceRepository {
   openCycle(period: string, currency: CurrencyCode): Promise<void>
   closeCycle(cycleId: string, closedAt: Instant): Promise<void>
   saveRentRule(period: string, amountMinor: bigint, currency: CurrencyCode): Promise<void>
+  getCycleExchangeRate(
+    cycleId: string,
+    sourceCurrency: CurrencyCode,
+    targetCurrency: CurrencyCode
+  ): Promise<FinanceCycleExchangeRateRecord | null>
+  saveCycleExchangeRate(
+    input: FinanceCycleExchangeRateRecord
+  ): Promise<FinanceCycleExchangeRateRecord>
   addUtilityBill(input: {
     cycleId: string
     billName: string

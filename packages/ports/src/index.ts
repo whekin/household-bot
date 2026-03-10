@@ -30,6 +30,7 @@ export type {
 } from './anonymous-feedback'
 export type {
   FinanceCycleRecord,
+  FinanceCycleExchangeRateRecord,
   FinanceMemberRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
@@ -38,6 +39,7 @@ export type {
   SettlementSnapshotLineRecord,
   SettlementSnapshotRecord
 } from './finance'
+export type { ExchangeRateProvider, ExchangeRateQuote } from './exchange-rates'
 export {
   TELEGRAM_PENDING_ACTION_TYPES,
   type TelegramPendingActionRecord,

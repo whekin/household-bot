@@ -201,6 +201,89 @@ export function createDbFinanceRepository(
         })
     },
 
+    async getCycleExchangeRate(cycleId, sourceCurrency, targetCurrency) {
+      const rows = await db
+        .select({
+          cycleId: schema.billingCycleExchangeRates.cycleId,
+          sourceCurrency: schema.billingCycleExchangeRates.sourceCurrency,
+          targetCurrency: schema.billingCycleExchangeRates.targetCurrency,
+          rateMicros: schema.billingCycleExchangeRates.rateMicros,
+          effectiveDate: schema.billingCycleExchangeRates.effectiveDate,
+          source: schema.billingCycleExchangeRates.source
+        })
+        .from(schema.billingCycleExchangeRates)
+        .where(
+          and(
+            eq(schema.billingCycleExchangeRates.cycleId, cycleId),
+            eq(schema.billingCycleExchangeRates.sourceCurrency, sourceCurrency),
+            eq(schema.billingCycleExchangeRates.targetCurrency, targetCurrency)
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        cycleId: row.cycleId,
+        sourceCurrency: toCurrencyCode(row.sourceCurrency),
+        targetCurrency: toCurrencyCode(row.targetCurrency),
+        rateMicros: row.rateMicros,
+        effectiveDate: row.effectiveDate,
+        source: 'nbg'
+      }
+    },
+
+    async saveCycleExchangeRate(input) {
+      const rows = await db
+        .insert(schema.billingCycleExchangeRates)
+        .values({
+          cycleId: input.cycleId,
+          sourceCurrency: input.sourceCurrency,
+          targetCurrency: input.targetCurrency,
+          rateMicros: input.rateMicros,
+          effectiveDate: input.effectiveDate,
+          source: input.source
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.billingCycleExchangeRates.cycleId,
+            schema.billingCycleExchangeRates.sourceCurrency,
+            schema.billingCycleExchangeRates.targetCurrency
+          ],
+          set: {
+            rateMicros: input.rateMicros,
+            effectiveDate: input.effectiveDate,
+            source: input.source,
+            updatedAt: instantToDate(nowInstant())
+          }
+        })
+        .returning({
+          cycleId: schema.billingCycleExchangeRates.cycleId,
+          sourceCurrency: schema.billingCycleExchangeRates.sourceCurrency,
+          targetCurrency: schema.billingCycleExchangeRates.targetCurrency,
+          rateMicros: schema.billingCycleExchangeRates.rateMicros,
+          effectiveDate: schema.billingCycleExchangeRates.effectiveDate,
+          source: schema.billingCycleExchangeRates.source
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to save billing cycle exchange rate')
+      }
+
+      return {
+        cycleId: row.cycleId,
+        sourceCurrency: toCurrencyCode(row.sourceCurrency),
+        targetCurrency: toCurrencyCode(row.targetCurrency),
+        rateMicros: row.rateMicros,
+        effectiveDate: row.effectiveDate,
+        source: 'nbg'
+      }
+    },
+
     async addUtilityBill(input) {
       await db.insert(schema.utilityBills).values({
         householdId,

@@ -9,6 +9,7 @@ import {
   createDbHouseholdConfigurationRepository
 } from '@household/adapters-db'
 import { createDbClient, schema } from '@household/db'
+import type { ExchangeRateProvider } from '@household/ports'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
 import { createFinanceCommandsService } from '../../apps/bot/src/finance-commands'
@@ -20,6 +21,27 @@ import {
 const chatId = '-100123456'
 const purchaseTopicId = 77
 const commandChatIdNumber = -100123456
+const exchangeRateProvider: ExchangeRateProvider = {
+  async getRate(input) {
+    if (input.baseCurrency === input.quoteCurrency) {
+      return {
+        baseCurrency: input.baseCurrency,
+        quoteCurrency: input.quoteCurrency,
+        rateMicros: 1_000_000n,
+        effectiveDate: input.effectiveDate,
+        source: 'nbg'
+      }
+    }
+
+    return {
+      baseCurrency: input.baseCurrency,
+      quoteCurrency: input.quoteCurrency,
+      rateMicros: 2_700_000n,
+      effectiveDate: input.effectiveDate,
+      source: 'nbg'
+    }
+  }
+}
 
 function unixSeconds(year: number, month: number, day: number): number {
   return Math.floor(Date.UTC(year, month - 1, day, 12, 0, 0) / 1000)
@@ -188,7 +210,12 @@ async function run(): Promise<void> {
     ingestionClient = createPurchaseMessageRepository(databaseUrl)
     financeRepositoryClient = createDbFinanceRepository(databaseUrl, ids.household)
     householdConfigurationRepositoryClient = createDbHouseholdConfigurationRepository(databaseUrl)
-    const financeService = createFinanceCommandService(financeRepositoryClient.repository)
+    const financeService = createFinanceCommandService({
+      householdId: ids.household,
+      repository: financeRepositoryClient.repository,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      exchangeRateProvider
+    })
     const financeCommands = createFinanceCommandsService({
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       financeServiceForHousehold: () => financeService

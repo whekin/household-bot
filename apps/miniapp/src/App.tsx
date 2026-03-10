@@ -1,4 +1,4 @@
-import { Match, Switch, createMemo, createSignal, onMount, type JSX } from 'solid-js'
+import { Match, Show, Switch, createMemo, createSignal, onMount, type JSX } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
 import {
@@ -160,6 +160,18 @@ function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string
   )
 }
 
+function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
+  return `${entry.displayAmountMajor} ${entry.displayCurrency}`
+}
+
+function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number]): string | null {
+  if (entry.currency === entry.displayCurrency && entry.amountMajor === entry.displayAmountMajor) {
+    return null
+  }
+
+  return `${entry.amountMajor} ${entry.currency}`
+}
+
 function App() {
   const [locale, setLocale] = createSignal<Locale>('en')
   const [session, setSession] = createSignal<SessionState>({
@@ -184,6 +196,7 @@ function App() {
   const [savingCycleRent, setSavingCycleRent] = createSignal(false)
   const [savingUtilityBill, setSavingUtilityBill] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
+    settlementCurrency: 'GEL' as 'USD' | 'GEL',
     rentAmountMajor: '',
     rentCurrency: 'USD' as 'USD' | 'GEL',
     rentDueDay: 20,
@@ -195,7 +208,7 @@ function App() {
   const [newCategoryName, setNewCategoryName] = createSignal('')
   const [cycleForm, setCycleForm] = createSignal({
     period: defaultCyclePeriod(),
-    currency: 'USD' as 'USD' | 'GEL',
+    currency: 'GEL' as 'USD' | 'GEL',
     rentAmountMajor: '',
     utilityCategorySlug: '',
     utilityAmountMajor: ''
@@ -267,12 +280,14 @@ function App() {
       )
       setCycleForm((current) => ({
         ...current,
+        currency: current.currency || payload.settings.settlementCurrency,
         utilityCategorySlug:
           current.utilityCategorySlug ||
           payload.categories.find((category) => category.isActive)?.slug ||
           ''
       }))
       setBillingForm({
+        settlementCurrency: payload.settings.settlementCurrency,
         rentAmountMajor: payload.settings.rentAmountMinor
           ? (Number(payload.settings.rentAmountMinor) / 100).toFixed(2)
           : '',
@@ -299,7 +314,10 @@ function App() {
       setCycleForm((current) => ({
         ...current,
         period: payload.cycle?.period ?? current.period,
-        currency: payload.cycle?.currency ?? payload.rentRule?.currency ?? current.currency,
+        currency:
+          payload.cycle?.currency ??
+          adminSettings()?.settings.settlementCurrency ??
+          current.currency,
         rentAmountMajor: payload.rentRule
           ? (Number(payload.rentRule.amountMinor) / 100).toFixed(2)
           : '',
@@ -385,25 +403,30 @@ function App() {
         setSession(demoSession)
         setDashboard({
           period: '2026-03',
-          currency: 'USD',
-          totalDueMajor: '414.00',
+          currency: 'GEL',
+          totalDueMajor: '1030.00',
+          rentSourceAmountMajor: '700.00',
+          rentSourceCurrency: 'USD',
+          rentDisplayAmountMajor: '1932.00',
+          rentFxRateMicros: '2760000',
+          rentFxEffectiveDate: '2026-03-17',
           members: [
             {
               memberId: 'demo-member',
               displayName: 'Demo Resident',
-              rentShareMajor: '175.00',
+              rentShareMajor: '483.00',
               utilityShareMajor: '32.00',
               purchaseOffsetMajor: '-14.00',
-              netDueMajor: '193.00',
+              netDueMajor: '501.00',
               explanations: ['Equal utility split', 'Shared purchase offset']
             },
             {
               memberId: 'member-2',
               displayName: 'Alice',
-              rentShareMajor: '175.00',
+              rentShareMajor: '483.00',
               utilityShareMajor: '32.00',
               purchaseOffsetMajor: '14.00',
-              netDueMajor: '221.00',
+              netDueMajor: '529.00',
               explanations: ['Equal utility split']
             }
           ],
@@ -414,6 +437,10 @@ function App() {
               title: 'Soap',
               amountMajor: '30.00',
               currency: 'GEL',
+              displayAmountMajor: '30.00',
+              displayCurrency: 'GEL',
+              fxRateMicros: null,
+              fxEffectiveDate: null,
               actorDisplayName: 'Alice',
               occurredAt: '2026-03-12T11:00:00.000Z'
             },
@@ -423,6 +450,10 @@ function App() {
               title: 'Electricity',
               amountMajor: '120.00',
               currency: 'GEL',
+              displayAmountMajor: '120.00',
+              displayCurrency: 'GEL',
+              fxRateMicros: null,
+              fxEffectiveDate: null,
               actorDisplayName: 'Alice',
               occurredAt: '2026-03-12T12:00:00.000Z'
             }
@@ -612,6 +643,10 @@ function App() {
             }
           : current
       )
+      setCycleForm((current) => ({
+        ...current,
+        currency: cycleState()?.cycle?.currency ?? settings.settlementCurrency
+      }))
     } finally {
       setSavingBillingSettings(false)
     }
@@ -914,10 +949,11 @@ function App() {
                           <article class="ledger-item">
                             <header>
                               <strong>{entry.title}</strong>
-                              <span>
-                                {entry.amountMajor} {entry.currency}
-                              </span>
+                              <span>{ledgerPrimaryAmount(entry)}</span>
                             </header>
+                            <Show when={ledgerSecondaryAmount(entry)}>
+                              {(secondary) => <p>{secondary()}</p>}
+                            </Show>
                             <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
                           </article>
                         ))}
@@ -936,10 +972,11 @@ function App() {
                           <article class="ledger-item">
                             <header>
                               <strong>{entry.title}</strong>
-                              <span>
-                                {entry.amountMajor} {entry.currency}
-                              </span>
+                              <span>{ledgerPrimaryAmount(entry)}</span>
                             </header>
+                            <Show when={ledgerSecondaryAmount(entry)}>
+                              {(secondary) => <p>{secondary()}</p>}
+                            </Show>
                             <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
                           </article>
                         ))}
@@ -973,6 +1010,17 @@ function App() {
                       cycleState()?.cycle?.currency ?? cycleForm().currency
                     )}
                   </p>
+                  <Show when={dashboard()}>
+                    {(data) => (
+                      <p>
+                        {copy().shareRent}: {data().rentSourceAmountMajor}{' '}
+                        {data().rentSourceCurrency}
+                        {data().rentSourceCurrency !== data().currency
+                          ? ` -> ${data().rentDisplayAmountMajor} ${data().currency}`
+                          : ''}
+                      </p>
+                    )}
+                  </Show>
                   <div class="settings-grid">
                     <label class="settings-field">
                       <span>{copy().rentAmount}</span>
@@ -1099,7 +1147,7 @@ function App() {
                       />
                     </label>
                     <label class="settings-field">
-                      <span>{copy().shareRent}</span>
+                      <span>{copy().settlementCurrency}</span>
                       <select
                         value={cycleForm().currency}
                         onChange={(event) =>
@@ -1130,6 +1178,21 @@ function App() {
                 <strong>{copy().billingSettingsTitle}</strong>
               </header>
               <div class="settings-grid">
+                <label class="settings-field">
+                  <span>{copy().settlementCurrency}</span>
+                  <select
+                    value={billingForm().settlementCurrency}
+                    onChange={(event) =>
+                      setBillingForm((current) => ({
+                        ...current,
+                        settlementCurrency: event.currentTarget.value as 'USD' | 'GEL'
+                      }))
+                    }
+                  >
+                    <option value="GEL">GEL</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </label>
                 <label class="settings-field">
                   <span>{copy().rentAmount}</span>
                   <input
@@ -1519,6 +1582,18 @@ function App() {
                   </span>
                 </header>
                 <p>{copy().yourBalanceBody}</p>
+                <ShowDashboard
+                  dashboard={dashboard()}
+                  fallback={null}
+                  render={(data) => (
+                    <p>
+                      {copy().shareRent}: {data.rentSourceAmountMajor} {data.rentSourceCurrency}
+                      {data.rentSourceCurrency !== data.currency
+                        ? ` -> ${data.rentDisplayAmountMajor} ${data.currency}`
+                        : ''}
+                    </p>
+                  )}
+                />
                 <div class="balance-breakdown">
                   <div class="stat-card">
                     <span>{copy().baseDue}</span>
@@ -1565,10 +1640,11 @@ function App() {
                         <article class="ledger-item">
                           <header>
                             <strong>{entry.title}</strong>
-                            <span>
-                              {entry.amountMajor} {entry.currency}
-                            </span>
+                            <span>{ledgerPrimaryAmount(entry)}</span>
                           </header>
+                          <Show when={ledgerSecondaryAmount(entry)}>
+                            {(secondary) => <p>{secondary()}</p>}
+                          </Show>
                           <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
                         </article>
                       ))}

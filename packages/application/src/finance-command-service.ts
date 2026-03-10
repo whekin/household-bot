@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 
 import type {
+  ExchangeRateProvider,
   FinanceCycleRecord,
   FinanceMemberRecord,
   FinanceRentRuleRecord,
-  FinanceRepository
+  FinanceRepository,
+  HouseholdConfigurationRepository
 } from '@household/ports'
 import {
   BillingCycleId,
@@ -13,6 +15,7 @@ import {
   Money,
   PurchaseEntryId,
   Temporal,
+  convertMoney,
   nowInstant,
   type CurrencyCode
 } from '@household/domain'
@@ -57,6 +60,25 @@ async function getCycleByPeriodOrLatest(
   return repository.getLatestCycle()
 }
 
+function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
+  const firstDay = Temporal.PlainDate.from({
+    year: period.year,
+    month: period.month,
+    day: 1
+  })
+  const clampedDay = Math.min(day, firstDay.daysInMonth)
+
+  return Temporal.PlainDate.from({
+    year: period.year,
+    month: period.month,
+    day: clampedDay
+  })
+}
+
+function localDateInTimezone(timezone: string): Temporal.PlainDate {
+  return nowInstant().toZonedDateTimeISO(timezone).toPlainDate()
+}
+
 export interface FinanceDashboardMemberLine {
   memberId: string
   displayName: string
@@ -73,6 +95,10 @@ export interface FinanceDashboardLedgerEntry {
   title: string
   amount: Money
   currency: CurrencyCode
+  displayAmount: Money
+  displayCurrency: CurrencyCode
+  fxRateMicros: bigint | null
+  fxEffectiveDate: string | null
   actorDisplayName: string | null
   occurredAt: string | null
 }
@@ -81,6 +107,10 @@ export interface FinanceDashboard {
   period: string
   currency: CurrencyCode
   totalDue: Money
+  rentSourceAmount: Money
+  rentDisplayAmount: Money
+  rentFxRateMicros: bigint | null
+  rentFxEffectiveDate: string | null
   members: readonly FinanceDashboardMemberLine[]
   ledger: readonly FinanceDashboardLedgerEntry[]
 }
@@ -98,63 +128,204 @@ export interface FinanceAdminCycleState {
   }[]
 }
 
+interface FinanceCommandServiceDependencies {
+  householdId: string
+  repository: FinanceRepository
+  householdConfigurationRepository: Pick<
+    HouseholdConfigurationRepository,
+    'getHouseholdBillingSettings'
+  >
+  exchangeRateProvider: ExchangeRateProvider
+}
+
+interface ConvertedCycleMoney {
+  originalAmount: Money
+  settlementAmount: Money
+  fxRateMicros: bigint | null
+  fxEffectiveDate: string | null
+}
+
+async function convertIntoCycleCurrency(
+  dependencies: FinanceCommandServiceDependencies,
+  input: {
+    cycle: FinanceCycleRecord
+    period: BillingPeriod
+    lockDay: number
+    timezone: string
+    amount: Money
+  }
+): Promise<ConvertedCycleMoney> {
+  if (input.amount.currency === input.cycle.currency) {
+    return {
+      originalAmount: input.amount,
+      settlementAmount: input.amount,
+      fxRateMicros: null,
+      fxEffectiveDate: null
+    }
+  }
+
+  const existingRate = await dependencies.repository.getCycleExchangeRate(
+    input.cycle.id,
+    input.amount.currency,
+    input.cycle.currency
+  )
+
+  if (existingRate) {
+    return {
+      originalAmount: input.amount,
+      settlementAmount: convertMoney(input.amount, input.cycle.currency, existingRate.rateMicros),
+      fxRateMicros: existingRate.rateMicros,
+      fxEffectiveDate: existingRate.effectiveDate
+    }
+  }
+
+  const lockDate = billingPeriodLockDate(input.period, input.lockDay)
+  const currentLocalDate = localDateInTimezone(input.timezone)
+  const shouldPersist = Temporal.PlainDate.compare(currentLocalDate, lockDate) >= 0
+  const quote = await dependencies.exchangeRateProvider.getRate({
+    baseCurrency: input.amount.currency,
+    quoteCurrency: input.cycle.currency,
+    effectiveDate: lockDate.toString()
+  })
+
+  if (shouldPersist) {
+    await dependencies.repository.saveCycleExchangeRate({
+      cycleId: input.cycle.id,
+      sourceCurrency: quote.baseCurrency,
+      targetCurrency: quote.quoteCurrency,
+      rateMicros: quote.rateMicros,
+      effectiveDate: quote.effectiveDate,
+      source: quote.source
+    })
+  }
+
+  return {
+    originalAmount: input.amount,
+    settlementAmount: convertMoney(input.amount, input.cycle.currency, quote.rateMicros),
+    fxRateMicros: quote.rateMicros,
+    fxEffectiveDate: quote.effectiveDate
+  }
+}
+
 async function buildFinanceDashboard(
-  repository: FinanceRepository,
+  dependencies: FinanceCommandServiceDependencies,
   periodArg?: string
 ): Promise<FinanceDashboard | null> {
-  const cycle = await getCycleByPeriodOrLatest(repository, periodArg)
+  const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
   if (!cycle) {
     return null
   }
 
-  const members = await repository.listMembers()
+  const [members, rentRule, settings] = await Promise.all([
+    dependencies.repository.listMembers(),
+    dependencies.repository.getRentRuleForPeriod(cycle.period),
+    dependencies.householdConfigurationRepository.getHouseholdBillingSettings(
+      dependencies.householdId
+    )
+  ])
+
   if (members.length === 0) {
     throw new Error('No household members configured')
   }
 
-  const rentRule = await repository.getRentRuleForPeriod(cycle.period)
   if (!rentRule) {
     throw new Error('No rent rule configured for this cycle period')
   }
 
   const period = BillingPeriod.fromString(cycle.period)
   const { start, end } = monthRange(period)
-  const purchases = await repository.listParsedPurchasesForRange(start, end)
-  const utilityBills = await repository.listUtilityBillsForCycle(cycle.id)
-  const utilitiesMinor = await repository.getUtilityTotalForCycle(cycle.id)
+  const [purchases, utilityBills] = await Promise.all([
+    dependencies.repository.listParsedPurchasesForRange(start, end),
+    dependencies.repository.listUtilityBillsForCycle(cycle.id)
+  ])
+
+  const convertedRent = await convertIntoCycleCurrency(dependencies, {
+    cycle,
+    period,
+    lockDay: settings.rentWarningDay,
+    timezone: settings.timezone,
+    amount: Money.fromMinor(rentRule.amountMinor, rentRule.currency)
+  })
+
+  const convertedUtilityBills = await Promise.all(
+    utilityBills.map(async (bill) => {
+      const converted = await convertIntoCycleCurrency(dependencies, {
+        cycle,
+        period,
+        lockDay: settings.utilitiesReminderDay,
+        timezone: settings.timezone,
+        amount: Money.fromMinor(bill.amountMinor, bill.currency)
+      })
+
+      return {
+        bill,
+        converted
+      }
+    })
+  )
+
+  const convertedPurchases = await Promise.all(
+    purchases.map(async (purchase) => {
+      const converted = await convertIntoCycleCurrency(dependencies, {
+        cycle,
+        period,
+        lockDay: settings.rentWarningDay,
+        timezone: settings.timezone,
+        amount: Money.fromMinor(purchase.amountMinor, purchase.currency)
+      })
+
+      return {
+        purchase,
+        converted
+      }
+    })
+  )
+
+  const utilities = convertedUtilityBills.reduce(
+    (sum, current) => sum.add(current.converted.settlementAmount),
+    Money.zero(cycle.currency)
+  )
 
   const settlement = calculateMonthlySettlement({
     cycleId: BillingCycleId.from(cycle.id),
     period,
-    rent: Money.fromMinor(rentRule.amountMinor, rentRule.currency),
-    utilities: Money.fromMinor(utilitiesMinor, rentRule.currency),
+    rent: convertedRent.settlementAmount,
+    utilities,
     utilitySplitMode: 'equal',
     members: members.map((member) => ({
       memberId: MemberId.from(member.id),
       active: true,
       rentWeight: member.rentShareWeight
     })),
-    purchases: purchases.map((purchase) => ({
+    purchases: convertedPurchases.map(({ purchase, converted }) => ({
       purchaseId: PurchaseEntryId.from(purchase.id),
       payerId: MemberId.from(purchase.payerMemberId),
-      amount: Money.fromMinor(purchase.amountMinor, rentRule.currency)
+      amount: converted.settlementAmount
     }))
   })
 
-  await repository.replaceSettlementSnapshot({
+  await dependencies.repository.replaceSettlementSnapshot({
     cycleId: cycle.id,
     inputHash: computeInputHash({
       cycleId: cycle.id,
-      rentMinor: rentRule.amountMinor.toString(),
-      utilitiesMinor: utilitiesMinor.toString(),
-      purchaseCount: purchases.length,
+      rentMinor: convertedRent.settlementAmount.amountMinor.toString(),
+      utilitiesMinor: utilities.amountMinor.toString(),
+      purchaseMinors: convertedPurchases.map(({ purchase, converted }) => ({
+        id: purchase.id,
+        minor: converted.settlementAmount.amountMinor.toString(),
+        currency: converted.settlementAmount.currency
+      })),
       memberCount: members.length
     }),
     totalDueMinor: settlement.totalDue.amountMinor,
-    currency: rentRule.currency,
+    currency: cycle.currency,
     metadata: {
       generatedBy: 'bot-command',
-      source: 'finance-service'
+      source: 'finance-service',
+      rentSourceMinor: convertedRent.originalAmount.amountMinor.toString(),
+      rentSourceCurrency: convertedRent.originalAmount.currency,
+      rentFxRateMicros: convertedRent.fxRateMicros?.toString() ?? null,
+      rentFxEffectiveDate: convertedRent.fxEffectiveDate
     },
     lines: settlement.lines.map((line) => ({
       memberId: line.memberId.toString(),
@@ -178,23 +349,31 @@ async function buildFinanceDashboard(
   }))
 
   const ledger: FinanceDashboardLedgerEntry[] = [
-    ...utilityBills.map((bill) => ({
+    ...convertedUtilityBills.map(({ bill, converted }) => ({
       id: bill.id,
       kind: 'utility' as const,
       title: bill.billName,
-      amount: Money.fromMinor(bill.amountMinor, bill.currency),
+      amount: converted.originalAmount,
       currency: bill.currency,
+      displayAmount: converted.settlementAmount,
+      displayCurrency: cycle.currency,
+      fxRateMicros: converted.fxRateMicros,
+      fxEffectiveDate: converted.fxEffectiveDate,
       actorDisplayName: bill.createdByMemberId
         ? (memberNameById.get(bill.createdByMemberId) ?? null)
         : null,
       occurredAt: bill.createdAt.toString()
     })),
-    ...purchases.map((purchase) => ({
+    ...convertedPurchases.map(({ purchase, converted }) => ({
       id: purchase.id,
       kind: 'purchase' as const,
       title: purchase.description ?? 'Shared purchase',
-      amount: Money.fromMinor(purchase.amountMinor, purchase.currency),
+      amount: converted.originalAmount,
       currency: purchase.currency,
+      displayAmount: converted.settlementAmount,
+      displayCurrency: cycle.currency,
+      fxRateMicros: converted.fxRateMicros,
+      fxEffectiveDate: converted.fxEffectiveDate,
       actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
       occurredAt: purchase.occurredAt?.toString() ?? null
     }))
@@ -208,8 +387,12 @@ async function buildFinanceDashboard(
 
   return {
     period: cycle.period,
-    currency: rentRule.currency,
+    currency: cycle.currency,
     totalDue: settlement.totalDue,
+    rentSourceAmount: convertedRent.originalAmount,
+    rentDisplayAmount: convertedRent.settlementAmount,
+    rentFxRateMicros: convertedRent.fxRateMicros,
+    rentFxEffectiveDate: convertedRent.fxEffectiveDate,
     members: dashboardMembers,
     ledger
   }
@@ -244,7 +427,11 @@ export interface FinanceCommandService {
   generateStatement(periodArg?: string): Promise<string | null>
 }
 
-export function createFinanceCommandService(repository: FinanceRepository): FinanceCommandService {
+export function createFinanceCommandService(
+  dependencies: FinanceCommandServiceDependencies
+): FinanceCommandService {
+  const { repository, householdConfigurationRepository } = dependencies
+
   return {
     getMemberByTelegramUserId(telegramUserId) {
       return repository.getMemberByTelegramUserId(telegramUserId)
@@ -288,7 +475,10 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
 
     async openCycle(periodArg, currencyArg) {
       const period = BillingPeriod.fromString(periodArg).toString()
-      const currency = parseCurrency(currencyArg, 'USD')
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
 
       await repository.openCycle(period, currency)
 
@@ -311,13 +501,16 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
     },
 
     async setRent(amountArg, currencyArg, periodArg) {
-      const openCycle = await repository.getOpenCycle()
+      const [openCycle, settings] = await Promise.all([
+        repository.getOpenCycle(),
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
+      ])
       const period = periodArg ?? openCycle?.period
       if (!period) {
         return null
       }
 
-      const currency = parseCurrency(currencyArg, openCycle?.currency ?? 'USD')
+      const currency = parseCurrency(currencyArg, settings.rentCurrency)
       const amount = Money.fromMajor(amountArg, currency)
 
       await repository.saveRentRule(
@@ -334,12 +527,15 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
     },
 
     async addUtilityBill(billName, amountArg, createdByMemberId, currencyArg) {
-      const openCycle = await repository.getOpenCycle()
+      const [openCycle, settings] = await Promise.all([
+        repository.getOpenCycle(),
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
+      ])
       if (!openCycle) {
         return null
       }
 
-      const currency = parseCurrency(currencyArg, openCycle.currency)
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
 
       await repository.addUtilityBill({
@@ -358,7 +554,7 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
     },
 
     async generateStatement(periodArg) {
-      const dashboard = await buildFinanceDashboard(repository, periodArg)
+      const dashboard = await buildFinanceDashboard(dependencies, periodArg)
       if (!dashboard) {
         return null
       }
@@ -367,15 +563,21 @@ export function createFinanceCommandService(repository: FinanceRepository): Fina
         return `- ${line.displayName}: ${line.netDue.toMajorString()} ${dashboard.currency}`
       })
 
+      const rentLine =
+        dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency
+          ? `Rent: ${dashboard.rentDisplayAmount.toMajorString()} ${dashboard.currency}`
+          : `Rent: ${dashboard.rentSourceAmount.toMajorString()} ${dashboard.rentSourceAmount.currency} (~${dashboard.rentDisplayAmount.toMajorString()} ${dashboard.currency})`
+
       return [
         `Statement for ${dashboard.period}`,
+        rentLine,
         ...statementLines,
         `Total: ${dashboard.totalDue.toMajorString()} ${dashboard.currency}`
       ].join('\n')
     },
 
     generateDashboard(periodArg) {
-      return buildFinanceDashboard(repository, periodArg)
+      return buildFinanceDashboard(dependencies, periodArg)
     }
   }
 }

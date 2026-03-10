@@ -36,6 +36,7 @@ export interface MiniAppAdminService {
   updateSettings(input: {
     householdId: string
     actorIsAdmin: boolean
+    settlementCurrency?: string
     rentAmountMajor?: string
     rentCurrency?: string
     rentDueDay: number
@@ -176,6 +177,9 @@ export function createMiniAppAdminService(
 
       let rentAmountMinor: bigint | null | undefined
       let rentCurrency: CurrencyCode | undefined
+      const settlementCurrency = input.settlementCurrency
+        ? parseCurrency(input.settlementCurrency)
+        : undefined
 
       if (input.rentAmountMajor && input.rentAmountMajor.trim().length > 0) {
         rentCurrency = parseCurrency(input.rentCurrency ?? 'USD')
@@ -187,6 +191,11 @@ export function createMiniAppAdminService(
 
       const settings = await repository.updateHouseholdBillingSettings({
         householdId: input.householdId,
+        ...(settlementCurrency
+          ? {
+              settlementCurrency
+            }
+          : {}),
         ...(rentAmountMinor !== undefined
           ? {
               rentAmountMinor

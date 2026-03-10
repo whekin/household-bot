@@ -1,6 +1,7 @@
 import { DOMAIN_ERROR_CODE, DomainError } from './errors'
 
 export const CURRENCIES = ['GEL', 'USD'] as const
+export const FX_RATE_SCALE_MICROS = 1_000_000n
 
 export type CurrencyCode = (typeof CURRENCIES)[number]
 
@@ -71,6 +72,23 @@ function formatMajorUnits(minor: bigint): string {
   const fractionString = fraction.toString().padStart(2, '0')
 
   return `${sign}${whole.toString()}.${fractionString}`
+}
+
+function divideRoundedHalfUp(dividend: bigint, divisor: bigint): bigint {
+  if (divisor === 0n) {
+    throw new DomainError(DOMAIN_ERROR_CODE.INVALID_MONEY_AMOUNT, 'Division by zero')
+  }
+
+  const sign = dividend < 0n ? -1n : 1n
+  const absoluteDividend = dividend < 0n ? -dividend : dividend
+  const quotient = absoluteDividend / divisor
+  const remainder = absoluteDividend % divisor
+
+  if (remainder * 2n >= divisor) {
+    return (quotient + 1n) * sign
+  }
+
+  return quotient * sign
 }
 
 export class Money {
@@ -256,4 +274,24 @@ export class Money {
       )
     }
   }
+}
+
+export function convertMoney(
+  amount: Money,
+  targetCurrency: CurrencyCode,
+  rateMicros: bigint
+): Money {
+  if (rateMicros <= 0n) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_MONEY_AMOUNT,
+      `Exchange rate must be positive: ${rateMicros.toString()}`
+    )
+  }
+
+  if (amount.currency === targetCurrency) {
+    return amount
+  }
+
+  const convertedMinor = divideRoundedHalfUp(amount.amountMinor * rateMicros, FX_RATE_SCALE_MICROS)
+  return Money.fromMinor(convertedMinor, targetCurrency)
 }

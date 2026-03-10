@@ -2,24 +2,27 @@ import { describe, expect, test } from 'bun:test'
 
 import { instantFromIso, type Instant } from '@household/domain'
 import type {
+  ExchangeRateProvider,
+  FinanceCycleExchangeRateRecord,
   FinanceCycleRecord,
   FinanceMemberRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  HouseholdConfigurationRepository,
   SettlementSnapshotRecord
 } from '@household/ports'
 
 import { createFinanceCommandService } from './finance-command-service'
 
 class FinanceRepositoryStub implements FinanceRepository {
+  householdId = 'household-1'
   member: FinanceMemberRecord | null = null
   members: readonly FinanceMemberRecord[] = []
   openCycleRecord: FinanceCycleRecord | null = null
   cycleByPeriodRecord: FinanceCycleRecord | null = null
   latestCycleRecord: FinanceCycleRecord | null = null
   rentRule: FinanceRentRuleRecord | null = null
-  utilityTotal: bigint = 0n
   purchases: readonly FinanceParsedPurchaseRecord[] = []
   utilityBills: readonly {
     id: string
@@ -29,13 +32,11 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string | null
     createdAt: Instant
   }[] = []
-
   lastSavedRentRule: {
     period: string
     amountMinor: bigint
     currency: 'USD' | 'GEL'
   } | null = null
-
   lastUtilityBill: {
     cycleId: string
     billName: string
@@ -43,8 +44,8 @@ class FinanceRepositoryStub implements FinanceRepository {
     currency: 'USD' | 'GEL'
     createdByMemberId: string
   } | null = null
-
   replacedSnapshot: SettlementSnapshotRecord | null = null
+  cycleExchangeRates = new Map<string, FinanceCycleExchangeRateRecord>()
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
@@ -84,6 +85,24 @@ class FinanceRepositoryStub implements FinanceRepository {
     }
   }
 
+  async getCycleExchangeRate(
+    cycleId: string,
+    sourceCurrency: 'USD' | 'GEL',
+    targetCurrency: 'USD' | 'GEL'
+  ): Promise<FinanceCycleExchangeRateRecord | null> {
+    return this.cycleExchangeRates.get(`${cycleId}:${sourceCurrency}:${targetCurrency}`) ?? null
+  }
+
+  async saveCycleExchangeRate(
+    input: FinanceCycleExchangeRateRecord
+  ): Promise<FinanceCycleExchangeRateRecord> {
+    this.cycleExchangeRates.set(
+      `${input.cycleId}:${input.sourceCurrency}:${input.targetCurrency}`,
+      input
+    )
+    return input
+  }
+
   async addUtilityBill(input: {
     cycleId: string
     billName: string
@@ -99,7 +118,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async getUtilityTotalForCycle(): Promise<bigint> {
-    return this.utilityTotal
+    return this.utilityBills.reduce((sum, bill) => sum + bill.amountMinor, 0n)
   }
 
   async listUtilityBillsForCycle() {
@@ -115,16 +134,76 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 }
 
+const householdConfigurationRepository: Pick<
+  HouseholdConfigurationRepository,
+  'getHouseholdBillingSettings'
+> = {
+  async getHouseholdBillingSettings(householdId) {
+    return {
+      householdId,
+      settlementCurrency: 'GEL',
+      rentAmountMinor: 70000n,
+      rentCurrency: 'USD',
+      rentDueDay: 20,
+      rentWarningDay: 17,
+      utilitiesDueDay: 4,
+      utilitiesReminderDay: 3,
+      timezone: 'Asia/Tbilisi'
+    }
+  }
+}
+
+const exchangeRateProvider: ExchangeRateProvider = {
+  async getRate(input) {
+    if (input.baseCurrency === input.quoteCurrency) {
+      return {
+        baseCurrency: input.baseCurrency,
+        quoteCurrency: input.quoteCurrency,
+        rateMicros: 1_000_000n,
+        effectiveDate: input.effectiveDate,
+        source: 'nbg'
+      }
+    }
+
+    if (input.baseCurrency === 'USD' && input.quoteCurrency === 'GEL') {
+      return {
+        baseCurrency: 'USD',
+        quoteCurrency: 'GEL',
+        rateMicros: 2_700_000n,
+        effectiveDate: input.effectiveDate,
+        source: 'nbg'
+      }
+    }
+
+    return {
+      baseCurrency: input.baseCurrency,
+      quoteCurrency: input.quoteCurrency,
+      rateMicros: 370_370n,
+      effectiveDate: input.effectiveDate,
+      source: 'nbg'
+    }
+  }
+}
+
+function createService(repository: FinanceRepositoryStub) {
+  return createFinanceCommandService({
+    householdId: repository.householdId,
+    repository,
+    householdConfigurationRepository,
+    exchangeRateProvider
+  })
+}
+
 describe('createFinanceCommandService', () => {
   test('setRent falls back to the open cycle period when one is active', async () => {
     const repository = new FinanceRepositoryStub()
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: '2026-03',
-      currency: 'USD'
+      currency: 'GEL'
     }
 
-    const service = createFinanceCommandService(repository)
+    const service = createService(repository)
     const result = await service.setRent('700', undefined, undefined)
 
     expect(result).not.toBeNull()
@@ -143,12 +222,12 @@ describe('createFinanceCommandService', () => {
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: '2026-03',
-      currency: 'USD'
+      currency: 'GEL'
     }
     repository.latestCycleRecord = {
       id: 'cycle-0',
       period: '2026-02',
-      currency: 'USD'
+      currency: 'GEL'
     }
     repository.rentRule = {
       amountMinor: 70000n,
@@ -159,20 +238,20 @@ describe('createFinanceCommandService', () => {
         id: 'utility-1',
         billName: 'Electricity',
         amountMinor: 12000n,
-        currency: 'USD',
+        currency: 'GEL',
         createdByMemberId: 'alice',
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ]
 
-    const service = createFinanceCommandService(repository)
+    const service = createService(repository)
     const result = await service.getAdminCycleState()
 
     expect(result).toEqual({
       cycle: {
         id: 'cycle-1',
         period: '2026-03',
-        currency: 'USD'
+        currency: 'GEL'
       },
       rentRule: {
         amountMinor: 70000n,
@@ -184,9 +263,9 @@ describe('createFinanceCommandService', () => {
           billName: 'Electricity',
           amount: expect.objectContaining({
             amountMinor: 12000n,
-            currency: 'USD'
+            currency: 'GEL'
           }),
-          currency: 'USD',
+          currency: 'GEL',
           createdByMemberId: 'alice',
           createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
         }
@@ -196,7 +275,7 @@ describe('createFinanceCommandService', () => {
 
   test('addUtilityBill returns null when no open cycle exists', async () => {
     const repository = new FinanceRepositoryStub()
-    const service = createFinanceCommandService(repository)
+    const service = createService(repository)
 
     const result = await service.addUtilityBill('Electricity', '55.20', 'member-1')
 
@@ -204,12 +283,12 @@ describe('createFinanceCommandService', () => {
     expect(repository.lastUtilityBill).toBeNull()
   })
 
-  test('generateStatement persists settlement snapshot and returns member lines', async () => {
+  test('generateStatement settles into cycle currency and persists snapshot', async () => {
     const repository = new FinanceRepositoryStub()
     repository.latestCycleRecord = {
       id: 'cycle-2026-03',
       period: '2026-03',
-      currency: 'USD'
+      currency: 'GEL'
     }
     repository.members = [
       {
@@ -231,13 +310,12 @@ describe('createFinanceCommandService', () => {
       amountMinor: 70000n,
       currency: 'USD'
     }
-    repository.utilityTotal = 12000n
     repository.utilityBills = [
       {
         id: 'utility-1',
         billName: 'Electricity',
         amountMinor: 12000n,
-        currency: 'USD',
+        currency: 'GEL',
         createdByMemberId: 'alice',
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
@@ -253,29 +331,34 @@ describe('createFinanceCommandService', () => {
       }
     ]
 
-    const service = createFinanceCommandService(repository)
+    const service = createService(repository)
     const dashboard = await service.generateDashboard()
     const statement = await service.generateStatement()
 
     expect(dashboard).not.toBeNull()
-    expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([39500n, 42500n])
+    expect(dashboard?.currency).toBe('GEL')
+    expect(dashboard?.rentSourceAmount.toMajorString()).toBe('700.00')
+    expect(dashboard?.rentDisplayAmount.toMajorString()).toBe('1890.00')
+    expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([99000n, 102000n])
     expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity'])
-    expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'USD'])
+    expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'GEL'])
+    expect(dashboard?.ledger.map((entry) => entry.displayCurrency)).toEqual(['GEL', 'GEL'])
     expect(statement).toBe(
       [
         'Statement for 2026-03',
-        '- Alice: 395.00 USD',
-        '- Bob: 425.00 USD',
-        'Total: 820.00 USD'
+        'Rent: 700.00 USD (~1890.00 GEL)',
+        '- Alice: 990.00 GEL',
+        '- Bob: 1020.00 GEL',
+        'Total: 2010.00 GEL'
       ].join('\n')
     )
     expect(repository.replacedSnapshot).not.toBeNull()
     expect(repository.replacedSnapshot?.cycleId).toBe('cycle-2026-03')
-    expect(repository.replacedSnapshot?.currency).toBe('USD')
-    expect(repository.replacedSnapshot?.totalDueMinor).toBe(82000n)
+    expect(repository.replacedSnapshot?.currency).toBe('GEL')
+    expect(repository.replacedSnapshot?.totalDueMinor).toBe(201000n)
     expect(repository.replacedSnapshot?.lines.map((line) => line.netDueMinor)).toEqual([
-      39500n,
-      42500n
+      99000n,
+      102000n
     ])
   })
 })

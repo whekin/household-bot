@@ -17,6 +17,7 @@ export interface ParsePurchaseInput {
 
 export interface ParsePurchaseOptions {
   llmFallback?: PurchaseParserLlmFallback
+  defaultCurrency?: 'GEL' | 'USD'
 }
 
 const CURRENCY_PATTERN = '(?:₾|gel|lari|лари|usd|\\$|доллар(?:а|ов)?)'
@@ -60,7 +61,10 @@ function normalizeDescription(rawText: string, matchedFragment: string): string 
   return cleaned
 }
 
-function parseWithRules(rawText: string): ParsedPurchaseResult | null {
+function parseWithRules(
+  rawText: string,
+  defaultCurrency: 'GEL' | 'USD'
+): ParsedPurchaseResult | null {
   const matches = Array.from(rawText.matchAll(AMOUNT_WITH_OPTIONAL_CURRENCY))
 
   if (matches.length !== 1) {
@@ -76,7 +80,7 @@ function parseWithRules(rawText: string): ParsedPurchaseResult | null {
   const amountMinor = toMinorUnits(match.groups.amount)
 
   const explicitCurrency = currency !== null
-  const resolvedCurrency = currency ?? 'GEL'
+  const resolvedCurrency = currency ?? defaultCurrency
   const confidence = explicitCurrency ? 92 : 78
 
   return {
@@ -118,7 +122,7 @@ export async function parsePurchaseMessage(
     return null
   }
 
-  const rulesResult = parseWithRules(rawText)
+  const rulesResult = parseWithRules(rawText, options.defaultCurrency ?? 'GEL')
   if (rulesResult) {
     return rulesResult
   }

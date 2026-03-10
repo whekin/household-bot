@@ -51,7 +51,8 @@ export type PurchaseMessageIngestionResult =
 export interface PurchaseMessageIngestionRepository {
   save(
     record: PurchaseTopicRecord,
-    llmFallback?: PurchaseParserLlmFallback
+    llmFallback?: PurchaseParserLlmFallback,
+    defaultCurrency?: 'GEL' | 'USD'
   ): Promise<PurchaseMessageIngestionResult>
 }
 
@@ -121,7 +122,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
   })
 
   const repository: PurchaseMessageIngestionRepository = {
-    async save(record, llmFallback) {
+    async save(record, llmFallback, defaultCurrency) {
       const matchedMember = await db
         .select({ id: schema.members.id })
         .from(schema.members)
@@ -140,11 +141,18 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         {
           rawText: record.rawText
         },
-        llmFallback
-          ? {
-              llmFallback
-            }
-          : {}
+        {
+          ...(llmFallback
+            ? {
+                llmFallback
+              }
+            : {}),
+          ...(defaultCurrency
+            ? {
+                defaultCurrency
+              }
+            : {})
+        }
       ).catch((error) => {
         parserError = error instanceof Error ? error.message : 'Unknown parser error'
         return null
@@ -324,7 +332,7 @@ export function registerPurchaseTopicIngestion(
     }
 
     try {
-      const status = await repository.save(record, options.llmFallback)
+      const status = await repository.save(record, options.llmFallback, 'GEL')
       const acknowledgement = buildPurchaseAcknowledgement(status, 'en')
 
       if (status.status === 'created') {
@@ -394,7 +402,14 @@ export function registerConfiguredPurchaseTopicIngestion(
     }
 
     try {
-      const status = await repository.save(record, options.llmFallback)
+      const billingSettings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        record.householdId
+      )
+      const status = await repository.save(
+        record,
+        options.llmFallback,
+        billingSettings.settlementCurrency
+      )
       const householdChat = await householdConfigurationRepository.getHouseholdChatByHouseholdId(
         record.householdId
       )

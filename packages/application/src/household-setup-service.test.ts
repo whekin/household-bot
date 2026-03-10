@@ -250,6 +250,7 @@ function createRepositoryStub() {
     async getHouseholdBillingSettings(householdId) {
       return {
         householdId,
+        settlementCurrency: 'GEL',
         rentAmountMinor: null,
         rentCurrency: 'USD',
         rentDueDay: 20,
@@ -262,6 +263,7 @@ function createRepositoryStub() {
     async updateHouseholdBillingSettings(input) {
       return {
         householdId: input.householdId,
+        settlementCurrency: 'GEL',
         rentAmountMinor: input.rentAmountMinor ?? null,
         rentCurrency: input.rentCurrency ?? 'USD',
         rentDueDay: input.rentDueDay ?? 20,

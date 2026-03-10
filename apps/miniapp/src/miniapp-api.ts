@@ -45,6 +45,7 @@ export interface MiniAppMember {
 
 export interface MiniAppBillingSettings {
   householdId: string
+  settlementCurrency: 'USD' | 'GEL'
   rentAmountMinor: string | null
   rentCurrency: 'USD' | 'GEL'
   rentDueDay: number
@@ -67,6 +68,11 @@ export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
   totalDueMajor: string
+  rentSourceAmountMajor: string
+  rentSourceCurrency: 'USD' | 'GEL'
+  rentDisplayAmountMajor: string
+  rentFxRateMicros: string | null
+  rentFxEffectiveDate: string | null
   members: {
     memberId: string
     displayName: string
@@ -82,6 +88,10 @@ export interface MiniAppDashboard {
     title: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    displayAmountMajor: string
+    displayCurrency: 'USD' | 'GEL'
+    fxRateMicros: string | null
+    fxEffectiveDate: string | null
     actorDisplayName: string | null
     occurredAt: string | null
   }[]
@@ -359,6 +369,7 @@ export async function fetchMiniAppAdminSettings(
 export async function updateMiniAppBillingSettings(
   initData: string,
   input: {
+    settlementCurrency?: 'USD' | 'GEL'
     rentAmountMajor?: string
     rentCurrency: 'USD' | 'GEL'
     rentDueDay: number

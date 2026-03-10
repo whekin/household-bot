@@ -77,6 +77,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     listHouseholdMembers: async () => [],
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
+      settlementCurrency: 'GEL',
       rentAmountMinor: 70000n,
       rentCurrency: 'USD',
       rentDueDay: 20,
@@ -87,6 +88,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     }),
     updateHouseholdBillingSettings: async (input) => ({
       householdId: input.householdId,
+      settlementCurrency: 'GEL',
       rentAmountMinor: input.rentAmountMinor ?? 70000n,
       rentCurrency: input.rentCurrency ?? 'USD',
       rentDueDay: input.rentDueDay ?? 20,

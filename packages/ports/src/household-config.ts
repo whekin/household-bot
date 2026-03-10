@@ -51,6 +51,7 @@ export interface HouseholdMemberRecord {
 
 export interface HouseholdBillingSettingsRecord {
   householdId: string
+  settlementCurrency: CurrencyCode
   rentAmountMinor: bigint | null
   rentCurrency: CurrencyCode
   rentDueDay: number
@@ -140,6 +141,7 @@ export interface HouseholdConfigurationRepository {
   getHouseholdBillingSettings(householdId: string): Promise<HouseholdBillingSettingsRecord>
   updateHouseholdBillingSettings(input: {
     householdId: string
+    settlementCurrency?: CurrencyCode
     rentAmountMinor?: bigint | null
     rentCurrency?: CurrencyCode
     rentDueDay?: number

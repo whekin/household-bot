@@ -178,6 +178,7 @@ function toCurrencyCode(raw: string): CurrencyCode {
 
 function toHouseholdBillingSettingsRecord(row: {
   householdId: string
+  settlementCurrency: string
   rentAmountMinor: bigint | null
   rentCurrency: string
   rentDueDay: number
@@ -188,6 +189,7 @@ function toHouseholdBillingSettingsRecord(row: {
 }): HouseholdBillingSettingsRecord {
   return {
     householdId: row.householdId,
+    settlementCurrency: toCurrencyCode(row.settlementCurrency),
     rentAmountMinor: row.rentAmountMinor,
     rentCurrency: toCurrencyCode(row.rentCurrency),
     rentDueDay: row.rentDueDay,
@@ -862,6 +864,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const rows = await db
         .select({
           householdId: schema.householdBillingSettings.householdId,
+          settlementCurrency: schema.householdBillingSettings.settlementCurrency,
           rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
           rentCurrency: schema.householdBillingSettings.rentCurrency,
           rentDueDay: schema.householdBillingSettings.rentDueDay,
@@ -888,6 +891,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const rows = await db
         .update(schema.householdBillingSettings)
         .set({
+          ...(input.settlementCurrency
+            ? {
+                settlementCurrency: input.settlementCurrency
+              }
+            : {}),
           ...(input.rentAmountMinor !== undefined
             ? {
                 rentAmountMinor: input.rentAmountMinor
@@ -928,6 +936,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .where(eq(schema.householdBillingSettings.householdId, input.householdId))
         .returning({
           householdId: schema.householdBillingSettings.householdId,
+          settlementCurrency: schema.householdBillingSettings.settlementCurrency,
           rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
           rentCurrency: schema.householdBillingSettings.rentCurrency,
           rentDueDay: schema.householdBillingSettings.rentDueDay,

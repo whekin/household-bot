@@ -42,6 +42,7 @@ async function readApprovalPayload(request: Request): Promise<{
 
 async function readSettingsUpdatePayload(request: Request): Promise<{
   initData: string
+  settlementCurrency?: string
   rentAmountMajor?: string
   rentCurrency?: string
   rentDueDay: number
@@ -58,6 +59,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
 
   const text = await clonedRequest.text()
   let parsed: {
+    settlementCurrency?: string
     rentAmountMajor?: string
     rentCurrency?: string
     rentDueDay?: number
@@ -87,6 +89,11 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     ...(typeof parsed.rentAmountMajor === 'string'
       ? {
           rentAmountMajor: parsed.rentAmountMajor
+        }
+      : {}),
+    ...(typeof parsed.settlementCurrency === 'string'
+      ? {
+          settlementCurrency: parsed.settlementCurrency
         }
       : {}),
     ...(typeof parsed.rentCurrency === 'string'
@@ -212,6 +219,7 @@ async function readRentWeightPayload(request: Request): Promise<{
 function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
   return {
     householdId: settings.householdId,
+    settlementCurrency: settings.settlementCurrency,
     rentAmountMinor: settings.rentAmountMinor?.toString() ?? null,
     rentCurrency: settings.rentCurrency,
     rentDueDay: settings.rentDueDay,

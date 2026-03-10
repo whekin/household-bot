@@ -51,6 +51,7 @@ import {
   createMiniAppRentUpdateHandler
 } from './miniapp-billing'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
+import { createNbgExchangeRateProvider } from './nbg-exchange-rates'
 
 const runtime = getBotRuntimeConfig()
 configureLogger({
@@ -71,6 +72,9 @@ const bot = createTelegramBot(
 const webhookHandler = webhookCallback(bot, 'std/http')
 const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
 const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
+const exchangeRateProvider = createNbgExchangeRateProvider({
+  logger: getLogger('fx')
+})
 const householdOnboardingService = householdConfigurationRepositoryClient
   ? createHouseholdOnboardingService({
       repository: householdConfigurationRepositoryClient.repository
@@ -105,7 +109,12 @@ function financeServiceForHousehold(householdId: string) {
   financeRepositoryClients.set(householdId, repositoryClient)
   shutdownTasks.push(repositoryClient.close)
 
-  const service = createFinanceCommandService(repositoryClient.repository)
+  const service = createFinanceCommandService({
+    householdId,
+    repository: repositoryClient.repository,
+    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    exchangeRateProvider
+  })
   financeServices.set(householdId, service)
   return service
 }

@@ -198,6 +198,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     }),
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
+      settlementCurrency: 'GEL',
       rentAmountMinor: null,
       rentCurrency: 'USD',
       rentDueDay: 20,
@@ -208,6 +209,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     }),
     updateHouseholdBillingSettings: async (input) => ({
       householdId: input.householdId,
+      settlementCurrency: 'GEL',
       rentAmountMinor: input.rentAmountMinor ?? null,
       rentCurrency: input.rentCurrency ?? 'USD',
       rentDueDay: input.rentDueDay ?? 20,

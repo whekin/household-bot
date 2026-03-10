@@ -26,6 +26,7 @@ export const householdBillingSettings = pgTable(
     householdId: uuid('household_id')
       .notNull()
       .references(() => households.id, { onDelete: 'cascade' }),
+    settlementCurrency: text('settlement_currency').default('GEL').notNull(),
     rentAmountMinor: bigint('rent_amount_minor', { mode: 'bigint' }),
     rentCurrency: text('rent_currency').default('USD').notNull(),
     rentDueDay: integer('rent_due_day').default(20).notNull(),
@@ -254,6 +255,31 @@ export const rentRules = pgTable(
       table.householdId,
       table.effectiveFromPeriod
     )
+  })
+)
+
+export const billingCycleExchangeRates = pgTable(
+  'billing_cycle_exchange_rates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    sourceCurrency: text('source_currency').notNull(),
+    targetCurrency: text('target_currency').notNull(),
+    rateMicros: bigint('rate_micros', { mode: 'bigint' }).notNull(),
+    effectiveDate: date('effective_date').notNull(),
+    source: text('source').default('nbg').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cyclePairUnique: uniqueIndex('billing_cycle_exchange_rates_cycle_pair_unique').on(
+      table.cycleId,
+      table.sourceCurrency,
+      table.targetCurrency
+    ),
+    cycleIdx: index('billing_cycle_exchange_rates_cycle_idx').on(table.cycleId)
   })
 )
 
@@ -517,6 +543,7 @@ export type HouseholdTopicBinding = typeof householdTopicBindings.$inferSelect
 export type HouseholdUtilityCategory = typeof householdUtilityCategories.$inferSelect
 export type Member = typeof members.$inferSelect
 export type BillingCycle = typeof billingCycles.$inferSelect
+export type BillingCycleExchangeRate = typeof billingCycleExchangeRates.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseEntry = typeof purchaseEntries.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect

@@ -89,6 +89,11 @@ export function createMiniAppDashboardHandler(options: {
               period: dashboard.period,
               currency: dashboard.currency,
               totalDueMajor: dashboard.totalDue.toMajorString(),
+              rentSourceAmountMajor: dashboard.rentSourceAmount.toMajorString(),
+              rentSourceCurrency: dashboard.rentSourceAmount.currency,
+              rentDisplayAmountMajor: dashboard.rentDisplayAmount.toMajorString(),
+              rentFxRateMicros: dashboard.rentFxRateMicros?.toString() ?? null,
+              rentFxEffectiveDate: dashboard.rentFxEffectiveDate,
               members: dashboard.members.map((line) => ({
                 memberId: line.memberId,
                 displayName: line.displayName,
@@ -104,6 +109,10 @@ export function createMiniAppDashboardHandler(options: {
                 title: entry.title,
                 amountMajor: entry.amount.toMajorString(),
                 currency: entry.currency,
+                displayAmountMajor: entry.displayAmount.toMajorString(),
+                displayCurrency: entry.displayCurrency,
+                fxRateMicros: entry.fxRateMicros?.toString() ?? null,
+                fxEffectiveDate: entry.fxEffectiveDate,
                 actorDisplayName: entry.actorDisplayName,
                 occurredAt: entry.occurredAt
               }))

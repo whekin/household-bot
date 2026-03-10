@@ -6,6 +6,7 @@ import {
 } from '@household/application'
 import { instantFromIso } from '@household/domain'
 import type {
+  ExchangeRateProvider,
   FinanceRepository,
   HouseholdConfigurationRepository,
   HouseholdTopicBindingRecord
@@ -31,17 +32,19 @@ function repository(
     getOpenCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',
-      currency: 'USD'
+      currency: 'GEL'
     }),
     getCycleByPeriod: async () => null,
     getLatestCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',
-      currency: 'USD'
+      currency: 'GEL'
     }),
     openCycle: async () => {},
     closeCycle: async () => {},
     saveRentRule: async () => {},
+    getCycleExchangeRate: async () => null,
+    saveCycleExchangeRate: async (input) => input,
     addUtilityBill: async () => {},
     getRentRuleForPeriod: async () => ({
       amountMinor: 70000n,
@@ -53,7 +56,7 @@ function repository(
         id: 'utility-1',
         billName: 'Electricity',
         amountMinor: 12000n,
-        currency: 'USD',
+        currency: 'GEL',
         createdByMemberId: member?.id ?? 'member-1',
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
@@ -69,6 +72,28 @@ function repository(
       }
     ],
     replaceSettlementSnapshot: async () => {}
+  }
+}
+
+const exchangeRateProvider: ExchangeRateProvider = {
+  async getRate(input) {
+    if (input.baseCurrency === input.quoteCurrency) {
+      return {
+        baseCurrency: input.baseCurrency,
+        quoteCurrency: input.quoteCurrency,
+        rateMicros: 1_000_000n,
+        effectiveDate: input.effectiveDate,
+        source: 'nbg'
+      }
+    }
+
+    return {
+      baseCurrency: input.baseCurrency,
+      quoteCurrency: input.quoteCurrency,
+      rateMicros: 2_700_000n,
+      effectiveDate: input.effectiveDate,
+      source: 'nbg'
+    }
   }
 }
 
@@ -141,6 +166,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     updateMemberPreferredLocale: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
+      settlementCurrency: 'GEL',
       rentAmountMinor: null,
       rentCurrency: 'USD',
       rentDueDay: 20,
@@ -151,6 +177,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     }),
     updateHouseholdBillingSettings: async (input) => ({
       householdId: input.householdId,
+      settlementCurrency: input.settlementCurrency ?? 'GEL',
       rentAmountMinor: input.rentAmountMinor ?? null,
       rentCurrency: input.rentCurrency ?? 'USD',
       rentDueDay: input.rentDueDay ?? 20,
@@ -176,16 +203,20 @@ function onboardingRepository(): HouseholdConfigurationRepository {
 describe('createMiniAppDashboardHandler', () => {
   test('returns a dashboard for an authenticated household member', async () => {
     const authDate = Math.floor(Date.now() / 1000)
-    const financeService = createFinanceCommandService(
-      repository({
+    const householdRepository = onboardingRepository()
+    const financeService = createFinanceCommandService({
+      householdId: 'household-1',
+      repository: repository({
         id: 'member-1',
         telegramUserId: '123456',
         displayName: 'Stan',
         rentShareWeight: 1,
         isAdmin: true
-      })
-    )
-    const householdRepository = onboardingRepository()
+      }),
+      householdConfigurationRepository: householdRepository,
+      exchangeRateProvider
+    })
+
     householdRepository.listHouseholdMembersByTelegramUserId = async () => [
       {
         id: 'member-1',
@@ -232,13 +263,16 @@ describe('createMiniAppDashboardHandler', () => {
       authorized: true,
       dashboard: {
         period: '2026-03',
-        currency: 'USD',
-        totalDueMajor: '820.00',
+        currency: 'GEL',
+        totalDueMajor: '2010.00',
+        rentSourceAmountMajor: '700.00',
+        rentSourceCurrency: 'USD',
+        rentDisplayAmountMajor: '1890.00',
         members: [
           {
             displayName: 'Stan',
-            netDueMajor: '820.00',
-            rentShareMajor: '700.00',
+            netDueMajor: '2010.00',
+            rentShareMajor: '1890.00',
             utilityShareMajor: '120.00',
             purchaseOffsetMajor: '0.00'
           }
@@ -246,11 +280,13 @@ describe('createMiniAppDashboardHandler', () => {
         ledger: [
           {
             title: 'Soap',
-            currency: 'GEL'
+            currency: 'GEL',
+            displayCurrency: 'GEL'
           },
           {
             title: 'Electricity',
-            currency: 'USD'
+            currency: 'GEL',
+            displayCurrency: 'GEL'
           }
         ]
       }
@@ -258,16 +294,20 @@ describe('createMiniAppDashboardHandler', () => {
   })
 
   test('returns 400 for malformed JSON bodies', async () => {
-    const financeService = createFinanceCommandService(
-      repository({
+    const householdRepository = onboardingRepository()
+    const financeService = createFinanceCommandService({
+      householdId: 'household-1',
+      repository: repository({
         id: 'member-1',
         telegramUserId: '123456',
         displayName: 'Stan',
         rentShareWeight: 1,
         isAdmin: true
-      })
-    )
-    const householdRepository = onboardingRepository()
+      }),
+      householdConfigurationRepository: householdRepository,
+      exchangeRateProvider
+    })
+
     householdRepository.listHouseholdMembersByTelegramUserId = async () => [
       {
         id: 'member-1',
