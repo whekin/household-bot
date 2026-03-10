@@ -46,6 +46,11 @@ Boundary rules:
 - Do not commit without explicit user approval
 - Run CodeRabbit review before merge (`bun run review:coderabbit`)
 
+## Communication
+
+- Always respond to the user in English unless they explicitly ask for another language.
+- Do not mirror the language of pasted messages, logs, or chat transcripts unless asked.
+
 ## Quality gates
 
 Required before PR/merge:
