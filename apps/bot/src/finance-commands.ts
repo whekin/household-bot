@@ -233,6 +233,71 @@ export function createFinanceCommandsService(options: {
       }
     })
 
+    bot.command('payment_add', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
+      const resolved = await requireMember(ctx)
+      if (!resolved) {
+        return
+      }
+
+      const args = commandArgs(ctx)
+      const kind = args[0]
+      if (kind !== 'rent' && kind !== 'utilities') {
+        await ctx.reply(t.paymentAddUsage)
+        return
+      }
+
+      try {
+        const dashboard = await resolved.service.generateDashboard()
+        if (!dashboard) {
+          await ctx.reply(t.paymentNoCycle)
+          return
+        }
+
+        const currentMember = dashboard.members.find(
+          (member) => member.memberId === resolved.member.id
+        )
+        if (!currentMember) {
+          await ctx.reply(t.notMember)
+          return
+        }
+
+        const inferredAmount =
+          kind === 'rent'
+            ? currentMember.rentShare
+            : currentMember.netDue.subtract(currentMember.rentShare)
+
+        if (args[1] === undefined && inferredAmount.amountMinor <= 0n) {
+          await ctx.reply(t.paymentNoBalance)
+          return
+        }
+
+        const amountArg = args[1] ?? inferredAmount.toMajorString()
+        const currencyArg = args[2]
+        const result = await resolved.service.addPayment(
+          resolved.member.id,
+          kind,
+          amountArg,
+          currencyArg
+        )
+
+        if (!result) {
+          await ctx.reply(t.paymentNoCycle)
+          return
+        }
+
+        await ctx.reply(
+          t.paymentAdded(kind, result.amount.toMajorString(), result.currency, result.period)
+        )
+      } catch (error) {
+        await ctx.reply(t.paymentAddFailed((error as Error).message))
+      }
+    })
+
     bot.command('statement', async (ctx) => {
       const locale = await resolveReplyLocale({
         ctx,

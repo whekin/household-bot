@@ -13,6 +13,7 @@ export interface ScopedTelegramCommands {
 
 export interface TelegramHelpOptions {
   includePrivateCommands?: boolean
+  includeGroupCommands?: boolean
   includeAdminCommands?: boolean
 }
 
@@ -26,8 +27,12 @@ const PRIVATE_CHAT_COMMAND_NAMES = [
   'cancel'
 ] as const satisfies readonly TelegramCommandName[]
 const GROUP_CHAT_COMMAND_NAMES = DEFAULT_COMMAND_NAMES
-const GROUP_ADMIN_COMMAND_NAMES = [
+const GROUP_MEMBER_COMMAND_NAMES = [
   ...GROUP_CHAT_COMMAND_NAMES,
+  'payment_add'
+] as const satisfies readonly TelegramCommandName[]
+const GROUP_ADMIN_COMMAND_NAMES = [
+  ...GROUP_MEMBER_COMMAND_NAMES,
   'setup',
   'bind_purchase_topic',
   'bind_feedback_topic',
@@ -61,7 +66,7 @@ export function getTelegramCommandScopes(locale: BotLocale): readonly ScopedTele
     },
     {
       scope: 'all_group_chats',
-      commands: mapCommands(locale, GROUP_CHAT_COMMAND_NAMES)
+      commands: mapCommands(locale, GROUP_MEMBER_COMMAND_NAMES)
     },
     {
       scope: 'all_chat_administrators',
@@ -76,14 +81,18 @@ export function formatTelegramHelpText(
 ): string {
   const t = getBotTranslations(locale)
   const defaultCommands = new Set<TelegramCommandName>(DEFAULT_COMMAND_NAMES)
+  const groupMemberCommands = new Set<TelegramCommandName>(GROUP_MEMBER_COMMAND_NAMES)
   const includePrivateCommands = options.includePrivateCommands ?? true
+  const includeGroupCommands = options.includeGroupCommands ?? false
   const includeAdminCommands = options.includeAdminCommands ?? false
   const privateCommands = includePrivateCommands
     ? mapCommands(locale, PRIVATE_CHAT_COMMAND_NAMES)
     : []
+  const groupCommands = includeGroupCommands ? mapCommands(locale, GROUP_MEMBER_COMMAND_NAMES) : []
   const adminCommands = includeAdminCommands
     ? mapCommands(locale, GROUP_ADMIN_COMMAND_NAMES).filter(
-        (command) => !defaultCommands.has(command.command)
+        (command) =>
+          !defaultCommands.has(command.command) && !groupMemberCommands.has(command.command)
       )
     : []
 
@@ -93,6 +102,13 @@ export function formatTelegramHelpText(
     sections.push(
       t.help.privateChatHeading,
       ...privateCommands.map((command) => `/${command.command} - ${command.description}`)
+    )
+  }
+
+  if (groupCommands.length > 0) {
+    sections.push(
+      t.help.groupHeading,
+      ...groupCommands.map((command) => `/${command.command} - ${command.description}`)
     )
   }
 

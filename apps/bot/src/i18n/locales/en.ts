@@ -12,12 +12,14 @@ export const enBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
     bind_payments_topic: 'Bind the current topic as payments',
+    payment_add: 'Record your rent or utilities payment',
     pending_members: 'List pending household join requests',
     approve_member: 'Approve a pending household member'
   },
   help: {
     intro: 'Household bot is live.',
     privateChatHeading: 'Private chat:',
+    groupHeading: 'Group chat:',
     groupAdminsHeading: 'Group admins:'
   },
   bot: {
@@ -135,6 +137,12 @@ export const enBotTranslations: BotTranslationCatalog = {
     utilityAdded: (name, amount, currency, period) =>
       `Utility bill added: ${name} ${amount} ${currency} for ${period}`,
     utilityAddFailed: (message) => `Failed to add utility bill: ${message}`,
+    paymentAddUsage: 'Usage: /payment_add <rent|utilities> [amount] [USD|GEL]',
+    paymentNoCycle: 'No billing cycle is ready yet.',
+    paymentNoBalance: 'There is no payable balance for that payment type right now.',
+    paymentAdded: (kind, amount, currency, period) =>
+      `Payment recorded: ${kind === 'rent' ? 'rent' : 'utilities'} ${amount} ${currency} for ${period}`,
+    paymentAddFailed: (message) => `Failed to record payment: ${message}`,
     noStatementCycle: 'No cycle found for statement.',
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,

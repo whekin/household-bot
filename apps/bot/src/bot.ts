@@ -61,6 +61,7 @@ export function createTelegramBot(
     await ctx.reply(
       formatTelegramHelpText(locale, {
         includePrivateCommands: ctx.chat?.type === 'private',
+        includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
         includeAdminCommands
       })
     )

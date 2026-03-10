@@ -12,12 +12,14 @@ export const ruBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
     bind_payments_topic: 'Назначить текущий топик для оплат',
+    payment_add: 'Подтвердить оплату аренды или коммуналки',
     pending_members: 'Показать ожидающие заявки на вступление',
     approve_member: 'Подтвердить участника дома'
   },
   help: {
     intro: 'Бот для дома подключен.',
     privateChatHeading: 'Личный чат:',
+    groupHeading: 'Группа дома:',
     groupAdminsHeading: 'Админы группы:'
   },
   bot: {
@@ -138,6 +140,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     utilityAdded: (name, amount, currency, period) =>
       `Коммунальный счёт добавлен: ${name} ${amount} ${currency} за ${period}`,
     utilityAddFailed: (message) => `Не удалось добавить коммунальный счёт: ${message}`,
+    paymentAddUsage: 'Использование: /payment_add <rent|utilities> [amount] [USD|GEL]',
+    paymentNoCycle: 'Биллинг-цикл пока не готов.',
+    paymentNoBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    paymentAdded: (kind, amount, currency, period) =>
+      `Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${amount} ${currency} за ${period}`,
+    paymentAddFailed: (message) => `Не удалось сохранить оплату: ${message}`,
     noStatementCycle: 'Для выписки период не найден.',
     statementTitle: (period) => `Выписка за ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,

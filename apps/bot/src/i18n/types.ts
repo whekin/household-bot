@@ -10,6 +10,7 @@ export type TelegramCommandName =
   | 'bind_feedback_topic'
   | 'bind_reminders_topic'
   | 'bind_payments_topic'
+  | 'payment_add'
   | 'pending_members'
   | 'approve_member'
 
@@ -23,6 +24,7 @@ export interface BotCommandDescriptions {
   bind_feedback_topic: string
   bind_reminders_topic: string
   bind_payments_topic: string
+  payment_add: string
   pending_members: string
   approve_member: string
 }
@@ -39,6 +41,7 @@ export interface BotTranslationCatalog {
   help: {
     intro: string
     privateChatHeading: string
+    groupHeading: string
     groupAdminsHeading: string
   }
   bot: {
@@ -140,6 +143,16 @@ export interface BotTranslationCatalog {
     utilityNoOpenCycle: string
     utilityAdded: (name: string, amount: string, currency: string, period: string) => string
     utilityAddFailed: (message: string) => string
+    paymentAddUsage: string
+    paymentNoCycle: string
+    paymentNoBalance: string
+    paymentAdded: (
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string,
+      period: string
+    ) => string
+    paymentAddFailed: (message: string) => string
     noStatementCycle: string
     statementTitle: (period: string) => string
     statementLine: (displayName: string, amount: string, currency: string) => string
