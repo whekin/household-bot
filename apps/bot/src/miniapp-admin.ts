@@ -2,6 +2,7 @@ import type { HouseholdOnboardingService, MiniAppAdminService } from '@household
 import type { Logger } from '@household/observability'
 import type { HouseholdBillingSettingsRecord } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
+import type { AssistantUsageTracker } from './dm-assistant'
 
 import {
   allowedMiniAppOrigin,
@@ -342,6 +343,7 @@ export function createMiniAppSettingsHandler(options: {
   botToken: string
   onboardingService: HouseholdOnboardingService
   miniAppAdminService: MiniAppAdminService
+  assistantUsageTracker?: AssistantUsageTracker
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -386,7 +388,9 @@ export function createMiniAppSettingsHandler(options: {
             settings: serializeBillingSettings(result.settings),
             topics: result.topics,
             categories: result.categories,
-            members: result.members
+            members: result.members,
+            assistantUsage:
+              options.assistantUsageTracker?.listHouseholdUsage(member.householdId) ?? []
           },
           200,
           origin

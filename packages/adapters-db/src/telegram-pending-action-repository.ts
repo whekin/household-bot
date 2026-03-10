@@ -13,6 +13,10 @@ function parsePendingActionType(raw: string): TelegramPendingActionType {
     return raw
   }
 
+  if (raw === 'assistant_payment_confirmation') {
+    return raw
+  }
+
   throw new Error(`Unexpected telegram pending action type: ${raw}`)
 }
 

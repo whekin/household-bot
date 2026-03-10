@@ -120,6 +120,26 @@ export interface BotTranslationCatalog {
     hour: (count: number) => string
     minute: (count: number) => string
   }
+  assistant: {
+    unavailable: string
+    noHousehold: string
+    multipleHouseholds: string
+    rateLimited: (retryDelay: string) => string
+    retryInLessThanMinute: string
+    retryIn: (parts: string) => string
+    hour: (count: number) => string
+    minute: (count: number) => string
+    paymentProposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    paymentClarification: string
+    paymentUnsupportedCurrency: string
+    paymentNoBalance: string
+    paymentConfirmButton: string
+    paymentCancelButton: string
+    paymentConfirmed: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    paymentCancelled: string
+    paymentAlreadyHandled: string
+    paymentUnavailable: string
+  }
   finance: {
     useInGroup: string
     householdNotConfigured: string

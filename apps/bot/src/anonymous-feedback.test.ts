@@ -4,6 +4,7 @@ import type { AnonymousFeedbackService } from '@household/application'
 import { nowInstant, Temporal, type Instant } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
+  TelegramPendingActionRecord,
   TelegramPendingActionRepository
 } from '@household/ports'
 
@@ -50,7 +51,13 @@ function anonUpdate(params: {
 }
 
 function createPromptRepository(): TelegramPendingActionRepository {
-  const store = new Map<string, { action: 'anonymous_feedback'; expiresAt: Instant | null }>()
+  const store = new Map<
+    string,
+    {
+      action: TelegramPendingActionRecord['action']
+      expiresAt: Instant | null
+    }
+  >()
 
   return {
     async upsertPendingAction(input) {
@@ -305,7 +312,6 @@ describe('registerAnonymousFeedback', () => {
     })
   })
 
-
   test('uses household locale for the posted anonymous note even when member locale differs', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -383,8 +389,12 @@ describe('registerAnonymousFeedback', () => {
       .filter((call) => call.method === 'sendMessage')
       .map((call) => call.payload as { text?: string })
 
-    expect(sendMessagePayloads.some((payload) => payload.text?.startsWith('Анонимное сообщение по дому'))).toBe(true)
-    expect(sendMessagePayloads.some((payload) => payload.text?.startsWith('Anonymous household note'))).toBe(false)
+    expect(
+      sendMessagePayloads.some((payload) => payload.text?.startsWith('Анонимное сообщение по дому'))
+    ).toBe(true)
+    expect(
+      sendMessagePayloads.some((payload) => payload.text?.startsWith('Anonymous household note'))
+    ).toBe(false)
   })
 
   test('rejects group usage and keeps feedback private', async () => {

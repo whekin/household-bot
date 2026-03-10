@@ -21,10 +21,17 @@ import {
 import { configureLogger, getLogger } from '@household/observability'
 
 import { registerAnonymousFeedback } from './anonymous-feedback'
+import {
+  createInMemoryAssistantConversationMemoryStore,
+  createInMemoryAssistantRateLimiter,
+  createInMemoryAssistantUsageTracker,
+  registerDmAssistant
+} from './dm-assistant'
 import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
+import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
 import {
   createPurchaseMessageRepository,
@@ -100,9 +107,24 @@ const localePreferenceService = householdConfigurationRepositoryClient
   ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
   : null
 const telegramPendingActionRepositoryClient =
-  runtime.databaseUrl && runtime.anonymousFeedbackEnabled
+  runtime.databaseUrl && (runtime.anonymousFeedbackEnabled || runtime.assistantEnabled)
     ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
     : null
+const assistantMemoryStore = createInMemoryAssistantConversationMemoryStore(
+  runtime.assistantMemoryMaxTurns
+)
+const assistantRateLimiter = createInMemoryAssistantRateLimiter({
+  burstLimit: runtime.assistantRateLimitBurst,
+  burstWindowMs: runtime.assistantRateLimitBurstWindowMs,
+  rollingLimit: runtime.assistantRateLimitRolling,
+  rollingWindowMs: runtime.assistantRateLimitRollingWindowMs
+})
+const assistantUsageTracker = createInMemoryAssistantUsageTracker()
+const conversationalAssistant = createOpenAiChatAssistant(
+  runtime.openaiApiKey,
+  runtime.assistantModel,
+  runtime.assistantTimeoutMs
+)
 const anonymousFeedbackRepositoryClients = new Map<
   string,
   ReturnType<typeof createDbAnonymousFeedbackRepository>
@@ -339,6 +361,28 @@ if (
   )
 }
 
+if (
+  runtime.assistantEnabled &&
+  householdConfigurationRepositoryClient &&
+  telegramPendingActionRepositoryClient
+) {
+  registerDmAssistant({
+    bot,
+    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+    promptRepository: telegramPendingActionRepositoryClient.repository,
+    financeServiceForHousehold,
+    memoryStore: assistantMemoryStore,
+    rateLimiter: assistantRateLimiter,
+    usageTracker: assistantUsageTracker,
+    ...(conversationalAssistant
+      ? {
+          assistant: conversationalAssistant
+        }
+      : {}),
+    logger: getLogger('dm-assistant')
+  })
+}
+
 const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
@@ -392,6 +436,7 @@ const server = createBotWebhookServer({
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,
         miniAppAdminService: miniAppAdminService!,
+        assistantUsageTracker,
         logger: getLogger('miniapp-admin')
       })
     : undefined,

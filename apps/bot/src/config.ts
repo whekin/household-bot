@@ -8,6 +8,7 @@ export interface BotRuntimeConfig {
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
   anonymousFeedbackEnabled: boolean
+  assistantEnabled: boolean
   miniAppAllowedOrigins: readonly string[]
   miniAppAuthEnabled: boolean
   schedulerSharedSecret?: string
@@ -16,6 +17,13 @@ export interface BotRuntimeConfig {
   openaiApiKey?: string
   parserModel: string
   purchaseParserModel: string
+  assistantModel: string
+  assistantTimeoutMs: number
+  assistantMemoryMaxTurns: number
+  assistantRateLimitBurst: number
+  assistantRateLimitBurstWindowMs: number
+  assistantRateLimitRolling: number
+  assistantRateLimitRollingWindowMs: number
 }
 
 function parsePort(raw: string | undefined): number {
@@ -76,6 +84,19 @@ function parseOptionalCsv(value: string | undefined): readonly string[] {
     .filter(Boolean)
 }
 
+function parsePositiveInteger(raw: string | undefined, fallback: number, key: string): number {
+  if (raw === undefined) {
+    return fallback
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${key} value: ${raw}`)
+  }
+
+  return parsed
+}
+
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
   const databaseUrl = parseOptionalValue(env.DATABASE_URL)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
@@ -86,6 +107,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
 
   const financeCommandsEnabled = databaseUrl !== undefined
   const anonymousFeedbackEnabled = databaseUrl !== undefined
+  const assistantEnabled = databaseUrl !== undefined
   const miniAppAuthEnabled = databaseUrl !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
@@ -100,13 +122,45 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
     anonymousFeedbackEnabled,
+    assistantEnabled,
     miniAppAllowedOrigins,
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
     reminderJobsEnabled,
     parserModel: env.PARSER_MODEL?.trim() || 'gpt-4.1-mini',
     purchaseParserModel:
-      env.PURCHASE_PARSER_MODEL?.trim() || env.PARSER_MODEL?.trim() || 'gpt-5-mini'
+      env.PURCHASE_PARSER_MODEL?.trim() || env.PARSER_MODEL?.trim() || 'gpt-5-mini',
+    assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5-mini',
+    assistantTimeoutMs: parsePositiveInteger(
+      env.ASSISTANT_TIMEOUT_MS,
+      15_000,
+      'ASSISTANT_TIMEOUT_MS'
+    ),
+    assistantMemoryMaxTurns: parsePositiveInteger(
+      env.ASSISTANT_MEMORY_MAX_TURNS,
+      12,
+      'ASSISTANT_MEMORY_MAX_TURNS'
+    ),
+    assistantRateLimitBurst: parsePositiveInteger(
+      env.ASSISTANT_RATE_LIMIT_BURST,
+      5,
+      'ASSISTANT_RATE_LIMIT_BURST'
+    ),
+    assistantRateLimitBurstWindowMs: parsePositiveInteger(
+      env.ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS,
+      60_000,
+      'ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS'
+    ),
+    assistantRateLimitRolling: parsePositiveInteger(
+      env.ASSISTANT_RATE_LIMIT_ROLLING,
+      50,
+      'ASSISTANT_RATE_LIMIT_ROLLING'
+    ),
+    assistantRateLimitRollingWindowMs: parsePositiveInteger(
+      env.ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS,
+      86_400_000,
+      'ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS'
+    )
   }
 
   if (databaseUrl !== undefined) {

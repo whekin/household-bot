@@ -36,3 +36,7 @@ export {
   type PaymentConfirmationService,
   type PaymentConfirmationSubmitResult
 } from './payment-confirmation-service'
+export {
+  parsePaymentConfirmationMessage,
+  type ParsedPaymentConfirmation
+} from './payment-confirmation-parser'

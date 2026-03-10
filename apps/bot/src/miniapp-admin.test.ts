@@ -397,6 +397,7 @@ describe('createMiniAppSettingsHandler', () => {
         }
       ],
       categories: [],
+      assistantUsage: [],
       members: [
         {
           id: 'member-123456',

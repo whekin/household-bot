@@ -1,0 +1,504 @@
+import { describe, expect, test } from 'bun:test'
+
+import type { FinanceCommandService } from '@household/application'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRecord,
+  TelegramPendingActionRepository
+} from '@household/ports'
+
+import { createTelegramBot } from './bot'
+import {
+  createInMemoryAssistantConversationMemoryStore,
+  createInMemoryAssistantRateLimiter,
+  createInMemoryAssistantUsageTracker,
+  registerDmAssistant
+} from './dm-assistant'
+
+function createTestBot() {
+  const bot = createTelegramBot('000000:test-token')
+
+  bot.botInfo = {
+    id: 999000,
+    is_bot: true,
+    first_name: 'Household Test Bot',
+    username: 'household_test_bot',
+    can_join_groups: true,
+    can_read_all_group_messages: false,
+    supports_inline_queries: false,
+    can_connect_to_business: false,
+    has_main_web_app: false,
+    has_topics_enabled: true,
+    allows_users_to_create_topics: false
+  }
+
+  return bot
+}
+
+function privateMessageUpdate(text: string) {
+  return {
+    update_id: 2001,
+    message: {
+      message_id: 55,
+      date: Math.floor(Date.now() / 1000),
+      chat: {
+        id: 123456,
+        type: 'private'
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: 'en'
+      },
+      text
+    }
+  }
+}
+
+function privateCallbackUpdate(data: string) {
+  return {
+    update_id: 2002,
+    callback_query: {
+      id: 'callback-1',
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: 'en'
+      },
+      chat_instance: 'instance-1',
+      data,
+      message: {
+        message_id: 77,
+        date: Math.floor(Date.now() / 1000),
+        chat: {
+          id: 123456,
+          type: 'private'
+        },
+        text: 'placeholder'
+      }
+    }
+  }
+}
+
+function createHouseholdRepository(): HouseholdConfigurationRepository {
+  const household = {
+    householdId: 'household-1',
+    householdName: 'Kojori House',
+    telegramChatId: '-100123',
+    telegramChatType: 'supergroup',
+    title: 'Kojori House',
+    defaultLocale: 'en' as const
+  }
+
+  return {
+    registerTelegramHouseholdChat: async () => ({
+      status: 'existing',
+      household
+    }),
+    getTelegramHouseholdChat: async () => household,
+    getHouseholdChatByHouseholdId: async () => household,
+    bindHouseholdTopic: async () => {
+      throw new Error('not used')
+    },
+    getHouseholdTopicBinding: async () => null,
+    findHouseholdTopicByTelegramContext: async () => null,
+    listHouseholdTopicBindings: async () => [],
+    listReminderTargets: async () => [],
+    upsertHouseholdJoinToken: async () => {
+      throw new Error('not used')
+    },
+    getHouseholdJoinToken: async () => null,
+    getHouseholdByJoinToken: async () => null,
+    upsertPendingHouseholdMember: async () => {
+      throw new Error('not used')
+    },
+    getPendingHouseholdMember: async () => null,
+    findPendingHouseholdMemberByTelegramUserId: async () => null,
+    ensureHouseholdMember: async () => {
+      throw new Error('not used')
+    },
+    getHouseholdMember: async () => ({
+      id: 'member-1',
+      householdId: 'household-1',
+      telegramUserId: '123456',
+      displayName: 'Stan',
+      preferredLocale: null,
+      householdDefaultLocale: 'en',
+      rentShareWeight: 1,
+      isAdmin: true
+    }),
+    listHouseholdMembers: async () => [],
+    getHouseholdBillingSettings: async () => ({
+      householdId: 'household-1',
+      settlementCurrency: 'GEL',
+      rentAmountMinor: 70000n,
+      rentCurrency: 'USD',
+      rentDueDay: 20,
+      rentWarningDay: 17,
+      utilitiesDueDay: 4,
+      utilitiesReminderDay: 3,
+      timezone: 'Asia/Tbilisi'
+    }),
+    updateHouseholdBillingSettings: async () => {
+      throw new Error('not used')
+    },
+    listHouseholdUtilityCategories: async () => [],
+    upsertHouseholdUtilityCategory: async () => {
+      throw new Error('not used')
+    },
+    listHouseholdMembersByTelegramUserId: async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        preferredLocale: null,
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ],
+    listPendingHouseholdMembers: async () => [],
+    approvePendingHouseholdMember: async () => null,
+    updateHouseholdDefaultLocale: async () => household,
+    updateMemberPreferredLocale: async () => null,
+    promoteHouseholdAdmin: async () => null,
+    updateHouseholdMemberRentShareWeight: async () => null
+  }
+}
+
+function createFinanceService(): FinanceCommandService {
+  return {
+    getMemberByTelegramUserId: async () => ({
+      id: 'member-1',
+      telegramUserId: '123456',
+      displayName: 'Stan',
+      rentShareWeight: 1,
+      isAdmin: true
+    }),
+    getOpenCycle: async () => null,
+    ensureExpectedCycle: async () => ({
+      id: 'cycle-1',
+      period: '2026-03',
+      currency: 'GEL'
+    }),
+    getAdminCycleState: async () => ({
+      cycle: null,
+      rentRule: null,
+      utilityBills: []
+    }),
+    openCycle: async () => ({
+      id: 'cycle-1',
+      period: '2026-03',
+      currency: 'GEL'
+    }),
+    closeCycle: async () => null,
+    setRent: async () => null,
+    addUtilityBill: async () => null,
+    updateUtilityBill: async () => null,
+    deleteUtilityBill: async () => false,
+    updatePurchase: async () => null,
+    deletePurchase: async () => false,
+    addPayment: async (_memberId, kind, amountArg, currencyArg) => ({
+      paymentId: 'payment-1',
+      amount: {
+        amountMinor: (BigInt(amountArg.replace('.', '')) * 100n) / 100n,
+        currency: (currencyArg ?? 'GEL') as 'GEL' | 'USD',
+        toMajorString: () => amountArg
+      } as never,
+      currency: (currencyArg ?? 'GEL') as 'GEL' | 'USD',
+      period: '2026-03'
+    }),
+    updatePayment: async () => null,
+    deletePayment: async () => false,
+    generateDashboard: async () => ({
+      period: '2026-03',
+      currency: 'GEL',
+      totalDue: {
+        toMajorString: () => '1000.00'
+      } as never,
+      totalPaid: {
+        toMajorString: () => '500.00'
+      } as never,
+      totalRemaining: {
+        toMajorString: () => '500.00'
+      } as never,
+      rentSourceAmount: {
+        currency: 'USD',
+        toMajorString: () => '700.00'
+      } as never,
+      rentDisplayAmount: {
+        toMajorString: () => '1890.00'
+      } as never,
+      rentFxRateMicros: null,
+      rentFxEffectiveDate: null,
+      members: [
+        {
+          memberId: 'member-1',
+          displayName: 'Stan',
+          rentShare: {
+            amountMinor: 70000n,
+            currency: 'GEL',
+            toMajorString: () => '700.00'
+          } as never,
+          utilityShare: {
+            amountMinor: 10000n,
+            currency: 'GEL',
+            toMajorString: () => '100.00'
+          } as never,
+          purchaseOffset: {
+            amountMinor: 5000n,
+            currency: 'GEL',
+            toMajorString: () => '50.00',
+            add: () => ({
+              amountMinor: 15000n,
+              currency: 'GEL',
+              toMajorString: () => '150.00'
+            })
+          } as never,
+          netDue: {
+            toMajorString: () => '850.00'
+          } as never,
+          paid: {
+            toMajorString: () => '500.00'
+          } as never,
+          remaining: {
+            toMajorString: () => '350.00'
+          } as never,
+          explanations: []
+        }
+      ],
+      ledger: [
+        {
+          id: 'purchase-1',
+          kind: 'purchase' as const,
+          title: 'Soap',
+          memberId: 'member-1',
+          amount: {
+            toMajorString: () => '30.00'
+          } as never,
+          currency: 'GEL' as const,
+          displayAmount: {
+            toMajorString: () => '30.00'
+          } as never,
+          displayCurrency: 'GEL' as const,
+          fxRateMicros: null,
+          fxEffectiveDate: null,
+          actorDisplayName: 'Stan',
+          occurredAt: '2026-03-12T11:00:00.000Z',
+          paymentKind: null
+        }
+      ]
+    }),
+    generateStatement: async () => null
+  }
+}
+
+function createPromptRepository(): TelegramPendingActionRepository {
+  let pending: TelegramPendingActionRecord | null = null
+
+  return {
+    async upsertPendingAction(input) {
+      pending = input
+      return input
+    },
+    async getPendingAction() {
+      return pending
+    },
+    async clearPendingAction() {
+      pending = null
+    }
+  }
+}
+
+describe('registerDmAssistant', () => {
+  test('replies with a conversational DM answer and records token usage', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const usageTracker = createInMemoryAssistantUsageTracker()
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          return {
+            text: 'You still owe 350.00 GEL this cycle.',
+            usage: {
+              inputTokens: 100,
+              outputTokens: 25,
+              totalTokens: 125
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('How much do I still owe this month?') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: 123456,
+        text: 'You still owe 350.00 GEL this cycle.'
+      }
+    })
+    expect(usageTracker.listHouseholdUsage('household-1')).toEqual([
+      {
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        requestCount: 1,
+        inputTokens: 100,
+        outputTokens: 25,
+        totalTokens: 125,
+        updatedAt: expect.any(String)
+      }
+    ])
+  })
+
+  test('creates a payment confirmation proposal in DM', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository,
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('I paid the rent') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      text: 'I can record this rent payment: 700.00 GEL. Confirm or cancel below.',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Confirm payment',
+              callback_data: expect.stringContaining('assistant_payment:confirm:')
+            },
+            {
+              text: 'Cancel',
+              callback_data: expect.stringContaining('assistant_payment:cancel:')
+            }
+          ]
+        ]
+      }
+    })
+
+    const pending = await promptRepository.getPendingAction('123456', '123456')
+    expect(pending?.action).toBe('assistant_payment_confirmation')
+    expect(pending?.payload).toMatchObject({
+      householdId: 'household-1',
+      memberId: 'member-1',
+      kind: 'rent',
+      amountMinor: '70000',
+      currency: 'GEL'
+    })
+  })
+
+  test('confirms a pending payment proposal from DM callback', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const repository = createHouseholdRepository()
+
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '123456',
+      telegramChatId: '123456',
+      action: 'assistant_payment_confirmation',
+      payload: {
+        proposalId: 'proposal-1',
+        householdId: 'household-1',
+        memberId: 'member-1',
+        kind: 'rent',
+        amountMinor: '70000',
+        currency: 'GEL'
+      },
+      expiresAt: null
+    })
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: repository,
+      promptRepository,
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateCallbackUpdate('assistant_payment:confirm:proposal-1') as never)
+
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1',
+        text: 'Recorded rent payment: 700.00 GEL'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        chat_id: 123456,
+        message_id: 77,
+        text: 'Recorded rent payment: 700.00 GEL'
+      }
+    })
+    expect(await promptRepository.getPendingAction('123456', '123456')).toBeNull()
+  })
+})
