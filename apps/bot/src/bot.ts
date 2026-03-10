@@ -1,10 +1,42 @@
-import { Bot } from 'grammy'
+import { Bot, type Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { getBotTranslations } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import { formatTelegramHelpText } from './telegram-commands'
+
+async function shouldShowAdminCommands(options: {
+  ctx: Context
+  householdConfigurationRepository?: HouseholdConfigurationRepository
+}): Promise<boolean> {
+  const telegramUserId = options.ctx.from?.id?.toString()
+  if (!telegramUserId) {
+    return false
+  }
+
+  if (options.ctx.chat?.type === 'private') {
+    if (!options.householdConfigurationRepository) {
+      return false
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+
+    return memberships.some((member) => member.isAdmin)
+  }
+
+  const chatId = options.ctx.chat?.id
+  const userId = options.ctx.from?.id
+  if (!chatId || !userId) {
+    return false
+  }
+
+  const membership = await options.ctx.api.getChatMember(chatId, userId)
+  return membership.status === 'administrator' || membership.status === 'creator'
+}
 
 export function createTelegramBot(
   token: string,
@@ -18,7 +50,20 @@ export function createTelegramBot(
       ctx,
       repository: householdConfigurationRepository
     })
-    await ctx.reply(formatTelegramHelpText(locale))
+    const includeAdminCommands = await shouldShowAdminCommands({
+      ctx,
+      ...(householdConfigurationRepository
+        ? {
+            householdConfigurationRepository
+          }
+        : {})
+    })
+    await ctx.reply(
+      formatTelegramHelpText(locale, {
+        includePrivateCommands: ctx.chat?.type === 'private',
+        includeAdminCommands
+      })
+    )
   })
 
   bot.command('household_status', async (ctx) => {

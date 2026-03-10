@@ -11,6 +11,11 @@ export interface ScopedTelegramCommands {
   commands: readonly TelegramCommandDefinition[]
 }
 
+export interface TelegramHelpOptions {
+  includePrivateCommands?: boolean
+  includeAdminCommands?: boolean
+}
+
 const DEFAULT_COMMAND_NAMES = [
   'help',
   'household_status'
@@ -65,19 +70,38 @@ export function getTelegramCommandScopes(locale: BotLocale): readonly ScopedTele
   ]
 }
 
-export function formatTelegramHelpText(locale: BotLocale): string {
+export function formatTelegramHelpText(
+  locale: BotLocale,
+  options: TelegramHelpOptions = {}
+): string {
   const t = getBotTranslations(locale)
   const defaultCommands = new Set<TelegramCommandName>(DEFAULT_COMMAND_NAMES)
-  const privateCommands = mapCommands(locale, PRIVATE_CHAT_COMMAND_NAMES)
-  const adminCommands = mapCommands(locale, GROUP_ADMIN_COMMAND_NAMES).filter(
-    (command) => !defaultCommands.has(command.command)
-  )
+  const includePrivateCommands = options.includePrivateCommands ?? true
+  const includeAdminCommands = options.includeAdminCommands ?? false
+  const privateCommands = includePrivateCommands
+    ? mapCommands(locale, PRIVATE_CHAT_COMMAND_NAMES)
+    : []
+  const adminCommands = includeAdminCommands
+    ? mapCommands(locale, GROUP_ADMIN_COMMAND_NAMES).filter(
+        (command) => !defaultCommands.has(command.command)
+      )
+    : []
 
-  return [
-    t.help.intro,
-    t.help.privateChatHeading,
-    ...privateCommands.map((command) => `/${command.command} - ${command.description}`),
-    t.help.groupAdminsHeading,
-    ...adminCommands.map((command) => `/${command.command} - ${command.description}`)
-  ].join('\n')
+  const sections = [t.help.intro]
+
+  if (privateCommands.length > 0) {
+    sections.push(
+      t.help.privateChatHeading,
+      ...privateCommands.map((command) => `/${command.command} - ${command.description}`)
+    )
+  }
+
+  if (adminCommands.length > 0) {
+    sections.push(
+      t.help.groupAdminsHeading,
+      ...adminCommands.map((command) => `/${command.command} - ${command.description}`)
+    )
+  }
+
+  return sections.join('\n')
 }
