@@ -42,6 +42,9 @@ import { ProfileCard } from './components/layout/profile-card'
 import { TopBar } from './components/layout/top-bar'
 import { FinanceSummaryCards } from './components/finance/finance-summary-cards'
 import { FinanceVisuals } from './components/finance/finance-visuals'
+import { BlockedState } from './components/session/blocked-state'
+import { LoadingState } from './components/session/loading-state'
+import { OnboardingState } from './components/session/onboarding-state'
 import {
   demoAdminSettings,
   demoCycleState,
@@ -3760,16 +3763,16 @@ function App() {
 
       <Switch>
         <Match when={session().status === 'loading'}>
-          <HeroBanner
-            badges={[copy().loadingBadge]}
+          <LoadingState
+            badge={copy().loadingBadge}
             title={copy().loadingTitle}
             body={copy().loadingBody}
           />
         </Match>
 
         <Match when={session().status === 'blocked'}>
-          <HeroBanner
-            badges={[copy().loadingBadge]}
+          <BlockedState
+            badge={copy().loadingBadge}
             title={
               blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyTitle
@@ -3780,24 +3783,23 @@ function App() {
                 ? copy().telegramOnlyBody
                 : copy().unexpectedErrorBody
             }
-            action={{ label: copy().reload, onClick: () => window.location.reload() }}
+            reloadLabel={copy().reload}
+            onReload={() => window.location.reload()}
           />
         </Match>
 
         <Match when={session().status === 'onboarding'}>
-          <section class="hero-card">
-            <div class="hero-card__meta">
-              <span class="pill">{copy().loadingBadge}</span>
-            </div>
-            <h2>
-              {onboardingSession()?.mode === 'pending'
+          <OnboardingState
+            badge={copy().loadingBadge}
+            title={
+              onboardingSession()?.mode === 'pending'
                 ? copy().pendingTitle
                 : onboardingSession()?.mode === 'open_from_group'
                   ? copy().openFromGroupTitle
-                  : copy().joinTitle}
-            </h2>
-            <p>
-              {onboardingSession()?.mode === 'pending'
+                  : copy().joinTitle
+            }
+            body={
+              onboardingSession()?.mode === 'pending'
                 ? copy().pendingBody.replace(
                     '{household}',
                     onboardingSession()?.householdName ?? copy().householdFallback
@@ -3807,29 +3809,18 @@ function App() {
                   : copy().joinBody.replace(
                       '{household}',
                       onboardingSession()?.householdName ?? copy().householdFallback
-                    )}
-            </p>
-            <div class="nav-grid">
-              {onboardingSession()?.mode === 'join_required' ? (
-                <Button variant="ghost" disabled={joining()} onClick={handleJoinHousehold}>
-                  {joining() ? copy().joining : copy().joinAction}
-                </Button>
-              ) : null}
-              {joinDeepLink() ? (
-                <a
-                  class="ui-button ui-button--ghost"
-                  href={joinDeepLink() ?? '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {copy().botLinkAction}
-                </a>
-              ) : null}
-              <Button variant="ghost" onClick={() => window.location.reload()}>
-                {copy().reload}
-              </Button>
-            </div>
-          </section>
+                    )
+            }
+            canJoin={onboardingSession()?.mode === 'join_required'}
+            joining={joining()}
+            joinActionLabel={copy().joinAction}
+            joiningLabel={copy().joining}
+            botLinkLabel={copy().botLinkAction}
+            botLink={joinDeepLink()}
+            reloadLabel={copy().reload}
+            onJoin={handleJoinHousehold}
+            onReload={() => window.location.reload()}
+          />
         </Match>
 
         <Match when={session().status === 'ready'}>

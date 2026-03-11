@@ -493,20 +493,21 @@ button {
   inset: 0;
   display: grid;
   place-content: center;
-  gap: 4px;
+  gap: 2px;
   text-align: center;
-}
-
-.purchase-chart__center span {
-  color: #c6c2bb;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .purchase-chart__center strong {
   font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
-  font-size: clamp(1.15rem, 4vw, 1.5rem);
+  font-size: clamp(1.1rem, 4vw, 1.45rem);
+  line-height: 1;
+}
+
+.purchase-chart__center small {
+  color: #c6c2bb;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .purchase-chart__legend {

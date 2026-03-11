@@ -129,10 +129,8 @@ export function FinanceVisuals(props: Props) {
                   </For>
                 </svg>
                 <div class="purchase-chart__center">
-                  <span>{props.labels.purchaseTotalLabel}</span>
-                  <strong>
-                    {props.purchaseChart.totalMajor} {props.dashboard.currency}
-                  </strong>
+                  <strong>{props.purchaseChart.totalMajor}</strong>
+                  <small>{props.dashboard.currency}</small>
                 </div>
               </div>
               <div class="purchase-chart__legend">
