@@ -4,14 +4,31 @@ import type {
   HouseholdSetupService,
   HouseholdMiniAppAccess
 } from '@household/application'
+import { nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import type {
+  HouseholdConfigurationRepository,
+  HouseholdTelegramChatRecord,
+  HouseholdTopicBindingRecord,
+  HouseholdTopicRole,
+  TelegramPendingActionRepository
+} from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
+const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
+const SETUP_BIND_TOPIC_CALLBACK_PREFIX = 'setup_topic:bind:'
+const SETUP_BIND_TOPIC_ACTION = 'setup_topic_binding' as const
+const SETUP_BIND_TOPIC_TTL_MS = 10 * 60 * 1000
+const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
+  'purchase',
+  'feedback',
+  'reminders',
+  'payments'
+]
 
 function commandArgText(ctx: Context): string {
   return typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -26,6 +43,11 @@ function isGroupChat(ctx: Context): ctx is Context & {
 function isTopicMessage(ctx: Context): boolean {
   const message = ctx.msg
   return !!message && 'is_topic_message' in message && message.is_topic_message === true
+}
+
+function isCommandMessage(ctx: Context): boolean {
+  const text = ctx.msg?.text
+  return typeof text === 'string' && text.trimStart().startsWith('/')
 }
 
 async function isGroupAdmin(ctx: Context): Promise<boolean> {
@@ -164,6 +186,136 @@ function pendingMembersReply(
   } as const
 }
 
+function topicBindingDisplay(binding: HouseholdTopicBindingRecord): string {
+  return binding.topicName?.trim() || `thread ${binding.telegramThreadId}`
+}
+
+function setupTopicRoleLabel(locale: BotLocale, role: HouseholdTopicRole): string {
+  return getBotTranslations(locale).setup.setupTopicBindRoleName(role)
+}
+
+function setupSuggestedTopicName(locale: BotLocale, role: HouseholdTopicRole): string {
+  return getBotTranslations(locale).setup.setupTopicSuggestedName(role)
+}
+
+function setupKeyboard(input: {
+  locale: BotLocale
+  joinDeepLink: string | null
+  bindings: readonly HouseholdTopicBindingRecord[]
+}) {
+  const t = getBotTranslations(input.locale).setup
+  const configuredRoles = new Set(input.bindings.map((binding) => binding.role))
+  const rows: Array<
+    Array<
+      | {
+          text: string
+          url: string
+        }
+      | {
+          text: string
+          callback_data: string
+        }
+    >
+  > = []
+
+  if (input.joinDeepLink) {
+    rows.push([
+      {
+        text: t.joinHouseholdButton,
+        url: input.joinDeepLink
+      }
+    ])
+  }
+
+  for (const role of HOUSEHOLD_TOPIC_ROLE_ORDER) {
+    if (configuredRoles.has(role)) {
+      continue
+    }
+
+    rows.push([
+      {
+        text: t.setupTopicCreateButton(setupTopicRoleLabel(input.locale, role)),
+        callback_data: `${SETUP_CREATE_TOPIC_CALLBACK_PREFIX}${role}`
+      },
+      {
+        text: t.setupTopicBindButton(setupTopicRoleLabel(input.locale, role)),
+        callback_data: `${SETUP_BIND_TOPIC_CALLBACK_PREFIX}${role}`
+      }
+    ])
+  }
+
+  return rows.length > 0
+    ? {
+        reply_markup: {
+          inline_keyboard: rows
+        }
+      }
+    : {}
+}
+
+function setupTopicChecklist(input: {
+  locale: BotLocale
+  bindings: readonly HouseholdTopicBindingRecord[]
+}): string {
+  const t = getBotTranslations(input.locale).setup
+  const bindingByRole = new Map(input.bindings.map((binding) => [binding.role, binding]))
+
+  return [
+    t.setupTopicsHeading,
+    ...HOUSEHOLD_TOPIC_ROLE_ORDER.map((role) => {
+      const binding = bindingByRole.get(role)
+      const roleLabel = setupTopicRoleLabel(input.locale, role)
+      return binding
+        ? t.setupTopicBound(roleLabel, topicBindingDisplay(binding))
+        : t.setupTopicMissing(roleLabel)
+    })
+  ].join('\n')
+}
+
+function setupReply(input: {
+  locale: BotLocale
+  household: HouseholdTelegramChatRecord
+  created: boolean
+  joinDeepLink: string | null
+  bindings: readonly HouseholdTopicBindingRecord[]
+}) {
+  const t = getBotTranslations(input.locale).setup
+  return {
+    text: [
+      t.setupSummary({
+        householdName: input.household.householdName,
+        telegramChatId: input.household.telegramChatId,
+        created: input.created
+      }),
+      setupTopicChecklist({
+        locale: input.locale,
+        bindings: input.bindings
+      })
+    ].join('\n\n'),
+    ...setupKeyboard({
+      locale: input.locale,
+      joinDeepLink: input.joinDeepLink,
+      bindings: input.bindings
+    })
+  }
+}
+
+function isHouseholdTopicRole(value: string): value is HouseholdTopicRole {
+  return (
+    value === 'purchase' || value === 'feedback' || value === 'reminders' || value === 'payments'
+  )
+}
+
+function parseSetupBindPayload(payload: Record<string, unknown>): {
+  role: HouseholdTopicRole
+} | null {
+  return typeof payload.role === 'string' && isHouseholdTopicRole(payload.role)
+    ? {
+        role: payload.role
+      }
+    : null
+}
+
 export function buildJoinMiniAppUrl(
   miniAppUrl: string | undefined,
   botUsername: string | undefined,
@@ -216,10 +368,45 @@ export function registerHouseholdSetupCommands(options: {
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
   householdAdminService: HouseholdAdminService
+  promptRepository?: TelegramPendingActionRepository
   householdConfigurationRepository?: HouseholdConfigurationRepository
   miniAppUrl?: string
   logger?: Logger
 }): void {
+  async function buildSetupReplyForHousehold(input: {
+    ctx: Context
+    locale: BotLocale
+    household: HouseholdTelegramChatRecord
+    created: boolean
+  }) {
+    const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
+      householdId: input.household.householdId,
+      ...(input.ctx.from?.id
+        ? {
+            actorTelegramUserId: input.ctx.from.id.toString()
+          }
+        : {})
+    })
+
+    const joinDeepLink = input.ctx.me.username
+      ? `https://t.me/${input.ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
+      : null
+
+    const bindings = options.householdConfigurationRepository
+      ? await options.householdConfigurationRepository.listHouseholdTopicBindings(
+          input.household.householdId
+        )
+      : []
+
+    return setupReply({
+      locale: input.locale,
+      household: input.household,
+      created: input.created,
+      joinDeepLink,
+      bindings
+    })
+  }
+
   async function handleBindTopicCommand(
     ctx: Context,
     role: 'purchase' | 'feedback' | 'reminders' | 'payments'
@@ -275,6 +462,67 @@ export function registerHouseholdSetupCommands(options: {
         result.binding.telegramThreadId
       )
     )
+  }
+
+  if (options.promptRepository) {
+    const promptRepository = options.promptRepository
+
+    options.bot.on('message', async (ctx, next) => {
+      if (!isGroupChat(ctx) || !isTopicMessage(ctx) || isCommandMessage(ctx)) {
+        await next()
+        return
+      }
+
+      const telegramUserId = ctx.from?.id?.toString()
+      const telegramChatId = ctx.chat?.id?.toString()
+      const telegramThreadId =
+        ctx.msg && 'message_thread_id' in ctx.msg ? ctx.msg.message_thread_id?.toString() : null
+
+      if (!telegramUserId || !telegramChatId || !telegramThreadId) {
+        await next()
+        return
+      }
+
+      const pending = await promptRepository.getPendingAction(telegramChatId, telegramUserId)
+      if (pending?.action !== SETUP_BIND_TOPIC_ACTION) {
+        await next()
+        return
+      }
+
+      const payload = parseSetupBindPayload(pending.payload)
+      if (!payload) {
+        await promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+        await next()
+        return
+      }
+
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const result = await options.householdSetupService.bindTopic({
+        actorIsAdmin: await isGroupAdmin(ctx),
+        telegramChatId,
+        telegramThreadId,
+        role: payload.role
+      })
+
+      await promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+
+      if (result.status === 'rejected') {
+        await ctx.reply(bindRejectionMessage(locale, result.reason))
+        return
+      }
+
+      await ctx.reply(
+        bindTopicSuccessMessage(
+          locale,
+          payload.role,
+          result.household.householdName,
+          result.binding.telegramThreadId
+        )
+      )
+    })
   }
 
   options.bot.command('start', async (ctx) => {
@@ -411,40 +659,13 @@ export function registerHouseholdSetupCommands(options: {
       'Household group registered'
     )
 
-    const action = result.status === 'created' ? 'created' : 'already registered'
-    const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
-      householdId: result.household.householdId,
-      ...(ctx.from?.id
-        ? {
-            actorTelegramUserId: ctx.from.id.toString()
-          }
-        : {})
+    const reply = await buildSetupReplyForHousehold({
+      ctx,
+      locale,
+      household: result.household,
+      created: result.status === 'created'
     })
-
-    const joinDeepLink = ctx.me.username
-      ? `https://t.me/${ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
-      : null
-    await ctx.reply(
-      t.setup.setupSummary({
-        householdName: result.household.householdName,
-        telegramChatId: result.household.telegramChatId,
-        created: action === 'created'
-      }),
-      joinDeepLink
-        ? {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: t.setup.joinHouseholdButton,
-                    url: joinDeepLink
-                  }
-                ]
-              ]
-            }
-          }
-        : {}
-    )
+    await ctx.reply(reply.text, 'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {})
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {
@@ -606,6 +827,153 @@ export function registerHouseholdSetupCommands(options: {
       await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
     }
   )
+
+  if (options.promptRepository) {
+    const promptRepository = options.promptRepository
+
+    options.bot.callbackQuery(
+      new RegExp(`^${SETUP_CREATE_TOPIC_CALLBACK_PREFIX}(purchase|feedback|reminders|payments)$`),
+      async (ctx) => {
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository
+        })
+        const t = getBotTranslations(locale).setup
+
+        if (!isGroupChat(ctx)) {
+          await ctx.answerCallbackQuery({
+            text: t.useButtonInGroup,
+            show_alert: true
+          })
+          return
+        }
+
+        const role = ctx.match[1] as HouseholdTopicRole
+        const telegramChatId = ctx.chat.id.toString()
+        const actorIsAdmin = await isGroupAdmin(ctx)
+        const household = options.householdConfigurationRepository
+          ? await options.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
+          : null
+
+        if (!actorIsAdmin) {
+          await ctx.answerCallbackQuery({
+            text: t.onlyTelegramAdminsBindTopics,
+            show_alert: true
+          })
+          return
+        }
+
+        if (!household) {
+          await ctx.answerCallbackQuery({
+            text: t.householdNotConfigured,
+            show_alert: true
+          })
+          return
+        }
+
+        try {
+          const topicName = setupSuggestedTopicName(locale, role)
+          const createdTopic = await ctx.api.createForumTopic(ctx.chat.id, topicName)
+          const result = await options.householdSetupService.bindTopic({
+            actorIsAdmin,
+            telegramChatId,
+            telegramThreadId: createdTopic.message_thread_id.toString(),
+            role,
+            topicName
+          })
+
+          if (result.status === 'rejected') {
+            await ctx.answerCallbackQuery({
+              text: bindRejectionMessage(locale, result.reason),
+              show_alert: true
+            })
+            return
+          }
+
+          const reply = await buildSetupReplyForHousehold({
+            ctx,
+            locale,
+            household: result.household,
+            created: false
+          })
+
+          await ctx.answerCallbackQuery({
+            text: t.setupTopicCreated(setupTopicRoleLabel(locale, role), topicName)
+          })
+
+          if (ctx.msg) {
+            await ctx.editMessageText(
+              reply.text,
+              'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
+            )
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error &&
+            /not enough rights|forbidden|admin|permission/i.test(error.message)
+              ? t.setupTopicCreateForbidden
+              : t.setupTopicCreateFailed
+
+          await ctx.answerCallbackQuery({
+            text: message,
+            show_alert: true
+          })
+        }
+      }
+    )
+
+    options.bot.callbackQuery(
+      new RegExp(`^${SETUP_BIND_TOPIC_CALLBACK_PREFIX}(purchase|feedback|reminders|payments)$`),
+      async (ctx) => {
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository
+        })
+        const t = getBotTranslations(locale).setup
+
+        if (!isGroupChat(ctx)) {
+          await ctx.answerCallbackQuery({
+            text: t.useButtonInGroup,
+            show_alert: true
+          })
+          return
+        }
+
+        const telegramUserId = ctx.from?.id?.toString()
+        const telegramChatId = ctx.chat.id.toString()
+        const role = ctx.match[1] as HouseholdTopicRole
+        if (!telegramUserId) {
+          await ctx.answerCallbackQuery({
+            text: t.unableToIdentifySelectedMember,
+            show_alert: true
+          })
+          return
+        }
+
+        if (!(await isGroupAdmin(ctx))) {
+          await ctx.answerCallbackQuery({
+            text: t.onlyTelegramAdminsBindTopics,
+            show_alert: true
+          })
+          return
+        }
+
+        await promptRepository.upsertPendingAction({
+          telegramUserId,
+          telegramChatId,
+          action: SETUP_BIND_TOPIC_ACTION,
+          payload: {
+            role
+          },
+          expiresAt: nowInstant().add({ milliseconds: SETUP_BIND_TOPIC_TTL_MS })
+        })
+
+        await ctx.answerCallbackQuery({
+          text: t.setupTopicBindPending(setupTopicRoleLabel(locale, role))
+        })
+      }
+    )
+  }
 }
 
 function localeFromAccess(access: HouseholdMiniAppAccess, fallback: BotLocale): BotLocale {

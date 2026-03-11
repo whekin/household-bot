@@ -17,6 +17,10 @@ function parsePendingActionType(raw: string): TelegramPendingActionType {
     return raw
   }
 
+  if (raw === 'setup_topic_binding') {
+    return raw
+  }
+
   throw new Error(`Unexpected telegram pending action type: ${raw}`)
 }
 

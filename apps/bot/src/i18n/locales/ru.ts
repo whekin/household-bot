@@ -55,9 +55,47 @@ export const ruBotTranslations: BotTranslationCatalog = {
       [
         `${created ? 'Дом создан' : 'Дом уже подключён'}: ${householdName}`,
         `ID чата: ${telegramChatId}`,
-        'Дальше: откройте топик покупок и выполните /bind_purchase_topic, затем откройте топик обратной связи и выполните /bind_feedback_topic. Если хотите отдельные топики для напоминаний или оплат, откройте их и выполните /bind_reminders_topic или /bind_payments_topic.',
+        'Используйте кнопки ниже, чтобы завершить настройку топиков. Для уже существующего топика нажмите «Привязать», затем отправьте любое сообщение внутри этого топика.',
         'Участники должны открыть чат с ботом по кнопке ниже и подтвердить заявку на вступление.'
       ].join('\n'),
+    setupTopicsHeading: 'Настройка топиков:',
+    setupTopicBound: (role, topic) => `- ${role}: привязан к ${topic}`,
+    setupTopicMissing: (role) => `- ${role}: не настроен`,
+    setupTopicCreateButton: (role) => `Создать ${role}`,
+    setupTopicBindButton: (role) => `Привязать ${role}`,
+    setupTopicCreateFailed:
+      'Не удалось создать этот топик. Проверьте права бота и включённые форум-топики в группе.',
+    setupTopicCreateForbidden:
+      'Мне нужны права на управление топиками в этой группе, чтобы создать его автоматически.',
+    setupTopicCreated: (role, topicName) => `Топик ${role} создан и привязан: ${topicName}.`,
+    setupTopicBindPending: (role) =>
+      `Режим привязки включён для ${role}. Откройте нужный топик и отправьте там любое сообщение в течение 10 минут.`,
+    setupTopicBindCancelled: 'Режим привязки топика очищен.',
+    setupTopicBindNotAvailable: 'Это действие привязки топика уже недоступно.',
+    setupTopicBindRoleName: (role) => {
+      switch (role) {
+        case 'purchase':
+          return 'покупки'
+        case 'feedback':
+          return 'обратной связи'
+        case 'reminders':
+          return 'напоминаний'
+        case 'payments':
+          return 'оплат'
+      }
+    },
+    setupTopicSuggestedName: (role) => {
+      switch (role) {
+        case 'purchase':
+          return 'Общие покупки'
+        case 'feedback':
+          return 'Анонимная обратная связь'
+        case 'reminders':
+          return 'Напоминания'
+        case 'payments':
+          return 'Оплаты'
+      }
+    },
     useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Топик покупок сохранён для ${householdName} (тред ${threadId}).`,

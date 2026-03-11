@@ -73,6 +73,19 @@ export interface BotTranslationCatalog {
       telegramChatId: string
       created: boolean
     }) => string
+    setupTopicsHeading: string
+    setupTopicBound: (role: string, topic: string) => string
+    setupTopicMissing: (role: string) => string
+    setupTopicCreateButton: (role: string) => string
+    setupTopicBindButton: (role: string) => string
+    setupTopicCreateFailed: string
+    setupTopicCreateForbidden: string
+    setupTopicCreated: (role: string, topicName: string) => string
+    setupTopicBindPending: (role: string) => string
+    setupTopicBindCancelled: string
+    setupTopicBindNotAvailable: string
+    setupTopicBindRoleName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
+    setupTopicSuggestedName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
     useBindPurchaseTopicInGroup: string
     purchaseTopicSaved: (householdName: string, threadId: string) => string
     useBindFeedbackTopicInGroup: string

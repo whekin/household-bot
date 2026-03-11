@@ -2,7 +2,8 @@ import type { Instant } from '@household/domain'
 
 export const TELEGRAM_PENDING_ACTION_TYPES = [
   'anonymous_feedback',
-  'assistant_payment_confirmation'
+  'assistant_payment_confirmation',
+  'setup_topic_binding'
 ] as const
 
 export type TelegramPendingActionType = (typeof TELEGRAM_PENDING_ACTION_TYPES)[number]

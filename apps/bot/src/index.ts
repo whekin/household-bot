@@ -282,6 +282,11 @@ if (householdConfigurationRepositoryClient) {
     ),
     householdOnboardingService: householdOnboardingService!,
     householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+    ...(telegramPendingActionRepositoryClient
+      ? {
+          promptRepository: telegramPendingActionRepositoryClient.repository
+        }
+      : {}),
     ...(runtime.miniAppAllowedOrigins[0]
       ? {
           miniAppUrl: runtime.miniAppAllowedOrigins[0]

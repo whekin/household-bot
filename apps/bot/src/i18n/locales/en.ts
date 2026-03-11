@@ -53,9 +53,47 @@ export const enBotTranslations: BotTranslationCatalog = {
       [
         `Household ${created ? 'created' : 'already registered'}: ${householdName}`,
         `Chat ID: ${telegramChatId}`,
-        'Next: open the purchase topic and run /bind_purchase_topic, then open the feedback topic and run /bind_feedback_topic. If you want dedicated reminders or payments topics, open them and run /bind_reminders_topic or /bind_payments_topic.',
+        'Use the buttons below to finish topic setup. For an existing topic, tap Bind and then send any message inside that topic.',
         'Members should open the bot chat from the button below and confirm the join request there.'
       ].join('\n'),
+    setupTopicsHeading: 'Topic setup:',
+    setupTopicBound: (role, topic) => `- ${role}: bound to ${topic}`,
+    setupTopicMissing: (role) => `- ${role}: not configured`,
+    setupTopicCreateButton: (role) => `Create ${role}`,
+    setupTopicBindButton: (role) => `Bind ${role}`,
+    setupTopicCreateFailed:
+      'I could not create that topic. Check bot admin permissions and forum settings.',
+    setupTopicCreateForbidden:
+      'I need permission to manage topics in this group before I can create one automatically.',
+    setupTopicCreated: (role, topicName) => `${role} topic created and bound: ${topicName}.`,
+    setupTopicBindPending: (role) =>
+      `Binding mode is on for ${role}. Open the target topic and send any message there within 10 minutes.`,
+    setupTopicBindCancelled: 'Topic binding mode cleared.',
+    setupTopicBindNotAvailable: 'That topic-binding action is no longer available.',
+    setupTopicBindRoleName: (role) => {
+      switch (role) {
+        case 'purchase':
+          return 'purchases'
+        case 'feedback':
+          return 'feedback'
+        case 'reminders':
+          return 'reminders'
+        case 'payments':
+          return 'payments'
+      }
+    },
+    setupTopicSuggestedName: (role) => {
+      switch (role) {
+        case 'purchase':
+          return 'Shared purchases'
+        case 'feedback':
+          return 'Anonymous feedback'
+        case 'reminders':
+          return 'Reminders'
+        case 'payments':
+          return 'Payments'
+      }
+    },
     useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Purchase topic saved for ${householdName} (thread ${threadId}).`,
