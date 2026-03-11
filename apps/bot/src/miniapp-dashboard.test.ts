@@ -185,7 +185,19 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
-    listHouseholdMembers: async () => [],
+    listHouseholdMembers: async () => [
+      {
+        id: 'member-1',
+        householdId: household.householdId,
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: household.defaultLocale,
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ],
     listHouseholdMembersByTelegramUserId: async () => [],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null,
@@ -227,7 +239,9 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     }),
     promoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
-    updateHouseholdMemberStatus: async () => null
+    updateHouseholdMemberStatus: async () => null,
+    listHouseholdMemberAbsencePolicies: async () => [],
+    upsertHouseholdMemberAbsencePolicy: async () => null
   }
 }
 

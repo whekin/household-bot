@@ -209,6 +209,32 @@ export const members = pgTable(
   })
 )
 
+export const memberAbsencePolicies = pgTable(
+  'member_absence_policies',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    effectiveFromPeriod: text('effective_from_period').notNull(),
+    policy: text('policy').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdMemberPeriodUnique: uniqueIndex(
+      'member_absence_policies_household_member_period_unique'
+    ).on(table.householdId, table.memberId, table.effectiveFromPeriod),
+    householdMemberIdx: index('member_absence_policies_household_member_idx').on(
+      table.householdId,
+      table.memberId
+    )
+  })
+)
+
 export const billingCycles = pgTable(
   'billing_cycles',
   {

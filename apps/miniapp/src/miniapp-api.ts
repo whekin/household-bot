@@ -37,6 +37,18 @@ export interface MiniAppPendingMember {
   languageCode: string | null
 }
 
+export type MiniAppMemberAbsencePolicy =
+  | 'resident'
+  | 'away_rent_and_utilities'
+  | 'away_rent_only'
+  | 'inactive'
+
+export interface MiniAppMemberAbsencePolicyRecord {
+  memberId: string
+  effectiveFromPeriod: string
+  policy: MiniAppMemberAbsencePolicy
+}
+
 export interface MiniAppMember {
   id: string
   displayName: string
@@ -116,6 +128,7 @@ export interface MiniAppAdminSettingsPayload {
   topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
   members: readonly MiniAppMember[]
+  memberAbsencePolicies: readonly MiniAppMemberAbsencePolicyRecord[]
 }
 
 export interface MiniAppAdminCycleState {
@@ -362,6 +375,7 @@ export async function fetchMiniAppAdminSettings(
     topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
     members?: MiniAppMember[]
+    memberAbsencePolicies?: MiniAppMemberAbsencePolicyRecord[]
     error?: string
   }
 
@@ -371,7 +385,8 @@ export async function fetchMiniAppAdminSettings(
     !payload.settings ||
     !payload.topics ||
     !payload.categories ||
-    !payload.members
+    !payload.members ||
+    !payload.memberAbsencePolicies
   ) {
     throw new Error(payload.error ?? 'Failed to load admin settings')
   }
@@ -380,7 +395,8 @@ export async function fetchMiniAppAdminSettings(
     settings: payload.settings,
     topics: payload.topics,
     categories: payload.categories,
-    members: payload.members
+    members: payload.members,
+    memberAbsencePolicies: payload.memberAbsencePolicies
   }
 }
 
@@ -545,6 +561,37 @@ export async function updateMiniAppMemberStatus(
   }
 
   return payload.member
+}
+
+export async function updateMiniAppMemberAbsencePolicy(
+  initData: string,
+  memberId: string,
+  policy: MiniAppMemberAbsencePolicy
+): Promise<MiniAppMemberAbsencePolicyRecord> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/absence-policy`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId,
+      policy
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    policy?: MiniAppMemberAbsencePolicyRecord
+    error?: string
+  }
+
+  if (!response.ok || !payload.policy) {
+    throw new Error(payload.error ?? 'Failed to update member absence policy')
+  }
+
+  return payload.policy
 }
 
 export async function fetchMiniAppBillingCycle(initData: string): Promise<MiniAppAdminCycleState> {

@@ -337,6 +337,14 @@ function createRepositoryStub() {
       }
       members.set(`${householdId}:${member.telegramUserId}`, next)
       return next
+    },
+
+    async listHouseholdMemberAbsencePolicies() {
+      return []
+    },
+
+    async upsertHouseholdMemberAbsencePolicy() {
+      return null
     }
   }
 

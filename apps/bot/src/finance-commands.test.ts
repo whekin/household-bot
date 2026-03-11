@@ -111,7 +111,9 @@ function createRepository(): HouseholdConfigurationRepository {
     updateMemberPreferredLocale: async () => null,
     promoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
-    updateHouseholdMemberStatus: async () => null
+    updateHouseholdMemberStatus: async () => null,
+    listHouseholdMemberAbsencePolicies: async () => [],
+    upsertHouseholdMemberAbsencePolicy: async () => null
   }
 }
 

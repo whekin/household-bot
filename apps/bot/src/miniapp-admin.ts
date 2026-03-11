@@ -1,8 +1,10 @@
 import type { HouseholdOnboardingService, MiniAppAdminService } from '@household/application'
 import type { Logger } from '@household/observability'
 import {
+  HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   type HouseholdBillingSettingsRecord,
+  type HouseholdMemberAbsencePolicy,
   type HouseholdMemberLifecycleStatus
 } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
@@ -257,6 +259,42 @@ async function readMemberStatusPayload(request: Request): Promise<{
   }
 }
 
+async function readMemberAbsencePolicyPayload(request: Request): Promise<{
+  initData: string
+  memberId: string
+  policy: HouseholdMemberAbsencePolicy
+}> {
+  const clonedRequest = request.clone()
+  const payload = await readMiniAppRequestPayload(request)
+  if (!payload.initData) {
+    throw new Error('Missing initData')
+  }
+
+  const text = await clonedRequest.text()
+  let parsed: { memberId?: string; policy?: string }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
+
+  const memberId = parsed.memberId?.trim()
+  const policy = parsed.policy?.trim().toLowerCase()
+  if (!memberId || !policy) {
+    throw new Error('Missing member absence policy fields')
+  }
+
+  if (!(HOUSEHOLD_MEMBER_ABSENCE_POLICIES as readonly string[]).includes(policy)) {
+    throw new Error('Invalid member absence policy')
+  }
+
+  return {
+    initData: payload.initData,
+    memberId,
+    policy: policy as HouseholdMemberAbsencePolicy
+  }
+}
+
 function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
   return {
     householdId: settings.householdId,
@@ -442,6 +480,7 @@ export function createMiniAppSettingsHandler(options: {
             topics: result.topics,
             categories: result.categories,
             members: result.members,
+            memberAbsencePolicies: result.memberAbsencePolicies,
             assistantUsage:
               options.assistantUsageTracker?.listHouseholdUsage(member.householdId) ?? []
           },
@@ -912,6 +951,87 @@ export function createMiniAppUpdateMemberStatusHandler(options: {
             ok: true,
             authorized: true,
             member: result.member
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readMemberAbsencePolicyPayload(request)
+        const session = await sessionService.authenticate({
+          initData: payload.initData
+        })
+
+        if (
+          !session ||
+          !session.authorized ||
+          !session.member ||
+          session.member.status !== 'active' ||
+          !session.member.isAdmin
+        ) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Admin access required for active household members' },
+            session ? 403 : 401,
+            origin
+          )
+        }
+
+        const result = await options.miniAppAdminService.updateMemberAbsencePolicy({
+          householdId: session.member.householdId,
+          actorIsAdmin: session.member.isAdmin,
+          memberId: payload.memberId,
+          policy: payload.policy
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            {
+              ok: false,
+              error:
+                result.reason === 'member_not_found' ? 'Member not found' : 'Admin access required'
+            },
+            result.reason === 'member_not_found' ? 404 : 403,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            policy: result.policy
           },
           200,
           origin

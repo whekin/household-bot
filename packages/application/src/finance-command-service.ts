@@ -7,7 +7,10 @@ import type {
   FinancePaymentKind,
   FinanceRentRuleRecord,
   FinanceRepository,
-  HouseholdConfigurationRepository
+  HouseholdConfigurationRepository,
+  HouseholdMemberAbsencePolicy,
+  HouseholdMemberAbsencePolicyRecord,
+  HouseholdMemberRecord
 } from '@household/ports'
 import {
   BillingCycleId,
@@ -100,6 +103,9 @@ function expectedOpenCyclePeriod(
 export interface FinanceDashboardMemberLine {
   memberId: string
   displayName: string
+  status?: 'active' | 'away' | 'left'
+  absencePolicy?: HouseholdMemberAbsencePolicy
+  absencePolicyEffectiveFromPeriod?: string | null
   rentShare: Money
   utilityShare: Money
   purchaseOffset: Money
@@ -157,9 +163,43 @@ interface FinanceCommandServiceDependencies {
   repository: FinanceRepository
   householdConfigurationRepository: Pick<
     HouseholdConfigurationRepository,
-    'getHouseholdBillingSettings'
+    'getHouseholdBillingSettings' | 'listHouseholdMembers' | 'listHouseholdMemberAbsencePolicies'
   >
   exchangeRateProvider: ExchangeRateProvider
+}
+
+interface ResolvedMemberAbsencePolicy {
+  memberId: string
+  policy: HouseholdMemberAbsencePolicy
+  effectiveFromPeriod: string | null
+}
+
+function resolveMemberAbsencePolicies(input: {
+  members: readonly HouseholdMemberRecord[]
+  policies: readonly HouseholdMemberAbsencePolicyRecord[]
+  period: string
+}): ReadonlyMap<string, ResolvedMemberAbsencePolicy> {
+  const resolved = new Map<string, ResolvedMemberAbsencePolicy>()
+
+  for (const member of input.members) {
+    const applicable = input.policies
+      .filter(
+        (policy) =>
+          policy.memberId === member.id &&
+          policy.effectiveFromPeriod.localeCompare(input.period) <= 0
+      )
+      .sort((left, right) => left.effectiveFromPeriod.localeCompare(right.effectiveFromPeriod))
+      .at(-1)
+
+    resolved.set(member.id, {
+      memberId: member.id,
+      policy:
+        applicable?.policy ?? (member.status === 'away' ? 'away_rent_and_utilities' : 'resident'),
+      effectiveFromPeriod: applicable?.effectiveFromPeriod ?? null
+    })
+  }
+
+  return resolved
 }
 
 interface ConvertedCycleMoney {
@@ -240,8 +280,11 @@ async function buildFinanceDashboard(
     return null
   }
 
-  const [members, rentRule, settings] = await Promise.all([
-    dependencies.repository.listMembers(),
+  const [members, memberAbsencePolicies, rentRule, settings] = await Promise.all([
+    dependencies.householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
+    dependencies.householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+      dependencies.householdId
+    ),
     dependencies.repository.getRentRuleForPeriod(cycle.period),
     dependencies.householdConfigurationRepository.getHouseholdBillingSettings(
       dependencies.householdId
@@ -258,6 +301,11 @@ async function buildFinanceDashboard(
 
   const period = BillingPeriod.fromString(cycle.period)
   const { start, end } = monthRange(period)
+  const resolvedAbsencePolicies = resolveMemberAbsencePolicies({
+    members,
+    policies: memberAbsencePolicies,
+    period: cycle.period
+  })
   const [purchases, utilityBills] = await Promise.all([
     dependencies.repository.listParsedPurchasesForRange(start, end),
     dependencies.repository.listUtilityBillsForCycle(cycle.id)
@@ -319,7 +367,17 @@ async function buildFinanceDashboard(
     utilitySplitMode: 'equal',
     members: members.map((member) => ({
       memberId: MemberId.from(member.id),
-      active: true,
+      active: member.status !== 'left',
+      participatesInRent:
+        member.status === 'left'
+          ? false
+          : (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') !== 'inactive',
+      participatesInUtilities:
+        member.status === 'away'
+          ? (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') ===
+            'away_rent_and_utilities'
+          : member.status !== 'left',
+      participatesInPurchases: member.status === 'active',
       rentWeight: member.rentShareWeight
     })),
     purchases: convertedPurchases.map(({ purchase, converted }) => ({
@@ -374,6 +432,10 @@ async function buildFinanceDashboard(
   const dashboardMembers = settlement.lines.map((line) => ({
     memberId: line.memberId.toString(),
     displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
+    status: members.find((member) => member.id === line.memberId.toString())?.status ?? 'active',
+    absencePolicy: resolvedAbsencePolicies.get(line.memberId.toString())?.policy ?? 'resident',
+    absencePolicyEffectiveFromPeriod:
+      resolvedAbsencePolicies.get(line.memberId.toString())?.effectiveFromPeriod ?? null,
     rentShare: line.rentShare,
     utilityShare: line.utilityShare,
     purchaseOffset: line.purchaseOffset,

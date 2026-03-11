@@ -5,6 +5,13 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import { createMiniAppAdminService } from './miniapp-admin-service'
 
 function repository(): HouseholdConfigurationRepository {
+  let memberAbsencePolicies: {
+    householdId: string
+    memberId: string
+    effectiveFromPeriod: string
+    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+  }[] = []
+
   return {
     registerTelegramHouseholdChat: async () => ({
       status: 'existing',
@@ -68,7 +75,19 @@ function repository(): HouseholdConfigurationRepository {
       isAdmin: input.isAdmin === true
     }),
     getHouseholdMember: async () => null,
-    listHouseholdMembers: async () => [],
+    listHouseholdMembers: async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ],
     listHouseholdMembersByTelegramUserId: async () => [],
     listPendingHouseholdMembers: async () => [
       {
@@ -189,7 +208,28 @@ function repository(): HouseholdConfigurationRepository {
             rentShareWeight: 1,
             isAdmin: false
           }
-        : null
+        : null,
+    listHouseholdMemberAbsencePolicies: async () => memberAbsencePolicies,
+    upsertHouseholdMemberAbsencePolicy: async (input) => {
+      const next = {
+        householdId: input.householdId,
+        memberId: input.memberId,
+        effectiveFromPeriod: input.effectiveFromPeriod,
+        policy: input.policy
+      }
+      memberAbsencePolicies = [
+        ...memberAbsencePolicies.filter(
+          (entry) =>
+            !(
+              entry.householdId === input.householdId &&
+              entry.memberId === input.memberId &&
+              entry.effectiveFromPeriod === input.effectiveFromPeriod
+            )
+        ),
+        next
+      ]
+      return next
+    }
   }
 }
 
@@ -224,7 +264,20 @@ describe('createMiniAppAdminService', () => {
         }
       ],
       categories: [],
-      members: []
+      members: [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: null,
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: false
+        }
+      ],
+      memberAbsencePolicies: []
     })
   })
 
@@ -255,6 +308,27 @@ describe('createMiniAppAdminService', () => {
         utilitiesDueDay: 5,
         utilitiesReminderDay: 4,
         timezone: 'Asia/Tbilisi'
+      }
+    })
+  })
+
+  test('stores an away absence policy from the current local period', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateMemberAbsencePolicy({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456',
+      policy: 'away_rent_only'
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      policy: {
+        householdId: 'household-1',
+        memberId: 'member-123456',
+        effectiveFromPeriod: '2026-03',
+        policy: 'away_rent_only'
       }
     })
   })

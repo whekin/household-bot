@@ -19,6 +19,12 @@ class FinanceRepositoryStub implements FinanceRepository {
   householdId = 'household-1'
   member: FinanceMemberRecord | null = null
   members: readonly FinanceMemberRecord[] = []
+  memberStatuses = new Map<string, 'active' | 'away' | 'left'>()
+  memberAbsencePolicies: readonly {
+    memberId: string
+    effectiveFromPeriod: string
+    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+  }[] = []
   openCycleRecord: FinanceCycleRecord | null = null
   cycleByPeriodRecord: FinanceCycleRecord | null = null
   latestCycleRecord: FinanceCycleRecord | null = null
@@ -204,7 +210,7 @@ class FinanceRepositoryStub implements FinanceRepository {
 
 const householdConfigurationRepository: Pick<
   HouseholdConfigurationRepository,
-  'getHouseholdBillingSettings'
+  'getHouseholdBillingSettings' | 'listHouseholdMembers' | 'listHouseholdMemberAbsencePolicies'
 > = {
   async getHouseholdBillingSettings(householdId) {
     return {
@@ -218,7 +224,41 @@ const householdConfigurationRepository: Pick<
       utilitiesReminderDay: 3,
       timezone: 'Asia/Tbilisi'
     }
+  },
+  async listHouseholdMembers(householdId) {
+    const repository = financeRepositoryForHousehold(householdId)
+
+    return repository.members.map((member) => ({
+      id: member.id,
+      householdId,
+      telegramUserId: member.telegramUserId,
+      displayName: member.displayName,
+      status: repository.memberStatuses.get(member.id) ?? 'active',
+      preferredLocale: null,
+      householdDefaultLocale: 'en' as const,
+      rentShareWeight: member.rentShareWeight,
+      isAdmin: member.isAdmin
+    }))
+  },
+  async listHouseholdMemberAbsencePolicies(householdId) {
+    return financeRepositoryForHousehold(householdId).memberAbsencePolicies.map((policy) => ({
+      householdId,
+      memberId: policy.memberId,
+      effectiveFromPeriod: policy.effectiveFromPeriod,
+      policy: policy.policy
+    }))
   }
+}
+
+const financeRepositories = new Map<string, FinanceRepositoryStub>()
+
+function financeRepositoryForHousehold(householdId: string): FinanceRepositoryStub {
+  const repository = financeRepositories.get(householdId)
+  if (!repository) {
+    throw new Error(`Missing finance repository stub for ${householdId}`)
+  }
+
+  return repository
 }
 
 const exchangeRateProvider: ExchangeRateProvider = {
@@ -254,6 +294,8 @@ const exchangeRateProvider: ExchangeRateProvider = {
 }
 
 function createService(repository: FinanceRepositoryStub) {
+  financeRepositories.set(repository.householdId, repository)
+
   return createFinanceCommandService({
     householdId: repository.householdId,
     repository,
@@ -481,5 +523,84 @@ describe('createFinanceCommandService', () => {
     const dashboard = await service.generateDashboard()
 
     expect(dashboard?.period).toBe('2026-03')
+  })
+
+  test('generateDashboard excludes away members from purchases and utilities based on absence policy', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'carol',
+        telegramUserId: '3',
+        displayName: 'Carol',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.memberStatuses.set('carol', 'away')
+    repository.memberAbsencePolicies = [
+      {
+        memberId: 'carol',
+        effectiveFromPeriod: '2026-03',
+        policy: 'away_rent_only'
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 90000n,
+      currency: 'GEL'
+    }
+    repository.utilityBills = [
+      {
+        id: 'utility-1',
+        billName: 'Gas',
+        amountMinor: 12000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Kitchen towels',
+        occurredAt: instantFromIso('2026-03-10T12:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+
+    expect(
+      dashboard?.members.map((line) => ({
+        memberId: line.memberId,
+        utility: line.utilityShare.amountMinor,
+        purchaseOffset: line.purchaseOffset.amountMinor
+      }))
+    ).toEqual([
+      { memberId: 'alice', utility: 6000n, purchaseOffset: -1500n },
+      { memberId: 'bob', utility: 6000n, purchaseOffset: 1500n },
+      { memberId: 'carol', utility: 0n, purchaseOffset: 0n }
+    ])
   })
 })

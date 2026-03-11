@@ -154,6 +154,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
           }
         : null
     },
+    listHouseholdMemberAbsencePolicies: async () => [],
+    upsertHouseholdMemberAbsencePolicy: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',

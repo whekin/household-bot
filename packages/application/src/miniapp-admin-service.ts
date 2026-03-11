@@ -1,13 +1,15 @@
 import type {
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
+  HouseholdMemberAbsencePolicy,
+  HouseholdMemberAbsencePolicyRecord,
   HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
   HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
-import { Money, type CurrencyCode } from '@household/domain'
+import { Money, Temporal, type CurrencyCode } from '@household/domain'
 
 function isValidDay(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= 31
@@ -29,6 +31,7 @@ export interface MiniAppAdminService {
         settings: HouseholdBillingSettingsRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
         members: readonly HouseholdMemberRecord[]
+        memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
         topics: readonly HouseholdTopicBindingRecord[]
       }
     | {
@@ -142,6 +145,29 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
+  updateMemberAbsencePolicy(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+    policy: HouseholdMemberAbsencePolicy
+  }): Promise<
+    | {
+        status: 'ok'
+        policy: HouseholdMemberAbsencePolicyRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'member_not_found'
+      }
+  >
+}
+
+function localDateInTimezone(timezone: string) {
+  return Temporal.Now.instant().toZonedDateTimeISO(timezone).toPlainDate()
+}
+
+function periodFromLocalDate(localDate: Temporal.PlainDate): string {
+  return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
 }
 
 export function createMiniAppAdminService(
@@ -156,10 +182,11 @@ export function createMiniAppAdminService(
         }
       }
 
-      const [settings, categories, members, topics] = await Promise.all([
+      const [settings, categories, members, memberAbsencePolicies, topics] = await Promise.all([
         repository.getHouseholdBillingSettings(input.householdId),
         repository.listHouseholdUtilityCategories(input.householdId),
         repository.listHouseholdMembers(input.householdId),
+        repository.listHouseholdMemberAbsencePolicies(input.householdId),
         repository.listHouseholdTopicBindings(input.householdId)
       ])
 
@@ -168,6 +195,7 @@ export function createMiniAppAdminService(
         settings,
         categories,
         members,
+        memberAbsencePolicies,
         topics
       }
     },
@@ -394,6 +422,47 @@ export function createMiniAppAdminService(
       return {
         status: 'ok',
         member
+      }
+    },
+
+    async updateMemberAbsencePolicy(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const [member, settings] = await Promise.all([
+        repository.listHouseholdMembers(input.householdId),
+        repository.getHouseholdBillingSettings(input.householdId)
+      ])
+      const target = member.find((candidate) => candidate.id === input.memberId)
+      if (!target) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      const effectiveFromPeriod = periodFromLocalDate(localDateInTimezone(settings.timezone))
+      const policy = await repository.upsertHouseholdMemberAbsencePolicy({
+        householdId: input.householdId,
+        memberId: input.memberId,
+        effectiveFromPeriod,
+        policy: input.policy
+      })
+
+      if (!policy) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        policy
       }
     }
   }

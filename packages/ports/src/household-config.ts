@@ -3,9 +3,16 @@ import type { ReminderTarget } from './reminders'
 
 export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders', 'payments'] as const
 export const HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES = ['active', 'away', 'left'] as const
+export const HOUSEHOLD_MEMBER_ABSENCE_POLICIES = [
+  'resident',
+  'away_rent_and_utilities',
+  'away_rent_only',
+  'inactive'
+] as const
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
 export type HouseholdMemberLifecycleStatus = (typeof HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES)[number]
+export type HouseholdMemberAbsencePolicy = (typeof HOUSEHOLD_MEMBER_ABSENCE_POLICIES)[number]
 
 export interface HouseholdTelegramChatRecord {
   householdId: string
@@ -50,6 +57,13 @@ export interface HouseholdMemberRecord {
   householdDefaultLocale: SupportedLocale
   rentShareWeight: number
   isAdmin: boolean
+}
+
+export interface HouseholdMemberAbsencePolicyRecord {
+  householdId: string
+  memberId: string
+  effectiveFromPeriod: string
+  policy: HouseholdMemberAbsencePolicy
 }
 
 export interface HouseholdBillingSettingsRecord {
@@ -197,4 +211,13 @@ export interface HouseholdConfigurationRepository {
     memberId: string,
     status: HouseholdMemberLifecycleStatus
   ): Promise<HouseholdMemberRecord | null>
+  listHouseholdMemberAbsencePolicies(
+    householdId: string
+  ): Promise<readonly HouseholdMemberAbsencePolicyRecord[]>
+  upsertHouseholdMemberAbsencePolicy(input: {
+    householdId: string
+    memberId: string
+    effectiveFromPeriod: string
+    policy: HouseholdMemberAbsencePolicy
+  }): Promise<HouseholdMemberAbsencePolicyRecord | null>
 }

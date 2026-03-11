@@ -8,8 +8,11 @@ import {
   type CurrencyCode
 } from '@household/domain'
 import {
+  HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_TOPIC_ROLES,
+  type HouseholdMemberAbsencePolicy,
+  type HouseholdMemberAbsencePolicyRecord,
   type HouseholdBillingSettingsRecord,
   type HouseholdConfigurationRepository,
   type HouseholdJoinTokenRecord,
@@ -42,6 +45,16 @@ function normalizeMemberLifecycleStatus(raw: string): HouseholdMemberLifecycleSt
   }
 
   throw new Error(`Unsupported household member lifecycle status: ${raw}`)
+}
+
+function normalizeMemberAbsencePolicy(raw: string): HouseholdMemberAbsencePolicy {
+  const normalized = raw.trim().toLowerCase()
+
+  if ((HOUSEHOLD_MEMBER_ABSENCE_POLICIES as readonly string[]).includes(normalized)) {
+    return normalized as HouseholdMemberAbsencePolicy
+  }
+
+  throw new Error(`Unsupported household member absence policy: ${raw}`)
 }
 
 function toHouseholdTelegramChatRecord(row: {
@@ -229,6 +242,20 @@ function toHouseholdUtilityCategoryRecord(row: {
     name: row.name,
     sortOrder: row.sortOrder,
     isActive: row.isActive === 1
+  }
+}
+
+function toHouseholdMemberAbsencePolicyRecord(row: {
+  householdId: string
+  memberId: string
+  effectiveFromPeriod: string
+  policy: string
+}): HouseholdMemberAbsencePolicyRecord {
+  return {
+    householdId: row.householdId,
+    memberId: row.memberId,
+    effectiveFromPeriod: row.effectiveFromPeriod,
+    policy: normalizeMemberAbsencePolicy(row.policy)
   }
 }
 
@@ -1343,6 +1370,55 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         ...row,
         defaultLocale: household.defaultLocale
       })
+    },
+
+    async listHouseholdMemberAbsencePolicies(householdId) {
+      const rows = await db
+        .select({
+          householdId: schema.memberAbsencePolicies.householdId,
+          memberId: schema.memberAbsencePolicies.memberId,
+          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          policy: schema.memberAbsencePolicies.policy
+        })
+        .from(schema.memberAbsencePolicies)
+        .where(eq(schema.memberAbsencePolicies.householdId, householdId))
+        .orderBy(
+          asc(schema.memberAbsencePolicies.memberId),
+          asc(schema.memberAbsencePolicies.effectiveFromPeriod)
+        )
+
+      return rows.map(toHouseholdMemberAbsencePolicyRecord)
+    },
+
+    async upsertHouseholdMemberAbsencePolicy(input) {
+      const rows = await db
+        .insert(schema.memberAbsencePolicies)
+        .values({
+          householdId: input.householdId,
+          memberId: input.memberId,
+          effectiveFromPeriod: input.effectiveFromPeriod,
+          policy: input.policy
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.memberAbsencePolicies.householdId,
+            schema.memberAbsencePolicies.memberId,
+            schema.memberAbsencePolicies.effectiveFromPeriod
+          ],
+          set: {
+            policy: input.policy,
+            updatedAt: instantToDate(nowInstant())
+          }
+        })
+        .returning({
+          householdId: schema.memberAbsencePolicies.householdId,
+          memberId: schema.memberAbsencePolicies.memberId,
+          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          policy: schema.memberAbsencePolicies.policy
+        })
+
+      const row = rows[0]
+      return row ? toHouseholdMemberAbsencePolicyRecord(row) : null
     }
   }
 

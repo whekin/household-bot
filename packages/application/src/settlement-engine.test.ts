@@ -183,4 +183,58 @@ describe('calculateMonthlySettlement', () => {
 
     expect(() => calculateMonthlySettlement(input)).toThrow(DomainError)
   })
+
+  test('excludes away members from utilities and purchases when policy requires it', () => {
+    const input = {
+      ...fixtureBase(),
+      utilitySplitMode: 'equal' as const,
+      members: [
+        { memberId: MemberId.from('resident-a'), active: true },
+        { memberId: MemberId.from('resident-b'), active: true },
+        {
+          memberId: MemberId.from('away-member'),
+          active: true,
+          participatesInUtilities: false,
+          participatesInPurchases: false
+        }
+      ],
+      purchases: [
+        {
+          purchaseId: PurchaseEntryId.from('p1'),
+          payerId: MemberId.from('resident-a'),
+          amount: Money.fromMajor('30.00', 'USD')
+        }
+      ]
+    }
+
+    const result = calculateMonthlySettlement(input)
+
+    expect(result.lines.map((line) => line.utilityShare.amountMinor)).toEqual([6000n, 6000n, 0n])
+    expect(result.lines.map((line) => line.purchaseOffset.amountMinor)).toEqual([-1500n, 1500n, 0n])
+    expect(result.lines.map((line) => line.netDue.amountMinor)).toEqual([27834n, 30833n, 23333n])
+  })
+
+  test('excludes inactive members from all future charges', () => {
+    const input = {
+      ...fixtureBase(),
+      utilitySplitMode: 'equal' as const,
+      members: [
+        { memberId: MemberId.from('resident-a'), active: true },
+        {
+          memberId: MemberId.from('inactive-member'),
+          active: true,
+          participatesInRent: false,
+          participatesInUtilities: false,
+          participatesInPurchases: false
+        }
+      ],
+      purchases: []
+    }
+
+    const result = calculateMonthlySettlement(input)
+
+    expect(result.lines.map((line) => line.rentShare.amountMinor)).toEqual([70000n, 0n])
+    expect(result.lines.map((line) => line.utilityShare.amountMinor)).toEqual([12000n, 0n])
+    expect(result.lines.map((line) => line.netDue.amountMinor)).toEqual([82000n, 0n])
+  })
 })

@@ -7,6 +7,9 @@ export type UtilitySplitMode = 'equal' | 'weighted_by_days'
 export interface SettlementMemberInput {
   memberId: MemberId
   active: boolean
+  participatesInRent?: boolean
+  participatesInUtilities?: boolean
+  participatesInPurchases?: boolean
   rentWeight?: number
   utilityDays?: number
 }

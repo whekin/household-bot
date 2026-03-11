@@ -13,8 +13,11 @@ export type {
   ReleaseProcessedBotMessageInput
 } from './processed-bot-messages'
 export {
+  HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_TOPIC_ROLES,
+  type HouseholdMemberAbsencePolicy,
+  type HouseholdMemberAbsencePolicyRecord,
   type HouseholdConfigurationRepository,
   type HouseholdBillingSettingsRecord,
   type HouseholdJoinTokenRecord,

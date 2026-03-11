@@ -44,6 +44,53 @@ function ensureActiveMembers(
   return active
 }
 
+function rentParticipants(
+  members: readonly SettlementMemberInput[]
+): readonly SettlementMemberInput[] {
+  const participants = members.filter((member) => member.participatesInRent !== false)
+
+  if (participants.length === 0) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+      'Settlement must include at least one rent participant'
+    )
+  }
+
+  return participants
+}
+
+function utilityParticipants(
+  members: readonly SettlementMemberInput[],
+  utilities: Money
+): readonly SettlementMemberInput[] {
+  const participants = members.filter((member) => member.participatesInUtilities !== false)
+
+  if (participants.length === 0 && utilities.amountMinor > 0n) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+      'Settlement must include at least one utilities participant when utilities are present'
+    )
+  }
+
+  return participants
+}
+
+function purchaseParticipants(
+  members: readonly SettlementMemberInput[],
+  amount: Money
+): readonly SettlementMemberInput[] {
+  const participants = members.filter((member) => member.participatesInPurchases !== false)
+
+  if (participants.length === 0 && amount.amountMinor > 0n) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+      'Settlement must include at least one purchase participant when purchases are present'
+    )
+  }
+
+  return participants
+}
+
 function ensureNonNegativeMoney(label: string, value: Money): void {
   if (value.isNegative()) {
     throw new DomainError(
@@ -134,13 +181,15 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
 
   const currency = input.rent.currency
   const activeMembers = ensureActiveMembers(input.members)
+  const rentMembers = rentParticipants(activeMembers)
+  const utilityMembers = utilityParticipants(activeMembers, input.utilities)
 
   const membersById = new Map<string, ComputationMember>(
     activeMembers.map((member) => [member.memberId.toString(), createMemberState(member, currency)])
   )
 
-  const rentShares = input.rent.splitByWeights(validateRentWeights(activeMembers))
-  for (const [index, member] of activeMembers.entries()) {
+  const rentShares = input.rent.splitByWeights(validateRentWeights(rentMembers))
+  for (const [index, member] of rentMembers.entries()) {
     const state = membersById.get(member.memberId.toString())
     if (!state) {
       continue
@@ -149,18 +198,20 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
     state.rentShare = rentShares[index] ?? Money.zero(currency)
   }
 
-  const utilityShares =
-    input.utilitySplitMode === 'equal'
-      ? input.utilities.splitEvenly(activeMembers.length)
-      : input.utilities.splitByWeights(validateWeightedUtilityDays(activeMembers))
+  if (utilityMembers.length > 0) {
+    const utilityShares =
+      input.utilitySplitMode === 'equal'
+        ? input.utilities.splitEvenly(utilityMembers.length)
+        : input.utilities.splitByWeights(validateWeightedUtilityDays(utilityMembers))
 
-  for (const [index, member] of activeMembers.entries()) {
-    const state = membersById.get(member.memberId.toString())
-    if (!state) {
-      continue
+    for (const [index, member] of utilityMembers.entries()) {
+      const state = membersById.get(member.memberId.toString())
+      if (!state) {
+        continue
+      }
+
+      state.utilityShare = utilityShares[index] ?? Money.zero(currency)
     }
-
-    state.utilityShare = utilityShares[index] ?? Money.zero(currency)
   }
 
   for (const purchase of input.purchases) {
@@ -176,8 +227,9 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
 
     payer.purchasePaid = payer.purchasePaid.add(purchase.amount)
 
-    const purchaseShares = purchase.amount.splitEvenly(activeMembers.length)
-    for (const [index, member] of activeMembers.entries()) {
+    const participants = purchaseParticipants(activeMembers, purchase.amount)
+    const purchaseShares = purchase.amount.splitEvenly(participants.length)
+    for (const [index, member] of participants.entries()) {
       const state = membersById.get(member.memberId.toString())
       if (!state) {
         continue

@@ -17,10 +17,12 @@ import {
   joinMiniAppHousehold,
   openMiniAppBillingCycle,
   promoteMiniAppMember,
+  updateMiniAppMemberAbsencePolicy,
   updateMiniAppMemberStatus,
   updateMiniAppMemberRentWeight,
   type MiniAppAdminCycleState,
   type MiniAppAdminSettingsPayload,
+  type MiniAppMemberAbsencePolicy,
   updateMiniAppLocalePreference,
   updateMiniAppBillingSettings,
   updateMiniAppCycleRent,
@@ -282,9 +284,15 @@ function App() {
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
   const [savingRentWeightMemberId, setSavingRentWeightMemberId] = createSignal<string | null>(null)
   const [savingMemberStatusId, setSavingMemberStatusId] = createSignal<string | null>(null)
+  const [savingMemberAbsencePolicyId, setSavingMemberAbsencePolicyId] = createSignal<string | null>(
+    null
+  )
   const [rentWeightDrafts, setRentWeightDrafts] = createSignal<Record<string, string>>({})
   const [memberStatusDrafts, setMemberStatusDrafts] = createSignal<
     Record<string, 'active' | 'away' | 'left'>
+  >({})
+  const [memberAbsencePolicyDrafts, setMemberAbsencePolicyDrafts] = createSignal<
+    Record<string, MiniAppMemberAbsencePolicy>
   >({})
   const [savingMemberLocale, setSavingMemberLocale] = createSignal(false)
   const [savingHouseholdLocale, setSavingHouseholdLocale] = createSignal(false)
@@ -400,6 +408,39 @@ function App() {
     }
   }
 
+  function defaultAbsencePolicyForStatus(
+    status: 'active' | 'away' | 'left'
+  ): MiniAppMemberAbsencePolicy {
+    if (status === 'away') {
+      return 'away_rent_and_utilities'
+    }
+
+    if (status === 'left') {
+      return 'inactive'
+    }
+
+    return 'resident'
+  }
+
+  function resolvedMemberAbsencePolicy(
+    memberId: string,
+    status: 'active' | 'away' | 'left',
+    settings = adminSettings()
+  ) {
+    const current = settings?.memberAbsencePolicies
+      .filter((policy) => policy.memberId === memberId)
+      .sort((left, right) => left.effectiveFromPeriod.localeCompare(right.effectiveFromPeriod))
+      .at(-1)
+
+    return (
+      current ?? {
+        memberId,
+        effectiveFromPeriod: '',
+        policy: defaultAbsencePolicyForStatus(status)
+      }
+    )
+  }
+
   async function loadDashboard(initData: string) {
     try {
       const nextDashboard = await fetchMiniAppDashboard(initData)
@@ -440,6 +481,14 @@ function App() {
       )
       setMemberStatusDrafts(
         Object.fromEntries(payload.members.map((member) => [member.id, member.status]))
+      )
+      setMemberAbsencePolicyDrafts(
+        Object.fromEntries(
+          payload.members.map((member) => [
+            member.id,
+            resolvedMemberAbsencePolicy(member.id, member.status, payload).policy
+          ])
+        )
       )
       setCycleForm((current) => ({
         ...current,
@@ -1276,8 +1325,63 @@ function App() {
         ...current,
         [member.id]: member.status
       }))
+      setMemberAbsencePolicyDrafts((current) => ({
+        ...current,
+        [member.id]:
+          current[member.id] ??
+          resolvedMemberAbsencePolicy(member.id, member.status).policy ??
+          defaultAbsencePolicyForStatus(member.status)
+      }))
     } finally {
       setSavingMemberStatusId(null)
+    }
+  }
+
+  async function handleSaveMemberAbsencePolicy(memberId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const member = adminSettings()?.members.find((entry) => entry.id === memberId)
+    const nextPolicy = memberAbsencePolicyDrafts()[memberId]
+    const effectiveStatus = memberStatusDrafts()[memberId] ?? member?.status
+
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !member ||
+      !nextPolicy ||
+      effectiveStatus !== 'away'
+    ) {
+      return
+    }
+
+    setSavingMemberAbsencePolicyId(memberId)
+
+    try {
+      const savedPolicy = await updateMiniAppMemberAbsencePolicy(initData, memberId, nextPolicy)
+      setAdminSettings((current) =>
+        current
+          ? {
+              ...current,
+              memberAbsencePolicies: [
+                ...current.memberAbsencePolicies.filter(
+                  (policy) =>
+                    !(
+                      policy.memberId === savedPolicy.memberId &&
+                      policy.effectiveFromPeriod === savedPolicy.effectiveFromPeriod
+                    )
+                ),
+                savedPolicy
+              ]
+            }
+          : current
+      )
+      setMemberAbsencePolicyDrafts((current) => ({
+        ...current,
+        [memberId]: savedPolicy.policy
+      }))
+    } finally {
+      setSavingMemberAbsencePolicyId(null)
     }
   }
 
@@ -2448,6 +2552,44 @@ function App() {
                               </select>
                             </label>
                             <label class="settings-field settings-field--wide">
+                              <span>{copy().absencePolicyLabel}</span>
+                              <select
+                                value={
+                                  memberAbsencePolicyDrafts()[member.id] ??
+                                  resolvedMemberAbsencePolicy(member.id, member.status).policy
+                                }
+                                disabled={
+                                  (memberStatusDrafts()[member.id] ?? member.status) !== 'away'
+                                }
+                                onChange={(event) =>
+                                  setMemberAbsencePolicyDrafts((current) => ({
+                                    ...current,
+                                    [member.id]: event.currentTarget
+                                      .value as MiniAppMemberAbsencePolicy
+                                  }))
+                                }
+                              >
+                                <option value="away_rent_and_utilities">
+                                  {copy().absencePolicyAwayRentAndUtilities}
+                                </option>
+                                <option value="away_rent_only">
+                                  {copy().absencePolicyAwayRentOnly}
+                                </option>
+                                <option value="inactive">{copy().absencePolicyInactive}</option>
+                                <option value="resident">{copy().absencePolicyResident}</option>
+                              </select>
+                              <small>
+                                {resolvedMemberAbsencePolicy(member.id, member.status)
+                                  .effectiveFromPeriod
+                                  ? copy().absencePolicyEffectiveFrom.replace(
+                                      '{period}',
+                                      resolvedMemberAbsencePolicy(member.id, member.status)
+                                        .effectiveFromPeriod
+                                    )
+                                  : copy().absencePolicyHint}
+                              </small>
+                            </label>
+                            <label class="settings-field settings-field--wide">
                               <span>{copy().rentWeightLabel}</span>
                               <input
                                 inputmode="numeric"
@@ -2473,6 +2615,19 @@ function App() {
                               {savingMemberStatusId() === member.id
                                 ? copy().savingMemberStatus
                                 : copy().saveMemberStatusAction}
+                            </button>
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={
+                                savingMemberAbsencePolicyId() === member.id ||
+                                (memberStatusDrafts()[member.id] ?? member.status) !== 'away'
+                              }
+                              onClick={() => void handleSaveMemberAbsencePolicy(member.id)}
+                            >
+                              {savingMemberAbsencePolicyId() === member.id
+                                ? copy().savingAbsencePolicy
+                                : copy().saveAbsencePolicyAction}
                             </button>
                             <button
                               class="ghost-button"
