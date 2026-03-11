@@ -1,6 +1,6 @@
 import { For, Show } from 'solid-js'
 
-import { Button, Field, IconButton, Modal } from '../components/ui'
+import { Button, Field, IconButton, Modal, PencilIcon } from '../components/ui'
 import type { MiniAppAdminSettingsPayload, MiniAppDashboard } from '../miniapp-api'
 
 type PurchaseDraft = {
@@ -168,7 +168,7 @@ export function LedgerScreen(props: Props) {
                         label={props.copy.editEntryAction ?? ''}
                         onClick={() => props.onOpenPurchaseEditor(entry.id)}
                       >
-                        ...
+                        <PencilIcon />
                       </IconButton>
                     </div>
                   </Show>
@@ -420,7 +420,7 @@ export function LedgerScreen(props: Props) {
                         label={props.copy.editEntryAction ?? ''}
                         onClick={() => props.onOpenPaymentEditor(entry.id)}
                       >
-                        ...
+                        <PencilIcon />
                       </IconButton>
                     </div>
                   </Show>

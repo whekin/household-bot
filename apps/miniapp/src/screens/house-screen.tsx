@@ -1,6 +1,15 @@
 import { For, Show } from 'solid-js'
 
-import { Button, Field, IconButton, Modal } from '../components/ui'
+import {
+  Button,
+  CalendarIcon,
+  Field,
+  IconButton,
+  Modal,
+  PencilIcon,
+  PlusIcon,
+  SettingsIcon
+} from '../components/ui'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -250,6 +259,7 @@ export function HouseScreen(props: Props) {
               </Show>
               <div class="panel-toolbar">
                 <Button variant="secondary" onClick={props.onOpenCycleModal}>
+                  <CalendarIcon />
                   {props.cycleState?.cycle
                     ? (props.copy.manageCycleAction ?? '')
                     : (props.copy.openCycleAction ?? '')}
@@ -289,6 +299,7 @@ export function HouseScreen(props: Props) {
               </div>
               <div class="panel-toolbar">
                 <Button variant="secondary" onClick={props.onOpenBillingSettingsModal}>
+                  <SettingsIcon />
                   {props.copy.manageSettingsAction ?? ''}
                 </Button>
               </div>
@@ -534,6 +545,7 @@ export function HouseScreen(props: Props) {
               <p>{props.copy.utilityBillsEditorBody ?? ''}</p>
               <div class="panel-toolbar">
                 <Button variant="secondary" onClick={props.onOpenAddUtilityBill}>
+                  <PlusIcon />
                   {props.copy.addUtilityBillAction ?? ''}
                 </Button>
               </div>
@@ -559,7 +571,7 @@ export function HouseScreen(props: Props) {
                             label={props.copy.editUtilityBillAction ?? ''}
                             onClick={() => props.onOpenUtilityBillEditor(bill.id)}
                           >
-                            ...
+                            <PencilIcon />
                           </IconButton>
                         </div>
                       </article>
@@ -579,6 +591,7 @@ export function HouseScreen(props: Props) {
               <p>{props.copy.utilityCategoriesBody ?? ''}</p>
               <div class="panel-toolbar">
                 <Button variant="secondary" onClick={() => props.onOpenCategoryEditor('__new__')}>
+                  <PlusIcon />
                   {props.copy.addCategoryAction ?? ''}
                 </Button>
               </div>
@@ -603,7 +616,7 @@ export function HouseScreen(props: Props) {
                           label={props.copy.editCategoryAction ?? ''}
                           onClick={() => props.onOpenCategoryEditor(category.slug)}
                         >
-                          ...
+                          <PencilIcon />
                         </IconButton>
                       </div>
                     </article>
@@ -898,7 +911,7 @@ export function HouseScreen(props: Props) {
                           label={props.copy.editMemberAction ?? ''}
                           onClick={() => props.onOpenMemberEditor(member.id)}
                         >
-                          ...
+                          <PencilIcon />
                         </IconButton>
                       </div>
                     </article>

@@ -114,10 +114,30 @@ button {
   font-size: 0.82rem;
 }
 
+.locale-switch--compact {
+  justify-items: end;
+  min-width: 0;
+}
+
 .locale-switch__buttons {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
   gap: 6px;
+  padding: 4px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+.locale-switch__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: rgb(247 179 137 / 0.88);
 }
 
 .locale-switch__buttons button,
@@ -134,7 +154,11 @@ button {
 
 .locale-switch__buttons button {
   border-radius: 999px;
-  padding: 10px 0;
+  min-width: 42px;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .locale-switch__buttons button.is-active,
@@ -257,8 +281,16 @@ button {
 }
 
 .ui-button--icon {
-  min-width: 44px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 12px;
   padding-inline: 0;
+}
+
+.ui-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 .nav-grid {
@@ -697,7 +729,9 @@ button {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 14px;
+  margin-bottom: 14px;
 }
 
 .ledger-compact-card {
@@ -995,8 +1029,17 @@ button {
   }
 
   .locale-switch {
+    justify-items: stretch;
     width: 100%;
     min-width: 0;
+  }
+
+  .locale-switch--compact {
+    justify-items: start;
+  }
+
+  .locale-switch__buttons {
+    justify-self: start;
   }
 
   .nav-grid {
