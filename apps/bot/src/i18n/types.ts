@@ -227,13 +227,18 @@ export interface BotTranslationCatalog {
   purchase: {
     sharedPurchaseFallback: string
     processing: string
-    proposal: (summary: string) => string
+    proposal: (summary: string, participants: string | null) => string
     clarification: (question: string) => string
     clarificationMissingAmountAndCurrency: string
     clarificationMissingAmount: string
     clarificationMissingCurrency: string
     clarificationMissingItem: string
     clarificationLowConfidence: string
+    participantsHeading: string
+    participantIncluded: (displayName: string) => string
+    participantExcluded: (displayName: string) => string
+    participantToggleIncluded: (displayName: string) => string
+    participantToggleExcluded: (displayName: string) => string
     confirmButton: string
     cancelButton: string
     confirmed: (summary: string) => string
@@ -242,6 +247,7 @@ export interface BotTranslationCatalog {
     cancelledToast: string
     alreadyConfirmed: string
     alreadyCancelled: string
+    atLeastOneParticipant: string
     notYourProposal: string
     proposalUnavailable: string
     parseFailed: string

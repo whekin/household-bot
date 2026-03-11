@@ -237,4 +237,38 @@ describe('calculateMonthlySettlement', () => {
     expect(result.lines.map((line) => line.utilityShare.amountMinor)).toEqual([12000n, 0n])
     expect(result.lines.map((line) => line.netDue.amountMinor)).toEqual([82000n, 0n])
   })
+
+  test('supports custom purchase splits across selected participants', () => {
+    const input = {
+      ...fixtureBase(),
+      utilitySplitMode: 'equal' as const,
+      members: [
+        { memberId: MemberId.from('alice'), active: true },
+        { memberId: MemberId.from('bob'), active: true },
+        { memberId: MemberId.from('carol'), active: true }
+      ],
+      purchases: [
+        {
+          purchaseId: PurchaseEntryId.from('p1'),
+          payerId: MemberId.from('alice'),
+          amount: Money.fromMajor('30.00', 'USD'),
+          participants: [
+            {
+              memberId: MemberId.from('alice'),
+              shareAmount: Money.fromMajor('20.00', 'USD')
+            },
+            {
+              memberId: MemberId.from('bob'),
+              shareAmount: Money.fromMajor('10.00', 'USD')
+            }
+          ]
+        }
+      ]
+    }
+
+    const result = calculateMonthlySettlement(input)
+
+    expect(result.lines.map((line) => line.purchaseOffset.amountMinor)).toEqual([-1000n, 1000n, 0n])
+    expect(result.lines.map((line) => line.netDue.amountMinor)).toEqual([26334n, 28333n, 27333n])
+  })
 })

@@ -275,7 +275,6 @@ describe('createMiniAppDashboardHandler', () => {
         isAdmin: true
       }
     ]
-
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
@@ -344,6 +343,190 @@ describe('createMiniAppDashboardHandler', () => {
             paymentKind: 'rent',
             currency: 'GEL',
             displayCurrency: 'GEL'
+          }
+        ]
+      }
+    })
+  })
+
+  test('serializes purchase split details into the mini app dashboard', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const householdRepository = onboardingRepository()
+    const financeRepository = repository({
+      id: 'member-1',
+      telegramUserId: '123456',
+      displayName: 'Stan',
+      rentShareWeight: 1,
+      isAdmin: true
+    })
+
+    financeRepository.listParsedPurchasesForRange = async () => [
+      {
+        id: 'purchase-1',
+        payerMemberId: 'member-1',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Kettle',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'member-1',
+            included: true,
+            shareAmountMinor: 2000n
+          },
+          {
+            memberId: 'member-2',
+            included: false,
+            shareAmountMinor: null
+          },
+          {
+            memberId: 'member-3',
+            included: true,
+            shareAmountMinor: 1000n
+          }
+        ]
+      }
+    ]
+    financeRepository.listMembers = async () => [
+      {
+        id: 'member-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'member-2',
+        telegramUserId: '456789',
+        displayName: 'Dima',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'member-3',
+        telegramUserId: '789123',
+        displayName: 'Chorbanaut',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+
+    const financeService = createFinanceCommandService({
+      householdId: 'household-1',
+      repository: financeRepository,
+      householdConfigurationRepository: householdRepository,
+      exchangeRateProvider
+    })
+
+    householdRepository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    householdRepository.listHouseholdMembers = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'member-2',
+        householdId: 'household-1',
+        telegramUserId: '456789',
+        displayName: 'Dima',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'member-3',
+        householdId: 'household-1',
+        telegramUserId: '789123',
+        displayName: 'Chorbanaut',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+
+    const dashboard = createMiniAppDashboardHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      financeServiceForHousehold: () => financeService,
+      onboardingService: createHouseholdOnboardingService({
+        repository: householdRepository
+      })
+    })
+
+    const response = await dashboard.handler(
+      new Request('http://localhost/api/miniapp/dashboard', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          })
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: {
+        ledger: [
+          {
+            id: 'purchase-1',
+            purchaseSplitMode: 'custom_amounts',
+            purchaseParticipants: [
+              {
+                memberId: 'member-1',
+                included: true,
+                shareAmountMajor: '20.00'
+              },
+              {
+                memberId: 'member-2',
+                included: false,
+                shareAmountMajor: null
+              },
+              {
+                memberId: 'member-3',
+                included: true,
+                shareAmountMajor: '10.00'
+              }
+            ]
+          },
+          {
+            title: 'Electricity'
+          },
+          {
+            kind: 'payment'
           }
         ]
       }

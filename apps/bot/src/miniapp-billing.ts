@@ -289,6 +289,13 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
   description?: string
   amountMajor?: string
   currency?: string
+  split?: {
+    mode: 'equal' | 'custom_amounts'
+    participants: {
+      memberId: string
+      shareAmountMajor?: string
+    }[]
+  }
 }> {
   const parsed = await parseJsonBody<{
     initData?: string
@@ -296,6 +303,13 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     description?: string
     amountMajor?: string
     currency?: string
+    split?: {
+      mode?: string
+      participants?: {
+        memberId?: string
+        shareAmountMajor?: string
+      }[]
+    }
   }>(request)
   const initData = parsed.initData?.trim()
   if (!initData) {
@@ -322,6 +336,32 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     ...(parsed.currency?.trim()
       ? {
           currency: parsed.currency.trim()
+        }
+      : {}),
+    ...(parsed.split &&
+    (parsed.split.mode === 'equal' || parsed.split.mode === 'custom_amounts') &&
+    Array.isArray(parsed.split.participants)
+      ? {
+          split: {
+            mode: parsed.split.mode,
+            participants: parsed.split.participants
+              .map((participant) => {
+                const memberId = participant.memberId?.trim()
+                if (!memberId) {
+                  return null
+                }
+
+                return {
+                  memberId,
+                  ...(participant.shareAmountMajor?.trim()
+                    ? {
+                        shareAmountMajor: participant.shareAmountMajor.trim()
+                      }
+                    : {})
+                }
+              })
+              .filter((participant) => participant !== null)
+          }
         }
       : {})
   }
@@ -858,7 +898,8 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           payload.purchaseId,
           payload.description,
           payload.amountMajor,
-          payload.currency
+          payload.currency,
+          payload.split
         )
 
         if (!updated) {

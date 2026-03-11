@@ -14,6 +14,7 @@ import {
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
   createMiniAppRentUpdateHandler,
+  createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
@@ -474,5 +475,85 @@ describe('createMiniAppAddUtilityBillHandler', () => {
     const payload = (await response.json()) as { cycleState: { utilityBills: unknown[] } }
 
     expect(payload.cycleState.utilityBills).toHaveLength(1)
+  })
+})
+
+describe('createMiniAppUpdatePurchaseHandler', () => {
+  test('forwards purchase split edits to the finance service', async () => {
+    const repository = onboardingRepository()
+    let capturedSplit: Parameters<FinanceCommandService['updatePurchase']>[4] | undefined
+
+    const handler = createMiniAppUpdatePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        updatePurchase: async (_purchaseId, _description, _amountArg, _currencyArg, split) => {
+          capturedSplit = split
+          return {
+            purchaseId: 'purchase-1',
+            amount: Money.fromMinor(3000n, 'GEL'),
+            currency: 'GEL'
+          }
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1',
+          description: 'Kettle',
+          amountMajor: '30',
+          currency: 'GEL',
+          split: {
+            mode: 'custom_amounts',
+            participants: [
+              {
+                memberId: 'member-123456',
+                included: true,
+                shareAmountMajor: '20'
+              },
+              {
+                memberId: 'member-999',
+                included: false
+              },
+              {
+                memberId: 'member-888',
+                included: true,
+                shareAmountMajor: '10'
+              }
+            ]
+          }
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(capturedSplit).toEqual({
+      mode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'member-123456',
+          shareAmountMajor: '20'
+        },
+        {
+          memberId: 'member-999'
+        },
+        {
+          memberId: 'member-888',
+          shareAmountMajor: '10'
+        }
+      ]
+    })
   })
 })

@@ -238,7 +238,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     processing: 'Проверяю покупку...',
-    proposal: (summary) => `Похоже, это общая покупка: ${summary}. Подтвердите или отмените ниже.`,
+    proposal: (summary, participants) =>
+      `Похоже, это общая покупка: ${summary}.${participants ? `\n\n${participants}` : ''}\nПодтвердите или отмените ниже.`,
     clarification: (question) => question,
     clarificationMissingAmountAndCurrency:
       'Какую сумму и валюту нужно записать для этой общей покупки?',
@@ -247,6 +248,11 @@ export const ruBotTranslations: BotTranslationCatalog = {
     clarificationMissingItem: 'Что именно было куплено?',
     clarificationLowConfidence:
       'Я не уверен, что правильно понял сообщение. Переформулируйте покупку с предметом, суммой и валютой.',
+    participantsHeading: 'Участники:',
+    participantIncluded: (displayName) => `- ${displayName}`,
+    participantExcluded: (displayName) => `- ${displayName} (не участвует)`,
+    participantToggleIncluded: (displayName) => `✅ ${displayName}`,
+    participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
     confirmButton: 'Подтвердить',
     cancelButton: 'Отменить',
     confirmed: (summary) => `Покупка подтверждена: ${summary}`,
@@ -255,6 +261,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     cancelledToast: 'Покупка отменена.',
     alreadyConfirmed: 'Эта покупка уже подтверждена.',
     alreadyCancelled: 'Это предложение покупки уже отменено.',
+    atLeastOneParticipant: 'В распределении покупки должен остаться хотя бы один участник.',
     notYourProposal: 'Подтвердить или отменить эту покупку может только отправитель сообщения.',
     proposalUnavailable: 'Это предложение покупки уже недоступно.',
     parseFailed:

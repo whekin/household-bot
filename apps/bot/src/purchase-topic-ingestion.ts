@@ -18,6 +18,7 @@ import { stripExplicitBotMention } from './telegram-mentions'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
+const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
 const MIN_PROPOSAL_CONFIDENCE = 70
 
 type StoredPurchaseProcessingStatus =
@@ -64,6 +65,14 @@ interface PurchasePendingConfirmationResult extends PurchaseProposalFields {
   parsedItemDescription: string
   parserConfidence: number
   parserMode: 'llm'
+  participants: readonly PurchaseProposalParticipant[]
+}
+
+interface PurchaseProposalParticipant {
+  id: string
+  memberId: string
+  displayName: string
+  included: boolean
 }
 
 export interface PurchaseTopicIngestionConfig {
@@ -120,6 +129,29 @@ export type PurchaseProposalActionResult =
       status: 'not_found'
     }
 
+export type PurchaseProposalParticipantToggleResult =
+  | ({
+      status: 'updated'
+      purchaseMessageId: string
+      householdId: string
+      participants: readonly PurchaseProposalParticipant[]
+    } & PurchaseProposalFields)
+  | {
+      status: 'at_least_one_required'
+      householdId: string
+    }
+  | {
+      status: 'forbidden'
+      householdId: string
+    }
+  | {
+      status: 'not_pending'
+      householdId: string
+    }
+  | {
+      status: 'not_found'
+    }
+
 export interface PurchaseMessageIngestionRepository {
   hasClarificationContext(record: PurchaseTopicRecord): Promise<boolean>
   save(
@@ -135,6 +167,10 @@ export interface PurchaseMessageIngestionRepository {
     purchaseMessageId: string,
     actorTelegramUserId: string
   ): Promise<PurchaseProposalActionResult>
+  toggleParticipant(
+    participantId: string,
+    actorTelegramUserId: string
+  ): Promise<PurchaseProposalParticipantToggleResult>
 }
 
 interface PurchasePersistenceDecision {
@@ -149,8 +185,22 @@ interface PurchasePersistenceDecision {
   needsReview: boolean
 }
 
+interface StoredPurchaseParticipantRow {
+  id: string
+  purchaseMessageId: string
+  memberId: string
+  displayName: string
+  telegramUserId: string
+  included: boolean
+}
+
 const CLARIFICATION_CONTEXT_MAX_AGE_MS = 30 * 60_000
 const MAX_CLARIFICATION_CONTEXT_MESSAGES = 3
+
+function periodFromInstant(instant: Instant, timezone: string): string {
+  const localDate = instant.toZonedDateTimeISO(timezone).toPlainDate()
+  return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
+}
 
 function normalizeInterpretation(
   interpretation: PurchaseInterpretation | null,
@@ -224,6 +274,10 @@ function needsReviewAsInt(value: boolean): number {
   return value ? 1 : 0
 }
 
+function participantIncludedAsInt(value: boolean): number {
+  return value ? 1 : 0
+}
+
 function toStoredPurchaseRow(row: {
   id: string
   householdId: string
@@ -267,6 +321,17 @@ function toProposalFields(row: StoredPurchaseMessageRow): PurchaseProposalFields
     parserConfidence: row.parserConfidence,
     parserMode: row.parserMode
   }
+}
+
+function toProposalParticipants(
+  rows: readonly StoredPurchaseParticipantRow[]
+): readonly PurchaseProposalParticipant[] {
+  return rows.map((row) => ({
+    id: row.id,
+    memberId: row.memberId,
+    displayName: row.displayName,
+    included: row.included
+  }))
 }
 
 async function replyToPurchaseMessage(
@@ -529,6 +594,128 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     return row ? toStoredPurchaseRow(row) : null
   }
 
+  async function getStoredParticipants(
+    purchaseMessageId: string
+  ): Promise<readonly StoredPurchaseParticipantRow[]> {
+    const rows = await db
+      .select({
+        id: schema.purchaseMessageParticipants.id,
+        purchaseMessageId: schema.purchaseMessageParticipants.purchaseMessageId,
+        memberId: schema.purchaseMessageParticipants.memberId,
+        displayName: schema.members.displayName,
+        telegramUserId: schema.members.telegramUserId,
+        included: schema.purchaseMessageParticipants.included
+      })
+      .from(schema.purchaseMessageParticipants)
+      .innerJoin(schema.members, eq(schema.purchaseMessageParticipants.memberId, schema.members.id))
+      .where(eq(schema.purchaseMessageParticipants.purchaseMessageId, purchaseMessageId))
+
+    return rows.map((row) => ({
+      id: row.id,
+      purchaseMessageId: row.purchaseMessageId,
+      memberId: row.memberId,
+      displayName: row.displayName,
+      telegramUserId: row.telegramUserId,
+      included: row.included === 1
+    }))
+  }
+
+  async function defaultProposalParticipants(input: {
+    householdId: string
+    senderTelegramUserId: string
+    senderMemberId: string | null
+    messageSentAt: Instant
+  }): Promise<readonly { memberId: string; included: boolean }[]> {
+    const [members, settingsRows, policyRows] = await Promise.all([
+      db
+        .select({
+          id: schema.members.id,
+          telegramUserId: schema.members.telegramUserId,
+          lifecycleStatus: schema.members.lifecycleStatus
+        })
+        .from(schema.members)
+        .where(eq(schema.members.householdId, input.householdId)),
+      db
+        .select({
+          timezone: schema.householdBillingSettings.timezone
+        })
+        .from(schema.householdBillingSettings)
+        .where(eq(schema.householdBillingSettings.householdId, input.householdId))
+        .limit(1),
+      db
+        .select({
+          memberId: schema.memberAbsencePolicies.memberId,
+          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          policy: schema.memberAbsencePolicies.policy
+        })
+        .from(schema.memberAbsencePolicies)
+        .where(eq(schema.memberAbsencePolicies.householdId, input.householdId))
+    ])
+
+    const timezone = settingsRows[0]?.timezone ?? 'Asia/Tbilisi'
+    const period = periodFromInstant(input.messageSentAt, timezone)
+    const policyByMemberId = new Map<
+      string,
+      {
+        effectiveFromPeriod: string
+        policy: string
+      }
+    >()
+
+    for (const row of policyRows) {
+      if (row.effectiveFromPeriod.localeCompare(period) > 0) {
+        continue
+      }
+
+      const current = policyByMemberId.get(row.memberId)
+      if (!current || current.effectiveFromPeriod.localeCompare(row.effectiveFromPeriod) < 0) {
+        policyByMemberId.set(row.memberId, {
+          effectiveFromPeriod: row.effectiveFromPeriod,
+          policy: row.policy
+        })
+      }
+    }
+
+    const participants = members
+      .filter((member) => member.lifecycleStatus !== 'left')
+      .map((member) => {
+        const policy = policyByMemberId.get(member.id)?.policy ?? 'resident'
+        const included =
+          member.lifecycleStatus === 'away'
+            ? policy === 'resident'
+            : member.lifecycleStatus === 'active'
+
+        return {
+          memberId: member.id,
+          telegramUserId: member.telegramUserId,
+          included
+        }
+      })
+
+    if (participants.length === 0) {
+      return []
+    }
+
+    if (participants.some((participant) => participant.included)) {
+      return participants.map(({ memberId, included }) => ({
+        memberId,
+        included
+      }))
+    }
+
+    const fallbackParticipant =
+      participants.find((participant) => participant.memberId === input.senderMemberId) ??
+      participants.find(
+        (participant) => participant.telegramUserId === input.senderTelegramUserId
+      ) ??
+      participants[0]
+
+    return participants.map(({ memberId }) => ({
+      memberId,
+      included: memberId === fallbackParticipant?.memberId
+    }))
+  }
+
   async function mutateProposalStatus(
     purchaseMessageId: string,
     actorTelegramUserId: string,
@@ -725,7 +912,24 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parserConfidence: decision.parserConfidence,
             parserMode: decision.parserMode
           }
-        case 'pending_confirmation':
+        case 'pending_confirmation': {
+          const participants = await defaultProposalParticipants({
+            householdId: record.householdId,
+            senderTelegramUserId: record.senderTelegramUserId,
+            senderMemberId,
+            messageSentAt: record.messageSentAt
+          })
+
+          if (participants.length > 0) {
+            await db.insert(schema.purchaseMessageParticipants).values(
+              participants.map((participant) => ({
+                purchaseMessageId: insertedRow.id,
+                memberId: participant.memberId,
+                included: participantIncludedAsInt(participant.included)
+              }))
+            )
+          }
+
           return {
             status: 'pending_confirmation',
             purchaseMessageId: insertedRow.id,
@@ -733,8 +937,10 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedCurrency: decision.parsedCurrency!,
             parsedItemDescription: decision.parsedItemDescription!,
             parserConfidence: decision.parserConfidence ?? MIN_PROPOSAL_CONFIDENCE,
-            parserMode: decision.parserMode ?? 'llm'
+            parserMode: decision.parserMode ?? 'llm',
+            participants: toProposalParticipants(await getStoredParticipants(insertedRow.id))
           }
+        }
         case 'parse_failed':
           return {
             status: 'parse_failed',
@@ -749,6 +955,104 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
 
     async cancel(purchaseMessageId, actorTelegramUserId) {
       return mutateProposalStatus(purchaseMessageId, actorTelegramUserId, 'cancelled')
+    },
+
+    async toggleParticipant(participantId, actorTelegramUserId) {
+      const rows = await db
+        .select({
+          participantId: schema.purchaseMessageParticipants.id,
+          purchaseMessageId: schema.purchaseMessageParticipants.purchaseMessageId,
+          memberId: schema.purchaseMessageParticipants.memberId,
+          included: schema.purchaseMessageParticipants.included,
+          householdId: schema.purchaseMessages.householdId,
+          senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
+          parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
+          parsedCurrency: schema.purchaseMessages.parsedCurrency,
+          parsedItemDescription: schema.purchaseMessages.parsedItemDescription,
+          parserConfidence: schema.purchaseMessages.parserConfidence,
+          parserMode: schema.purchaseMessages.parserMode,
+          processingStatus: schema.purchaseMessages.processingStatus
+        })
+        .from(schema.purchaseMessageParticipants)
+        .innerJoin(
+          schema.purchaseMessages,
+          eq(schema.purchaseMessageParticipants.purchaseMessageId, schema.purchaseMessages.id)
+        )
+        .where(eq(schema.purchaseMessageParticipants.id, participantId))
+        .limit(1)
+
+      const existing = rows[0]
+      if (!existing) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (existing.processingStatus !== 'pending_confirmation') {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
+      }
+
+      const actorRows = await db
+        .select({
+          memberId: schema.members.id,
+          isAdmin: schema.members.isAdmin
+        })
+        .from(schema.members)
+        .where(
+          and(
+            eq(schema.members.householdId, existing.householdId),
+            eq(schema.members.telegramUserId, actorTelegramUserId)
+          )
+        )
+        .limit(1)
+
+      const actor = actorRows[0]
+      if (existing.senderTelegramUserId !== actorTelegramUserId && actor?.isAdmin !== 1) {
+        return {
+          status: 'forbidden',
+          householdId: existing.householdId
+        }
+      }
+
+      const currentParticipants = await getStoredParticipants(existing.purchaseMessageId)
+      const currentlyIncludedCount = currentParticipants.filter(
+        (participant) => participant.included
+      ).length
+
+      if (existing.included === 1 && currentlyIncludedCount <= 1) {
+        return {
+          status: 'at_least_one_required',
+          householdId: existing.householdId
+        }
+      }
+
+      await db
+        .update(schema.purchaseMessageParticipants)
+        .set({
+          included: existing.included === 1 ? 0 : 1,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.purchaseMessageParticipants.id, participantId))
+
+      return {
+        status: 'updated',
+        purchaseMessageId: existing.purchaseMessageId,
+        householdId: existing.householdId,
+        parsedAmountMinor: existing.parsedAmountMinor,
+        parsedCurrency:
+          existing.parsedCurrency === 'GEL' || existing.parsedCurrency === 'USD'
+            ? existing.parsedCurrency
+            : null,
+        parsedItemDescription: existing.parsedItemDescription,
+        parserConfidence: existing.parserConfidence,
+        parserMode: existing.parserMode === 'llm' ? 'llm' : null,
+        participants: toProposalParticipants(
+          await getStoredParticipants(existing.purchaseMessageId)
+        )
+      }
     }
   }
 
@@ -802,6 +1106,24 @@ function clarificationFallback(locale: BotLocale, result: PurchaseClarificationR
   return t.clarificationLowConfidence
 }
 
+function formatPurchaseParticipants(
+  locale: BotLocale,
+  participants: readonly PurchaseProposalParticipant[]
+): string | null {
+  if (participants.length === 0) {
+    return null
+  }
+
+  const t = getBotTranslations(locale).purchase
+  const lines = participants.map((participant) =>
+    participant.included
+      ? t.participantIncluded(participant.displayName)
+      : t.participantExcluded(participant.displayName)
+  )
+
+  return `${t.participantsHeading}\n${lines.join('\n')}`
+}
+
 export function buildPurchaseAcknowledgement(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale = 'en'
@@ -813,7 +1135,10 @@ export function buildPurchaseAcknowledgement(
     case 'ignored_not_purchase':
       return null
     case 'pending_confirmation':
-      return t.proposal(formatPurchaseSummary(locale, result))
+      return t.proposal(
+        formatPurchaseSummary(locale, result),
+        formatPurchaseParticipants(locale, result.participants)
+      )
     case 'clarification_needed':
       return t.clarification(result.clarificationQuestion ?? clarificationFallback(locale, result))
     case 'parse_failed':
@@ -821,11 +1146,23 @@ export function buildPurchaseAcknowledgement(
   }
 }
 
-function purchaseProposalReplyMarkup(locale: BotLocale, purchaseMessageId: string) {
+function purchaseProposalReplyMarkup(
+  locale: BotLocale,
+  purchaseMessageId: string,
+  participants: readonly PurchaseProposalParticipant[]
+) {
   const t = getBotTranslations(locale).purchase
 
   return {
     inline_keyboard: [
+      ...participants.map((participant) => [
+        {
+          text: participant.included
+            ? t.participantToggleIncluded(participant.displayName)
+            : t.participantToggleExcluded(participant.displayName),
+          callback_data: `${PURCHASE_PARTICIPANT_CALLBACK_PREFIX}${participant.id}`
+        }
+      ]),
       [
         {
           text: t.confirmButton,
@@ -883,7 +1220,7 @@ async function handlePurchaseMessageResult(
     pendingReply,
     acknowledgement,
     result.status === 'pending_confirmation'
-      ? purchaseProposalReplyMarkup(locale, result.purchaseMessageId)
+      ? purchaseProposalReplyMarkup(locale, result.purchaseMessageId, result.participants)
       : undefined
   )
 }
@@ -911,12 +1248,85 @@ function buildPurchaseActionMessage(
   return t.cancelled(summary)
 }
 
+function buildPurchaseToggleMessage(
+  locale: BotLocale,
+  result: Extract<PurchaseProposalParticipantToggleResult, { status: 'updated' }>
+): string {
+  return getBotTranslations(locale).purchase.proposal(
+    formatPurchaseSummary(locale, result),
+    formatPurchaseParticipants(locale, result.participants)
+  )
+}
+
 function registerPurchaseProposalCallbacks(
   bot: Bot,
   repository: PurchaseMessageIngestionRepository,
   resolveLocale: (householdId: string) => Promise<BotLocale>,
   logger?: Logger
 ): void {
+  bot.callbackQuery(new RegExp(`^${PURCHASE_PARTICIPANT_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
+    const participantId = ctx.match[1]
+    const actorTelegramUserId = ctx.from?.id?.toString()
+
+    if (!actorTelegramUserId || !participantId) {
+      await ctx.answerCallbackQuery({
+        text: getBotTranslations('en').purchase.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    const result = await repository.toggleParticipant(participantId, actorTelegramUserId)
+    const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
+    const t = getBotTranslations(locale).purchase
+
+    if (result.status === 'not_found' || result.status === 'not_pending') {
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    if (result.status === 'forbidden') {
+      await ctx.answerCallbackQuery({
+        text: t.notYourProposal,
+        show_alert: true
+      })
+      return
+    }
+
+    if (result.status === 'at_least_one_required') {
+      await ctx.answerCallbackQuery({
+        text: t.atLeastOneParticipant,
+        show_alert: true
+      })
+      return
+    }
+
+    await ctx.answerCallbackQuery()
+
+    if (ctx.msg) {
+      await ctx.editMessageText(buildPurchaseToggleMessage(locale, result), {
+        reply_markup: purchaseProposalReplyMarkup(
+          locale,
+          result.purchaseMessageId,
+          result.participants
+        )
+      })
+    }
+
+    logger?.info(
+      {
+        event: 'purchase.participant_toggled',
+        participantId,
+        purchaseMessageId: result.purchaseMessageId,
+        actorTelegramUserId
+      },
+      'Purchase proposal participant toggled'
+    )
+  })
+
   bot.callbackQuery(new RegExp(`^${PURCHASE_CONFIRM_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
     const purchaseMessageId = ctx.match[1]
     const actorTelegramUserId = ctx.from?.id?.toString()

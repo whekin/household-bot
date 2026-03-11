@@ -31,6 +31,23 @@ function candidate(overrides: Partial<PurchaseTopicCandidate> = {}): PurchaseTop
   }
 }
 
+function participants() {
+  return [
+    {
+      id: 'participant-1',
+      memberId: 'member-1',
+      displayName: 'Mia',
+      included: true
+    },
+    {
+      id: 'participant-2',
+      memberId: 'member-2',
+      displayName: 'Dima',
+      included: false
+    }
+  ] as const
+}
+
 function purchaseUpdate(text: string) {
   const commandToken = text.split(' ')[0] ?? text
 
@@ -180,12 +197,16 @@ describe('buildPurchaseAcknowledgement', () => {
       parsedCurrency: 'GEL',
       parsedItemDescription: 'toilet paper',
       parserConfidence: 92,
-      parserMode: 'llm'
+      parserMode: 'llm',
+      participants: participants()
     })
 
-    expect(result).toBe(
-      'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.'
-    )
+    expect(result).toBe(`I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`)
   })
 
   test('returns explicit clarification text from the interpreter', () => {
@@ -253,14 +274,18 @@ describe('buildPurchaseAcknowledgement', () => {
         parsedCurrency: 'GEL',
         parsedItemDescription: 'туалетная бумага',
         parserConfidence: 92,
-        parserMode: 'llm'
+        parserMode: 'llm',
+        participants: participants()
       },
       'ru'
     )
 
-    expect(result).toBe(
-      'Похоже, это общая покупка: туалетная бумага - 30.00 GEL. Подтвердите или отмените ниже.'
-    )
+    expect(result).toBe(`Похоже, это общая покупка: туалетная бумага - 30.00 GEL.
+
+Участники:
+- Mia
+- Dima (не участвует)
+Подтвердите или отмените ниже.`)
   })
 })
 
@@ -298,13 +323,17 @@ describe('registerPurchaseTopicIngestion', () => {
           parsedCurrency: 'GEL',
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm'
+          parserMode: 'llm',
+          participants: participants()
         }
       },
       async confirm() {
         throw new Error('not used')
       },
       async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
         throw new Error('not used')
       }
     }
@@ -319,9 +348,26 @@ describe('registerPurchaseTopicIngestion', () => {
       reply_parameters: {
         message_id: 55
       },
-      text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.',
+      text: `I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`,
       reply_markup: {
         inline_keyboard: [
+          [
+            {
+              text: '✅ Mia',
+              callback_data: 'purchase:participant:participant-1'
+            }
+          ],
+          [
+            {
+              text: '⬜ Dima',
+              callback_data: 'purchase:participant:participant-2'
+            }
+          ],
           [
             {
               text: 'Confirm',
@@ -379,6 +425,9 @@ describe('registerPurchaseTopicIngestion', () => {
       },
       async cancel() {
         throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
       }
     }
 
@@ -431,13 +480,17 @@ describe('registerPurchaseTopicIngestion', () => {
           parsedCurrency: 'GEL',
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm'
+          parserMode: 'llm',
+          participants: participants()
         }
       },
       async confirm() {
         throw new Error('not used')
       },
       async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
         throw new Error('not used')
       }
     }
@@ -480,9 +533,26 @@ describe('registerPurchaseTopicIngestion', () => {
       payload: {
         chat_id: Number(config.householdChatId),
         message_id: 2,
-        text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.',
+        text: `I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`,
         reply_markup: {
           inline_keyboard: [
+            [
+              {
+                text: '✅ Mia',
+                callback_data: 'purchase:participant:participant-1'
+              }
+            ],
+            [
+              {
+                text: '⬜ Dima',
+                callback_data: 'purchase:participant:participant-2'
+              }
+            ],
             [
               {
                 text: 'Confirm',
@@ -532,6 +602,9 @@ describe('registerPurchaseTopicIngestion', () => {
       },
       async cancel() {
         throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
       }
     }
 
@@ -571,6 +644,9 @@ describe('registerPurchaseTopicIngestion', () => {
       },
       async cancel() {
         throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
       }
     }
 
@@ -606,13 +682,17 @@ describe('registerPurchaseTopicIngestion', () => {
           parsedCurrency: 'GEL',
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm'
+          parserMode: 'llm',
+          participants: participants()
         }
       },
       async confirm() {
         throw new Error('not used')
       },
       async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
         throw new Error('not used')
       }
     }
@@ -626,7 +706,162 @@ describe('registerPurchaseTopicIngestion', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.'
+        text: `I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`
+      }
+    })
+  })
+
+  test('toggles purchase participants before confirmation', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        return {
+          status: 'updated' as const,
+          purchaseMessageId: 'proposal-1',
+          householdId: config.householdId,
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL' as const,
+          parsedItemDescription: 'toilet paper',
+          parserConfidence: 92,
+          parserMode: 'llm' as const,
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Mia',
+              included: true
+            },
+            {
+              id: 'participant-2',
+              memberId: 'member-2',
+              displayName: 'Dima',
+              included: true
+            }
+          ]
+        }
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(callbackUpdate('purchase:participant:participant-2') as never)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: `I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima
+Confirm or cancel below.`,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Mia',
+                callback_data: 'purchase:participant:participant-1'
+              }
+            ],
+            [
+              {
+                text: '✅ Dima',
+                callback_data: 'purchase:participant:participant-2'
+              }
+            ],
+            [
+              {
+                text: 'Confirm',
+                callback_data: 'purchase:confirm:proposal-1'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'purchase:cancel:proposal-1'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
+  test('blocks removing the last included participant', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        return {
+          status: 'at_least_one_required' as const,
+          householdId: config.householdId
+        }
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(callbackUpdate('purchase:participant:participant-1') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1',
+        text: 'Keep at least one participant in the purchase split.',
+        show_alert: true
       }
     })
   })
@@ -656,7 +891,8 @@ describe('registerPurchaseTopicIngestion', () => {
           parsedCurrency: 'GEL',
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm'
+          parserMode: 'llm',
+          participants: participants()
         }
       },
       async confirm() {
@@ -672,6 +908,9 @@ describe('registerPurchaseTopicIngestion', () => {
         }
       },
       async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
         throw new Error('not used')
       }
     }
@@ -734,6 +973,9 @@ describe('registerPurchaseTopicIngestion', () => {
       },
       async cancel() {
         throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
       }
     }
 
@@ -789,6 +1031,9 @@ describe('registerPurchaseTopicIngestion', () => {
           parserConfidence: 92,
           parserMode: 'llm' as const
         }
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
       }
     }
 

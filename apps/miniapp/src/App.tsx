@@ -84,6 +84,11 @@ type PurchaseDraft = {
   description: string
   amountMajor: string
   currency: 'USD' | 'GEL'
+  splitMode: 'equal' | 'custom_amounts'
+  participants: {
+    memberId: string
+    shareAmountMajor: string
+  }[]
 }
 
 type PaymentDraft = {
@@ -244,10 +249,34 @@ function purchaseDrafts(
         {
           description: entry.title,
           amountMajor: entry.amountMajor,
-          currency: entry.currency
+          currency: entry.currency,
+          splitMode: entry.purchaseSplitMode ?? 'equal',
+          participants:
+            entry.purchaseParticipants
+              ?.filter((participant) => participant.included)
+              .map((participant) => ({
+                memberId: participant.memberId,
+                shareAmountMajor: participant.shareAmountMajor ?? ''
+              })) ?? []
         }
       ])
   )
+}
+
+function purchaseDraftForEntry(entry: MiniAppDashboard['ledger'][number]): PurchaseDraft {
+  return {
+    description: entry.title,
+    amountMajor: entry.amountMajor,
+    currency: entry.currency,
+    splitMode: entry.purchaseSplitMode ?? 'equal',
+    participants:
+      entry.purchaseParticipants
+        ?.filter((participant) => participant.included)
+        .map((participant) => ({
+          memberId: participant.memberId,
+          shareAmountMajor: participant.shareAmountMajor ?? ''
+        })) ?? []
+  }
 }
 
 function paymentDrafts(
@@ -1086,7 +1115,10 @@ function App() {
       !currentReady.member.isAdmin ||
       !draft ||
       draft.description.trim().length === 0 ||
-      draft.amountMajor.trim().length === 0
+      draft.amountMajor.trim().length === 0 ||
+      draft.participants.length === 0 ||
+      (draft.splitMode === 'custom_amounts' &&
+        draft.participants.some((participant) => participant.shareAmountMajor.trim().length === 0))
     ) {
       return
     }
@@ -1098,7 +1130,25 @@ function App() {
         purchaseId,
         description: draft.description,
         amountMajor: draft.amountMajor,
-        currency: draft.currency
+        currency: draft.currency,
+        split: {
+          mode: draft.splitMode,
+          participants: (adminSettings()?.members ?? []).map((member) => {
+            const participant = draft.participants.find(
+              (currentParticipant) => currentParticipant.memberId === member.id
+            )
+
+            return {
+              memberId: member.id,
+              included: Boolean(participant),
+              ...(draft.splitMode === 'custom_amounts' && participant
+                ? {
+                    shareAmountMajor: participant.shareAmountMajor
+                  }
+                : {})
+            }
+          })
+        }
       })
       await refreshHouseholdData(initData, true)
     } finally {
@@ -1385,6 +1435,34 @@ function App() {
     }
   }
 
+  function purchaseSplitPreview(purchaseId: string): { memberId: string; amountMajor: string }[] {
+    const draft = purchaseDraftMap()[purchaseId]
+    if (!draft || draft.participants.length === 0) {
+      return []
+    }
+
+    if (draft.splitMode === 'custom_amounts') {
+      return draft.participants.map((participant) => ({
+        memberId: participant.memberId,
+        amountMajor: participant.shareAmountMajor
+      }))
+    }
+
+    const totalMinor = majorStringToMinor(draft.amountMajor)
+    const count = BigInt(draft.participants.length)
+    if (count <= 0n) {
+      return []
+    }
+
+    const base = totalMinor / count
+    const remainder = totalMinor % count
+
+    return draft.participants.map((participant, index) => ({
+      memberId: participant.memberId,
+      amountMajor: minorToMajorString(base + (BigInt(index) < remainder ? 1n : 0n))
+    }))
+  }
+
   const renderPanel = () => {
     switch (activeNav()) {
       case 'balances':
@@ -1521,11 +1599,7 @@ function App() {
                                         setPurchaseDraftMap((current) => ({
                                           ...current,
                                           [entry.id]: {
-                                            ...(current[entry.id] ?? {
-                                              description: entry.title,
-                                              amountMajor: entry.amountMajor,
-                                              currency: entry.currency
-                                            }),
+                                            ...(current[entry.id] ?? purchaseDraftForEntry(entry)),
                                             description: event.currentTarget.value
                                           }
                                         }))
@@ -1543,11 +1617,7 @@ function App() {
                                         setPurchaseDraftMap((current) => ({
                                           ...current,
                                           [entry.id]: {
-                                            ...(current[entry.id] ?? {
-                                              description: entry.title,
-                                              amountMajor: entry.amountMajor,
-                                              currency: entry.currency
-                                            }),
+                                            ...(current[entry.id] ?? purchaseDraftForEntry(entry)),
                                             amountMajor: event.currentTarget.value
                                           }
                                         }))
@@ -1564,11 +1634,7 @@ function App() {
                                         setPurchaseDraftMap((current) => ({
                                           ...current,
                                           [entry.id]: {
-                                            ...(current[entry.id] ?? {
-                                              description: entry.title,
-                                              amountMajor: entry.amountMajor,
-                                              currency: entry.currency
-                                            }),
+                                            ...(current[entry.id] ?? purchaseDraftForEntry(entry)),
                                             currency: event.currentTarget.value as 'USD' | 'GEL'
                                           }
                                         }))
@@ -1578,6 +1644,147 @@ function App() {
                                       <option value="USD">USD</option>
                                     </select>
                                   </label>
+                                </div>
+                                <div class="balance-item admin-card--wide">
+                                  <header>
+                                    <strong>{copy().purchaseSplitTitle}</strong>
+                                    <span>
+                                      {purchaseDraftMap()[entry.id]?.splitMode === 'custom_amounts'
+                                        ? copy().purchaseSplitCustom
+                                        : copy().purchaseSplitEqual}
+                                    </span>
+                                  </header>
+                                  <div class="settings-grid">
+                                    <label class="settings-field settings-field--wide">
+                                      <span>{copy().purchaseSplitModeLabel}</span>
+                                      <select
+                                        value={purchaseDraftMap()[entry.id]?.splitMode ?? 'equal'}
+                                        onChange={(event) =>
+                                          setPurchaseDraftMap((current) => ({
+                                            ...current,
+                                            [entry.id]: {
+                                              ...(current[entry.id] ??
+                                                purchaseDraftForEntry(entry)),
+                                              splitMode: event.currentTarget.value as
+                                                | 'equal'
+                                                | 'custom_amounts'
+                                            }
+                                          }))
+                                        }
+                                      >
+                                        <option value="equal">{copy().purchaseSplitEqual}</option>
+                                        <option value="custom_amounts">
+                                          {copy().purchaseSplitCustom}
+                                        </option>
+                                      </select>
+                                    </label>
+                                  </div>
+                                  <div class="balance-list admin-sublist">
+                                    {(adminSettings()?.members ?? []).map((member) => {
+                                      const draft =
+                                        purchaseDraftMap()[entry.id] ?? purchaseDraftForEntry(entry)
+                                      const included = draft.participants.some(
+                                        (participant) => participant.memberId === member.id
+                                      )
+
+                                      return (
+                                        <article class="utility-bill-row">
+                                          <header>
+                                            <strong>{member.displayName}</strong>
+                                            <span>
+                                              {purchaseSplitPreview(entry.id).find(
+                                                (participant) => participant.memberId === member.id
+                                              )?.amountMajor ?? '0.00'}{' '}
+                                              {draft.currency}
+                                            </span>
+                                          </header>
+                                          <div class="settings-grid">
+                                            <label class="settings-field settings-field--wide">
+                                              <span>{copy().purchaseParticipantLabel}</span>
+                                              <input
+                                                type="checkbox"
+                                                checked={included}
+                                                onChange={(event) =>
+                                                  setPurchaseDraftMap((current) => {
+                                                    const currentDraft =
+                                                      current[entry.id] ??
+                                                      purchaseDraftForEntry(entry)
+                                                    const nextParticipants = event.currentTarget
+                                                      .checked
+                                                      ? [
+                                                          ...currentDraft.participants.filter(
+                                                            (participant) =>
+                                                              participant.memberId !== member.id
+                                                          ),
+                                                          {
+                                                            memberId: member.id,
+                                                            shareAmountMajor: ''
+                                                          }
+                                                        ]
+                                                      : currentDraft.participants.filter(
+                                                          (participant) =>
+                                                            participant.memberId !== member.id
+                                                        )
+
+                                                    return {
+                                                      ...current,
+                                                      [entry.id]: {
+                                                        ...currentDraft,
+                                                        participants: nextParticipants
+                                                      }
+                                                    }
+                                                  })
+                                                }
+                                              />
+                                            </label>
+                                            <Show
+                                              when={
+                                                included &&
+                                                (purchaseDraftMap()[entry.id]?.splitMode ??
+                                                  'equal') === 'custom_amounts'
+                                              }
+                                            >
+                                              <label class="settings-field">
+                                                <span>{copy().purchaseCustomShareLabel}</span>
+                                                <input
+                                                  value={
+                                                    draft.participants.find(
+                                                      (participant) =>
+                                                        participant.memberId === member.id
+                                                    )?.shareAmountMajor ?? ''
+                                                  }
+                                                  onInput={(event) =>
+                                                    setPurchaseDraftMap((current) => {
+                                                      const currentDraft =
+                                                        current[entry.id] ??
+                                                        purchaseDraftForEntry(entry)
+                                                      return {
+                                                        ...current,
+                                                        [entry.id]: {
+                                                          ...currentDraft,
+                                                          participants:
+                                                            currentDraft.participants.map(
+                                                              (participant) =>
+                                                                participant.memberId === member.id
+                                                                  ? {
+                                                                      ...participant,
+                                                                      shareAmountMajor:
+                                                                        event.currentTarget.value
+                                                                    }
+                                                                  : participant
+                                                            )
+                                                        }
+                                                      }
+                                                    })
+                                                  }
+                                                />
+                                              </label>
+                                            </Show>
+                                          </div>
+                                        </article>
+                                      )
+                                    })}
+                                  </div>
                                 </div>
                                 <div class="inline-actions">
                                   <button

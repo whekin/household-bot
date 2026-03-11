@@ -397,7 +397,15 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedCurrency: 'GEL' as const,
           parsedItemDescription: 'door handle',
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Mia',
+              included: true
+            }
+          ]
         }
       }
 
@@ -433,7 +441,15 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedCurrency: 'GEL' as const,
           parsedItemDescription: 'sausages',
           parserConfidence: 88,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Mia',
+              included: true
+            }
+          ]
         }
       }
 
@@ -535,6 +551,9 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
         parserConfidence: 92,
         parserMode: 'llm' as const
       }
+    },
+    async toggleParticipant() {
+      throw new Error('not used')
     }
   }
 }
@@ -768,7 +787,8 @@ describe('registerDmAssistant', () => {
       method: 'sendMessage',
       payload: {
         chat_id: 123456,
-        text: 'I think this shared purchase was: door handle - 30.00 GEL. Confirm or cancel below.',
+        text: `I think this shared purchase was: door handle - 30.00 GEL.
+Confirm or cancel below.`,
         reply_markup: {
           inline_keyboard: [
             [
@@ -830,7 +850,8 @@ describe('registerDmAssistant', () => {
       method: 'sendMessage',
       payload: {
         chat_id: 123456,
-        text: 'I think this shared purchase was: sausages - 45.00 GEL. Confirm or cancel below.',
+        text: `I think this shared purchase was: sausages - 45.00 GEL.
+Confirm or cancel below.`,
         reply_markup: {
           inline_keyboard: [
             [

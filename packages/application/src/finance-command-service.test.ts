@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { instantFromIso, type Instant } from '@household/domain'
+import { instantFromIso, Money, type Instant } from '@household/domain'
 import type {
   ExchangeRateProvider,
   FinanceCycleExchangeRateRecord,
@@ -60,6 +60,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   } | null = null
   replacedSnapshot: SettlementSnapshotRecord | null = null
   cycleExchangeRates = new Map<string, FinanceCycleExchangeRateRecord>()
+  lastUpdatedPurchaseInput: Parameters<FinanceRepository['updateParsedPurchase']>[0] | null = null
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
@@ -138,8 +139,23 @@ class FinanceRepositoryStub implements FinanceRepository {
     return false
   }
 
-  async updateParsedPurchase() {
-    return null
+  async updateParsedPurchase(input) {
+    this.lastUpdatedPurchaseInput = input
+    return {
+      id: input.purchaseId,
+      payerMemberId: 'alice',
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      description: input.description,
+      occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+      splitMode: input.splitMode ?? 'equal',
+      participants: input.participants?.map((participant, index) => ({
+        id: `participant-${index + 1}`,
+        memberId: participant.memberId,
+        included: participant.included !== false,
+        shareAmountMinor: participant.shareAmountMinor
+      }))
+    }
   }
 
   async deleteParsedPurchase() {
@@ -601,6 +617,135 @@ describe('createFinanceCommandService', () => {
       { memberId: 'alice', utility: 6000n, purchaseOffset: -1500n },
       { memberId: 'bob', utility: 6000n, purchaseOffset: 1500n },
       { memberId: 'carol', utility: 0n, purchaseOffset: 0n }
+    ])
+  })
+
+  test('updatePurchase persists explicit participant splits', async () => {
+    const repository = new FinanceRepositoryStub()
+    const service = createService(repository)
+
+    const result = await service.updatePurchase('purchase-1', 'Kitchen towels', '30.00', 'GEL', {
+      mode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'alice',
+          shareAmountMajor: '20.00'
+        },
+        {
+          memberId: 'bob',
+          shareAmountMajor: '10.00'
+        }
+      ]
+    })
+
+    expect(result).toMatchObject({
+      purchaseId: 'purchase-1',
+      currency: 'GEL'
+    })
+    expect(repository.lastUpdatedPurchaseInput).toEqual({
+      purchaseId: 'purchase-1',
+      amountMinor: 3000n,
+      currency: 'GEL',
+      description: 'Kitchen towels',
+      splitMode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'alice',
+          shareAmountMinor: 2000n
+        },
+        {
+          memberId: 'bob',
+          shareAmountMinor: 1000n
+        }
+      ]
+    })
+  })
+
+  test('generateDashboard exposes purchase participant splits in the ledger', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'carol',
+        telegramUserId: '3',
+        displayName: 'Carol',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 90000n,
+      currency: 'GEL'
+    }
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Kettle',
+        occurredAt: instantFromIso('2026-03-10T12:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 2000n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1000n
+          },
+          {
+            memberId: 'carol',
+            included: false,
+            shareAmountMinor: null
+          }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+    const purchaseEntry = dashboard?.ledger.find((entry) => entry.id === 'purchase-1')
+
+    expect(purchaseEntry?.kind).toBe('purchase')
+    expect(purchaseEntry?.purchaseSplitMode).toBe('custom_amounts')
+    expect(purchaseEntry?.purchaseParticipants).toEqual([
+      {
+        memberId: 'alice',
+        included: true,
+        shareAmount: Money.fromMinor(2000n, 'GEL')
+      },
+      {
+        memberId: 'bob',
+        included: true,
+        shareAmount: Money.fromMinor(1000n, 'GEL')
+      },
+      {
+        memberId: 'carol',
+        included: false,
+        shareAmount: null
+      }
     ])
   })
 })

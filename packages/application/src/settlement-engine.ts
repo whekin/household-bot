@@ -91,6 +91,37 @@ function purchaseParticipants(
   return participants
 }
 
+function purchaseParticipantMembers(
+  activeMembers: readonly SettlementMemberInput[],
+  purchase: SettlementInput['purchases'][number]
+): readonly SettlementMemberInput[] {
+  if (!purchase.participants || purchase.participants.length === 0) {
+    return purchaseParticipants(activeMembers, purchase.amount)
+  }
+
+  const membersById = new Map(activeMembers.map((member) => [member.memberId.toString(), member]))
+  const participants = purchase.participants.map((participant) => {
+    const matched = membersById.get(participant.memberId.toString())
+    if (!matched) {
+      throw new DomainError(
+        DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+        `Purchase participant is not an active member: ${participant.memberId.toString()}`
+      )
+    }
+
+    return matched
+  })
+
+  if (participants.length === 0 && purchase.amount.amountMinor > 0n) {
+    throw new DomainError(
+      DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+      'Settlement must include at least one purchase participant when purchases are present'
+    )
+  }
+
+  return participants
+}
+
 function ensureNonNegativeMoney(label: string, value: Money): void {
   if (value.isNegative()) {
     throw new DomainError(
@@ -227,7 +258,42 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
 
     payer.purchasePaid = payer.purchasePaid.add(purchase.amount)
 
-    const participants = purchaseParticipants(activeMembers, purchase.amount)
+    const participants = purchaseParticipantMembers(activeMembers, purchase)
+    const explicitShareAmounts = purchase.participants?.map(
+      (participant) => participant.shareAmount
+    )
+
+    if (explicitShareAmounts && explicitShareAmounts.some((amount) => amount !== undefined)) {
+      if (explicitShareAmounts.some((amount) => amount === undefined)) {
+        throw new DomainError(
+          DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+          `Purchase custom split must include explicit share amounts for every participant: ${purchase.purchaseId.toString()}`
+        )
+      }
+
+      const shares = explicitShareAmounts as readonly Money[]
+      const shareTotal = sumMoney(shares, currency)
+      if (!shareTotal.equals(purchase.amount)) {
+        throw new DomainError(
+          DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+          `Purchase custom split must add up to the full amount: ${purchase.purchaseId.toString()}`
+        )
+      }
+
+      for (const [index, member] of participants.entries()) {
+        const state = membersById.get(member.memberId.toString())
+        if (!state) {
+          continue
+        }
+
+        state.purchaseSharedCost = state.purchaseSharedCost.add(
+          shares[index] ?? Money.zero(currency)
+        )
+      }
+
+      continue
+    }
+
     const purchaseShares = purchase.amount.splitEvenly(participants.length)
     for (const [index, member] of participants.entries()) {
       const state = membersById.get(member.memberId.toString())

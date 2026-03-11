@@ -120,6 +120,12 @@ export interface MiniAppDashboard {
     fxEffectiveDate: string | null
     actorDisplayName: string | null
     occurredAt: string | null
+    purchaseSplitMode?: 'equal' | 'custom_amounts'
+    purchaseParticipants?: readonly {
+      memberId: string
+      included: boolean
+      shareAmountMajor: string | null
+    }[]
   }[]
 }
 
@@ -820,6 +826,14 @@ export async function updateMiniAppPurchase(
     description: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    split?: {
+      mode: 'equal' | 'custom_amounts'
+      participants: readonly {
+        memberId: string
+        included?: boolean
+        shareAmountMajor?: string
+      }[]
+    }
   }
 ): Promise<void> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/update`, {

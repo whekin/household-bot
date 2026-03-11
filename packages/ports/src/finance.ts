@@ -35,6 +35,13 @@ export interface FinanceParsedPurchaseRecord {
   currency: CurrencyCode
   description: string | null
   occurredAt: Instant | null
+  splitMode?: 'equal' | 'custom_amounts'
+  participants?: readonly {
+    id?: string
+    memberId: string
+    included?: boolean
+    shareAmountMinor: bigint | null
+  }[]
 }
 
 export interface FinanceUtilityBillRecord {
@@ -170,6 +177,12 @@ export interface FinanceRepository {
     amountMinor: bigint
     currency: CurrencyCode
     description: string | null
+    splitMode?: 'equal' | 'custom_amounts'
+    participants?: readonly {
+      memberId: string
+      included?: boolean
+      shareAmountMinor: bigint | null
+    }[]
   }): Promise<FinanceParsedPurchaseRecord | null>
   deleteParsedPurchase(purchaseId: string): Promise<boolean>
   updateUtilityBill(input: {

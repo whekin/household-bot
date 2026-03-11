@@ -22,5 +22,6 @@ export type {
   SettlementMemberLine,
   SettlementPurchaseInput,
   SettlementResult,
+  PurchaseSplitMode,
   UtilitySplitMode
 } from './settlement-primitives'

@@ -3,6 +3,7 @@ import type { BillingCycleId, MemberId, PurchaseEntryId } from './ids'
 import type { Money } from './money'
 
 export type UtilitySplitMode = 'equal' | 'weighted_by_days'
+export type PurchaseSplitMode = 'equal' | 'custom_amounts'
 
 export interface SettlementMemberInput {
   memberId: MemberId
@@ -19,6 +20,11 @@ export interface SettlementPurchaseInput {
   payerId: MemberId
   amount: Money
   description?: string
+  splitMode?: PurchaseSplitMode
+  participants?: readonly {
+    memberId: MemberId
+    shareAmount?: Money
+  }[]
 }
 
 export interface SettlementInput {

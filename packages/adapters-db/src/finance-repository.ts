@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import type { FinanceRepository } from '@household/ports'
@@ -30,6 +30,49 @@ export function createDbFinanceRepository(
     max: 5,
     prepare: false
   })
+
+  async function loadPurchaseParticipants(purchaseIds: readonly string[]): Promise<
+    ReadonlyMap<
+      string,
+      readonly {
+        id: string
+        memberId: string
+        shareAmountMinor: bigint | null
+      }[]
+    >
+  > {
+    if (purchaseIds.length === 0) {
+      return new Map()
+    }
+
+    const rows = await db
+      .select({
+        id: schema.purchaseMessageParticipants.id,
+        purchaseMessageId: schema.purchaseMessageParticipants.purchaseMessageId,
+        memberId: schema.purchaseMessageParticipants.memberId,
+        included: schema.purchaseMessageParticipants.included,
+        shareAmountMinor: schema.purchaseMessageParticipants.shareAmountMinor
+      })
+      .from(schema.purchaseMessageParticipants)
+      .where(inArray(schema.purchaseMessageParticipants.purchaseMessageId, [...purchaseIds]))
+
+    const grouped = new Map<
+      string,
+      { id: string; memberId: string; included: boolean; shareAmountMinor: bigint | null }[]
+    >()
+    for (const row of rows) {
+      const current = grouped.get(row.purchaseMessageId) ?? []
+      current.push({
+        id: row.id,
+        memberId: row.memberId,
+        included: row.included === 1,
+        shareAmountMinor: row.shareAmountMinor
+      })
+      grouped.set(row.purchaseMessageId, current)
+    }
+
+    return grouped
+  }
 
   const repository: FinanceRepository = {
     async getMemberByTelegramUserId(telegramUserId) {
@@ -297,44 +340,86 @@ export function createDbFinanceRepository(
     },
 
     async updateParsedPurchase(input) {
-      const rows = await db
-        .update(schema.purchaseMessages)
-        .set({
-          parsedAmountMinor: input.amountMinor,
-          parsedCurrency: input.currency,
-          parsedItemDescription: input.description,
-          needsReview: 0,
-          processingStatus: 'confirmed',
-          parserError: null
-        })
-        .where(
-          and(
-            eq(schema.purchaseMessages.householdId, householdId),
-            eq(schema.purchaseMessages.id, input.purchaseId)
+      return await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(schema.purchaseMessages)
+          .set({
+            parsedAmountMinor: input.amountMinor,
+            parsedCurrency: input.currency,
+            parsedItemDescription: input.description,
+            ...(input.splitMode
+              ? {
+                  participantSplitMode: input.splitMode
+                }
+              : {}),
+            needsReview: 0,
+            processingStatus: 'confirmed',
+            parserError: null
+          })
+          .where(
+            and(
+              eq(schema.purchaseMessages.householdId, householdId),
+              eq(schema.purchaseMessages.id, input.purchaseId)
+            )
           )
-        )
-        .returning({
-          id: schema.purchaseMessages.id,
-          payerMemberId: schema.purchaseMessages.senderMemberId,
-          amountMinor: schema.purchaseMessages.parsedAmountMinor,
-          currency: schema.purchaseMessages.parsedCurrency,
-          description: schema.purchaseMessages.parsedItemDescription,
-          occurredAt: schema.purchaseMessages.messageSentAt
-        })
+          .returning({
+            id: schema.purchaseMessages.id,
+            payerMemberId: schema.purchaseMessages.senderMemberId,
+            amountMinor: schema.purchaseMessages.parsedAmountMinor,
+            currency: schema.purchaseMessages.parsedCurrency,
+            description: schema.purchaseMessages.parsedItemDescription,
+            occurredAt: schema.purchaseMessages.messageSentAt,
+            splitMode: schema.purchaseMessages.participantSplitMode
+          })
 
-      const row = rows[0]
-      if (!row || !row.payerMemberId || row.amountMinor == null || row.currency == null) {
-        return null
-      }
+        const row = rows[0]
+        if (!row || !row.payerMemberId || row.amountMinor == null || row.currency == null) {
+          return null
+        }
 
-      return {
-        id: row.id,
-        payerMemberId: row.payerMemberId,
-        amountMinor: row.amountMinor,
-        currency: toCurrencyCode(row.currency),
-        description: row.description,
-        occurredAt: instantFromDatabaseValue(row.occurredAt)
-      }
+        if (input.participants) {
+          await tx
+            .delete(schema.purchaseMessageParticipants)
+            .where(eq(schema.purchaseMessageParticipants.purchaseMessageId, input.purchaseId))
+
+          if (input.participants.length > 0) {
+            await tx.insert(schema.purchaseMessageParticipants).values(
+              input.participants.map((participant) => ({
+                purchaseMessageId: input.purchaseId,
+                memberId: participant.memberId,
+                included: participant.included === false ? 0 : 1,
+                shareAmountMinor: participant.shareAmountMinor
+              }))
+            )
+          }
+        }
+
+        const participants = await tx
+          .select({
+            id: schema.purchaseMessageParticipants.id,
+            memberId: schema.purchaseMessageParticipants.memberId,
+            included: schema.purchaseMessageParticipants.included,
+            shareAmountMinor: schema.purchaseMessageParticipants.shareAmountMinor
+          })
+          .from(schema.purchaseMessageParticipants)
+          .where(eq(schema.purchaseMessageParticipants.purchaseMessageId, input.purchaseId))
+
+        return {
+          id: row.id,
+          payerMemberId: row.payerMemberId,
+          amountMinor: row.amountMinor,
+          currency: toCurrencyCode(row.currency),
+          description: row.description,
+          occurredAt: instantFromDatabaseValue(row.occurredAt),
+          splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
+          participants: participants.map((participant) => ({
+            id: participant.id,
+            memberId: participant.memberId,
+            included: participant.included === 1,
+            shareAmountMinor: participant.shareAmountMinor
+          }))
+        }
+      })
     },
 
     async deleteParsedPurchase(purchaseId) {
@@ -588,7 +673,8 @@ export function createDbFinanceRepository(
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
           description: schema.purchaseMessages.parsedItemDescription,
-          occurredAt: schema.purchaseMessages.messageSentAt
+          occurredAt: schema.purchaseMessages.messageSentAt,
+          splitMode: schema.purchaseMessages.participantSplitMode
         })
         .from(schema.purchaseMessages)
         .where(
@@ -606,13 +692,17 @@ export function createDbFinanceRepository(
           )
         )
 
+      const participantsByPurchaseId = await loadPurchaseParticipants(rows.map((row) => row.id))
+
       return rows.map((row) => ({
         id: row.id,
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
         currency: toCurrencyCode(row.currency!),
         description: row.description,
-        occurredAt: instantFromDatabaseValue(row.occurredAt)
+        occurredAt: instantFromDatabaseValue(row.occurredAt),
+        splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
+        participants: participantsByPurchaseId.get(row.id) ?? []
       }))
     },
 

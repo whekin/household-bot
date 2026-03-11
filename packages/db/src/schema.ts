@@ -422,6 +422,7 @@ export const purchaseMessages = pgTable(
     parsedAmountMinor: bigint('parsed_amount_minor', { mode: 'bigint' }),
     parsedCurrency: text('parsed_currency'),
     parsedItemDescription: text('parsed_item_description'),
+    participantSplitMode: text('participant_split_mode').default('equal').notNull(),
     parserMode: text('parser_mode'),
     parserConfidence: integer('parser_confidence'),
     needsReview: integer('needs_review').default(1).notNull(),
@@ -444,6 +445,31 @@ export const purchaseMessages = pgTable(
       table.householdId,
       table.telegramUpdateId
     )
+  })
+)
+
+export const purchaseMessageParticipants = pgTable(
+  'purchase_message_participants',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    purchaseMessageId: uuid('purchase_message_id')
+      .notNull()
+      .references(() => purchaseMessages.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    included: integer('included').default(1).notNull(),
+    shareAmountMinor: bigint('share_amount_minor', { mode: 'bigint' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    purchaseMemberUnique: uniqueIndex('purchase_message_participants_purchase_member_unique').on(
+      table.purchaseMessageId,
+      table.memberId
+    ),
+    purchaseIdx: index('purchase_message_participants_purchase_idx').on(table.purchaseMessageId),
+    memberIdx: index('purchase_message_participants_member_idx').on(table.memberId)
   })
 )
 

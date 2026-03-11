@@ -129,6 +129,12 @@ export interface FinanceDashboardLedgerEntry {
   actorDisplayName: string | null
   occurredAt: string | null
   paymentKind: FinancePaymentKind | null
+  purchaseSplitMode?: 'equal' | 'custom_amounts'
+  purchaseParticipants?: readonly {
+    memberId: string
+    included: boolean
+    shareAmount: Money | null
+  }[]
 }
 
 export interface FinanceDashboard {
@@ -380,11 +386,41 @@ async function buildFinanceDashboard(
       participatesInPurchases: member.status === 'active',
       rentWeight: member.rentShareWeight
     })),
-    purchases: convertedPurchases.map(({ purchase, converted }) => ({
-      purchaseId: PurchaseEntryId.from(purchase.id),
-      payerId: MemberId.from(purchase.payerMemberId),
-      amount: converted.settlementAmount
-    }))
+    purchases: convertedPurchases.map(({ purchase, converted }) => {
+      const nextPurchase: {
+        purchaseId: PurchaseEntryId
+        payerId: MemberId
+        amount: Money
+        splitMode: 'equal' | 'custom_amounts'
+        participants?: {
+          memberId: MemberId
+          shareAmount?: Money
+        }[]
+      } = {
+        purchaseId: PurchaseEntryId.from(purchase.id),
+        payerId: MemberId.from(purchase.payerMemberId),
+        amount: converted.settlementAmount,
+        splitMode: purchase.splitMode ?? 'equal'
+      }
+
+      if (purchase.participants) {
+        nextPurchase.participants = purchase.participants
+          .filter((participant) => participant.included !== false)
+          .map((participant) => ({
+            memberId: MemberId.from(participant.memberId),
+            ...(participant.shareAmountMinor !== null
+              ? {
+                  shareAmount: Money.fromMinor(
+                    participant.shareAmountMinor,
+                    converted.settlementAmount.currency
+                  )
+                }
+              : {})
+          }))
+      }
+
+      return nextPurchase
+    })
   })
 
   await dependencies.repository.replaceSettlementSnapshot({
@@ -465,21 +501,37 @@ async function buildFinanceDashboard(
       occurredAt: bill.createdAt.toString(),
       paymentKind: null
     })),
-    ...convertedPurchases.map(({ purchase, converted }) => ({
-      id: purchase.id,
-      kind: 'purchase' as const,
-      title: purchase.description ?? 'Shared purchase',
-      memberId: purchase.payerMemberId,
-      amount: converted.originalAmount,
-      currency: purchase.currency,
-      displayAmount: converted.settlementAmount,
-      displayCurrency: cycle.currency,
-      fxRateMicros: converted.fxRateMicros,
-      fxEffectiveDate: converted.fxEffectiveDate,
-      actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
-      occurredAt: purchase.occurredAt?.toString() ?? null,
-      paymentKind: null
-    })),
+    ...convertedPurchases.map(({ purchase, converted }) => {
+      const entry: FinanceDashboardLedgerEntry = {
+        id: purchase.id,
+        kind: 'purchase',
+        title: purchase.description ?? 'Shared purchase',
+        memberId: purchase.payerMemberId,
+        amount: converted.originalAmount,
+        currency: purchase.currency,
+        displayAmount: converted.settlementAmount,
+        displayCurrency: cycle.currency,
+        fxRateMicros: converted.fxRateMicros,
+        fxEffectiveDate: converted.fxEffectiveDate,
+        actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
+        occurredAt: purchase.occurredAt?.toString() ?? null,
+        paymentKind: null,
+        purchaseSplitMode: purchase.splitMode ?? 'equal'
+      }
+
+      if (purchase.participants) {
+        entry.purchaseParticipants = purchase.participants.map((participant) => ({
+          memberId: participant.memberId,
+          included: participant.included !== false,
+          shareAmount:
+            participant.shareAmountMinor !== null
+              ? Money.fromMinor(participant.shareAmountMinor, converted.settlementAmount.currency)
+              : null
+        }))
+      }
+
+      return entry
+    }),
     ...paymentRecords.map((payment) => ({
       id: payment.id,
       kind: 'payment' as const,
@@ -565,7 +617,14 @@ export interface FinanceCommandService {
     purchaseId: string,
     description: string,
     amountArg: string,
-    currencyArg?: string
+    currencyArg?: string,
+    split?: {
+      mode: 'equal' | 'custom_amounts'
+      participants: readonly {
+        memberId: string
+        shareAmountMajor?: string
+      }[]
+    }
   ): Promise<{
     purchaseId: string
     amount: Money
@@ -782,7 +841,7 @@ export function createFinanceCommandService(
       return repository.deleteUtilityBill(billId)
     },
 
-    async updatePurchase(purchaseId, description, amountArg, currencyArg) {
+    async updatePurchase(purchaseId, description, amountArg, currencyArg, split) {
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
@@ -792,7 +851,19 @@ export function createFinanceCommandService(
         purchaseId,
         amountMinor: amount.amountMinor,
         currency,
-        description: description.trim().length > 0 ? description.trim() : null
+        description: description.trim().length > 0 ? description.trim() : null,
+        ...(split
+          ? {
+              splitMode: split.mode,
+              participants: split.participants.map((participant) => ({
+                memberId: participant.memberId,
+                shareAmountMinor:
+                  participant.shareAmountMajor !== undefined
+                    ? Money.fromMajor(participant.shareAmountMajor, currency).amountMinor
+                    : null
+              }))
+            }
+          : {})
       })
 
       if (!updated) {

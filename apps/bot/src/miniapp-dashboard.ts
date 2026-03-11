@@ -120,7 +120,18 @@ export function createMiniAppDashboardHandler(options: {
                 fxRateMicros: entry.fxRateMicros?.toString() ?? null,
                 fxEffectiveDate: entry.fxEffectiveDate,
                 actorDisplayName: entry.actorDisplayName,
-                occurredAt: entry.occurredAt
+                occurredAt: entry.occurredAt,
+                ...(entry.kind === 'purchase'
+                  ? {
+                      purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
+                      purchaseParticipants:
+                        entry.purchaseParticipants?.map((participant) => ({
+                          memberId: participant.memberId,
+                          included: participant.included,
+                          shareAmountMajor: participant.shareAmount?.toMajorString() ?? null
+                        })) ?? []
+                    }
+                  : {})
               }))
             }
           },

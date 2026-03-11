@@ -235,7 +235,8 @@ export const enBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     processing: 'Checking that purchase...',
-    proposal: (summary) => `I think this shared purchase was: ${summary}. Confirm or cancel below.`,
+    proposal: (summary, participants) =>
+      `I think this shared purchase was: ${summary}.${participants ? `\n\n${participants}` : ''}\nConfirm or cancel below.`,
     clarification: (question) => question,
     clarificationMissingAmountAndCurrency:
       'What amount and currency should I record for this shared purchase?',
@@ -244,6 +245,11 @@ export const enBotTranslations: BotTranslationCatalog = {
     clarificationMissingItem: 'What exactly was purchased?',
     clarificationLowConfidence:
       'I am not confident I understood this. Please restate the shared purchase with item, amount, and currency.',
+    participantsHeading: 'Participants:',
+    participantIncluded: (displayName) => `- ${displayName}`,
+    participantExcluded: (displayName) => `- ${displayName} (excluded)`,
+    participantToggleIncluded: (displayName) => `✅ ${displayName}`,
+    participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
     confirmButton: 'Confirm',
     cancelButton: 'Cancel',
     confirmed: (summary) => `Purchase confirmed: ${summary}`,
@@ -252,6 +258,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     cancelledToast: 'Purchase cancelled.',
     alreadyConfirmed: 'This purchase was already confirmed.',
     alreadyCancelled: 'This purchase was already cancelled.',
+    atLeastOneParticipant: 'Keep at least one participant in the purchase split.',
     notYourProposal: 'Only the original sender can confirm or cancel this purchase.',
     proposalUnavailable: 'This purchase proposal is no longer available.',
     parseFailed:
