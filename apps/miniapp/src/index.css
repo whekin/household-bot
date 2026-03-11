@@ -856,6 +856,21 @@ button {
   margin-top: 2px;
 }
 
+.member-editor-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.member-editor-actions__close,
+.member-editor-actions__button {
+  width: 100%;
+}
+
+.member-editor-actions__grid {
+  display: grid;
+  gap: 10px;
+}
+
 .modal-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -962,6 +977,10 @@ button {
   }
 
   .editor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .member-editor-actions__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

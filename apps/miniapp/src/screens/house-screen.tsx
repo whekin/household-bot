@@ -73,10 +73,7 @@ type Props = {
   deletingUtilityBillId: string | null
   savingCategorySlug: string | null
   approvingTelegramUserId: string | null
-  savingMemberDisplayNameId: string | null
-  savingMemberStatusId: string | null
-  savingMemberAbsencePolicyId: string | null
-  savingRentWeightMemberId: string | null
+  savingMemberEditorId: string | null
   promotingMemberId: string | null
   savingHouseholdLocale: boolean
   minorToMajorString: (value: bigint) => string
@@ -149,10 +146,7 @@ type Props = {
   onMemberStatusDraftChange: (memberId: string, value: 'active' | 'away' | 'left') => void
   onMemberAbsencePolicyDraftChange: (memberId: string, value: MiniAppMemberAbsencePolicy) => void
   onRentWeightDraftChange: (memberId: string, value: string) => void
-  onSaveMemberDisplayName: (memberId: string) => Promise<void>
-  onSaveMemberStatus: (memberId: string) => Promise<void>
-  onSaveMemberAbsencePolicy: (memberId: string) => Promise<void>
-  onSaveRentWeight: (memberId: string) => Promise<void>
+  onSaveMemberChanges: (memberId: string) => Promise<void>
   onPromoteMember: (memberId: string) => Promise<void>
 }
 
@@ -967,63 +961,50 @@ export function HouseScreen(props: Props) {
                 return null
               }
 
+              const nextDisplayName =
+                props.memberDisplayNameDrafts[member.id]?.trim() ?? member.displayName
+              const nextStatus = props.memberStatusDrafts[member.id] ?? member.status
+              const currentPolicy = props.resolvedMemberAbsencePolicy(member.id, member.status)
+              const nextPolicy = props.memberAbsencePolicyDrafts[member.id] ?? currentPolicy.policy
+              const nextWeight = Number(
+                props.rentWeightDrafts[member.id] ?? String(member.rentShareWeight)
+              )
+              const hasNameChange =
+                nextDisplayName.length >= 2 && nextDisplayName !== member.displayName
+              const hasStatusChange = nextStatus !== member.status
+              const hasPolicyChange = nextStatus === 'away' && nextPolicy !== currentPolicy.policy
+              const hasWeightChange =
+                Number.isInteger(nextWeight) &&
+                nextWeight > 0 &&
+                nextWeight !== member.rentShareWeight
+              const canSave =
+                props.savingMemberEditorId !== member.id &&
+                (hasNameChange || hasStatusChange || hasPolicyChange || hasWeightChange)
+
               return (
-                <div class="modal-action-row">
-                  <div class="modal-action-row__primary">
-                    <Button variant="ghost" onClick={props.onCloseMemberEditor}>
-                      {props.copy.closeEditorAction ?? ''}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={
-                        props.savingMemberDisplayNameId === member.id ||
-                        (props.memberDisplayNameDrafts[member.id] ?? member.displayName).trim()
-                          .length < 2 ||
-                        (props.memberDisplayNameDrafts[member.id] ?? member.displayName).trim() ===
-                          member.displayName
-                      }
-                      onClick={() => void props.onSaveMemberDisplayName(member.id)}
-                    >
-                      {props.savingMemberDisplayNameId === member.id
-                        ? props.copy.savingDisplayName
-                        : props.copy.saveDisplayName}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={props.savingMemberStatusId === member.id}
-                      onClick={() => void props.onSaveMemberStatus(member.id)}
-                    >
-                      {props.savingMemberStatusId === member.id
-                        ? props.copy.savingMemberStatus
-                        : props.copy.saveMemberStatusAction}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={
-                        props.savingMemberAbsencePolicyId === member.id ||
-                        (props.memberStatusDrafts[member.id] ?? member.status) !== 'away'
-                      }
-                      onClick={() => void props.onSaveMemberAbsencePolicy(member.id)}
-                    >
-                      {props.savingMemberAbsencePolicyId === member.id
-                        ? props.copy.savingAbsencePolicy
-                        : props.copy.saveAbsencePolicyAction}
-                    </Button>
+                <div class="member-editor-actions">
+                  <Button
+                    variant="ghost"
+                    class="member-editor-actions__close"
+                    onClick={props.onCloseMemberEditor}
+                  >
+                    {props.copy.closeEditorAction ?? ''}
+                  </Button>
+                  <div class="member-editor-actions__grid">
                     <Button
                       variant="primary"
-                      disabled={
-                        props.savingRentWeightMemberId === member.id ||
-                        Number(props.rentWeightDrafts[member.id] ?? member.rentShareWeight) <= 0
-                      }
-                      onClick={() => void props.onSaveRentWeight(member.id)}
+                      class="member-editor-actions__button"
+                      disabled={!canSave}
+                      onClick={() => void props.onSaveMemberChanges(member.id)}
                     >
-                      {props.savingRentWeightMemberId === member.id
-                        ? props.copy.savingRentWeight
-                        : props.copy.saveRentWeightAction}
+                      {props.savingMemberEditorId === member.id
+                        ? props.copy.savingSettings
+                        : props.copy.saveMemberChangesAction}
                     </Button>
                     <Show when={!member.isAdmin}>
                       <Button
-                        variant="ghost"
+                        variant="secondary"
+                        class="member-editor-actions__button"
                         disabled={props.promotingMemberId === member.id}
                         onClick={() => void props.onPromoteMember(member.id)}
                       >

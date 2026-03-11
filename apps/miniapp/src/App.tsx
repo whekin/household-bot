@@ -333,14 +333,11 @@ function App() {
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
   const [savingOwnDisplayName, setSavingOwnDisplayName] = createSignal(false)
-  const [savingMemberDisplayNameId, setSavingMemberDisplayNameId] = createSignal<string | null>(
-    null
-  )
-  const [savingRentWeightMemberId, setSavingRentWeightMemberId] = createSignal<string | null>(null)
-  const [savingMemberStatusId, setSavingMemberStatusId] = createSignal<string | null>(null)
-  const [savingMemberAbsencePolicyId, setSavingMemberAbsencePolicyId] = createSignal<string | null>(
-    null
-  )
+  const [, setSavingMemberDisplayNameId] = createSignal<string | null>(null)
+  const [, setSavingRentWeightMemberId] = createSignal<string | null>(null)
+  const [, setSavingMemberStatusId] = createSignal<string | null>(null)
+  const [, setSavingMemberAbsencePolicyId] = createSignal<string | null>(null)
+  const [savingMemberEditorId, setSavingMemberEditorId] = createSignal<string | null>(null)
   const [displayNameDraft, setDisplayNameDraft] = createSignal('')
   const [memberDisplayNameDrafts, setMemberDisplayNameDrafts] = createSignal<
     Record<string, string>
@@ -1275,7 +1272,7 @@ function App() {
     }
   }
 
-  async function handleSaveMemberDisplayName(memberId: string) {
+  async function handleSaveMemberDisplayName(memberId: string, closeEditor = true) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const nextDisplayName = memberDisplayNameDrafts()[memberId]?.trim()
@@ -1297,6 +1294,9 @@ function App() {
         nextDisplayName
       )
       syncDisplayName(updatedMember.id, updatedMember.displayName)
+      if (closeEditor) {
+        setEditingMemberId(null)
+      }
     } finally {
       setSavingMemberDisplayNameId(null)
     }
@@ -1713,7 +1713,7 @@ function App() {
     }
   }
 
-  async function handleSaveRentWeight(memberId: string) {
+  async function handleSaveRentWeight(memberId: string, closeEditor = true) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const nextWeight = Number(rentWeightDrafts()[memberId] ?? '')
@@ -1743,13 +1743,15 @@ function App() {
         ...current,
         [member.id]: String(member.rentShareWeight)
       }))
-      setEditingMemberId(null)
+      if (closeEditor) {
+        setEditingMemberId(null)
+      }
     } finally {
       setSavingRentWeightMemberId(null)
     }
   }
 
-  async function handleSaveMemberStatus(memberId: string) {
+  async function handleSaveMemberStatus(memberId: string, closeEditor = true) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const nextStatus = memberStatusDrafts()[memberId]
@@ -1780,13 +1782,15 @@ function App() {
           resolvedMemberAbsencePolicy(member.id, member.status).policy ??
           defaultAbsencePolicyForStatus(member.status)
       }))
-      setEditingMemberId(null)
+      if (closeEditor) {
+        setEditingMemberId(null)
+      }
     } finally {
       setSavingMemberStatusId(null)
     }
   }
 
-  async function handleSaveMemberAbsencePolicy(memberId: string) {
+  async function handleSaveMemberAbsencePolicy(memberId: string, closeEditor = true) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const member = adminSettings()?.members.find((entry) => entry.id === memberId)
@@ -1829,9 +1833,67 @@ function App() {
         ...current,
         [memberId]: savedPolicy.policy
       }))
-      setEditingMemberId(null)
+      if (closeEditor) {
+        setEditingMemberId(null)
+      }
     } finally {
       setSavingMemberAbsencePolicyId(null)
+    }
+  }
+
+  async function handleSaveMemberChanges(memberId: string) {
+    const currentReady = readySession()
+    const member = adminSettings()?.members.find((entry) => entry.id === memberId)
+    const nextDisplayName = memberDisplayNameDrafts()[memberId]?.trim() ?? member?.displayName ?? ''
+    const nextStatus = memberStatusDrafts()[memberId] ?? member?.status
+    const nextPolicy = memberAbsencePolicyDrafts()[memberId]
+    const nextWeight = Number(rentWeightDrafts()[memberId] ?? member?.rentShareWeight ?? 0)
+
+    if (
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !member ||
+      nextDisplayName.length < 2 ||
+      !nextStatus ||
+      !Number.isInteger(nextWeight) ||
+      nextWeight <= 0 ||
+      savingMemberEditorId() === memberId
+    ) {
+      return
+    }
+
+    const currentPolicy = resolvedMemberAbsencePolicy(member.id, member.status).policy
+    const wantsAwayPolicySave = nextStatus === 'away' && nextPolicy && nextPolicy !== currentPolicy
+    const hasNameChange = nextDisplayName !== member.displayName
+    const hasStatusChange = nextStatus !== member.status
+    const hasWeightChange = nextWeight !== member.rentShareWeight
+
+    if (!hasNameChange && !hasStatusChange && !wantsAwayPolicySave && !hasWeightChange) {
+      return
+    }
+
+    setSavingMemberEditorId(memberId)
+
+    try {
+      if (hasNameChange) {
+        await handleSaveMemberDisplayName(memberId, false)
+      }
+
+      if (hasStatusChange) {
+        await handleSaveMemberStatus(memberId, false)
+      }
+
+      if (wantsAwayPolicySave) {
+        await handleSaveMemberAbsencePolicy(memberId, false)
+      }
+
+      if (hasWeightChange) {
+        await handleSaveRentWeight(memberId, false)
+      }
+
+      setEditingMemberId(null)
+    } finally {
+      setSavingMemberEditorId(null)
     }
   }
 
@@ -2044,10 +2106,7 @@ function App() {
             deletingUtilityBillId={deletingUtilityBillId()}
             savingCategorySlug={savingCategorySlug()}
             approvingTelegramUserId={approvingTelegramUserId()}
-            savingMemberDisplayNameId={savingMemberDisplayNameId()}
-            savingMemberStatusId={savingMemberStatusId()}
-            savingMemberAbsencePolicyId={savingMemberAbsencePolicyId()}
-            savingRentWeightMemberId={savingRentWeightMemberId()}
+            savingMemberEditorId={savingMemberEditorId()}
             promotingMemberId={promotingMemberId()}
             savingHouseholdLocale={savingHouseholdLocale()}
             minorToMajorString={minorToMajorString}
@@ -2264,10 +2323,7 @@ function App() {
                 [memberId]: value
               }))
             }
-            onSaveMemberDisplayName={handleSaveMemberDisplayName}
-            onSaveMemberStatus={handleSaveMemberStatus}
-            onSaveMemberAbsencePolicy={handleSaveMemberAbsencePolicy}
-            onSaveRentWeight={handleSaveRentWeight}
+            onSaveMemberChanges={handleSaveMemberChanges}
             onPromoteMember={handlePromoteMember}
           />
         )
