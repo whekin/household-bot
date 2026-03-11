@@ -10,6 +10,7 @@ import {
   PlusIcon,
   SettingsIcon
 } from '../components/ui'
+import { NavigationTabs } from '../components/layout/navigation-tabs'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -175,63 +176,21 @@ export function HouseScreen(props: Props) {
 
   return (
     <div class="admin-layout">
-      <article class="balance-item balance-item--accent admin-hero">
-        <header>
-          <strong>{props.copy.householdSettingsTitle ?? ''}</strong>
-          <span>{props.adminSettings?.settings.settlementCurrency ?? '—'}</span>
-        </header>
-        <p>{props.copy.householdSettingsBody ?? ''}</p>
-        <div class="admin-summary-grid">
-          <article class="stat-card">
-            <span>{props.copy.billingCycleTitle ?? ''}</span>
-            <strong>{props.cycleState?.cycle?.period ?? props.copy.billingCycleEmpty ?? ''}</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.settlementCurrency ?? ''}</span>
-            <strong>{props.adminSettings?.settings.settlementCurrency ?? '—'}</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.membersCount ?? ''}</span>
-            <strong>{String(props.adminSettings?.members.length ?? 0)}</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.pendingRequests ?? ''}</span>
-            <strong>{String(props.pendingMembers.length)}</strong>
-          </article>
-        </div>
-      </article>
-
-      <div class="section-switch">
-        <For
-          each={
-            [
-              ['billing', props.copy.houseSectionBilling],
-              ['utilities', props.copy.houseSectionUtilities],
-              ['members', props.copy.houseSectionMembers],
-              ['topics', props.copy.houseSectionTopics]
-            ] as const
-          }
-        >
-          {([key, label]) => (
-            <button
-              classList={{ 'is-active': props.activeHouseSection === key }}
-              type="button"
-              onClick={() => props.onChangeHouseSection(key)}
-            >
-              {label}
-            </button>
-          )}
-        </For>
-      </div>
+      <NavigationTabs
+        items={
+          [
+            { key: 'billing', label: props.copy.houseSectionBilling ?? '' },
+            { key: 'utilities', label: props.copy.houseSectionUtilities ?? '' },
+            { key: 'members', label: props.copy.houseSectionMembers ?? '' },
+            { key: 'topics', label: props.copy.houseSectionTopics ?? '' }
+          ] as const
+        }
+        active={props.activeHouseSection}
+        onChange={props.onChangeHouseSection}
+      />
 
       <Show when={props.activeHouseSection === 'billing'}>
         <section class="admin-section">
-          <header class="admin-section__header">
-            <div>
-              <h3>{props.copy.billingCycleTitle ?? ''}</h3>
-              <p>{props.copy.billingSettingsTitle ?? ''}</p>
-            </div>
-          </header>
           <div class="admin-grid">
             <article class="balance-item">
               <header>
@@ -310,8 +269,7 @@ export function HouseScreen(props: Props) {
                 <strong>{props.copy.householdLanguage ?? ''}</strong>
                 <span>{props.householdDefaultLocale.toUpperCase()}</span>
               </header>
-              <p>{props.copy.householdSettingsBody ?? ''}</p>
-              <div class="locale-switch__buttons">
+              <div class="locale-switch__buttons locale-switch__buttons--inline">
                 <button
                   classList={{ 'is-active': props.householdDefaultLocale === 'en' }}
                   type="button"
@@ -530,12 +488,6 @@ export function HouseScreen(props: Props) {
 
       <Show when={props.activeHouseSection === 'utilities'}>
         <section class="admin-section">
-          <header class="admin-section__header">
-            <div>
-              <h3>{props.copy.utilityCategoriesTitle ?? ''}</h3>
-              <p>{props.copy.utilityCategoriesBody ?? ''}</p>
-            </div>
-          </header>
           <div class="admin-grid">
             <article class="balance-item">
               <header>
@@ -861,12 +813,6 @@ export function HouseScreen(props: Props) {
 
       <Show when={props.activeHouseSection === 'members'}>
         <section class="admin-section">
-          <header class="admin-section__header">
-            <div>
-              <h3>{props.copy.adminsTitle ?? ''}</h3>
-              <p>{props.copy.adminsBody ?? ''}</p>
-            </div>
-          </header>
           <div class="admin-grid">
             <article class="balance-item admin-card--wide">
               <header>
@@ -1118,12 +1064,6 @@ export function HouseScreen(props: Props) {
 
       <Show when={props.activeHouseSection === 'topics'}>
         <section class="admin-section">
-          <header class="admin-section__header">
-            <div>
-              <h3>{props.copy.topicBindingsTitle ?? ''}</h3>
-              <p>{props.copy.topicBindingsBody ?? ''}</p>
-            </div>
-          </header>
           <div class="admin-grid">
             <article class="balance-item admin-card--wide">
               <header>

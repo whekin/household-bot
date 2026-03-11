@@ -1,4 +1,4 @@
-import { Match, Switch, createMemo, createSignal, onMount } from 'solid-js'
+import { Match, Show, Switch, createMemo, createSignal, onMount } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
 import {
@@ -38,10 +38,8 @@ import {
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from './miniapp-api'
-import { Button, Field, Modal } from './components/ui'
-import { HeroBanner } from './components/layout/hero-banner'
+import { Button, Field, MiniChip, Modal } from './components/ui'
 import { NavigationTabs } from './components/layout/navigation-tabs'
-import { ProfileCard } from './components/layout/profile-card'
 import { TopBar } from './components/layout/top-bar'
 import { BlockedState } from './components/session/blocked-state'
 import { LoadingState } from './components/session/loading-state'
@@ -2337,10 +2335,7 @@ function App() {
             currentMemberLine={currentMemberLine()}
             utilityTotalMajor={utilityTotalMajor()}
             purchaseTotalMajor={purchaseTotalMajor()}
-            memberBalanceVisuals={memberBalanceVisuals()}
-            purchaseChart={purchaseInvestmentChart()}
             memberBaseDueMajor={memberBaseDueMajor}
-            memberRemainingClass={memberRemainingClass}
             ledgerTitle={ledgerTitle}
             ledgerPrimaryAmount={ledgerPrimaryAmount}
             ledgerSecondaryAmount={ledgerSecondaryAmount}
@@ -2426,25 +2421,30 @@ function App() {
         </Match>
 
         <Match when={session().status === 'ready'}>
-          <HeroBanner
-            badges={[
-              readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge,
-              readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag,
-              readySession()?.member.status
-                ? memberStatusLabel(readySession()!.member.status)
-                : copy().memberStatusActive
-            ]}
-            title={`${copy().welcome}, ${readySession()?.telegramUser.firstName ?? readySession()?.member.displayName}`}
-            body={copy().overviewBody}
-            action={
-              readySession()?.mode === 'live'
-                ? {
-                    label: copy().manageProfileAction,
-                    onClick: () => setProfileEditorOpen(true)
-                  }
-                : undefined
-            }
-          />
+          <section class="app-context-row">
+            <div class="app-context-meta">
+              <MiniChip>
+                {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
+              </MiniChip>
+              <MiniChip muted>
+                {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
+              </MiniChip>
+              <MiniChip muted>
+                {readySession()?.member.status
+                  ? memberStatusLabel(readySession()!.member.status)
+                  : copy().memberStatusActive}
+              </MiniChip>
+            </div>
+            <Show when={readySession()?.mode === 'live'}>
+              <Button
+                variant="ghost"
+                class="app-context-row__action"
+                onClick={() => setProfileEditorOpen(true)}
+              >
+                {copy().manageProfileAction}
+              </Button>
+            </Show>
+          </section>
 
           <NavigationTabs
             items={
@@ -2459,21 +2459,7 @@ function App() {
             onChange={setActiveNav}
           />
 
-          <section class="content-grid">
-            <ProfileCard
-              displayName={readySession()?.member.displayName ?? ''}
-              roleLabel={readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
-              statusSummary={copy().memberStatusSummary.replace(
-                '{status}',
-                readySession()?.member.status
-                  ? memberStatusLabel(readySession()!.member.status)
-                  : copy().memberStatusActive
-              )}
-              modeBadge={readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
-              localeBadge={locale().toUpperCase()}
-            />
-            <div class="content-stack">{renderPanel()}</div>
-          </section>
+          <section class="content-stack">{renderPanel()}</section>
           <Modal
             open={profileEditorOpen()}
             title={copy().displayNameLabel}

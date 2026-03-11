@@ -65,3 +65,12 @@ export function GlobeIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function XIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  )
+}

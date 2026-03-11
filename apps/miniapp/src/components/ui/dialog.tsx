@@ -1,6 +1,8 @@
 import * as Dialog from '@kobalte/core/dialog'
 import { Show, type JSX, type ParentProps } from 'solid-js'
 
+import { XIcon } from './icons'
+
 export function Modal(
   props: ParentProps<{
     open: boolean
@@ -24,8 +26,8 @@ export function Modal(
                   {(description) => <Dialog.Description>{description()}</Dialog.Description>}
                 </Show>
               </div>
-              <Dialog.CloseButton class="ui-button ui-button--icon">
-                <span aria-hidden="true">x</span>
+              <Dialog.CloseButton class="ui-button ui-button--icon modal-close-button">
+                <XIcon />
                 <span class="sr-only">{props.closeLabel}</span>
               </Dialog.CloseButton>
             </header>

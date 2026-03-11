@@ -1,7 +1,6 @@
 import { For, Show } from 'solid-js'
 
 import { FinanceSummaryCards } from '../components/finance/finance-summary-cards'
-import { FinanceVisuals } from '../components/finance/finance-visuals'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 type Props = {
@@ -12,32 +11,7 @@ type Props = {
   currentMemberLine: MiniAppDashboard['members'][number] | null
   utilityTotalMajor: string
   purchaseTotalMajor: string
-  memberBalanceVisuals: {
-    member: MiniAppDashboard['members'][number]
-    totalMinor: bigint
-    barWidthPercent: number
-    segments: {
-      key: string
-      label: string
-      amountMajor: string
-      amountMinor: bigint
-      widthPercent: number
-    }[]
-  }[]
-  purchaseChart: {
-    totalMajor: string
-    slices: {
-      key: string
-      label: string
-      amountMajor: string
-      color: string
-      percentage: number
-      dasharray: string
-      dashoffset: string
-    }[]
-  }
   memberBaseDueMajor: (member: MiniAppDashboard['members'][number]) => string
-  memberRemainingClass: (member: MiniAppDashboard['members'][number]) => string
   ledgerTitle: (entry: MiniAppDashboard['ledger'][number]) => string
   ledgerPrimaryAmount: (entry: MiniAppDashboard['ledger'][number]) => string
   ledgerSecondaryAmount: (entry: MiniAppDashboard['ledger'][number]) => string | null
@@ -91,17 +65,7 @@ export function HomeScreen(props: Props) {
         </Show>
       </div>
 
-      <Show
-        when={props.currentMemberLine}
-        fallback={
-          <article class="balance-item">
-            <header>
-              <strong>{props.copy.overviewTitle ?? ''}</strong>
-            </header>
-            <p>{props.copy.overviewBody ?? ''}</p>
-          </article>
-        }
-      >
+      <Show when={props.currentMemberLine}>
         {(member) => (
           <article class="balance-item balance-item--accent">
             <header>
@@ -110,7 +74,6 @@ export function HomeScreen(props: Props) {
                 {member().remainingMajor} {props.dashboard!.currency}
               </span>
             </header>
-            <p>{props.copy.yourBalanceBody ?? ''}</p>
             <p>
               {props.copy.shareRent ?? ''}: {props.dashboard!.rentSourceAmountMajor}{' '}
               {props.dashboard!.rentSourceCurrency}
@@ -153,23 +116,6 @@ export function HomeScreen(props: Props) {
           </article>
         )}
       </Show>
-
-      <FinanceVisuals
-        dashboard={props.dashboard}
-        memberVisuals={props.memberBalanceVisuals}
-        purchaseChart={props.purchaseChart}
-        remainingClass={props.memberRemainingClass}
-        labels={{
-          financeVisualsTitle: props.copy.financeVisualsTitle ?? '',
-          financeVisualsBody: props.copy.financeVisualsBody ?? '',
-          membersCount: props.copy.membersCount ?? '',
-          purchaseInvestmentsTitle: props.copy.purchaseInvestmentsTitle ?? '',
-          purchaseInvestmentsBody: props.copy.purchaseInvestmentsBody ?? '',
-          purchaseInvestmentsEmpty: props.copy.purchaseInvestmentsEmpty ?? '',
-          purchaseTotalLabel: props.copy.purchaseTotalLabel ?? '',
-          purchaseShareLabel: props.copy.purchaseShareLabel ?? ''
-        }}
-      />
 
       <article class="balance-item balance-item--wide">
         <header>

@@ -13,7 +13,7 @@ type Props = {
 export function TopBar(props: Props) {
   return (
     <section class="topbar">
-      <div>
+      <div class="topbar__copy">
         <p class="eyebrow">{props.subtitle}</p>
         <h1>{props.title}</h1>
       </div>
