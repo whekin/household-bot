@@ -44,7 +44,7 @@ Boundary rules:
 - One ticket at a time, small commits
 - Before implementation: re-check ticket/spec and assumptions
 - Do not commit without explicit user approval
-- Run CodeRabbit review before merge (`bun run review:coderabbit`)
+- Run Codex review before merge (`codex review --base origin/main`)
 
 ## Communication
 

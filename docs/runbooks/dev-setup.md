@@ -49,7 +49,8 @@ bun run docker:smoke
 ## Review commands
 
 ```bash
-bun run review:coderabbit
+codex review --uncommitted
+codex review --base origin/main
 ```
 
 ## Notes
@@ -57,7 +58,7 @@ bun run review:coderabbit
 - Type checking uses `tsgo` (`@typescript/native-preview`).
 - Linting uses `oxlint`.
 - Formatting uses `oxfmt` with no-semicolon style.
-- AI review uses CodeRabbit CLI in `--prompt-only` mode against `main`.
+- AI review uses `codex review` for local diffs and pre-merge branch review.
 - Drizzle config is in `packages/db/drizzle.config.ts`.
 - Typed environment validation lives in `packages/config/src/env.ts`.
 - Copy `.env.example` to `.env` before running app/database commands.
