@@ -100,6 +100,8 @@ type PaymentDraft = {
   currency: 'USD' | 'GEL'
 }
 
+const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7dc96d'] as const
+
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
   status: 'ready',
   mode: 'demo',
@@ -160,14 +162,6 @@ function joinDeepLink(): string | null {
   return `https://t.me/${context.botUsername}?start=join_${encodeURIComponent(context.joinToken)}`
 }
 
-function dashboardMemberCount(dashboard: MiniAppDashboard | null): string {
-  return dashboard ? String(dashboard.members.length) : '—'
-}
-
-function dashboardLedgerCount(dashboard: MiniAppDashboard | null): string {
-  return dashboard ? String(dashboard.ledger.length) : '—'
-}
-
 function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
 }
@@ -191,6 +185,10 @@ function minorToMajorString(value: bigint): string {
   const fraction = String(absolute % 100n).padStart(2, '0')
 
   return `${negative ? '-' : ''}${whole.toString()}.${fraction}`
+}
+
+function absoluteMinor(value: bigint): bigint {
+  return value < 0n ? -value : value
 }
 
 function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
@@ -412,6 +410,147 @@ function App() {
   const paymentLedger = createMemo(() =>
     (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'payment')
   )
+  const utilityTotalMajor = createMemo(() =>
+    minorToMajorString(
+      utilityLedger().reduce((sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor), 0n)
+    )
+  )
+  const purchaseTotalMajor = createMemo(() =>
+    minorToMajorString(
+      purchaseLedger().reduce(
+        (sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor),
+        0n
+      )
+    )
+  )
+  const memberBalanceVisuals = createMemo(() => {
+    const data = dashboard()
+    if (!data) {
+      return []
+    }
+
+    const totals = data.members.map((member) => {
+      const rentMinor = absoluteMinor(majorStringToMinor(member.rentShareMajor))
+      const utilityMinor = absoluteMinor(majorStringToMinor(member.utilityShareMajor))
+      const purchaseMinor = absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor))
+
+      return {
+        member,
+        totalMinor: rentMinor + utilityMinor + purchaseMinor,
+        segments: [
+          {
+            key: 'rent',
+            label: copy().shareRent,
+            amountMajor: member.rentShareMajor,
+            amountMinor: rentMinor
+          },
+          {
+            key: 'utilities',
+            label: copy().shareUtilities,
+            amountMajor: member.utilityShareMajor,
+            amountMinor: utilityMinor
+          },
+          {
+            key:
+              majorStringToMinor(member.purchaseOffsetMajor) < 0n
+                ? 'purchase-credit'
+                : 'purchase-debit',
+            label: copy().shareOffset,
+            amountMajor: member.purchaseOffsetMajor,
+            amountMinor: purchaseMinor
+          }
+        ]
+      }
+    })
+
+    const maxTotalMinor = totals.reduce(
+      (max, item) => (item.totalMinor > max ? item.totalMinor : max),
+      0n
+    )
+
+    return totals
+      .sort((left, right) => {
+        const leftRemaining = majorStringToMinor(left.member.remainingMajor)
+        const rightRemaining = majorStringToMinor(right.member.remainingMajor)
+
+        if (rightRemaining === leftRemaining) {
+          return left.member.displayName.localeCompare(right.member.displayName)
+        }
+
+        return rightRemaining > leftRemaining ? 1 : -1
+      })
+      .map((item) => ({
+        ...item,
+        barWidthPercent:
+          maxTotalMinor > 0n ? (Number(item.totalMinor) / Number(maxTotalMinor)) * 100 : 0,
+        segments: item.segments.map((segment) => ({
+          ...segment,
+          widthPercent:
+            item.totalMinor > 0n ? (Number(segment.amountMinor) / Number(item.totalMinor)) * 100 : 0
+        }))
+      }))
+  })
+  const purchaseInvestmentChart = createMemo(() => {
+    const data = dashboard()
+    if (!data) {
+      return {
+        totalMajor: '0.00',
+        slices: []
+      }
+    }
+
+    const membersById = new Map(data.members.map((member) => [member.memberId, member.displayName]))
+    const totals = new Map<string, { label: string; amountMinor: bigint }>()
+
+    for (const entry of purchaseLedger()) {
+      const key = entry.memberId ?? entry.actorDisplayName ?? entry.id
+      const label =
+        (entry.memberId ? membersById.get(entry.memberId) : null) ??
+        entry.actorDisplayName ??
+        copy().ledgerActorFallback
+      const current = totals.get(key) ?? {
+        label,
+        amountMinor: 0n
+      }
+
+      totals.set(key, {
+        label,
+        amountMinor:
+          current.amountMinor + absoluteMinor(majorStringToMinor(entry.displayAmountMajor))
+      })
+    }
+
+    const items = [...totals.entries()]
+      .map(([key, value], index) => ({
+        key,
+        label: value.label,
+        amountMinor: value.amountMinor,
+        amountMajor: minorToMajorString(value.amountMinor),
+        color: chartPalette[index % chartPalette.length]!
+      }))
+      .filter((item) => item.amountMinor > 0n)
+      .sort((left, right) => (right.amountMinor > left.amountMinor ? 1 : -1))
+
+    const totalMinor = items.reduce((sum, item) => sum + item.amountMinor, 0n)
+    const circumference = 2 * Math.PI * 42
+    let offset = 0
+
+    return {
+      totalMajor: minorToMajorString(totalMinor),
+      slices: items.map((item) => {
+        const ratio = totalMinor > 0n ? Number(item.amountMinor) / Number(totalMinor) : 0
+        const dash = ratio * circumference
+        const slice = {
+          ...item,
+          percentage: Math.round(ratio * 100),
+          dasharray: `${dash} ${Math.max(circumference - dash, 0)}`,
+          dashoffset: `${-offset}`
+        }
+        offset += dash
+        return slice
+      })
+    }
+  })
   const webApp = getTelegramWebApp()
 
   function ledgerTitle(entry: MiniAppDashboard['ledger'][number]): string {
@@ -1585,6 +1724,142 @@ function App() {
     }))
   }
 
+  function renderFinanceSummaryCards(data: MiniAppDashboard): JSX.Element {
+    return (
+      <>
+        <article class="stat-card">
+          <span>{copy().remainingLabel}</span>
+          <strong>
+            {data.totalRemainingMajor} {data.currency}
+          </strong>
+        </article>
+        <article class="stat-card">
+          <span>{copy().shareRent}</span>
+          <strong>
+            {data.rentDisplayAmountMajor} {data.currency}
+          </strong>
+        </article>
+        <article class="stat-card">
+          <span>{copy().shareUtilities}</span>
+          <strong>
+            {utilityTotalMajor()} {data.currency}
+          </strong>
+        </article>
+        <article class="stat-card">
+          <span>{copy().purchasesTitle}</span>
+          <strong>
+            {purchaseTotalMajor()} {data.currency}
+          </strong>
+        </article>
+      </>
+    )
+  }
+
+  function renderFinanceVisuals(data: MiniAppDashboard): JSX.Element {
+    const purchaseChart = purchaseInvestmentChart()
+
+    return (
+      <>
+        <article class="balance-item balance-item--wide">
+          <header>
+            <strong>{copy().financeVisualsTitle}</strong>
+            <span>
+              {copy().membersCount}: {String(data.members.length)}
+            </span>
+          </header>
+          <p>{copy().financeVisualsBody}</p>
+          <div class="member-visual-list">
+            {memberBalanceVisuals().map((item) => (
+              <article class="member-visual-card">
+                <header>
+                  <strong>{item.member.displayName}</strong>
+                  <span class={`balance-status ${memberRemainingClass(item.member)}`}>
+                    {item.member.remainingMajor} {data.currency}
+                  </span>
+                </header>
+                <div class="member-visual-bar">
+                  <div
+                    class="member-visual-bar__track"
+                    style={{ width: `${item.barWidthPercent}%` }}
+                  >
+                    {item.segments.map((segment) => (
+                      <span
+                        class={`member-visual-bar__segment member-visual-bar__segment--${segment.key}`}
+                        style={{ width: `${segment.widthPercent}%` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div class="member-visual-meta">
+                  {item.segments.map((segment) => (
+                    <span class={`member-visual-chip member-visual-chip--${segment.key}`}>
+                      {segment.label}: {segment.amountMajor} {data.currency}
+                    </span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </article>
+
+        <article class="balance-item balance-item--wide">
+          <header>
+            <strong>{copy().purchaseInvestmentsTitle}</strong>
+            <span>
+              {copy().purchaseTotalLabel}: {purchaseChart.totalMajor} {data.currency}
+            </span>
+          </header>
+          <p>{copy().purchaseInvestmentsBody}</p>
+          {purchaseChart.slices.length === 0 ? (
+            <p>{copy().purchaseInvestmentsEmpty}</p>
+          ) : (
+            <div class="purchase-chart">
+              <div class="purchase-chart__figure">
+                <svg class="purchase-chart__donut" viewBox="0 0 120 120" aria-hidden="true">
+                  <circle class="purchase-chart__ring" cx="60" cy="60" r="42" />
+                  {purchaseChart.slices.map((slice) => (
+                    <circle
+                      class="purchase-chart__slice"
+                      cx="60"
+                      cy="60"
+                      r="42"
+                      stroke={slice.color}
+                      stroke-dasharray={slice.dasharray}
+                      stroke-dashoffset={slice.dashoffset}
+                    />
+                  ))}
+                </svg>
+                <div class="purchase-chart__center">
+                  <span>{copy().purchaseTotalLabel}</span>
+                  <strong>
+                    {purchaseChart.totalMajor} {data.currency}
+                  </strong>
+                </div>
+              </div>
+              <div class="purchase-chart__legend">
+                {purchaseChart.slices.map((slice) => (
+                  <article class="purchase-chart__legend-item">
+                    <div>
+                      <span
+                        class="purchase-chart__legend-swatch"
+                        style={{ 'background-color': slice.color }}
+                      />
+                      <strong>{slice.label}</strong>
+                    </div>
+                    <p>
+                      {slice.amountMajor} {data.currency} · {copy().purchaseShareLabel}{' '}
+                      {slice.percentage}%
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+        </article>
+      </>
+    )
+  }
+
   const renderPanel = () => {
     switch (activeNav()) {
       case 'balances':
@@ -1638,6 +1913,8 @@ function App() {
                       </div>
                     </article>
                   ) : null}
+                  <div class="home-grid home-grid--summary">{renderFinanceSummaryCards(data)}</div>
+                  {renderFinanceVisuals(data)}
                   <article class="balance-item">
                     <header>
                       <strong>{copy().householdBalancesTitle}</strong>
@@ -3132,36 +3409,30 @@ function App() {
       default:
         return (
           <div class="home-grid home-grid--summary">
-            <article class="stat-card">
-              <span>{copy().totalDue}</span>
-              <strong>
-                {dashboard() ? `${dashboard()!.totalDueMajor} ${dashboard()!.currency}` : '—'}
-              </strong>
-            </article>
-            <article class="stat-card">
-              <span>{copy().paidLabel}</span>
-              <strong>
-                {dashboard() ? `${dashboard()!.totalPaidMajor} ${dashboard()!.currency}` : '—'}
-              </strong>
-            </article>
-            <article class="stat-card">
-              <span>{copy().remainingLabel}</span>
-              <strong>
-                {dashboard() ? `${dashboard()!.totalRemainingMajor} ${dashboard()!.currency}` : '—'}
-              </strong>
-            </article>
-            <article class="stat-card">
-              <span>{copy().membersCount}</span>
-              <strong>{dashboardMemberCount(dashboard())}</strong>
-            </article>
-            <article class="stat-card">
-              <span>{copy().ledgerEntries}</span>
-              <strong>{dashboardLedgerCount(dashboard())}</strong>
-            </article>
-            <article class="stat-card">
-              <span>{copy().purchasesTitle}</span>
-              <strong>{String(purchaseLedger().length)}</strong>
-            </article>
+            <ShowDashboard
+              dashboard={dashboard()}
+              fallback={
+                <>
+                  <article class="stat-card">
+                    <span>{copy().remainingLabel}</span>
+                    <strong>—</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{copy().shareRent}</span>
+                    <strong>—</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{copy().shareUtilities}</span>
+                    <strong>—</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{copy().purchasesTitle}</span>
+                    <strong>—</strong>
+                  </article>
+                </>
+              }
+              render={(data) => renderFinanceSummaryCards(data)}
+            />
             {readySession()?.member.isAdmin ? (
               <article class="stat-card">
                 <span>{copy().pendingRequests}</span>
@@ -3231,6 +3502,12 @@ function App() {
                 <p>{copy().overviewBody}</p>
               </article>
             )}
+
+            <ShowDashboard
+              dashboard={dashboard()}
+              fallback={null}
+              render={(data) => renderFinanceVisuals(data)}
+            />
 
             <article class="balance-item balance-item--wide">
               <header>

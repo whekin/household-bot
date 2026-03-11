@@ -57,6 +57,16 @@ export const dictionary = {
     finalDue: 'Final due',
     householdBalancesTitle: 'Household balances',
     householdBalancesBody: 'Everyone’s current split for this cycle.',
+    financeVisualsTitle: 'Visual balance split',
+    financeVisualsBody:
+      'Use the bars to see how rent, utilities, and shared-buy adjustments shape each member balance.',
+    purchaseInvestmentsTitle: 'Who fronted shared purchases',
+    purchaseInvestmentsBody:
+      'This donut shows how much each member invested into shared purchases this cycle.',
+    purchaseInvestmentsEmpty:
+      'Purchase contributions will appear here after shared buys are logged.',
+    purchaseShareLabel: 'Share',
+    purchaseTotalLabel: 'Total shared buys',
     purchasesTitle: 'Shared purchases',
     purchasesEmpty: 'No shared purchases recorded for this cycle yet.',
     utilityLedgerTitle: 'Utility bills',
@@ -242,6 +252,16 @@ export const dictionary = {
     finalDue: 'Итог к оплате',
     householdBalancesTitle: 'Баланс household',
     householdBalancesBody: 'Текущий расклад по всем участникам за этот цикл.',
+    financeVisualsTitle: 'Визуальный разбор баланса',
+    financeVisualsBody:
+      'Полосы показывают, как аренда, коммуналка и поправка на общие покупки формируют баланс каждого участника.',
+    purchaseInvestmentsTitle: 'Кто оплачивал общие покупки',
+    purchaseInvestmentsBody:
+      'Кольцевая диаграмма показывает, сколько каждый участник вложил в общие покупки в этом цикле.',
+    purchaseInvestmentsEmpty:
+      'Вклады в общие покупки появятся здесь после первых записанных покупок.',
+    purchaseShareLabel: 'Доля',
+    purchaseTotalLabel: 'Всего общих покупок',
     purchasesTitle: 'Общие покупки',
     purchasesEmpty: 'Пока нет общих покупок в этом цикле.',
     utilityLedgerTitle: 'Коммунальные платежи',
