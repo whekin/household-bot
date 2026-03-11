@@ -338,11 +338,11 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
           [
             {
               text: 'Подтвердить оплату',
-              callback_data: expect.stringContaining('payment_topic:confirm:10002:')
+              callback_data: expect.stringMatching(/^payment_topic:confirm:[^:]+$/)
             },
             {
               text: 'Отменить',
-              callback_data: expect.stringContaining('payment_topic:cancel:10002:')
+              callback_data: expect.stringMatching(/^payment_topic:cancel:[^:]+$/)
             }
           ]
         ]
@@ -352,6 +352,13 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(await promptRepository.getPendingAction('-10012345', '10002')).toMatchObject({
       action: 'payment_topic_confirmation'
     })
+    const proposalId = (
+      (await promptRepository.getPendingAction('-10012345', '10002'))?.payload as {
+        proposalId?: string
+      } | null
+    )?.proposalId
+    expect(`payment_topic:confirm:${proposalId ?? ''}`.length).toBeLessThanOrEqual(64)
+    expect(`payment_topic:cancel:${proposalId ?? ''}`.length).toBeLessThanOrEqual(64)
   })
 
   test('asks for clarification and resolves follow-up answers in the same payments topic', async () => {
@@ -448,7 +455,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     calls.length = 0
 
     await bot.handleUpdate(
-      paymentCallbackUpdate(`payment_topic:confirm:10002:${proposalId ?? 'missing'}`) as never
+      paymentCallbackUpdate(`payment_topic:confirm:${proposalId ?? 'missing'}`) as never
     )
 
     expect(paymentConfirmationService.submitted).toEqual([

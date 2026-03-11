@@ -216,11 +216,7 @@ function parsePaymentTopicConfirmationPayload(
   }
 }
 
-function paymentProposalReplyMarkup(
-  locale: BotLocale,
-  senderTelegramUserId: string,
-  proposalId: string
-) {
+function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   const t = getBotTranslations(locale).payments
 
   return {
@@ -228,11 +224,11 @@ function paymentProposalReplyMarkup(
       [
         {
           text: t.confirmButton,
-          callback_data: `${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}${senderTelegramUserId}:${proposalId}`
+          callback_data: `${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}${proposalId}`
         },
         {
           text: t.cancelButton,
-          callback_data: `${PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX}${senderTelegramUserId}:${proposalId}`
+          callback_data: `${PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX}${proposalId}`
         }
       ]
     ]
@@ -272,29 +268,20 @@ export function registerConfiguredPaymentTopicIngestion(
   } = {}
 ): void {
   bot.callbackQuery(
-    new RegExp(`^${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}(\\d+):([^:]+)$`),
+    new RegExp(`^${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
       if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
         return
       }
 
       const actorTelegramUserId = ctx.from?.id?.toString()
-      const ownerTelegramUserId = ctx.match[1]
-      const proposalId = ctx.match[2]
-      if (!actorTelegramUserId || !ownerTelegramUserId || !proposalId) {
+      const proposalId = ctx.match[1]
+      if (!actorTelegramUserId || !proposalId) {
         return
       }
 
       const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
       const t = getBotTranslations(locale).payments
-
-      if (actorTelegramUserId !== ownerTelegramUserId) {
-        await ctx.answerCallbackQuery({
-          text: t.notYourProposal,
-          show_alert: true
-        })
-        return
-      }
 
       const pending = await promptRepository.getPendingAction(
         ctx.chat.id.toString(),
@@ -308,6 +295,14 @@ export function registerConfiguredPaymentTopicIngestion(
       if (!payload || payload.proposalId !== proposalId) {
         await ctx.answerCallbackQuery({
           text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      if (payload.senderTelegramUserId !== actorTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: t.notYourProposal,
           show_alert: true
         })
         return
@@ -348,62 +343,58 @@ export function registerConfiguredPaymentTopicIngestion(
     }
   )
 
-  bot.callbackQuery(
-    new RegExp(`^${PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX}(\\d+):([^:]+)$`),
-    async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
-        return
-      }
-
-      const actorTelegramUserId = ctx.from?.id?.toString()
-      const ownerTelegramUserId = ctx.match[1]
-      const proposalId = ctx.match[2]
-      if (!actorTelegramUserId || !ownerTelegramUserId || !proposalId) {
-        return
-      }
-
-      const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
-      const t = getBotTranslations(locale).payments
-
-      if (actorTelegramUserId !== ownerTelegramUserId) {
-        await ctx.answerCallbackQuery({
-          text: t.notYourProposal,
-          show_alert: true
-        })
-        return
-      }
-
-      const pending = await promptRepository.getPendingAction(
-        ctx.chat.id.toString(),
-        actorTelegramUserId
-      )
-      const payload =
-        pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
-          ? parsePaymentTopicConfirmationPayload(pending.payload)
-          : null
-
-      if (!payload || payload.proposalId !== proposalId) {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
-        return
-      }
-
-      await promptRepository.clearPendingAction(ctx.chat.id.toString(), actorTelegramUserId)
-      await ctx.answerCallbackQuery({
-        text: t.cancelled
-      })
-
-      if (ctx.msg) {
-        await ctx.editMessageText(t.cancelled, {
-          reply_markup: {
-            inline_keyboard: []
-          }
-        })
-      }
+  bot.callbackQuery(new RegExp(`^${PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
+    if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      return
     }
-  )
+
+    const actorTelegramUserId = ctx.from?.id?.toString()
+    const proposalId = ctx.match[1]
+    if (!actorTelegramUserId || !proposalId) {
+      return
+    }
+
+    const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
+    const t = getBotTranslations(locale).payments
+
+    const pending = await promptRepository.getPendingAction(
+      ctx.chat.id.toString(),
+      actorTelegramUserId
+    )
+    const payload =
+      pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
+        ? parsePaymentTopicConfirmationPayload(pending.payload)
+        : null
+
+    if (!payload || payload.proposalId !== proposalId) {
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    if (payload.senderTelegramUserId !== actorTelegramUserId) {
+      await ctx.answerCallbackQuery({
+        text: t.notYourProposal,
+        show_alert: true
+      })
+      return
+    }
+
+    await promptRepository.clearPendingAction(ctx.chat.id.toString(), actorTelegramUserId)
+    await ctx.answerCallbackQuery({
+      text: t.cancelled
+    })
+
+    if (ctx.msg) {
+      await ctx.editMessageText(t.cancelled, {
+        reply_markup: {
+          inline_keyboard: []
+        }
+      })
+    }
+  })
 
   bot.on('message', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
@@ -517,11 +508,7 @@ export function registerConfiguredPaymentTopicIngestion(
         await replyToPaymentMessage(
           ctx,
           t.proposal(proposal.payload.kind, amount.toMajorString(), amount.currency),
-          paymentProposalReplyMarkup(
-            locale,
-            record.senderTelegramUserId,
-            proposal.payload.proposalId
-          )
+          paymentProposalReplyMarkup(locale, proposal.payload.proposalId)
         )
       }
     } catch (error) {
