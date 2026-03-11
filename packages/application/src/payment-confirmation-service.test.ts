@@ -112,6 +112,7 @@ describe('createPaymentConfirmationService', () => {
         generateDashboard: async () => ({
           period: '2026-03',
           currency: 'GEL',
+          paymentBalanceAdjustmentPolicy: 'utilities',
           totalDue: Money.fromMajor('1030', 'GEL'),
           totalPaid: Money.zero('GEL'),
           totalRemaining: Money.fromMajor('1030', 'GEL'),
@@ -174,6 +175,7 @@ describe('createPaymentConfirmationService', () => {
         generateDashboard: async () => ({
           period: '2026-03',
           currency: 'GEL',
+          paymentBalanceAdjustmentPolicy: 'utilities',
           totalDue: Money.fromMajor('1030', 'GEL'),
           totalPaid: Money.zero('GEL'),
           totalRemaining: Money.fromMajor('1030', 'GEL'),

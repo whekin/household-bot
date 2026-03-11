@@ -2,6 +2,7 @@ import { For, Show } from 'solid-js'
 
 import { FinanceSummaryCards } from '../components/finance/finance-summary-cards'
 import { FinanceVisuals } from '../components/finance/finance-visuals'
+import { MemberBalanceCard } from '../components/finance/member-balance-card'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 type Props = {
@@ -52,62 +53,34 @@ export function BalancesScreen(props: Props) {
         <div class="balance-list">
           <Show when={props.currentMemberLine}>
             {(member) => (
-              <article class="balance-item balance-item--accent">
-                <header>
-                  <strong>{props.copy.yourBalanceTitle ?? ''}</strong>
-                  <span>
-                    {member().netDueMajor} {dashboard().currency}
-                  </span>
-                </header>
-                <p>{props.copy.yourBalanceBody ?? ''}</p>
-                <div class="balance-breakdown">
-                  <article class="stat-card">
-                    <span>{props.copy.baseDue ?? ''}</span>
-                    <strong>
-                      {props.memberBaseDueMajor(member())} {dashboard().currency}
-                    </strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{props.copy.shareOffset ?? ''}</span>
-                    <strong>
-                      {member().purchaseOffsetMajor} {dashboard().currency}
-                    </strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{props.copy.finalDue ?? ''}</span>
-                    <strong>
-                      {member().netDueMajor} {dashboard().currency}
-                    </strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{props.copy.paidLabel ?? ''}</span>
-                    <strong>
-                      {member().paidMajor} {dashboard().currency}
-                    </strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{props.copy.remainingLabel ?? ''}</span>
-                    <strong>
-                      {member().remainingMajor} {dashboard().currency}
-                    </strong>
-                  </article>
-                </div>
-              </article>
+              <MemberBalanceCard
+                copy={props.copy}
+                dashboard={dashboard()}
+                member={member()}
+                detail
+              />
             )}
           </Show>
-          <div class="summary-card-grid">
-            <FinanceSummaryCards
-              dashboard={dashboard()}
-              utilityTotalMajor={props.utilityTotalMajor}
-              purchaseTotalMajor={props.purchaseTotalMajor}
-              labels={{
-                remaining: props.copy.remainingLabel ?? '',
-                rent: props.copy.shareRent ?? '',
-                utilities: props.copy.shareUtilities ?? '',
-                purchases: props.copy.purchasesTitle ?? ''
-              }}
-            />
-          </div>
+          <article class="balance-item balance-item--wide balance-item--muted">
+            <header>
+              <strong>{props.copy.houseSnapshotTitle ?? ''}</strong>
+              <span>{dashboard().period}</span>
+            </header>
+            <p>{props.copy.houseSnapshotBody ?? ''}</p>
+            <div class="summary-card-grid summary-card-grid--secondary">
+              <FinanceSummaryCards
+                dashboard={dashboard()}
+                utilityTotalMajor={props.utilityTotalMajor}
+                purchaseTotalMajor={props.purchaseTotalMajor}
+                labels={{
+                  remaining: props.copy.remainingLabel ?? '',
+                  rent: props.copy.shareRent ?? '',
+                  utilities: props.copy.shareUtilities ?? '',
+                  purchases: props.copy.purchasesTitle ?? ''
+                }}
+              />
+            </div>
+          </article>
           <FinanceVisuals
             dashboard={dashboard()}
             memberVisuals={props.memberBalanceVisuals}
@@ -124,9 +97,10 @@ export function BalancesScreen(props: Props) {
               purchaseShareLabel: props.copy.purchaseShareLabel ?? ''
             }}
           />
-          <article class="balance-item">
+          <article class="balance-item balance-item--wide">
             <header>
               <strong>{props.copy.householdBalancesTitle ?? ''}</strong>
+              <span>{String(dashboard().members.length)}</span>
             </header>
             <p>{props.copy.householdBalancesBody ?? ''}</p>
           </article>

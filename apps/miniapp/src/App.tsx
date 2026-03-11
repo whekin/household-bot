@@ -121,6 +121,8 @@ type PaymentDraft = {
   currency: 'USD' | 'GEL'
 }
 
+type TestingRolePreview = 'admin' | 'resident'
+
 const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7dc96d'] as const
 
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
@@ -380,6 +382,9 @@ function App() {
   const [addingUtilityBillOpen, setAddingUtilityBillOpen] = createSignal(false)
   const [addingPaymentOpen, setAddingPaymentOpen] = createSignal(false)
   const [profileEditorOpen, setProfileEditorOpen] = createSignal(false)
+  const [testingSurfaceOpen, setTestingSurfaceOpen] = createSignal(false)
+  const [roleChipTapHistory, setRoleChipTapHistory] = createSignal<number[]>([])
+  const [testingRolePreview, setTestingRolePreview] = createSignal<TestingRolePreview | null>(null)
   const [addingPayment, setAddingPayment] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
@@ -420,6 +425,23 @@ function App() {
   const readySession = createMemo(() => {
     const current = session()
     return current.status === 'ready' ? current : null
+  })
+  const effectiveIsAdmin = createMemo(() => {
+    const current = readySession()
+    if (!current) {
+      return false
+    }
+
+    if (!current.member.isAdmin) {
+      return false
+    }
+
+    const preview = testingRolePreview()
+    if (!preview) {
+      return true
+    }
+
+    return preview === 'admin'
   })
   const currentMemberLine = createMemo(() => {
     const current = readySession()
@@ -660,6 +682,24 @@ function App() {
       case 'left':
         return copy().memberStatusLeft
     }
+  }
+
+  function handleRoleChipTap() {
+    const currentReady = readySession()
+    if (!currentReady?.member.isAdmin) {
+      return
+    }
+
+    const now = Date.now()
+    const nextHistory = [...roleChipTapHistory().filter((timestamp) => now - timestamp < 1800), now]
+
+    if (nextHistory.length >= 5) {
+      setRoleChipTapHistory([])
+      setTestingSurfaceOpen(true)
+      return
+    }
+
+    setRoleChipTapHistory(nextHistory)
   }
 
   function defaultAbsencePolicyForStatus(
@@ -1948,7 +1988,7 @@ function App() {
           <LedgerScreen
             copy={copy()}
             dashboard={dashboard()}
-            readyIsAdmin={readySession()?.member.isAdmin === true}
+            readyIsAdmin={effectiveIsAdmin()}
             adminMembers={adminSettings()?.members ?? []}
             purchaseEntries={purchaseLedger()}
             utilityEntries={utilityLedger()}
@@ -2075,7 +2115,7 @@ function App() {
         return (
           <HouseScreen
             copy={copy()}
-            readyIsAdmin={readySession()?.member.isAdmin === true}
+            readyIsAdmin={effectiveIsAdmin()}
             householdDefaultLocale={readySession()?.member.householdDefaultLocale ?? 'en'}
             dashboard={dashboard()}
             adminSettings={adminSettings()}
@@ -2343,15 +2383,9 @@ function App() {
           <HomeScreen
             copy={copy()}
             dashboard={dashboard()}
-            readyIsAdmin={Boolean(readySession()?.member.isAdmin)}
-            pendingMembersCount={pendingMembers().length}
             currentMemberLine={currentMemberLine()}
             utilityTotalMajor={utilityTotalMajor()}
             purchaseTotalMajor={purchaseTotalMajor()}
-            memberBaseDueMajor={memberBaseDueMajor}
-            ledgerTitle={ledgerTitle}
-            ledgerPrimaryAmount={ledgerPrimaryAmount}
-            ledgerSecondaryAmount={ledgerSecondaryAmount}
           />
         )
     }
@@ -2439,14 +2473,31 @@ function App() {
               <MiniChip>
                 {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
               </MiniChip>
-              <MiniChip muted>
-                {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
-              </MiniChip>
+              <Show
+                when={readySession()?.member.isAdmin}
+                fallback={
+                  <MiniChip muted>
+                    {effectiveIsAdmin() ? copy().adminTag : copy().residentTag}
+                  </MiniChip>
+                }
+              >
+                <button
+                  class="mini-chip mini-chip--muted mini-chip-button"
+                  onClick={handleRoleChipTap}
+                >
+                  {effectiveIsAdmin() ? copy().adminTag : copy().residentTag}
+                </button>
+              </Show>
               <MiniChip muted>
                 {readySession()?.member.status
                   ? memberStatusLabel(readySession()!.member.status)
                   : copy().memberStatusActive}
               </MiniChip>
+              <Show when={testingRolePreview()}>
+                {(preview) => (
+                  <MiniChip>{`${copy().testingViewBadge ?? ''}: ${preview() === 'admin' ? copy().adminTag : copy().residentTag}`}</MiniChip>
+                )}
+              </Show>
             </div>
             <Show when={readySession()?.mode === 'live'}>
               <Button
@@ -2473,6 +2524,50 @@ function App() {
           />
 
           <section class="content-stack">{panel()}</section>
+          <Modal
+            open={testingSurfaceOpen()}
+            title={copy().testingSurfaceTitle ?? ''}
+            description={copy().testingSurfaceBody}
+            closeLabel={copy().closeEditorAction}
+            onClose={() => setTestingSurfaceOpen(false)}
+            footer={
+              <div class="modal-action-row">
+                <Button variant="ghost" onClick={() => setTestingSurfaceOpen(false)}>
+                  {copy().closeEditorAction}
+                </Button>
+                <Button variant="secondary" onClick={() => setTestingRolePreview(null)}>
+                  {copy().testingUseRealRoleAction ?? ''}
+                </Button>
+              </div>
+            }
+          >
+            <div class="testing-card">
+              <article class="testing-card__section">
+                <span>{copy().testingCurrentRoleLabel ?? ''}</span>
+                <strong>
+                  {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
+                </strong>
+              </article>
+              <article class="testing-card__section">
+                <span>{copy().testingPreviewRoleLabel ?? ''}</span>
+                <strong>
+                  {testingRolePreview()
+                    ? testingRolePreview() === 'admin'
+                      ? copy().adminTag
+                      : copy().residentTag
+                    : copy().testingUseRealRoleAction}
+                </strong>
+              </article>
+              <div class="testing-card__actions">
+                <Button variant="secondary" onClick={() => setTestingRolePreview('admin')}>
+                  {copy().testingPreviewAdminAction ?? ''}
+                </Button>
+                <Button variant="secondary" onClick={() => setTestingRolePreview('resident')}>
+                  {copy().testingPreviewResidentAction ?? ''}
+                </Button>
+              </div>
+            </div>
+          </Modal>
           <Modal
             open={profileEditorOpen()}
             title={copy().displayNameLabel}

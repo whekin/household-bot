@@ -310,6 +310,7 @@ describe('createMiniAppDashboardHandler', () => {
       dashboard: {
         period: '2026-03',
         currency: 'GEL',
+        paymentBalanceAdjustmentPolicy: 'utilities',
         totalDueMajor: '2010.00',
         totalPaidMajor: '500.00',
         totalRemainingMajor: '1510.00',

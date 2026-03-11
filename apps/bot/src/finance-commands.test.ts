@@ -124,6 +124,7 @@ function createDashboard(): NonNullable<
   return {
     period: '2026-03',
     currency: 'GEL',
+    paymentBalanceAdjustmentPolicy: 'utilities',
     totalDue: Money.fromMajor('400', 'GEL'),
     totalPaid: Money.fromMajor('100', 'GEL'),
     totalRemaining: Money.fromMajor('300', 'GEL'),

@@ -382,6 +382,10 @@ button {
   border-color: rgb(247 179 137 / 0.28);
 }
 
+.balance-item--muted {
+  background: rgb(255 255 255 / 0.02);
+}
+
 .profile-card {
   gap: 10px;
 }
@@ -436,6 +440,114 @@ button {
 .balance-breakdown {
   display: grid;
   gap: 10px;
+}
+
+.balance-spotlight {
+  gap: 14px;
+}
+
+.balance-spotlight__header {
+  display: grid;
+  gap: 14px;
+}
+
+.balance-spotlight__copy {
+  display: grid;
+  gap: 8px;
+}
+
+.balance-spotlight__hero {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 18px;
+  background: rgb(10 18 28 / 0.38);
+}
+
+.balance-spotlight__hero span,
+.balance-detail-row__main span,
+.fx-panel__cell span,
+.testing-card__section span {
+  color: #c6c2bb;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.balance-spotlight__hero strong,
+.balance-detail-row__main strong,
+.fx-panel__cell strong,
+.testing-card__section strong {
+  font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+}
+
+.balance-spotlight__hero strong {
+  font-size: clamp(1.6rem, 5vw, 2.3rem);
+  line-height: 1;
+}
+
+.balance-spotlight__hero small {
+  color: #d6d3cc;
+}
+
+.balance-spotlight__stats,
+.balance-spotlight__rows,
+.balance-spotlight__meta,
+.testing-card,
+.testing-card__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.balance-spotlight__stat {
+  min-height: 100%;
+}
+
+.balance-detail-row,
+.fx-panel,
+.testing-card__section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgb(255 255 255 / 0.03);
+}
+
+.balance-detail-row--accent {
+  border-color: rgb(111 211 192 / 0.34);
+  background: rgb(111 211 192 / 0.08);
+}
+
+.balance-detail-row__main {
+  display: grid;
+  gap: 6px;
+}
+
+.fx-panel {
+  background: linear-gradient(180deg, rgb(148 168 255 / 0.08), rgb(255 255 255 / 0.02));
+}
+
+.fx-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fx-panel__grid {
+  display: grid;
+  gap: 10px;
+}
+
+.fx-panel__cell {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgb(12 20 31 / 0.45);
 }
 
 .member-visual-list {
@@ -771,6 +883,18 @@ button {
   color: #dad5ce;
 }
 
+.mini-chip-button {
+  cursor: pointer;
+}
+
+.testing-card {
+  gap: 12px;
+}
+
+.testing-card__actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -978,6 +1102,21 @@ button {
   }
 
   .balance-breakdown {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .balance-spotlight__header,
+  .balance-spotlight__stats,
+  .fx-panel__grid,
+  .testing-card__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .balance-spotlight__header {
+    align-items: start;
+  }
+
+  .balance-spotlight__stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 

@@ -283,6 +283,7 @@ function createFinanceService(): FinanceCommandService {
     generateDashboard: async () => ({
       period: '2026-03',
       currency: 'GEL',
+      paymentBalanceAdjustmentPolicy: 'utilities',
       totalDue: Money.fromMajor('1000.00', 'GEL'),
       totalPaid: Money.fromMajor('500.00', 'GEL'),
       totalRemaining: Money.fromMajor('500.00', 'GEL'),

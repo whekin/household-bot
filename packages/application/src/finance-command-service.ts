@@ -140,6 +140,7 @@ export interface FinanceDashboardLedgerEntry {
 export interface FinanceDashboard {
   period: string
   currency: CurrencyCode
+  paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
   totalDue: Money
   totalPaid: Money
   totalRemaining: Money
@@ -558,6 +559,7 @@ async function buildFinanceDashboard(
   return {
     period: cycle.period,
     currency: cycle.currency,
+    paymentBalanceAdjustmentPolicy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
     totalDue: settlement.totalDue,
     totalPaid: paymentRecords.reduce(
       (sum, payment) => sum.add(Money.fromMinor(payment.amountMinor, payment.currency)),
