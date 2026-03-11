@@ -117,6 +117,13 @@ const processedBotMessageRepositoryClient =
   runtime.databaseUrl && runtime.assistantEnabled
     ? createDbProcessedBotMessageRepository(runtime.databaseUrl!)
     : null
+const purchaseRepositoryClient = runtime.databaseUrl
+  ? createPurchaseMessageRepository(runtime.databaseUrl!)
+  : null
+const purchaseInterpreter = createOpenAiPurchaseInterpreter(
+  runtime.openaiApiKey,
+  runtime.purchaseParserModel
+)
 const assistantMemoryStore = createInMemoryAssistantConversationMemoryStore(
   runtime.assistantMemoryMaxTurns
 )
@@ -214,14 +221,11 @@ if (processedBotMessageRepositoryClient) {
   shutdownTasks.push(processedBotMessageRepositoryClient.close)
 }
 
-if (runtime.databaseUrl && householdConfigurationRepositoryClient) {
-  const purchaseRepositoryClient = createPurchaseMessageRepository(runtime.databaseUrl!)
+if (purchaseRepositoryClient) {
   shutdownTasks.push(purchaseRepositoryClient.close)
-  const purchaseInterpreter = createOpenAiPurchaseInterpreter(
-    runtime.openaiApiKey,
-    runtime.purchaseParserModel
-  )
+}
 
+if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
   registerConfiguredPurchaseTopicIngestion(
     bot,
     householdConfigurationRepositoryClient.repository,
@@ -392,6 +396,16 @@ if (
       memoryStore: assistantMemoryStore,
       rateLimiter: assistantRateLimiter,
       usageTracker: assistantUsageTracker,
+      ...(purchaseRepositoryClient
+        ? {
+            purchaseRepository: purchaseRepositoryClient.repository
+          }
+        : {}),
+      ...(purchaseInterpreter
+        ? {
+            purchaseInterpreter
+          }
+        : {}),
       ...(conversationalAssistant
         ? {
             assistant: conversationalAssistant
@@ -408,6 +422,16 @@ if (
       memoryStore: assistantMemoryStore,
       rateLimiter: assistantRateLimiter,
       usageTracker: assistantUsageTracker,
+      ...(purchaseRepositoryClient
+        ? {
+            purchaseRepository: purchaseRepositoryClient.repository
+          }
+        : {}),
+      ...(purchaseInterpreter
+        ? {
+            purchaseInterpreter
+          }
+        : {}),
       ...(conversationalAssistant
         ? {
             assistant: conversationalAssistant

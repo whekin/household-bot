@@ -1,5 +1,5 @@
 import { parsePaymentConfirmationMessage, type FinanceCommandService } from '@household/application'
-import { Money } from '@household/domain'
+import { instantFromEpochSeconds, Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -11,13 +11,25 @@ import type { Bot, Context } from 'grammy'
 import { resolveReplyLocale } from './bot-locale'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantReply, ConversationalAssistant } from './openai-chat-assistant'
+import type { PurchaseMessageInterpreter } from './openai-purchase-interpreter'
+import type {
+  PurchaseMessageIngestionRepository,
+  PurchaseProposalActionResult,
+  PurchaseTopicRecord
+} from './purchase-topic-ingestion'
 import { startTypingIndicator } from './telegram-chat-action'
 
 const ASSISTANT_PAYMENT_ACTION = 'assistant_payment_confirmation' as const
 const ASSISTANT_PAYMENT_CONFIRM_CALLBACK_PREFIX = 'assistant_payment:confirm:'
 const ASSISTANT_PAYMENT_CANCEL_CALLBACK_PREFIX = 'assistant_payment:cancel:'
+const ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX = 'assistant_purchase:confirm:'
+const ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX = 'assistant_purchase:cancel:'
 const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
 const MEMORY_SUMMARY_MAX_CHARS = 1200
+const PURCHASE_VERB_PATTERN =
+  /\b(?:bought|buy|got|picked up|spent|купил(?:а|и)?|взял(?:а|и)?|выложил(?:а|и)?|отдал(?:а|и)?|потратил(?:а|и)?)\b/iu
+const PURCHASE_MONEY_PATTERN =
+  /(?:\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|usd|\$|доллар(?:а|ов)?|кровн\p{L}*)|\b\d+(?:[.,]\d{1,2})\b)/iu
 
 interface AssistantConversationTurn {
   role: 'user' | 'assistant'
@@ -72,6 +84,11 @@ interface PaymentProposalPayload {
   amountMinor: string
   currency: 'GEL' | 'USD'
 }
+
+type PurchaseActionResult = Extract<
+  PurchaseProposalActionResult,
+  { status: 'confirmed' | 'already_confirmed' | 'cancelled' | 'already_cancelled' }
+>
 
 function describeError(error: unknown): {
   errorMessage?: string
@@ -257,6 +274,133 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   }
 }
 
+function purchaseProposalReplyMarkup(locale: BotLocale, purchaseMessageId: string) {
+  const t = getBotTranslations(locale).purchase
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: t.confirmButton,
+          callback_data: `${ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX}${purchaseMessageId}`
+        },
+        {
+          text: t.cancelButton,
+          callback_data: `${ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX}${purchaseMessageId}`
+        }
+      ]
+    ]
+  }
+}
+
+function formatPurchaseSummary(
+  locale: BotLocale,
+  result: {
+    parsedAmountMinor: bigint | null
+    parsedCurrency: 'GEL' | 'USD' | null
+    parsedItemDescription: string | null
+  }
+): string {
+  if (
+    result.parsedAmountMinor === null ||
+    result.parsedCurrency === null ||
+    result.parsedItemDescription === null
+  ) {
+    return getBotTranslations(locale).purchase.sharedPurchaseFallback
+  }
+
+  const amount = Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency)
+  return `${result.parsedItemDescription} - ${amount.toMajorString()} ${result.parsedCurrency}`
+}
+
+function buildPurchaseActionMessage(locale: BotLocale, result: PurchaseActionResult): string {
+  const t = getBotTranslations(locale).purchase
+  const summary = formatPurchaseSummary(locale, result)
+
+  if (result.status === 'confirmed' || result.status === 'already_confirmed') {
+    return t.confirmed(summary)
+  }
+
+  return t.cancelled(summary)
+}
+
+function buildPurchaseClarificationText(
+  locale: BotLocale,
+  result: {
+    clarificationQuestion: string | null
+    parsedAmountMinor: bigint | null
+    parsedCurrency: 'GEL' | 'USD' | null
+    parsedItemDescription: string | null
+  }
+): string {
+  const t = getBotTranslations(locale).purchase
+  if (result.clarificationQuestion) {
+    return t.clarification(result.clarificationQuestion)
+  }
+
+  if (result.parsedAmountMinor === null && result.parsedCurrency === null) {
+    return t.clarificationMissingAmountAndCurrency
+  }
+
+  if (result.parsedAmountMinor === null) {
+    return t.clarificationMissingAmount
+  }
+
+  if (result.parsedCurrency === null) {
+    return t.clarificationMissingCurrency
+  }
+
+  if (result.parsedItemDescription === null) {
+    return t.clarificationMissingItem
+  }
+
+  return t.clarificationLowConfidence
+}
+
+function createDmPurchaseRecord(ctx: Context, householdId: string): PurchaseTopicRecord | null {
+  if (!isPrivateChat(ctx) || !ctx.msg || !('text' in ctx.msg) || !ctx.from) {
+    return null
+  }
+
+  const chat = ctx.chat
+  if (!chat) {
+    return null
+  }
+
+  const senderDisplayName = [ctx.from.first_name, ctx.from.last_name]
+    .filter((part) => !!part && part.trim().length > 0)
+    .join(' ')
+
+  return {
+    updateId: ctx.update.update_id,
+    householdId,
+    chatId: chat.id.toString(),
+    messageId: ctx.msg.message_id.toString(),
+    threadId: chat.id.toString(),
+    senderTelegramUserId: ctx.from.id.toString(),
+    rawText: ctx.msg.text.trim(),
+    messageSentAt: instantFromEpochSeconds(ctx.msg.date),
+    ...(senderDisplayName.length > 0
+      ? {
+          senderDisplayName
+        }
+      : {})
+  }
+}
+
+function looksLikePurchaseIntent(rawText: string): boolean {
+  const normalized = rawText.trim()
+  if (normalized.length === 0) {
+    return false
+  }
+
+  if (PURCHASE_VERB_PATTERN.test(normalized)) {
+    return true
+  }
+
+  return PURCHASE_MONEY_PATTERN.test(normalized) && /\p{L}/u.test(normalized)
+}
+
 function parsePaymentProposalPayload(
   payload: Record<string, unknown>
 ): PaymentProposalPayload | null {
@@ -436,6 +580,8 @@ async function maybeCreatePaymentProposal(input: {
 export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
+  purchaseRepository?: PurchaseMessageIngestionRepository
+  purchaseInterpreter?: PurchaseMessageInterpreter
   householdConfigurationRepository: HouseholdConfigurationRepository
   messageProcessingRepository?: ProcessedBotMessageRepository
   promptRepository: TelegramPendingActionRepository
@@ -580,6 +726,131 @@ export function registerDmAssistant(options: {
     }
   )
 
+  options.bot.callbackQuery(
+    new RegExp(`^${ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
+    async (ctx) => {
+      if (!isPrivateChat(ctx) || !options.purchaseRepository) {
+        await ctx.answerCallbackQuery({
+          text: getBotTranslations('en').purchase.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const purchaseMessageId = ctx.match[1]
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      if (!actorTelegramUserId || !purchaseMessageId) {
+        await ctx.answerCallbackQuery({
+          text: getBotTranslations('en').purchase.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const result = await options.purchaseRepository.confirm(
+        purchaseMessageId,
+        actorTelegramUserId
+      )
+      const locale =
+        'householdId' in result
+          ? await resolveReplyLocale({
+              ctx,
+              repository: options.householdConfigurationRepository
+            })
+          : 'en'
+      const t = getBotTranslations(locale).purchase
+
+      if (result.status === 'not_found' || result.status === 'not_pending') {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      if (result.status === 'forbidden') {
+        await ctx.answerCallbackQuery({
+          text: t.notYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      await ctx.answerCallbackQuery({
+        text: result.status === 'confirmed' ? t.confirmedToast : t.alreadyConfirmed
+      })
+
+      if (ctx.msg) {
+        await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+          reply_markup: {
+            inline_keyboard: []
+          }
+        })
+      }
+    }
+  )
+
+  options.bot.callbackQuery(
+    new RegExp(`^${ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX}([^:]+)$`),
+    async (ctx) => {
+      if (!isPrivateChat(ctx) || !options.purchaseRepository) {
+        await ctx.answerCallbackQuery({
+          text: getBotTranslations('en').purchase.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const purchaseMessageId = ctx.match[1]
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      if (!actorTelegramUserId || !purchaseMessageId) {
+        await ctx.answerCallbackQuery({
+          text: getBotTranslations('en').purchase.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const result = await options.purchaseRepository.cancel(purchaseMessageId, actorTelegramUserId)
+      const locale =
+        'householdId' in result
+          ? await resolveReplyLocale({
+              ctx,
+              repository: options.householdConfigurationRepository
+            })
+          : 'en'
+      const t = getBotTranslations(locale).purchase
+
+      if (result.status === 'not_found' || result.status === 'not_pending') {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      if (result.status === 'forbidden') {
+        await ctx.answerCallbackQuery({
+          text: t.notYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      await ctx.answerCallbackQuery({
+        text: result.status === 'cancelled' ? t.cancelledToast : t.alreadyCancelled
+      })
+
+      if (ctx.msg) {
+        await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+          reply_markup: {
+            inline_keyboard: []
+          }
+        })
+      }
+    }
+  )
+
   options.bot.on('message:text', async (ctx, next) => {
     if (!isPrivateChat(ctx) || isCommandMessage(ctx)) {
       await next()
@@ -649,6 +920,64 @@ export function registerDmAssistant(options: {
       if (!rateLimit.allowed) {
         await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
         return
+      }
+
+      const purchaseRecord = createDmPurchaseRecord(ctx, member.householdId)
+      const shouldAttemptPurchase =
+        purchaseRecord &&
+        options.purchaseRepository &&
+        (looksLikePurchaseIntent(purchaseRecord.rawText) ||
+          (await options.purchaseRepository.hasClarificationContext(purchaseRecord)))
+
+      if (purchaseRecord && options.purchaseRepository && shouldAttemptPurchase) {
+        const typingIndicator = startTypingIndicator(ctx)
+
+        try {
+          const settings =
+            await options.householdConfigurationRepository.getHouseholdBillingSettings(
+              member.householdId
+            )
+          const purchaseResult = await options.purchaseRepository.save(
+            purchaseRecord,
+            options.purchaseInterpreter,
+            settings.settlementCurrency
+          )
+
+          if (purchaseResult.status !== 'ignored_not_purchase') {
+            const purchaseText =
+              purchaseResult.status === 'pending_confirmation'
+                ? getBotTranslations(locale).purchase.proposal(
+                    formatPurchaseSummary(locale, purchaseResult)
+                  )
+                : purchaseResult.status === 'clarification_needed'
+                  ? buildPurchaseClarificationText(locale, purchaseResult)
+                  : getBotTranslations(locale).purchase.parseFailed
+
+            options.memoryStore.appendTurn(telegramUserId, {
+              role: 'user',
+              text: ctx.msg.text
+            })
+            options.memoryStore.appendTurn(telegramUserId, {
+              role: 'assistant',
+              text: purchaseText
+            })
+
+            const replyOptions =
+              purchaseResult.status === 'pending_confirmation'
+                ? {
+                    reply_markup: purchaseProposalReplyMarkup(
+                      locale,
+                      purchaseResult.purchaseMessageId
+                    )
+                  }
+                : undefined
+
+            await ctx.reply(purchaseText, replyOptions)
+            return
+          }
+        } finally {
+          typingIndicator.stop()
+        }
       }
 
       const financeService = options.financeServiceForHousehold(member.householdId)

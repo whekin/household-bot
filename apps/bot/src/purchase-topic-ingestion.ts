@@ -120,6 +120,7 @@ export type PurchaseProposalActionResult =
     }
 
 export interface PurchaseMessageIngestionRepository {
+  hasClarificationContext(record: PurchaseTopicRecord): Promise<boolean>
   save(
     record: PurchaseTopicRecord,
     interpreter?: PurchaseMessageInterpreter,
@@ -626,6 +627,11 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
   }
 
   const repository: PurchaseMessageIngestionRepository = {
+    async hasClarificationContext(record) {
+      const clarificationContext = await getClarificationContext(record)
+      return Boolean(clarificationContext && clarificationContext.length > 0)
+    },
+
     async save(record, interpreter, defaultCurrency) {
       const matchedMember = await db
         .select({ id: schema.members.id })

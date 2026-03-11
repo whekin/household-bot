@@ -15,6 +15,7 @@ import {
   createInMemoryAssistantUsageTracker,
   registerDmAssistant
 } from './dm-assistant'
+import type { PurchaseMessageIngestionRepository } from './purchase-topic-ingestion'
 
 function createTestBot() {
   const bot = createTelegramBot('000000:test-token')
@@ -326,6 +327,190 @@ function createPromptRepository(): TelegramPendingActionRepository {
   }
 }
 
+function createPurchaseRepository(): PurchaseMessageIngestionRepository {
+  const clarificationKeys = new Set<string>()
+  const proposals = new Map<
+    string,
+    {
+      householdId: string
+      senderTelegramUserId: string
+      parsedAmountMinor: bigint
+      parsedCurrency: 'GEL' | 'USD'
+      parsedItemDescription: string
+      status: 'pending_confirmation' | 'confirmed' | 'cancelled'
+    }
+  >()
+
+  function key(input: { householdId: string; senderTelegramUserId: string; threadId: string }) {
+    return `${input.householdId}:${input.senderTelegramUserId}:${input.threadId}`
+  }
+
+  return {
+    async hasClarificationContext(record) {
+      return clarificationKeys.has(key(record))
+    },
+    async save(record) {
+      const threadKey = key(record)
+
+      if (record.rawText === 'I bought a door handle for 30 lari') {
+        proposals.set('purchase-1', {
+          householdId: record.householdId,
+          senderTelegramUserId: record.senderTelegramUserId,
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'door handle',
+          status: 'pending_confirmation'
+        })
+
+        return {
+          status: 'pending_confirmation' as const,
+          purchaseMessageId: 'purchase-1',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL' as const,
+          parsedItemDescription: 'door handle',
+          parserConfidence: 92,
+          parserMode: 'llm' as const
+        }
+      }
+
+      if (record.rawText === 'I bought sausages, paid 45') {
+        clarificationKeys.add(threadKey)
+        return {
+          status: 'clarification_needed' as const,
+          purchaseMessageId: 'purchase-clarification-1',
+          clarificationQuestion: 'Which currency was this purchase in?',
+          parsedAmountMinor: 4500n,
+          parsedCurrency: null,
+          parsedItemDescription: 'sausages',
+          parserConfidence: 61,
+          parserMode: 'llm' as const
+        }
+      }
+
+      if (record.rawText === 'lari' && clarificationKeys.has(threadKey)) {
+        clarificationKeys.delete(threadKey)
+        proposals.set('purchase-2', {
+          householdId: record.householdId,
+          senderTelegramUserId: record.senderTelegramUserId,
+          parsedAmountMinor: 4500n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'sausages',
+          status: 'pending_confirmation'
+        })
+
+        return {
+          status: 'pending_confirmation' as const,
+          purchaseMessageId: 'purchase-2',
+          parsedAmountMinor: 4500n,
+          parsedCurrency: 'GEL' as const,
+          parsedItemDescription: 'sausages',
+          parserConfidence: 88,
+          parserMode: 'llm' as const
+        }
+      }
+
+      return {
+        status: 'ignored_not_purchase' as const,
+        purchaseMessageId: `ignored-${record.messageId}`
+      }
+    },
+    async confirm(purchaseMessageId, actorTelegramUserId) {
+      const proposal = proposals.get(purchaseMessageId)
+      if (!proposal) {
+        return {
+          status: 'not_found' as const
+        }
+      }
+
+      if (proposal.senderTelegramUserId !== actorTelegramUserId) {
+        return {
+          status: 'forbidden' as const,
+          householdId: proposal.householdId
+        }
+      }
+
+      if (proposal.status === 'confirmed') {
+        return {
+          status: 'already_confirmed' as const,
+          purchaseMessageId,
+          householdId: proposal.householdId,
+          parsedAmountMinor: proposal.parsedAmountMinor,
+          parsedCurrency: proposal.parsedCurrency,
+          parsedItemDescription: proposal.parsedItemDescription,
+          parserConfidence: 92,
+          parserMode: 'llm' as const
+        }
+      }
+
+      if (proposal.status !== 'pending_confirmation') {
+        return {
+          status: 'not_pending' as const,
+          householdId: proposal.householdId
+        }
+      }
+
+      proposal.status = 'confirmed'
+      return {
+        status: 'confirmed' as const,
+        purchaseMessageId,
+        householdId: proposal.householdId,
+        parsedAmountMinor: proposal.parsedAmountMinor,
+        parsedCurrency: proposal.parsedCurrency,
+        parsedItemDescription: proposal.parsedItemDescription,
+        parserConfidence: 92,
+        parserMode: 'llm' as const
+      }
+    },
+    async cancel(purchaseMessageId, actorTelegramUserId) {
+      const proposal = proposals.get(purchaseMessageId)
+      if (!proposal) {
+        return {
+          status: 'not_found' as const
+        }
+      }
+
+      if (proposal.senderTelegramUserId !== actorTelegramUserId) {
+        return {
+          status: 'forbidden' as const,
+          householdId: proposal.householdId
+        }
+      }
+
+      if (proposal.status === 'cancelled') {
+        return {
+          status: 'already_cancelled' as const,
+          purchaseMessageId,
+          householdId: proposal.householdId,
+          parsedAmountMinor: proposal.parsedAmountMinor,
+          parsedCurrency: proposal.parsedCurrency,
+          parsedItemDescription: proposal.parsedItemDescription,
+          parserConfidence: 92,
+          parserMode: 'llm' as const
+        }
+      }
+
+      if (proposal.status !== 'pending_confirmation') {
+        return {
+          status: 'not_pending' as const,
+          householdId: proposal.householdId
+        }
+      }
+
+      proposal.status = 'cancelled'
+      return {
+        status: 'cancelled' as const,
+        purchaseMessageId,
+        householdId: proposal.householdId,
+        parsedAmountMinor: proposal.parsedAmountMinor,
+        parsedCurrency: proposal.parsedCurrency,
+        parsedItemDescription: proposal.parsedItemDescription,
+        parserConfidence: 92,
+        parserMode: 'llm' as const
+      }
+    }
+  }
+}
+
 function createProcessedBotMessageRepository(): ProcessedBotMessageRepository {
   const claims = new Set<string>()
 
@@ -495,6 +680,266 @@ describe('registerDmAssistant', () => {
       kind: 'rent',
       amountMinor: '70000',
       currency: 'GEL'
+    })
+  })
+
+  test('routes obvious purchase-like DMs into purchase confirmation flow', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'fallback assistant reply',
+            usage: {
+              inputTokens: 10,
+              outputTokens: 5,
+              totalTokens: 15
+            }
+          }
+        }
+      },
+      purchaseRepository: createPurchaseRepository(),
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('I bought a door handle for 30 lari') as never)
+
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: 123456,
+        action: 'typing'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: 123456,
+        text: 'I think this shared purchase was: door handle - 30.00 GEL. Confirm or cancel below.',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Confirm',
+                callback_data: 'assistant_purchase:confirm:purchase-1'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'assistant_purchase:cancel:purchase-1'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
+  test('uses clarification context for follow-up purchase replies in DM', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      purchaseRepository: createPurchaseRepository(),
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('I bought sausages, paid 45') as never)
+    await bot.handleUpdate(privateMessageUpdate('lari') as never)
+
+    expect(calls).toHaveLength(4)
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: 123456,
+        text: 'Which currency was this purchase in?'
+      }
+    })
+    expect(calls[3]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: 123456,
+        text: 'I think this shared purchase was: sausages - 45.00 GEL. Confirm or cancel below.',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Confirm',
+                callback_data: 'assistant_purchase:confirm:purchase-2'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'assistant_purchase:cancel:purchase-2'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
+  test('confirms a pending purchase proposal from DM callback', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const purchaseRepository = createPurchaseRepository()
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      purchaseRepository,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('I bought a door handle for 30 lari') as never)
+    calls.length = 0
+
+    await bot.handleUpdate(privateCallbackUpdate('assistant_purchase:confirm:purchase-1') as never)
+
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1',
+        text: 'Purchase confirmed.'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        chat_id: 123456,
+        message_id: 77,
+        text: 'Purchase confirmed: door handle - 30.00 GEL'
+      }
+    })
+  })
+
+  test('falls back to the generic assistant for non-purchase chatter', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: 123456,
+              type: 'private'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'general fallback reply',
+            usage: {
+              inputTokens: 22,
+              outputTokens: 7,
+              totalTokens: 29
+            }
+          }
+        }
+      },
+      purchaseRepository: createPurchaseRepository(),
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('How are you?') as never)
+
+    expect(assistantCalls).toBe(1)
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: 123456,
+        text: 'general fallback reply'
+      }
     })
   })
 

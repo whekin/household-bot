@@ -287,6 +287,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         return {
           status: 'pending_confirmation',
@@ -356,6 +359,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         return {
           status: 'clarification_needed',
@@ -414,6 +420,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         return {
           status: 'pending_confirmation',
@@ -504,6 +513,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         saveCall += 1
         return saveCall === 1
@@ -544,6 +556,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         return {
           status: 'pending_confirmation',
@@ -610,6 +625,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         throw new Error('not used')
       },
@@ -662,6 +680,9 @@ describe('registerPurchaseTopicIngestion', () => {
     })
 
     const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
       async save() {
         throw new Error('not used')
       },
