@@ -135,7 +135,8 @@ resource "google_monitoring_alert_policy" "bot_error_events" {
 
     condition_threshold {
       filter = <<-EOT
-resource.type="global"
+resource.type="cloud_run_revision"
+resource.labels.service_name="${module.bot_api_service.name}"
 metric.type="logging.googleapis.com/user/${google_logging_metric.bot_error_events[each.key].name}"
       EOT
 
