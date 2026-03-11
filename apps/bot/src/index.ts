@@ -109,10 +109,9 @@ const miniAppAdminService = householdConfigurationRepositoryClient
 const localePreferenceService = householdConfigurationRepositoryClient
   ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
   : null
-const telegramPendingActionRepositoryClient =
-  runtime.databaseUrl && (runtime.anonymousFeedbackEnabled || runtime.assistantEnabled)
-    ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
-    : null
+const telegramPendingActionRepositoryClient = runtime.databaseUrl
+  ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
+  : null
 const processedBotMessageRepositoryClient =
   runtime.databaseUrl && runtime.assistantEnabled
     ? createDbProcessedBotMessageRepository(runtime.databaseUrl!)
@@ -243,6 +242,8 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
   registerConfiguredPaymentTopicIngestion(
     bot,
     householdConfigurationRepositoryClient.repository,
+    telegramPendingActionRepositoryClient!.repository,
+    financeServiceForHousehold,
     paymentConfirmationServiceForHousehold,
     {
       logger: getLogger('payment-ingestion')

@@ -17,6 +17,14 @@ function parsePendingActionType(raw: string): TelegramPendingActionType {
     return raw
   }
 
+  if (raw === 'payment_topic_clarification') {
+    return raw
+  }
+
+  if (raw === 'payment_topic_confirmation') {
+    return raw
+  }
+
   if (raw === 'setup_topic_binding') {
     return raw
   }
