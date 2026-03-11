@@ -375,13 +375,42 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('Electricity:'),
+        text: expect.stringContaining('<pre>Electricity: \nWater: </pre>'),
+        parse_mode: 'HTML',
         message_thread_id: 555
       }
     })
 
     calls.length = 0
     await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: 0') as never)
+
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining('- Electricity: 22.00 GEL')
+      }
+    })
+  })
+
+  test('treats blank or removed template lines as skipped categories', async () => {
+    const { bot, calls } = setupBot()
+
+    await bot.handleUpdate(reminderCallbackUpdate(REMINDER_UTILITY_TEMPLATE_CALLBACK) as never)
+
+    calls.length = 0
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: ') as never)
+
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining('- Electricity: 22.00 GEL')
+      }
+    })
+
+    calls.length = 0
+    await bot.handleUpdate(reminderCallbackUpdate(REMINDER_UTILITY_TEMPLATE_CALLBACK) as never)
+    calls.length = 0
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22') as never)
 
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',

@@ -270,7 +270,8 @@ export const enBotTranslations: BotTranslationCatalog = {
       `I could not read that amount for ${categoryName}. Reply with a number in ${currency}, or send 0 / "skip".`,
     templateIntro: (currency) =>
       `Fill in the utility amounts below in ${currency}, then send the completed message back in this topic.`,
-    templateInstruction: 'Use 0 or skip for any category you want to leave empty.',
+    templateInstruction:
+      'For any category you do not want to add, leave it blank, remove the line entirely, or send 0 / "skip".',
     templateInvalid:
       'I could not read any utility amounts from that template. Send the filled template back with at least one amount.',
     summaryTitle: (period) => `Utility charges for ${period}`,

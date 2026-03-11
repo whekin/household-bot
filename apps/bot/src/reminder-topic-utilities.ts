@@ -182,20 +182,32 @@ function parseTemplateEntries(
   return entries.length > 0 ? entries : null
 }
 
+function escapeHtml(raw: string): string {
+  return raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
 function buildTemplateText(
   locale: BotLocale,
   currency: 'GEL' | 'USD',
   categories: readonly string[]
-): string {
+): {
+  text: string
+  parseMode: 'HTML'
+} {
   const t = getBotTranslations(locale).reminders
 
-  return [
-    t.templateIntro(currency),
-    '',
-    ...categories.map((category) => `${category}: `),
-    '',
-    t.templateInstruction
-  ].join('\n')
+  const templateLines = categories.map((category) => `${category}: `).join('\n')
+
+  return {
+    text: [
+      escapeHtml(t.templateIntro(currency)),
+      '',
+      `<pre>${escapeHtml(templateLines)}</pre>`,
+      '',
+      escapeHtml(t.templateInstruction)
+    ].join('\n'),
+    parseMode: 'HTML'
+  }
 }
 
 function reminderUtilitySummaryText(
@@ -261,7 +273,10 @@ function buildReminderConfirmationPayload(input: {
 async function replyInTopic(
   ctx: Context,
   text: string,
-  replyMarkup?: InlineKeyboardMarkup
+  replyMarkup?: InlineKeyboardMarkup,
+  options?: {
+    parseMode?: 'HTML'
+  }
 ): Promise<void> {
   const message = ctx.msg
   if (!ctx.chat || !message) {
@@ -285,6 +300,11 @@ async function replyInTopic(
     ...(replyMarkup
       ? {
           reply_markup: replyMarkup as InlineKeyboardMarkup
+        }
+      : {}),
+    ...(options?.parseMode
+      ? {
+          parse_mode: options.parseMode
         }
       : {})
   })
@@ -481,14 +501,14 @@ export function registerReminderTopicUtilities(options: {
     await ctx.answerCallbackQuery({
       text: t.templateToast
     })
-    await replyInTopic(
-      ctx,
-      buildTemplateText(
-        reminderContext.locale,
-        reminderContext.currency,
-        reminderContext.categories
-      )
+    const template = buildTemplateText(
+      reminderContext.locale,
+      reminderContext.currency,
+      reminderContext.categories
     )
+    await replyInTopic(ctx, template.text, undefined, {
+      parseMode: template.parseMode
+    })
   }
 
   options.bot.callbackQuery(REMINDER_UTILITY_GUIDED_CALLBACK, async (ctx) => {
