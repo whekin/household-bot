@@ -83,6 +83,24 @@ Recommended approach:
     `bot_assistant_rate_limit_rolling`,
     `bot_assistant_rate_limit_rolling_window_ms`
   - optional `bot_mini_app_allowed_origins`
+  - optional `alert_notification_emails`
+
+## Alerting baseline
+
+Terraform can also provision a minimal monitoring baseline for the bot:
+
+- email notification channels from `alert_notification_emails`
+- log-based metrics for:
+  - `telegram.bot_error`
+  - `payment.ingest_failed`
+  - `purchase.ingest_failed`
+  - `assistant.reply_failed`
+  - `scheduler.reminder.dispatch_failed`
+- an alert policy for Cloud Run 5xx responses on the bot API service
+- one alert policy per structured bot failure event above
+
+If you use email channels, Google Cloud will send a one-time confirmation email for each address.
+The notification channel will not deliver alerts until that confirmation step is completed.
 
 ## CI validation
 

@@ -23,6 +23,9 @@ bot_assistant_rate_limit_rolling_window_ms = 86400000
 bot_mini_app_allowed_origins = [
   "https://household-dev-mini-app-abc123-ew.a.run.app"
 ]
+alert_notification_emails = [
+  "alerts@example.com"
+]
 
 scheduler_utilities_cron    = "0 9 * * *"
 scheduler_rent_warning_cron = "0 9 * * *"

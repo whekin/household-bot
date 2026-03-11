@@ -138,6 +138,12 @@ variable "bot_mini_app_allowed_origins" {
   default     = []
 }
 
+variable "alert_notification_emails" {
+  description = "Email addresses that should receive bot monitoring alerts"
+  type        = list(string)
+  default     = []
+}
+
 variable "openai_api_key_secret_id" {
   description = "Optional Secret Manager ID for OPENAI_API_KEY"
   type        = string
