@@ -1,6 +1,6 @@
 import type { FinanceCommandService, PaymentConfirmationService } from '@household/application'
 import { Money } from '@household/domain'
-import { instantFromEpochSeconds, type Instant } from '@household/domain'
+import { instantFromEpochSeconds, nowInstant, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -20,6 +20,7 @@ const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
 const PAYMENT_TOPIC_CLARIFICATION_ACTION = 'payment_topic_clarification' as const
 const PAYMENT_TOPIC_CONFIRMATION_ACTION = 'payment_topic_confirmation' as const
+const PAYMENT_TOPIC_ACTION_TTL_MS = 30 * 60_000
 
 export interface PaymentTopicCandidate {
   updateId: number
@@ -472,7 +473,7 @@ export function registerConfiguredPaymentTopicIngestion(
             threadId: record.threadId,
             rawText: combinedText
           },
-          expiresAt: null
+          expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
         })
 
         await replyToPaymentMessage(ctx, t.clarification)
@@ -510,7 +511,7 @@ export function registerConfiguredPaymentTopicIngestion(
             telegramUpdateId: String(record.updateId),
             attachmentCount: record.attachmentCount
           },
-          expiresAt: null
+          expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
         })
 
         await replyToPaymentMessage(
