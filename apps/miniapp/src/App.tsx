@@ -17,9 +17,11 @@ import {
   joinMiniAppHousehold,
   openMiniAppBillingCycle,
   promoteMiniAppMember,
+  updateMiniAppMemberDisplayName,
   updateMiniAppMemberAbsencePolicy,
   updateMiniAppMemberStatus,
   updateMiniAppMemberRentWeight,
+  updateMiniAppOwnDisplayName,
   type MiniAppAdminCycleState,
   type MiniAppAdminSettingsPayload,
   type MiniAppMemberAbsencePolicy,
@@ -311,11 +313,19 @@ function App() {
   const [joining, setJoining] = createSignal(false)
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
+  const [savingOwnDisplayName, setSavingOwnDisplayName] = createSignal(false)
+  const [savingMemberDisplayNameId, setSavingMemberDisplayNameId] = createSignal<string | null>(
+    null
+  )
   const [savingRentWeightMemberId, setSavingRentWeightMemberId] = createSignal<string | null>(null)
   const [savingMemberStatusId, setSavingMemberStatusId] = createSignal<string | null>(null)
   const [savingMemberAbsencePolicyId, setSavingMemberAbsencePolicyId] = createSignal<string | null>(
     null
   )
+  const [displayNameDraft, setDisplayNameDraft] = createSignal('')
+  const [memberDisplayNameDrafts, setMemberDisplayNameDrafts] = createSignal<
+    Record<string, string>
+  >({})
   const [rentWeightDrafts, setRentWeightDrafts] = createSignal<Record<string, string>>({})
   const [memberStatusDrafts, setMemberStatusDrafts] = createSignal<
     Record<string, 'active' | 'away' | 'left'>
@@ -471,6 +481,65 @@ function App() {
     )
   }
 
+  function syncDisplayName(memberId: string, displayName: string) {
+    setSession((current) =>
+      current.status === 'ready' && current.member.id === memberId
+        ? {
+            ...current,
+            member: {
+              ...current.member,
+              displayName
+            }
+          }
+        : current
+    )
+    setAdminSettings((current) =>
+      current
+        ? {
+            ...current,
+            members: current.members.map((member) =>
+              member.id === memberId
+                ? {
+                    ...member,
+                    displayName
+                  }
+                : member
+            )
+          }
+        : current
+    )
+    setDashboard((current) =>
+      current
+        ? {
+            ...current,
+            members: current.members.map((member) =>
+              member.memberId === memberId
+                ? {
+                    ...member,
+                    displayName
+                  }
+                : member
+            ),
+            ledger: current.ledger.map((entry) =>
+              entry.memberId === memberId
+                ? {
+                    ...entry,
+                    actorDisplayName: displayName
+                  }
+                : entry
+            )
+          }
+        : current
+    )
+    setDisplayNameDraft((current) =>
+      readySession()?.member.id === memberId ? displayName : current
+    )
+    setMemberDisplayNameDrafts((current) => ({
+      ...current,
+      [memberId]: displayName
+    }))
+  }
+
   async function loadDashboard(initData: string) {
     try {
       const nextDashboard = await fetchMiniAppDashboard(initData)
@@ -504,6 +573,9 @@ function App() {
     try {
       const payload = await fetchMiniAppAdminSettings(initData)
       setAdminSettings(payload)
+      setMemberDisplayNameDrafts(
+        Object.fromEntries(payload.members.map((member) => [member.id, member.displayName]))
+      )
       setRentWeightDrafts(
         Object.fromEntries(
           payload.members.map((member) => [member.id, String(member.rentShareWeight)])
@@ -655,6 +727,7 @@ function App() {
       }
 
       setLocale(payload.member.preferredLocale ?? payload.member.householdDefaultLocale)
+      setDisplayNameDraft(payload.member.displayName)
       setSession({
         status: 'ready',
         mode: 'live',
@@ -673,6 +746,7 @@ function App() {
       }
     } catch {
       if (import.meta.env.DEV) {
+        setDisplayNameDraft(demoSession.member.displayName)
         setSession(demoSession)
         setDashboard({
           period: '2026-03',
@@ -793,6 +867,7 @@ function App() {
       const payload = await joinMiniAppHousehold(initData, joinToken)
       if (payload.authorized && payload.member && payload.telegramUser) {
         setLocale(payload.member.preferredLocale ?? payload.member.householdDefaultLocale)
+        setDisplayNameDraft(payload.member.displayName)
         setSession({
           status: 'ready',
           mode: 'live',
@@ -919,6 +994,51 @@ function App() {
       }
     } finally {
       setSavingHouseholdLocale(false)
+    }
+  }
+
+  async function handleSaveOwnDisplayName() {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const nextDisplayName = displayNameDraft().trim()
+    if (!initData || currentReady?.mode !== 'live' || nextDisplayName.length === 0) {
+      return
+    }
+
+    setSavingOwnDisplayName(true)
+
+    try {
+      const updatedMember = await updateMiniAppOwnDisplayName(initData, nextDisplayName)
+      syncDisplayName(updatedMember.id, updatedMember.displayName)
+    } finally {
+      setSavingOwnDisplayName(false)
+    }
+  }
+
+  async function handleSaveMemberDisplayName(memberId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const nextDisplayName = memberDisplayNameDrafts()[memberId]?.trim()
+    if (
+      !initData ||
+      currentReady?.mode !== 'live' ||
+      !currentReady.member.isAdmin ||
+      !nextDisplayName
+    ) {
+      return
+    }
+
+    setSavingMemberDisplayNameId(memberId)
+
+    try {
+      const updatedMember = await updateMiniAppMemberDisplayName(
+        initData,
+        memberId,
+        nextDisplayName
+      )
+      syncDisplayName(updatedMember.id, updatedMember.displayName)
+    } finally {
+      setSavingMemberDisplayNameId(null)
     }
   }
 
@@ -2765,6 +2885,18 @@ function App() {
                           </header>
                           <div class="settings-grid">
                             <label class="settings-field settings-field--wide">
+                              <span>{copy().displayNameLabel}</span>
+                              <input
+                                value={memberDisplayNameDrafts()[member.id] ?? member.displayName}
+                                onInput={(event) =>
+                                  setMemberDisplayNameDrafts((current) => ({
+                                    ...current,
+                                    [member.id]: event.currentTarget.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label class="settings-field settings-field--wide">
                               <span>{copy().memberStatusLabel}</span>
                               <select
                                 value={memberStatusDrafts()[member.id] ?? member.status}
@@ -2838,6 +2970,23 @@ function App() {
                             </label>
                           </div>
                           <div class="inline-actions">
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={
+                                savingMemberDisplayNameId() === member.id ||
+                                (memberDisplayNameDrafts()[member.id] ?? member.displayName).trim()
+                                  .length < 2 ||
+                                (
+                                  memberDisplayNameDrafts()[member.id] ?? member.displayName
+                                ).trim() === member.displayName
+                              }
+                              onClick={() => void handleSaveMemberDisplayName(member.id)}
+                            >
+                              {savingMemberDisplayNameId() === member.id
+                                ? copy().savingDisplayName
+                                : copy().saveDisplayName}
+                            </button>
                             <button
                               class="ghost-button"
                               type="button"
@@ -3284,6 +3433,32 @@ function App() {
                     : copy().memberStatusActive
                 )}
               </p>
+              <Show when={readySession()?.mode === 'live'}>
+                <div class="settings-grid">
+                  <label class="settings-field settings-field--wide">
+                    <span>{copy().displayNameLabel}</span>
+                    <input
+                      value={displayNameDraft()}
+                      onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
+                    />
+                    <small>{copy().displayNameHint}</small>
+                  </label>
+                </div>
+                <div class="inline-actions">
+                  <button
+                    class="ghost-button"
+                    type="button"
+                    disabled={
+                      savingOwnDisplayName() ||
+                      displayNameDraft().trim().length < 2 ||
+                      displayNameDraft().trim() === readySession()?.member.displayName
+                    }
+                    onClick={() => void handleSaveOwnDisplayName()}
+                  >
+                    {savingOwnDisplayName() ? copy().savingDisplayName : copy().saveDisplayName}
+                  </button>
+                </div>
+              </Show>
               <div>{renderPanel()}</div>
             </article>
           </section>

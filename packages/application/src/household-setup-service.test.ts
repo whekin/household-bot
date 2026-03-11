@@ -252,6 +252,9 @@ function createRepositoryStub() {
           }
         : null
     },
+    async updateHouseholdMemberDisplayName() {
+      return null
+    },
     async getHouseholdBillingSettings(householdId) {
       return {
         householdId,

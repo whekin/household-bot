@@ -206,6 +206,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       defaultLocale: locale
     }),
     updateMemberPreferredLocale: async () => null,
+    updateHouseholdMemberDisplayName: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',

@@ -509,6 +509,66 @@ export async function promoteMiniAppMember(
   return payload.member
 }
 
+export async function updateMiniAppOwnDisplayName(
+  initData: string,
+  displayName: string
+): Promise<NonNullable<MiniAppSession['member']>> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/member/display-name`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      displayName
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppSession['member']
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to update display name')
+  }
+
+  return payload.member
+}
+
+export async function updateMiniAppMemberDisplayName(
+  initData: string,
+  memberId: string,
+  displayName: string
+): Promise<MiniAppMember> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/display-name`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId,
+      displayName
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppMember
+    error?: string
+  }
+
+  if (!response.ok || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to update member display name')
+  }
+
+  return payload.member
+}
+
 export async function updateMiniAppMemberRentWeight(
   initData: string,
   memberId: string,

@@ -131,6 +131,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       defaultLocale: locale
     }),
     updateMemberPreferredLocale: async () => null,
+    updateHouseholdMemberDisplayName: async () => null,
     promoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,

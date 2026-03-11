@@ -199,6 +199,41 @@ async function readPromoteMemberPayload(request: Request): Promise<{
   }
 }
 
+async function readDisplayNamePayload(request: Request): Promise<{
+  initData: string
+  displayName: string
+  memberId?: string
+}> {
+  const clonedRequest = request.clone()
+  const payload = await readMiniAppRequestPayload(request)
+  if (!payload.initData) {
+    throw new Error('Missing initData')
+  }
+
+  const text = await clonedRequest.text()
+  let parsed: { memberId?: string; displayName?: string }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
+
+  const displayName = parsed.displayName?.trim()
+  if (!displayName) {
+    throw new Error('Missing displayName')
+  }
+
+  return {
+    initData: payload.initData,
+    displayName,
+    ...(typeof parsed.memberId === 'string' && parsed.memberId.trim().length > 0
+      ? {
+          memberId: parsed.memberId.trim()
+        }
+      : {})
+  }
+}
+
 async function readRentWeightPayload(request: Request): Promise<{
   initData: string
   memberId: string
@@ -798,6 +833,82 @@ export function createMiniAppPromoteMemberHandler(options: {
   }
 }
 
+export function createMiniAppUpdateOwnDisplayNameHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readDisplayNamePayload(request)
+        const session = await sessionService.authenticate({
+          initData: payload.initData
+        })
+
+        if (!session || !session.authorized || !session.member) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Active household membership required' },
+            session ? 403 : 401,
+            origin
+          )
+        }
+
+        const result = await options.miniAppAdminService.updateOwnDisplayName({
+          householdId: session.member.householdId,
+          actorMemberId: session.member.id,
+          displayName: payload.displayName
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            {
+              ok: false,
+              error:
+                result.reason === 'invalid_display_name'
+                  ? 'Invalid display name'
+                  : 'Member not found'
+            },
+            result.reason === 'invalid_display_name' ? 400 : 404,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            member: result.member
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
 export function createMiniAppUpdateMemberRentWeightHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
@@ -870,6 +981,99 @@ export function createMiniAppUpdateMemberRentWeightHandler(options: {
                     : 'Admin access required'
             },
             result.reason === 'invalid_weight'
+              ? 400
+              : result.reason === 'member_not_found'
+                ? 404
+                : 403,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            member: result.member
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppUpdateMemberDisplayNameHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readDisplayNamePayload(request)
+        const session = await sessionService.authenticate({
+          initData: payload.initData
+        })
+
+        if (
+          !session ||
+          !session.authorized ||
+          !session.member ||
+          session.member.status !== 'active' ||
+          !session.member.isAdmin
+        ) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Admin access required for active household members' },
+            session ? 403 : 401,
+            origin
+          )
+        }
+
+        if (!payload.memberId) {
+          return miniAppJsonResponse({ ok: false, error: 'Missing memberId' }, 400, origin)
+        }
+
+        const result = await options.miniAppAdminService.updateMemberDisplayName({
+          householdId: session.member.householdId,
+          actorIsAdmin: session.member.isAdmin,
+          memberId: payload.memberId,
+          displayName: payload.displayName
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            {
+              ok: false,
+              error:
+                result.reason === 'invalid_display_name'
+                  ? 'Invalid display name'
+                  : result.reason === 'member_not_found'
+                    ? 'Member not found'
+                    : 'Admin access required'
+            },
+            result.reason === 'invalid_display_name'
               ? 400
               : result.reason === 'member_not_found'
                 ? 404

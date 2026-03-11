@@ -56,6 +56,18 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpdateOwnDisplayName?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppUpdateMemberDisplayName?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppUpdateMemberRentWeight?:
     | {
         path?: string
@@ -196,6 +208,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpsertUtilityCategory?.path ?? '/api/miniapp/admin/utility-categories/upsert'
   const miniAppPromoteMemberPath =
     options.miniAppPromoteMember?.path ?? '/api/miniapp/admin/members/promote'
+  const miniAppUpdateOwnDisplayNamePath =
+    options.miniAppUpdateOwnDisplayName?.path ?? '/api/miniapp/member/display-name'
+  const miniAppUpdateMemberDisplayNamePath =
+    options.miniAppUpdateMemberDisplayName?.path ?? '/api/miniapp/admin/members/display-name'
   const miniAppUpdateMemberRentWeightPath =
     options.miniAppUpdateMemberRentWeight?.path ?? '/api/miniapp/admin/members/rent-weight'
   const miniAppUpdateMemberStatusPath =
@@ -275,6 +291,17 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppPromoteMember && url.pathname === miniAppPromoteMemberPath) {
         return await options.miniAppPromoteMember.handler(request)
+      }
+
+      if (options.miniAppUpdateOwnDisplayName && url.pathname === miniAppUpdateOwnDisplayNamePath) {
+        return await options.miniAppUpdateOwnDisplayName.handler(request)
+      }
+
+      if (
+        options.miniAppUpdateMemberDisplayName &&
+        url.pathname === miniAppUpdateMemberDisplayNamePath
+      ) {
+        return await options.miniAppUpdateMemberDisplayName.handler(request)
       }
 
       if (

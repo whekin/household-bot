@@ -136,6 +136,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
           }
         : null
     },
+    updateHouseholdMemberDisplayName: async () => null,
     updateHouseholdMemberRentShareWeight: async (_householdId, memberId, rentShareWeight) => {
       const member = [...members.values()].find((entry) => entry.id === memberId)
       return member

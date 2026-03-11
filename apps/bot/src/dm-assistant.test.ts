@@ -157,7 +157,41 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
       rentShareWeight: 1,
       isAdmin: true
     }),
-    listHouseholdMembers: async () => [],
+    listHouseholdMembers: async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'member-2',
+        householdId: 'household-1',
+        telegramUserId: '222222',
+        displayName: 'Dima',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'member-3',
+        householdId: 'household-1',
+        telegramUserId: '333333',
+        displayName: 'Chorbanaut',
+        status: 'away',
+        preferredLocale: null,
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ],
     getHouseholdBillingSettings: async () => ({
       householdId: 'household-1',
       settlementCurrency: 'GEL',
@@ -193,6 +227,7 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
     approvePendingHouseholdMember: async () => null,
     updateHouseholdDefaultLocale: async () => household,
     updateMemberPreferredLocale: async () => null,
+    updateHouseholdMemberDisplayName: async () => null,
     promoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
@@ -265,6 +300,28 @@ function createFinanceService(): FinanceCommandService {
           netDue: Money.fromMajor('850.00', 'GEL'),
           paid: Money.fromMajor('500.00', 'GEL'),
           remaining: Money.fromMajor('350.00', 'GEL'),
+          explanations: []
+        },
+        {
+          memberId: 'member-2',
+          displayName: 'Dima',
+          rentShare: Money.fromMajor('700.00', 'GEL'),
+          utilityShare: Money.fromMajor('100.00', 'GEL'),
+          purchaseOffset: Money.fromMajor('15.00', 'GEL'),
+          netDue: Money.fromMajor('815.00', 'GEL'),
+          paid: Money.fromMajor('200.00', 'GEL'),
+          remaining: Money.fromMajor('615.00', 'GEL'),
+          explanations: []
+        },
+        {
+          memberId: 'member-3',
+          displayName: 'Chorbanaut',
+          rentShare: Money.fromMajor('700.00', 'GEL'),
+          utilityShare: Money.fromMajor('0.00', 'GEL'),
+          purchaseOffset: Money.fromMajor('-20.00', 'GEL'),
+          netDue: Money.fromMajor('680.00', 'GEL'),
+          paid: Money.fromMajor('100.00', 'GEL'),
+          remaining: Money.fromMajor('580.00', 'GEL'),
           explanations: []
         }
       ],
@@ -729,6 +786,87 @@ describe('registerDmAssistant', () => {
     expect(replyText).toContain('Utilities due: 100.00 GEL')
     expect(replyText).toContain('Purchase balance: 50.00 GEL')
     expect(replyText).toContain('Suggested payment under utilities adjustment: 150.00 GEL')
+  })
+
+  test('answers household roster questions from real member data', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('Who do we have in the household?') as never)
+
+    const replyText = String(
+      (
+        calls.find((call) => call.method === 'sendMessage')?.payload as
+          | { text?: unknown }
+          | undefined
+      )?.text ?? ''
+    )
+    expect(replyText).toContain('Current household members:')
+    expect(replyText).toContain('Stan (active)')
+    expect(replyText).toContain('Dima (active)')
+    expect(replyText).toContain('Chorbanaut (away)')
+  })
+
+  test('answers another member purchase balance from real data', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('What is Dima shared purchase balance?') as never)
+
+    const replyText = String(
+      (
+        calls.find((call) => call.method === 'sendMessage')?.payload as
+          | { text?: unknown }
+          | undefined
+      )?.text ?? ''
+    )
+    expect(replyText).toContain("Dima's shared purchase balance is 15.00 GEL.")
   })
 
   test('routes obvious purchase-like DMs into purchase confirmation flow', async () => {

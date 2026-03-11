@@ -19,6 +19,7 @@ import {
   maybeCreatePaymentProposal,
   parsePaymentProposalPayload
 } from './payment-proposals'
+import { maybeCreateMemberInsightReply } from './member-queries'
 import type {
   PurchaseMessageIngestionRepository,
   PurchaseProposalActionResult,
@@ -439,10 +440,11 @@ async function buildHouseholdContext(input: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   financeService: FinanceCommandService
 }): Promise<string> {
-  const [household, settings, dashboard] = await Promise.all([
+  const [household, settings, dashboard, members] = await Promise.all([
     input.householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
     input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
-    input.financeService.generateDashboard()
+    input.financeService.generateDashboard(),
+    input.householdConfigurationRepository.listHouseholdMembers(input.householdId)
   ])
 
   const lines = [
@@ -489,6 +491,20 @@ async function buildHouseholdContext(input: {
     lines.push(
       `Utilities payment guidance: base ${utilitiesGuidance.baseAmount.toMajorString()} ${dashboard.currency}; purchase offset ${utilitiesGuidance.purchaseOffset.toMajorString()} ${dashboard.currency}; suggested payment ${utilitiesGuidance.proposalAmount.toMajorString()} ${dashboard.currency}; reminder ${utilitiesGuidance.reminderDate}; due ${utilitiesGuidance.dueDate}; payment_window_open=${utilitiesGuidance.paymentWindowOpen}`
     )
+  }
+
+  if (members.length > 0) {
+    const memberLines = members.map((member) => {
+      const dashboardMember = dashboard.members.find((line) => line.memberId === member.id)
+
+      if (!dashboardMember) {
+        return `- ${member.displayName}: status=${member.status}, dashboard_line=missing`
+      }
+
+      return `- ${member.displayName}: status=${member.status}, rent=${dashboardMember.rentShare.toMajorString()} ${dashboard.currency}, utilities=${dashboardMember.utilityShare.toMajorString()} ${dashboard.currency}, purchases=${dashboardMember.purchaseOffset.toMajorString()} ${dashboard.currency}, remaining=${dashboardMember.remaining.toMajorString()} ${dashboard.currency}`
+    })
+
+    lines.push(`Household roster and balances:\n${memberLines.join('\n')}`)
   }
 
   lines.push(
@@ -1044,6 +1060,30 @@ export function registerDmAssistant(options: {
         return
       }
 
+      const memberInsightReply = await maybeCreateMemberInsightReply({
+        rawText: ctx.msg.text,
+        locale,
+        householdId: member.householdId,
+        currentMemberId: member.id,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        financeService,
+        recentTurns: options.memoryStore.get(memoryKey).turns
+      })
+
+      if (memberInsightReply) {
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'user',
+          text: ctx.msg.text
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'assistant',
+          text: memberInsightReply
+        })
+
+        await ctx.reply(memberInsightReply)
+        return
+      }
+
       const paymentProposal = await maybeCreatePaymentProposal({
         rawText: ctx.msg.text,
         householdId: member.householdId,
@@ -1203,6 +1243,11 @@ export function registerDmAssistant(options: {
 
     try {
       const financeService = options.financeServiceForHousehold(household.householdId)
+      const memoryKey = conversationMemoryKey({
+        telegramUserId,
+        telegramChatId,
+        isPrivateChat: false
+      })
       const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
         rawText: mention.strippedText,
         householdId: household.householdId,
@@ -1213,6 +1258,30 @@ export function registerDmAssistant(options: {
 
       if (paymentBalanceReply) {
         await ctx.reply(formatPaymentBalanceReplyText(locale, paymentBalanceReply))
+        return
+      }
+
+      const memberInsightReply = await maybeCreateMemberInsightReply({
+        rawText: mention.strippedText,
+        locale,
+        householdId: household.householdId,
+        currentMemberId: member.id,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        financeService,
+        recentTurns: options.memoryStore.get(memoryKey).turns
+      })
+
+      if (memberInsightReply) {
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'user',
+          text: mention.strippedText
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'assistant',
+          text: memberInsightReply
+        })
+
+        await ctx.reply(memberInsightReply)
         return
       }
 

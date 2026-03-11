@@ -206,6 +206,11 @@ export interface HouseholdConfigurationRepository {
     telegramUserId: string,
     locale: SupportedLocale
   ): Promise<HouseholdMemberRecord | null>
+  updateHouseholdMemberDisplayName(
+    householdId: string,
+    memberId: string,
+    displayName: string
+  ): Promise<HouseholdMemberRecord | null>
   promoteHouseholdAdmin(
     householdId: string,
     memberId: string

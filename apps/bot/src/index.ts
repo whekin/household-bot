@@ -49,7 +49,9 @@ import {
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
+  createMiniAppUpdateMemberDisplayNameHandler,
   createMiniAppUpdateMemberAbsencePolicyHandler,
+  createMiniAppUpdateOwnDisplayNameHandler,
   createMiniAppUpdateMemberStatusHandler,
   createMiniAppUpdateMemberRentWeightHandler,
   createMiniAppUpdateSettingsHandler,
@@ -522,6 +524,24 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppPromoteMember: householdOnboardingService
     ? createMiniAppPromoteMemberHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppUpdateOwnDisplayName: householdOnboardingService
+    ? createMiniAppUpdateOwnDisplayNameHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppUpdateMemberDisplayName: householdOnboardingService
+    ? createMiniAppUpdateMemberDisplayNameHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

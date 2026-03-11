@@ -489,6 +489,9 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
           }
         : null
     },
+    async updateHouseholdMemberDisplayName() {
+      return null
+    },
     async promoteHouseholdAdmin() {
       return null
     },

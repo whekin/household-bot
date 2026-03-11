@@ -220,6 +220,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       rentShareWeight: 1,
       isAdmin: false
     }),
+    updateHouseholdMemberDisplayName: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',

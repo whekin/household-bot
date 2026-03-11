@@ -78,6 +78,7 @@ function createRepository(): HouseholdConfigurationRepository {
             householdDefaultLocale: 'ru'
           }
         : null,
+    updateHouseholdMemberDisplayName: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',

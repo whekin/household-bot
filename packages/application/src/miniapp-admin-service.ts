@@ -146,6 +146,35 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
+  updateOwnDisplayName(input: {
+    householdId: string
+    actorMemberId: string
+    displayName: string
+  }): Promise<
+    | {
+        status: 'ok'
+        member: HouseholdMemberRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'invalid_display_name' | 'member_not_found'
+      }
+  >
+  updateMemberDisplayName(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+    displayName: string
+  }): Promise<
+    | {
+        status: 'ok'
+        member: HouseholdMemberRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'invalid_display_name' | 'member_not_found'
+      }
+  >
   updateMemberAbsencePolicy(input: {
     householdId: string
     actorIsAdmin: boolean
@@ -169,6 +198,16 @@ function localDateInTimezone(timezone: string) {
 
 function periodFromLocalDate(localDate: Temporal.PlainDate): string {
   return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
+}
+
+function normalizeDisplayName(raw: string): string | null {
+  const trimmed = raw.trim()
+
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    return null
+  }
+
+  return trimmed.replace(/\s+/g, ' ')
 }
 
 export function createMiniAppAdminService(
@@ -432,6 +471,69 @@ export function createMiniAppAdminService(
         input.memberId,
         input.status
       )
+      if (!member) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        member
+      }
+    },
+
+    async updateOwnDisplayName(input) {
+      const displayName = normalizeDisplayName(input.displayName)
+      if (!displayName) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_display_name'
+        }
+      }
+
+      const member = await repository.updateHouseholdMemberDisplayName(
+        input.householdId,
+        input.actorMemberId,
+        displayName
+      )
+
+      if (!member) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        member
+      }
+    },
+
+    async updateMemberDisplayName(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const displayName = normalizeDisplayName(input.displayName)
+      if (!displayName) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_display_name'
+        }
+      }
+
+      const member = await repository.updateHouseholdMemberDisplayName(
+        input.householdId,
+        input.memberId,
+        displayName
+      )
+
       if (!member) {
         return {
           status: 'rejected',

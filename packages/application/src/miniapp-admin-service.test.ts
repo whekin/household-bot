@@ -136,6 +136,20 @@ function repository(): HouseholdConfigurationRepository {
             isAdmin: false
           }
         : null,
+    updateHouseholdMemberDisplayName: async (_householdId, memberId, displayName) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId: 'household-1',
+            telegramUserId: '123456',
+            displayName,
+            status: 'active',
+            preferredLocale: null,
+            householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
+            isAdmin: false
+          }
+        : null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',
@@ -441,6 +455,57 @@ describe('createMiniAppAdminService', () => {
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
         isAdmin: true
+      }
+    })
+  })
+
+  test('updates the acting member display name', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateOwnDisplayName({
+      householdId: 'household-1',
+      actorMemberId: 'member-123456',
+      displayName: 'Stan Cozy'
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan Cozy',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    })
+  })
+
+  test('updates another member display name for admins', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateMemberDisplayName({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456',
+      displayName: 'Stan Cozy'
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan Cozy',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
       }
     })
   })

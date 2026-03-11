@@ -1297,6 +1297,40 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       })
     },
 
+    async updateHouseholdMemberDisplayName(householdId, memberId, displayName) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          displayName
+        })
+        .where(and(eq(schema.members.householdId, householdId), eq(schema.members.id, memberId)))
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
+          preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after member display name update')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
+    },
+
     async promoteHouseholdAdmin(householdId, memberId) {
       const rows = await db
         .update(schema.members)

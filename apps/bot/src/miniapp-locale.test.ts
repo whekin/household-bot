@@ -132,6 +132,7 @@ function repository(): HouseholdConfigurationRepository {
       members.set(telegramUserId, next)
       return next
     },
+    updateHouseholdMemberDisplayName: async () => null,
     getHouseholdBillingSettings: async (householdId) => ({
       householdId,
       settlementCurrency: 'GEL',

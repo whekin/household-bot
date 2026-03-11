@@ -73,6 +73,24 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppUpdateOwnDisplayName: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
+    miniAppUpdateMemberDisplayName: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     miniAppUpdateMemberRentWeight: {
       handler: async () =>
         new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
@@ -327,6 +345,38 @@ describe('createBotWebhookServer', () => {
   test('accepts mini app promote member request', async () => {
     const response = await server.fetch(
       new Request('http://localhost/api/miniapp/admin/members/promote', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {}
+    })
+  })
+
+  test('accepts mini app own display name update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/member/display-name', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {}
+    })
+  })
+
+  test('accepts mini app member display name update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/members/display-name', {
         method: 'POST',
         body: JSON.stringify({ initData: 'payload' })
       })

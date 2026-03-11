@@ -131,6 +131,7 @@ function createRepository(isAdmin = false): HouseholdConfigurationRepository {
       throw new Error('not implemented')
     },
     updateMemberPreferredLocale: async () => null,
+    updateHouseholdMemberDisplayName: async () => null,
     promoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
