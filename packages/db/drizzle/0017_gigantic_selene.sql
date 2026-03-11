@@ -1,0 +1,1 @@
+ALTER TABLE "household_billing_settings" ADD COLUMN "payment_balance_adjustment_policy" text DEFAULT 'utilities' NOT NULL;

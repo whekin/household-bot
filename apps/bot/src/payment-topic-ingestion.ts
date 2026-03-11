@@ -1,5 +1,4 @@
 import type { FinanceCommandService, PaymentConfirmationService } from '@household/application'
-import { Money } from '@household/domain'
 import { instantFromEpochSeconds, nowInstant, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
@@ -11,6 +10,7 @@ import type {
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import {
+  formatPaymentProposalText,
   maybeCreatePaymentProposal,
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
@@ -485,10 +485,6 @@ export function registerConfiguredPaymentTopicIngestion(
       }
 
       if (proposal.status === 'proposal') {
-        const amount = Money.fromMinor(
-          BigInt(proposal.payload.amountMinor),
-          proposal.payload.currency
-        )
         await promptRepository.upsertPendingAction({
           telegramUserId: record.senderTelegramUserId,
           telegramChatId: record.chatId,
@@ -508,7 +504,11 @@ export function registerConfiguredPaymentTopicIngestion(
 
         await replyToPaymentMessage(
           ctx,
-          t.proposal(proposal.payload.kind, amount.toMajorString(), amount.currency),
+          formatPaymentProposalText({
+            locale,
+            surface: 'topic',
+            proposal
+          }),
           paymentProposalReplyMarkup(locale, proposal.payload.proposalId)
         )
       }

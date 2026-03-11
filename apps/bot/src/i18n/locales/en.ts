@@ -267,6 +267,8 @@ export const enBotTranslations: BotTranslationCatalog = {
   payments: {
     topicMissing:
       'Payments topic is not configured for this household yet. Ask an admin to run /bind_payments_topic.',
+    balanceReply: (kind) =>
+      kind === 'rent' ? 'Current rent payment guidance:' : 'Current utilities payment guidance:',
     proposal: (kind, amount, currency) =>
       `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}. Confirm or cancel below.`,
     clarification:
@@ -274,6 +276,24 @@ export const enBotTranslations: BotTranslationCatalog = {
     unsupportedCurrency:
       'I can only record payments in the household settlement currency for this topic right now.',
     noBalance: 'There is no payable balance for that payment type right now.',
+    breakdownBase: (kind, amount, currency) =>
+      `${kind === 'rent' ? 'Rent due' : 'Utilities due'}: ${amount} ${currency}`,
+    breakdownPurchaseBalance: (amount, currency) => `Purchase balance: ${amount} ${currency}`,
+    breakdownSuggestedTotal: (amount, currency, policy) =>
+      `Suggested payment under ${policy}: ${amount} ${currency}`,
+    breakdownRecordingAmount: (amount, currency) =>
+      `Amount from your message: ${amount} ${currency}`,
+    breakdownRemaining: (amount, currency) => `Total remaining balance: ${amount} ${currency}`,
+    adjustmentPolicy: (policy) =>
+      policy === 'utilities'
+        ? 'utilities adjustment'
+        : policy === 'rent'
+          ? 'rent adjustment'
+          : 'separate purchase settlement',
+    timingBeforeWindow: (kind, reminderDate, dueDate) =>
+      `${kind === 'rent' ? 'Rent' : 'Utilities'} are not due yet. Next reminder: ${reminderDate}. Due date: ${dueDate}.`,
+    timingDueNow: (kind, dueDate) =>
+      `${kind === 'rent' ? 'Rent' : 'Utilities'} are due now. Due date: ${dueDate}.`,
     confirmButton: 'Confirm payment',
     cancelButton: 'Cancel',
     recorded: (kind, amount, currency) =>

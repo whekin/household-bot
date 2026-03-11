@@ -10,6 +10,7 @@ import {
 import {
   HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
+  HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES,
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdMemberAbsencePolicy,
   type HouseholdMemberAbsencePolicyRecord,
@@ -18,6 +19,7 @@ import {
   type HouseholdJoinTokenRecord,
   type HouseholdMemberLifecycleStatus,
   type HouseholdMemberRecord,
+  type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdPendingMemberRecord,
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
@@ -45,6 +47,18 @@ function normalizeMemberLifecycleStatus(raw: string): HouseholdMemberLifecycleSt
   }
 
   throw new Error(`Unsupported household member lifecycle status: ${raw}`)
+}
+
+function normalizePaymentBalanceAdjustmentPolicy(
+  raw: string
+): HouseholdPaymentBalanceAdjustmentPolicy {
+  const normalized = raw.trim().toLowerCase()
+
+  if ((HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES as readonly string[]).includes(normalized)) {
+    return normalized as HouseholdPaymentBalanceAdjustmentPolicy
+  }
+
+  return 'utilities'
 }
 
 function normalizeMemberAbsencePolicy(raw: string): HouseholdMemberAbsencePolicy {
@@ -206,6 +220,7 @@ function toCurrencyCode(raw: string): CurrencyCode {
 function toHouseholdBillingSettingsRecord(row: {
   householdId: string
   settlementCurrency: string
+  paymentBalanceAdjustmentPolicy: string
   rentAmountMinor: bigint | null
   rentCurrency: string
   rentDueDay: number
@@ -217,6 +232,9 @@ function toHouseholdBillingSettingsRecord(row: {
   return {
     householdId: row.householdId,
     settlementCurrency: toCurrencyCode(row.settlementCurrency),
+    paymentBalanceAdjustmentPolicy: normalizePaymentBalanceAdjustmentPolicy(
+      row.paymentBalanceAdjustmentPolicy
+    ),
     rentAmountMinor: row.rentAmountMinor,
     rentCurrency: toCurrencyCode(row.rentCurrency),
     rentDueDay: row.rentDueDay,
@@ -917,6 +935,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .select({
           householdId: schema.householdBillingSettings.householdId,
           settlementCurrency: schema.householdBillingSettings.settlementCurrency,
+          paymentBalanceAdjustmentPolicy:
+            schema.householdBillingSettings.paymentBalanceAdjustmentPolicy,
           rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
           rentCurrency: schema.householdBillingSettings.rentCurrency,
           rentDueDay: schema.householdBillingSettings.rentDueDay,
@@ -946,6 +966,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           ...(input.settlementCurrency
             ? {
                 settlementCurrency: input.settlementCurrency
+              }
+            : {}),
+          ...(input.paymentBalanceAdjustmentPolicy
+            ? {
+                paymentBalanceAdjustmentPolicy: input.paymentBalanceAdjustmentPolicy
               }
             : {}),
           ...(input.rentAmountMinor !== undefined
@@ -989,6 +1014,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .returning({
           householdId: schema.householdBillingSettings.householdId,
           settlementCurrency: schema.householdBillingSettings.settlementCurrency,
+          paymentBalanceAdjustmentPolicy:
+            schema.householdBillingSettings.paymentBalanceAdjustmentPolicy,
           rentAmountMinor: schema.householdBillingSettings.rentAmountMinor,
           rentCurrency: schema.householdBillingSettings.rentCurrency,
           rentDueDay: schema.householdBillingSettings.rentDueDay,

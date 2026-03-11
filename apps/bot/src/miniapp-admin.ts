@@ -50,6 +50,7 @@ async function readApprovalPayload(request: Request): Promise<{
 async function readSettingsUpdatePayload(request: Request): Promise<{
   initData: string
   settlementCurrency?: string
+  paymentBalanceAdjustmentPolicy?: string
   rentAmountMajor?: string
   rentCurrency?: string
   rentDueDay: number
@@ -67,6 +68,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
   const text = await clonedRequest.text()
   let parsed: {
     settlementCurrency?: string
+    paymentBalanceAdjustmentPolicy?: string
     rentAmountMajor?: string
     rentCurrency?: string
     rentDueDay?: number
@@ -101,6 +103,11 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     ...(typeof parsed.settlementCurrency === 'string'
       ? {
           settlementCurrency: parsed.settlementCurrency
+        }
+      : {}),
+    ...(typeof parsed.paymentBalanceAdjustmentPolicy === 'string'
+      ? {
+          paymentBalanceAdjustmentPolicy: parsed.paymentBalanceAdjustmentPolicy
         }
       : {}),
     ...(typeof parsed.rentCurrency === 'string'
@@ -299,6 +306,7 @@ function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
   return {
     householdId: settings.householdId,
     settlementCurrency: settings.settlementCurrency,
+    paymentBalanceAdjustmentPolicy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
     rentAmountMinor: settings.rentAmountMinor?.toString() ?? null,
     rentCurrency: settings.rentCurrency,
     rentDueDay: settings.rentDueDay,
@@ -553,6 +561,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
           ...(payload.settlementCurrency
             ? {
                 settlementCurrency: payload.settlementCurrency
+              }
+            : {}),
+          ...(payload.paymentBalanceAdjustmentPolicy
+            ? {
+                paymentBalanceAdjustmentPolicy: payload.paymentBalanceAdjustmentPolicy
               }
             : {}),
           ...(payload.rentAmountMajor !== undefined

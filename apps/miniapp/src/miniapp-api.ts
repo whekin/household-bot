@@ -60,6 +60,7 @@ export interface MiniAppMember {
 export interface MiniAppBillingSettings {
   householdId: string
   settlementCurrency: 'USD' | 'GEL'
+  paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
   rentAmountMinor: string | null
   rentCurrency: 'USD' | 'GEL'
   rentDueDay: number
@@ -410,6 +411,7 @@ export async function updateMiniAppBillingSettings(
   initData: string,
   input: {
     settlementCurrency?: 'USD' | 'GEL'
+    paymentBalanceAdjustmentPolicy?: 'utilities' | 'rent' | 'separate'
     rentAmountMajor?: string
     rentCurrency: 'USD' | 'GEL'
     rentDueDay: number

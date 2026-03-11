@@ -332,7 +332,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       reply_parameters: {
         message_id: 55
       },
-      text: 'Я могу записать эту оплату аренды: 472.50 GEL. Подтвердите или отмените ниже.',
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.'),
       reply_markup: {
         inline_keyboard: [
           [
@@ -407,7 +407,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       text: 'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.'
     })
     expect(calls[1]?.payload).toMatchObject({
-      text: 'Я могу записать эту оплату аренды: 472.50 GEL. Подтвердите или отмените ниже.'
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.')
     })
   })
 
@@ -639,7 +639,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Я могу записать эту оплату аренды: 472.50 GEL. Подтвердите или отмените ниже.'
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.')
     })
   })
 })

@@ -15,6 +15,7 @@ import {
 
 import type { FinanceCommandService } from './finance-command-service'
 import { parsePaymentConfirmationMessage } from './payment-confirmation-parser'
+import { buildMemberPaymentGuidance } from './payment-guidance'
 
 function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
   const firstDay = Temporal.PlainDate.from({
@@ -284,10 +285,12 @@ export function createPaymentConfirmationService(input: {
             }
       }
 
-      const inferredAmount =
-        parsed.kind === 'rent'
-          ? memberLine.rentShare
-          : memberLine.utilityShare.add(memberLine.purchaseOffset)
+      const guidance = buildMemberPaymentGuidance({
+        kind: parsed.kind,
+        period: cycle.period,
+        memberLine,
+        settings
+      })
 
       const resolvedAmount = parsed.explicitAmount
         ? (
@@ -305,7 +308,7 @@ export function createPaymentConfirmationService(input: {
               parsed.explicitAmount
             )
           ).amount
-        : inferredAmount
+        : guidance.proposalAmount
 
       if (resolvedAmount.amountMinor <= 0n) {
         const saveResult = await input.repository.savePaymentConfirmation({

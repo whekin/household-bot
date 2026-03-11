@@ -139,7 +139,7 @@ class FinanceRepositoryStub implements FinanceRepository {
     return false
   }
 
-  async updateParsedPurchase(input) {
+  async updateParsedPurchase(input: Parameters<FinanceRepository['updateParsedPurchase']>[0]) {
     this.lastUpdatedPurchaseInput = input
     return {
       id: input.purchaseId,
@@ -149,12 +149,16 @@ class FinanceRepositoryStub implements FinanceRepository {
       description: input.description,
       occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
       splitMode: input.splitMode ?? 'equal',
-      participants: input.participants?.map((participant, index) => ({
-        id: `participant-${index + 1}`,
-        memberId: participant.memberId,
-        included: participant.included !== false,
-        shareAmountMinor: participant.shareAmountMinor
-      }))
+      ...(input.participants
+        ? {
+            participants: input.participants.map((participant, index) => ({
+              id: `participant-${index + 1}`,
+              memberId: participant.memberId,
+              included: participant.included !== false,
+              shareAmountMinor: participant.shareAmountMinor
+            }))
+          }
+        : {})
     }
   }
 

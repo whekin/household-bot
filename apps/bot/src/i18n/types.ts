@@ -254,11 +254,24 @@ export interface BotTranslationCatalog {
   }
   payments: {
     topicMissing: string
+    balanceReply: (kind: 'rent' | 'utilities') => string
     recorded: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     proposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     clarification: string
     unsupportedCurrency: string
     noBalance: string
+    breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    breakdownPurchaseBalance: (amount: string, currency: string) => string
+    breakdownSuggestedTotal: (amount: string, currency: string, policy: string) => string
+    breakdownRecordingAmount: (amount: string, currency: string) => string
+    breakdownRemaining: (amount: string, currency: string) => string
+    adjustmentPolicy: (policy: 'utilities' | 'rent' | 'separate') => string
+    timingBeforeWindow: (
+      kind: 'rent' | 'utilities',
+      reminderDate: string,
+      dueDate: string
+    ) => string
+    timingDueNow: (kind: 'rent' | 'utilities', dueDate: string) => string
     confirmButton: string
     cancelButton: string
     cancelled: string

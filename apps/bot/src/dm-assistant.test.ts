@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { FinanceCommandService } from '@household/application'
+import { Money } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   ProcessedBotMessageRepository,
@@ -247,57 +248,23 @@ function createFinanceService(): FinanceCommandService {
     generateDashboard: async () => ({
       period: '2026-03',
       currency: 'GEL',
-      totalDue: {
-        toMajorString: () => '1000.00'
-      } as never,
-      totalPaid: {
-        toMajorString: () => '500.00'
-      } as never,
-      totalRemaining: {
-        toMajorString: () => '500.00'
-      } as never,
-      rentSourceAmount: {
-        currency: 'USD',
-        toMajorString: () => '700.00'
-      } as never,
-      rentDisplayAmount: {
-        toMajorString: () => '1890.00'
-      } as never,
+      totalDue: Money.fromMajor('1000.00', 'GEL'),
+      totalPaid: Money.fromMajor('500.00', 'GEL'),
+      totalRemaining: Money.fromMajor('500.00', 'GEL'),
+      rentSourceAmount: Money.fromMajor('700.00', 'USD'),
+      rentDisplayAmount: Money.fromMajor('1890.00', 'GEL'),
       rentFxRateMicros: null,
       rentFxEffectiveDate: null,
       members: [
         {
           memberId: 'member-1',
           displayName: 'Stan',
-          rentShare: {
-            amountMinor: 70000n,
-            currency: 'GEL',
-            toMajorString: () => '700.00'
-          } as never,
-          utilityShare: {
-            amountMinor: 10000n,
-            currency: 'GEL',
-            toMajorString: () => '100.00'
-          } as never,
-          purchaseOffset: {
-            amountMinor: 5000n,
-            currency: 'GEL',
-            toMajorString: () => '50.00',
-            add: () => ({
-              amountMinor: 15000n,
-              currency: 'GEL',
-              toMajorString: () => '150.00'
-            })
-          } as never,
-          netDue: {
-            toMajorString: () => '850.00'
-          } as never,
-          paid: {
-            toMajorString: () => '500.00'
-          } as never,
-          remaining: {
-            toMajorString: () => '350.00'
-          } as never,
+          rentShare: Money.fromMajor('700.00', 'GEL'),
+          utilityShare: Money.fromMajor('100.00', 'GEL'),
+          purchaseOffset: Money.fromMajor('50.00', 'GEL'),
+          netDue: Money.fromMajor('850.00', 'GEL'),
+          paid: Money.fromMajor('500.00', 'GEL'),
+          remaining: Money.fromMajor('350.00', 'GEL'),
           explanations: []
         }
       ],
@@ -307,13 +274,9 @@ function createFinanceService(): FinanceCommandService {
           kind: 'purchase' as const,
           title: 'Soap',
           memberId: 'member-1',
-          amount: {
-            toMajorString: () => '30.00'
-          } as never,
+          amount: Money.fromMajor('30.00', 'GEL'),
           currency: 'GEL' as const,
-          displayAmount: {
-            toMajorString: () => '30.00'
-          } as never,
+          displayAmount: Money.fromMajor('30.00', 'GEL'),
           displayCurrency: 'GEL' as const,
           fxRateMicros: null,
           fxEffectiveDate: null,
@@ -702,7 +665,7 @@ describe('registerDmAssistant', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'I can record this rent payment: 700.00 GEL. Confirm or cancel below.',
+      text: expect.stringContaining('I can record this rent payment: 700.00 GEL.'),
       reply_markup: {
         inline_keyboard: [
           [
@@ -728,6 +691,44 @@ describe('registerDmAssistant', () => {
       amountMinor: '70000',
       currency: 'GEL'
     })
+  })
+
+  test('answers utilities balance questions deterministically in DM', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('How much do I owe for utilities?') as never)
+
+    const replyCall = calls.find((call) => call.method === 'sendMessage')
+    expect(replyCall).toBeDefined()
+    const replyText = String((replyCall?.payload as { text?: unknown } | undefined)?.text ?? '')
+    expect(replyText).toContain('Current utilities payment guidance:')
+    expect(replyText).toContain('Utilities due: 100.00 GEL')
+    expect(replyText).toContain('Purchase balance: 50.00 GEL')
+    expect(replyText).toContain('Suggested payment under utilities adjustment: 150.00 GEL')
   })
 
   test('routes obvious purchase-like DMs into purchase confirmation flow', async () => {

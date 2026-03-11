@@ -9,10 +9,17 @@ export const HOUSEHOLD_MEMBER_ABSENCE_POLICIES = [
   'away_rent_only',
   'inactive'
 ] as const
+export const HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES = [
+  'utilities',
+  'rent',
+  'separate'
+] as const
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
 export type HouseholdMemberLifecycleStatus = (typeof HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES)[number]
 export type HouseholdMemberAbsencePolicy = (typeof HOUSEHOLD_MEMBER_ABSENCE_POLICIES)[number]
+export type HouseholdPaymentBalanceAdjustmentPolicy =
+  (typeof HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES)[number]
 
 export interface HouseholdTelegramChatRecord {
   householdId: string
@@ -69,6 +76,7 @@ export interface HouseholdMemberAbsencePolicyRecord {
 export interface HouseholdBillingSettingsRecord {
   householdId: string
   settlementCurrency: CurrencyCode
+  paymentBalanceAdjustmentPolicy?: HouseholdPaymentBalanceAdjustmentPolicy
   rentAmountMinor: bigint | null
   rentCurrency: CurrencyCode
   rentDueDay: number
@@ -161,6 +169,7 @@ export interface HouseholdConfigurationRepository {
   updateHouseholdBillingSettings(input: {
     householdId: string
     settlementCurrency?: CurrencyCode
+    paymentBalanceAdjustmentPolicy?: HouseholdPaymentBalanceAdjustmentPolicy
     rentAmountMinor?: bigint | null
     rentCurrency?: CurrencyCode
     rentDueDay?: number

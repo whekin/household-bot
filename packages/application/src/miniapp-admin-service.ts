@@ -43,6 +43,7 @@ export interface MiniAppAdminService {
     householdId: string
     actorIsAdmin: boolean
     settlementCurrency?: string
+    paymentBalanceAdjustmentPolicy?: string
     rentAmountMajor?: string
     rentCurrency?: string
     rentDueDay: number
@@ -228,6 +229,20 @@ export function createMiniAppAdminService(
       const settlementCurrency = input.settlementCurrency
         ? parseCurrency(input.settlementCurrency)
         : undefined
+      const paymentBalanceAdjustmentPolicy = input.paymentBalanceAdjustmentPolicy
+        ? input.paymentBalanceAdjustmentPolicy === 'utilities' ||
+          input.paymentBalanceAdjustmentPolicy === 'rent' ||
+          input.paymentBalanceAdjustmentPolicy === 'separate'
+          ? input.paymentBalanceAdjustmentPolicy
+          : null
+        : undefined
+
+      if (paymentBalanceAdjustmentPolicy === null) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_settings'
+        }
+      }
 
       if (input.rentAmountMajor && input.rentAmountMajor.trim().length > 0) {
         rentCurrency = parseCurrency(input.rentCurrency ?? 'USD')
@@ -242,6 +257,11 @@ export function createMiniAppAdminService(
         ...(settlementCurrency
           ? {
               settlementCurrency
+            }
+          : {}),
+        ...(paymentBalanceAdjustmentPolicy
+          ? {
+              paymentBalanceAdjustmentPolicy
             }
           : {}),
         ...(rentAmountMinor !== undefined

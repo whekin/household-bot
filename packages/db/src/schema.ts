@@ -27,6 +27,9 @@ export const householdBillingSettings = pgTable(
       .notNull()
       .references(() => households.id, { onDelete: 'cascade' }),
     settlementCurrency: text('settlement_currency').default('GEL').notNull(),
+    paymentBalanceAdjustmentPolicy: text('payment_balance_adjustment_policy')
+      .default('utilities')
+      .notNull(),
     rentAmountMinor: bigint('rent_amount_minor', { mode: 'bigint' }),
     rentCurrency: text('rent_currency').default('USD').notNull(),
     rentDueDay: integer('rent_due_day').default(20).notNull(),

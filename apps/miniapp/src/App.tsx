@@ -345,6 +345,7 @@ function App() {
   const [addingPayment, setAddingPayment] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
+    paymentBalanceAdjustmentPolicy: 'utilities' as 'utilities' | 'rent' | 'separate',
     rentAmountMajor: '',
     rentCurrency: 'USD' as 'USD' | 'GEL',
     rentDueDay: 20,
@@ -530,6 +531,7 @@ function App() {
       }))
       setBillingForm({
         settlementCurrency: payload.settings.settlementCurrency,
+        paymentBalanceAdjustmentPolicy: payload.settings.paymentBalanceAdjustmentPolicy,
         rentAmountMajor: payload.settings.rentAmountMinor
           ? (Number(payload.settings.rentAmountMinor) / 100).toFixed(2)
           : '',
@@ -2271,6 +2273,29 @@ function App() {
                         >
                           <option value="GEL">GEL</option>
                           <option value="USD">USD</option>
+                        </select>
+                      </label>
+                      <label class="settings-field settings-field--wide">
+                        <span>{copy().paymentBalanceAdjustmentPolicy}</span>
+                        <select
+                          value={billingForm().paymentBalanceAdjustmentPolicy}
+                          onChange={(event) =>
+                            setBillingForm((current) => ({
+                              ...current,
+                              paymentBalanceAdjustmentPolicy: event.currentTarget.value as
+                                | 'utilities'
+                                | 'rent'
+                                | 'separate'
+                            }))
+                          }
+                        >
+                          <option value="utilities">
+                            {copy().paymentBalanceAdjustmentUtilities}
+                          </option>
+                          <option value="rent">{copy().paymentBalanceAdjustmentRent}</option>
+                          <option value="separate">
+                            {copy().paymentBalanceAdjustmentSeparate}
+                          </option>
                         </select>
                       </label>
                       <label class="settings-field">

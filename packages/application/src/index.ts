@@ -40,3 +40,4 @@ export {
   parsePaymentConfirmationMessage,
   type ParsedPaymentConfirmation
 } from './payment-confirmation-parser'
+export { buildMemberPaymentGuidance, type MemberPaymentGuidance } from './payment-guidance'

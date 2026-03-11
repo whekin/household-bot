@@ -452,7 +452,8 @@ describe('createMiniAppSettingsHandler', () => {
         rentWarningDay: 17,
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
-        timezone: 'Asia/Tbilisi'
+        timezone: 'Asia/Tbilisi',
+        paymentBalanceAdjustmentPolicy: 'utilities'
       },
       topics: [
         {
@@ -547,7 +548,8 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         rentWarningDay: 19,
         utilitiesDueDay: 6,
         utilitiesReminderDay: 5,
-        timezone: 'Asia/Tbilisi'
+        timezone: 'Asia/Tbilisi',
+        paymentBalanceAdjustmentPolicy: 'utilities'
       }
     })
   })

@@ -270,6 +270,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
   payments: {
     topicMissing:
       'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /bind_payments_topic.',
+    balanceReply: (kind) =>
+      kind === 'rent' ? 'Текущая сводка по аренде:' : 'Текущая сводка по коммуналке:',
     proposal: (kind, amount, currency) =>
       `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${amount} ${currency}. Подтвердите или отмените ниже.`,
     clarification:
@@ -277,6 +279,25 @@ export const ruBotTranslations: BotTranslationCatalog = {
     unsupportedCurrency:
       'Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
     noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    breakdownBase: (kind, amount, currency) =>
+      `${kind === 'rent' ? 'Аренда к оплате' : 'Коммуналка к оплате'}: ${amount} ${currency}`,
+    breakdownPurchaseBalance: (amount, currency) =>
+      `Баланс по общим покупкам: ${amount} ${currency}`,
+    breakdownSuggestedTotal: (amount, currency, policy) =>
+      `Рекомендуемая сумма по политике «${policy}»: ${amount} ${currency}`,
+    breakdownRecordingAmount: (amount, currency) =>
+      `Сумма из вашего сообщения: ${amount} ${currency}`,
+    breakdownRemaining: (amount, currency) => `Общий остаток: ${amount} ${currency}`,
+    adjustmentPolicy: (policy) =>
+      policy === 'utilities'
+        ? 'зачёт через коммуналку'
+        : policy === 'rent'
+          ? 'зачёт через аренду'
+          : 'отдельный расчёт по покупкам',
+    timingBeforeWindow: (kind, reminderDate, dueDate) =>
+      `${kind === 'rent' ? 'Аренду' : 'Коммуналку'} пока рано оплачивать. Следующее напоминание: ${reminderDate}. Срок оплаты: ${dueDate}.`,
+    timingDueNow: (kind, dueDate) =>
+      `${kind === 'rent' ? 'Аренду' : 'Коммуналку'} уже пора оплачивать. Срок оплаты: ${dueDate}.`,
     confirmButton: 'Подтвердить оплату',
     cancelButton: 'Отменить',
     recorded: (kind, amount, currency) =>

@@ -1,4 +1,4 @@
-import type { FinanceCommandService } from '@household/application'
+import { buildMemberPaymentGuidance, type FinanceCommandService } from '@household/application'
 import { instantFromEpochSeconds, Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -12,7 +12,13 @@ import { resolveReplyLocale } from './bot-locale'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantReply, ConversationalAssistant } from './openai-chat-assistant'
 import type { PurchaseMessageInterpreter } from './openai-purchase-interpreter'
-import { maybeCreatePaymentProposal, parsePaymentProposalPayload } from './payment-proposals'
+import {
+  formatPaymentBalanceReplyText,
+  formatPaymentProposalText,
+  maybeCreatePaymentBalanceReply,
+  maybeCreatePaymentProposal,
+  parsePaymentProposalPayload
+} from './payment-proposals'
 import type {
   PurchaseMessageIngestionRepository,
   PurchaseProposalActionResult,
@@ -455,11 +461,33 @@ async function buildHouseholdContext(input: {
 
   const memberLine = dashboard.members.find((line) => line.memberId === input.memberId)
   if (memberLine) {
+    const rentGuidance = buildMemberPaymentGuidance({
+      kind: 'rent',
+      period: dashboard.period,
+      memberLine,
+      settings
+    })
+    const utilitiesGuidance = buildMemberPaymentGuidance({
+      kind: 'utilities',
+      period: dashboard.period,
+      memberLine,
+      settings
+    })
+
     lines.push(
       `Member balance: due ${memberLine.netDue.toMajorString()} ${dashboard.currency}, paid ${memberLine.paid.toMajorString()} ${dashboard.currency}, remaining ${memberLine.remaining.toMajorString()} ${dashboard.currency}`
     )
     lines.push(
       `Rent share: ${memberLine.rentShare.toMajorString()} ${dashboard.currency}; utility share: ${memberLine.utilityShare.toMajorString()} ${dashboard.currency}; purchase offset: ${memberLine.purchaseOffset.toMajorString()} ${dashboard.currency}`
+    )
+    lines.push(
+      `Payment adjustment policy: ${settings.paymentBalanceAdjustmentPolicy ?? 'utilities'}`
+    )
+    lines.push(
+      `Rent payment guidance: base ${rentGuidance.baseAmount.toMajorString()} ${dashboard.currency}; purchase offset ${rentGuidance.purchaseOffset.toMajorString()} ${dashboard.currency}; suggested payment ${rentGuidance.proposalAmount.toMajorString()} ${dashboard.currency}; reminder ${rentGuidance.reminderDate}; due ${rentGuidance.dueDate}`
+    )
+    lines.push(
+      `Utilities payment guidance: base ${utilitiesGuidance.baseAmount.toMajorString()} ${dashboard.currency}; purchase offset ${utilitiesGuidance.purchaseOffset.toMajorString()} ${dashboard.currency}; suggested payment ${utilitiesGuidance.proposalAmount.toMajorString()} ${dashboard.currency}; reminder ${utilitiesGuidance.reminderDate}; due ${utilitiesGuidance.dueDate}; payment_window_open=${utilitiesGuidance.paymentWindowOpen}`
     )
   }
 
@@ -993,6 +1021,29 @@ export function registerDmAssistant(options: {
       }
 
       const financeService = options.financeServiceForHousehold(member.householdId)
+      const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
+        rawText: ctx.msg.text,
+        householdId: member.householdId,
+        memberId: member.id,
+        financeService,
+        householdConfigurationRepository: options.householdConfigurationRepository
+      })
+
+      if (paymentBalanceReply) {
+        const replyText = formatPaymentBalanceReplyText(locale, paymentBalanceReply)
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'user',
+          text: ctx.msg.text
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'assistant',
+          text: replyText
+        })
+
+        await ctx.reply(replyText)
+        return
+      }
+
       const paymentProposal = await maybeCreatePaymentProposal({
         rawText: ctx.msg.text,
         householdId: member.householdId,
@@ -1027,15 +1078,11 @@ export function registerDmAssistant(options: {
           expiresAt: null
         })
 
-        const amount = Money.fromMinor(
-          BigInt(paymentProposal.payload.amountMinor),
-          paymentProposal.payload.currency
-        )
-        const proposalText = t.paymentProposal(
-          paymentProposal.payload.kind,
-          amount.toMajorString(),
-          amount.currency
-        )
+        const proposalText = formatPaymentProposalText({
+          locale,
+          surface: 'assistant',
+          proposal: paymentProposal
+        })
         options.memoryStore.appendTurn(memoryKey, {
           role: 'user',
           text: ctx.msg.text
@@ -1155,6 +1202,20 @@ export function registerDmAssistant(options: {
     }
 
     try {
+      const financeService = options.financeServiceForHousehold(household.householdId)
+      const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
+        rawText: mention.strippedText,
+        householdId: household.householdId,
+        memberId: member.id,
+        financeService,
+        householdConfigurationRepository: options.householdConfigurationRepository
+      })
+
+      if (paymentBalanceReply) {
+        await ctx.reply(formatPaymentBalanceReplyText(locale, paymentBalanceReply))
+        return
+      }
+
       await replyWithAssistant({
         ctx,
         assistant: options.assistant,
@@ -1166,7 +1227,7 @@ export function registerDmAssistant(options: {
         locale,
         userMessage: mention.strippedText,
         householdConfigurationRepository: options.householdConfigurationRepository,
-        financeService: options.financeServiceForHousehold(household.householdId),
+        financeService,
         memoryStore: options.memoryStore,
         usageTracker: options.usageTracker,
         logger: options.logger

@@ -15,9 +15,11 @@ export type {
 export {
   HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
+  HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES,
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdMemberAbsencePolicy,
   type HouseholdMemberAbsencePolicyRecord,
+  type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdConfigurationRepository,
   type HouseholdBillingSettingsRecord,
   type HouseholdJoinTokenRecord,
