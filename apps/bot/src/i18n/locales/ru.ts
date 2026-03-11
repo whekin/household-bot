@@ -13,6 +13,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
     bind_payments_topic: 'Назначить текущий топик для оплат',
+    invite: 'Пригласить пользователя из сообщения в этот дом',
     payment_add: 'Подтвердить оплату аренды или коммуналки',
     pending_members: 'Показать ожидающие заявки на вступление',
     approve_member: 'Подтвердить участника дома'
@@ -117,6 +118,23 @@ export const ruBotTranslations: BotTranslationCatalog = {
     usePendingMembersInGroup: 'Используйте /pending_members внутри группы дома.',
     useApproveMemberInGroup: 'Используйте /approve_member внутри группы дома.',
     approveMemberUsage: 'Использование: /approve_member <telegram_user_id>',
+    useInviteInGroup: 'Используйте /invite как ответ внутри группы дома.',
+    onlyInviteAdmins: 'Приглашать участников могут только админы Telegram-группы или админы дома.',
+    inviteUsage: 'Ответьте командой /invite на сообщение реального участника.',
+    inviteTargetInvalid: 'Я могу подготовить приглашение только для реального участника группы.',
+    inviteAlreadyMember: (displayName, householdName) =>
+      `${displayName} уже является активным участником ${householdName}.`,
+    inviteAlreadyPending: (displayName, householdName) =>
+      `${displayName} уже отправил(а) заявку на вступление в ${householdName}.`,
+    invitePrepared: (displayName, householdName) =>
+      `Приглашение для ${displayName} готово. Нажмите кнопку ниже, чтобы вступить в ${householdName}.`,
+    invitePreparedToast: (displayName) => `Приглашение для ${displayName} подготовлено.`,
+    inviteJoinWrongUser: 'Это приглашение предназначено для другого пользователя Telegram.',
+    inviteJoinExpired: 'Это приглашение больше недоступно.',
+    inviteJoinCompleted: (displayName, householdName) =>
+      `${displayName} завершил(а) вступление в ${householdName}.`,
+    inviteJoinRequestSent: (displayName, householdName) =>
+      `${displayName} отправил(а) заявку на вступление в ${householdName}.`,
     approvedMember: (displayName, householdName) =>
       `Участник ${displayName} подтверждён как активный участник ${householdName}.`,
     useButtonInGroup: 'Используйте эту кнопку в группе дома.',

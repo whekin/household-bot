@@ -21,6 +21,9 @@ import { resolveReplyLocale } from './bot-locale'
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
 const SETUP_BIND_TOPIC_CALLBACK_PREFIX = 'setup_topic:bind:'
+const GROUP_INVITE_START_PREFIX = 'invite_'
+const GROUP_INVITE_ACTION = 'household_group_invite' as const
+const GROUP_INVITE_TTL_MS = 3 * 24 * 60 * 60 * 1000
 const SETUP_BIND_TOPIC_ACTION = 'setup_topic_binding' as const
 const SETUP_BIND_TOPIC_TTL_MS = 10 * 60 * 1000
 const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
@@ -159,6 +162,45 @@ function actorDisplayName(ctx: Context): string | undefined {
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
 
   return fullName || ctx.from?.username?.trim() || undefined
+}
+
+function telegramUserDisplayName(input: {
+  firstName: string | undefined
+  lastName: string | undefined
+  username: string | undefined
+  fallback: string
+}): string {
+  const fullName = [input.firstName?.trim(), input.lastName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+  return fullName || input.username?.trim() || input.fallback
+}
+
+function repliedTelegramUser(ctx: Context): {
+  telegramUserId: string
+  displayName: string
+  username?: string
+} | null {
+  const replied = ctx.msg?.reply_to_message
+  if (!replied?.from || replied.from.is_bot) {
+    return null
+  }
+
+  return {
+    telegramUserId: replied.from.id.toString(),
+    displayName: telegramUserDisplayName({
+      firstName: replied.from.first_name,
+      lastName: replied.from.last_name,
+      username: replied.from.username,
+      fallback: `Telegram ${replied.from.id}`
+    }),
+    ...(replied.from.username
+      ? {
+          username: replied.from.username
+        }
+      : {})
+  }
 }
 
 function buildPendingMemberLabel(displayName: string): string {
@@ -337,6 +379,77 @@ function parseSetupBindPayload(payload: Record<string, unknown>): {
   }
 }
 
+function invitePendingChatId(telegramChatId: string): string {
+  return `invite:${telegramChatId}`
+}
+
+function parseGroupInvitePayload(payload: Record<string, unknown>): {
+  joinToken: string
+  householdId: string
+  householdName: string
+  targetDisplayName: string
+  inviteMessageId?: number
+  completed?: boolean
+} | null {
+  if (
+    typeof payload.joinToken !== 'string' ||
+    payload.joinToken.trim().length === 0 ||
+    typeof payload.householdId !== 'string' ||
+    payload.householdId.trim().length === 0 ||
+    typeof payload.householdName !== 'string' ||
+    payload.householdName.trim().length === 0 ||
+    typeof payload.targetDisplayName !== 'string' ||
+    payload.targetDisplayName.trim().length === 0
+  ) {
+    return null
+  }
+
+  return {
+    joinToken: payload.joinToken,
+    householdId: payload.householdId,
+    householdName: payload.householdName,
+    targetDisplayName: payload.targetDisplayName,
+    ...(typeof payload.inviteMessageId === 'number' && Number.isInteger(payload.inviteMessageId)
+      ? {
+          inviteMessageId: payload.inviteMessageId
+        }
+      : {}),
+    ...(payload.completed === true
+      ? {
+          completed: true
+        }
+      : {})
+  }
+}
+
+function parseInviteStartPayload(payload: string): {
+  telegramChatId: string
+  targetTelegramUserId: string
+} | null {
+  const match = /^invite_(-?\d+)_(\d+)$/.exec(payload)
+  if (!match) {
+    return null
+  }
+
+  return {
+    telegramChatId: match[1]!,
+    targetTelegramUserId: match[2]!
+  }
+}
+
+function buildGroupInviteDeepLink(
+  botUsername: string | undefined,
+  telegramChatId: string,
+  targetTelegramUserId: string
+): string | null {
+  const normalizedBotUsername = botUsername?.trim()
+  if (!normalizedBotUsername) {
+    return null
+  }
+
+  return `https://t.me/${normalizedBotUsername}?start=${GROUP_INVITE_START_PREFIX}${telegramChatId}_${targetTelegramUserId}`
+}
+
 export function buildJoinMiniAppUrl(
   miniAppUrl: string | undefined,
   botUsername: string | undefined,
@@ -394,6 +507,64 @@ export function registerHouseholdSetupCommands(options: {
   miniAppUrl?: string
   logger?: Logger
 }): void {
+  async function editGroupInviteCompletion(input: {
+    locale: BotLocale
+    telegramChatId: string
+    payload: {
+      householdName: string
+      targetDisplayName: string
+      inviteMessageId?: number
+    }
+    status: 'active' | 'pending'
+    ctx: Context
+  }) {
+    if (!input.payload.inviteMessageId) {
+      return
+    }
+
+    const t = getBotTranslations(input.locale).setup
+    const text =
+      input.status === 'active'
+        ? t.inviteJoinCompleted(input.payload.targetDisplayName, input.payload.householdName)
+        : t.inviteJoinRequestSent(input.payload.targetDisplayName, input.payload.householdName)
+
+    try {
+      await input.ctx.api.editMessageText(
+        Number(input.telegramChatId),
+        input.payload.inviteMessageId,
+        text
+      )
+    } catch (error) {
+      options.logger?.warn(
+        {
+          event: 'household_setup.invite_message_update_failed',
+          telegramChatId: input.telegramChatId,
+          inviteMessageId: input.payload.inviteMessageId,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        'Failed to update household invite message'
+      )
+    }
+  }
+
+  async function isInviteAuthorized(ctx: Context, householdId: string): Promise<boolean> {
+    if (await isGroupAdmin(ctx)) {
+      return true
+    }
+
+    const actorTelegramUserId = ctx.from?.id?.toString()
+    if (!actorTelegramUserId || !options.householdConfigurationRepository) {
+      return false
+    }
+
+    const member = await options.householdConfigurationRepository.getHouseholdMember(
+      householdId,
+      actorTelegramUserId
+    )
+
+    return member?.isAdmin === true
+  }
+
   async function buildSetupReplyForHousehold(input: {
     ctx: Context
     locale: BotLocale
@@ -580,6 +751,149 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     const startPayload = commandArgText(ctx)
+    const inviteStart = parseInviteStartPayload(startPayload)
+    if (inviteStart) {
+      if (ctx.from.id.toString() !== inviteStart.targetTelegramUserId) {
+        await ctx.reply(t.setup.inviteJoinWrongUser)
+        return
+      }
+
+      if (!options.promptRepository) {
+        await ctx.reply(t.setup.inviteJoinExpired)
+        return
+      }
+
+      const invitePending = await options.promptRepository.getPendingAction(
+        invitePendingChatId(inviteStart.telegramChatId),
+        inviteStart.targetTelegramUserId
+      )
+      const invitePayload =
+        invitePending?.action === GROUP_INVITE_ACTION
+          ? parseGroupInvitePayload(invitePending.payload)
+          : null
+      const inviteExpiresAt = invitePending?.expiresAt ?? null
+
+      if (!invitePayload) {
+        await ctx.reply(t.setup.inviteJoinExpired)
+        return
+      }
+
+      const identity = {
+        telegramUserId: ctx.from.id.toString(),
+        displayName:
+          [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ').trim() ||
+          ctx.from.username ||
+          `Telegram ${ctx.from.id}`,
+        ...(ctx.from.username
+          ? {
+              username: ctx.from.username
+            }
+          : {}),
+        ...(ctx.from.language_code
+          ? {
+              languageCode: ctx.from.language_code
+            }
+          : {})
+      }
+
+      if (invitePayload.completed) {
+        const access = await options.householdOnboardingService.getMiniAppAccess({
+          identity,
+          joinToken: invitePayload.joinToken
+        })
+        locale = localeFromAccess(access, fallbackLocale)
+        t = getBotTranslations(locale)
+
+        if (access.status === 'active') {
+          await editGroupInviteCompletion({
+            locale,
+            telegramChatId: inviteStart.telegramChatId,
+            payload: invitePayload,
+            status: 'active',
+            ctx
+          })
+          await ctx.reply(
+            t.setup.alreadyActiveMember(access.member.displayName),
+            miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, invitePayload.joinToken)
+          )
+          return
+        }
+
+        if (access.status === 'pending') {
+          await editGroupInviteCompletion({
+            locale,
+            telegramChatId: inviteStart.telegramChatId,
+            payload: invitePayload,
+            status: 'pending',
+            ctx
+          })
+          await ctx.reply(
+            t.setup.joinRequestSent(access.household.name),
+            miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, invitePayload.joinToken)
+          )
+          return
+        }
+
+        await ctx.reply(t.setup.inviteJoinExpired)
+        return
+      }
+
+      const result = await options.householdOnboardingService.joinHousehold({
+        identity,
+        joinToken: invitePayload.joinToken
+      })
+
+      if (result.status === 'invalid_token') {
+        await ctx.reply(t.setup.inviteJoinExpired)
+        return
+      }
+
+      if (result.status === 'active') {
+        locale = result.member.preferredLocale ?? result.member.householdDefaultLocale
+        t = getBotTranslations(locale)
+      } else {
+        const access = await options.householdOnboardingService.getMiniAppAccess({
+          identity,
+          joinToken: invitePayload.joinToken
+        })
+        locale = localeFromAccess(access, fallbackLocale)
+        t = getBotTranslations(locale)
+      }
+
+      await options.promptRepository.upsertPendingAction({
+        telegramUserId: inviteStart.targetTelegramUserId,
+        telegramChatId: invitePendingChatId(inviteStart.telegramChatId),
+        action: GROUP_INVITE_ACTION,
+        payload: {
+          ...invitePayload,
+          completed: true
+        },
+        expiresAt: inviteExpiresAt
+      })
+
+      await editGroupInviteCompletion({
+        locale,
+        telegramChatId: inviteStart.telegramChatId,
+        payload: invitePayload,
+        status: result.status,
+        ctx
+      })
+
+      if (result.status === 'active') {
+        await ctx.reply(
+          t.setup.alreadyActiveMember(result.member.displayName),
+          miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, invitePayload.joinToken)
+        )
+        return
+      }
+
+      await ctx.reply(
+        t.setup.joinRequestSent(result.household.name),
+        miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, invitePayload.joinToken)
+      )
+      return
+    }
+
     if (!startPayload.startsWith('join_')) {
       await ctx.reply(t.common.useHelp)
       return
@@ -847,6 +1161,128 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
+  })
+
+  options.bot.command('invite', async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale)
+
+    if (!isGroupChat(ctx)) {
+      await ctx.reply(t.setup.useInviteInGroup)
+      return
+    }
+
+    if (!options.promptRepository || !options.householdConfigurationRepository) {
+      await ctx.reply(t.setup.inviteJoinExpired)
+      return
+    }
+
+    const household = await options.householdConfigurationRepository.getTelegramHouseholdChat(
+      ctx.chat.id.toString()
+    )
+    if (!household) {
+      await ctx.reply(t.setup.householdNotConfigured)
+      return
+    }
+
+    if (!(await isInviteAuthorized(ctx, household.householdId))) {
+      await ctx.reply(t.setup.onlyInviteAdmins)
+      return
+    }
+
+    const target = repliedTelegramUser(ctx)
+    if (!target) {
+      await ctx.reply(t.setup.inviteUsage)
+      return
+    }
+
+    const existingMember = await options.householdConfigurationRepository.getHouseholdMember(
+      household.householdId,
+      target.telegramUserId
+    )
+    if (existingMember?.status === 'active') {
+      await ctx.reply(
+        t.setup.inviteAlreadyMember(existingMember.displayName, household.householdName)
+      )
+      return
+    }
+
+    const existingPending =
+      await options.householdConfigurationRepository.getPendingHouseholdMember(
+        household.householdId,
+        target.telegramUserId
+      )
+    if (existingPending) {
+      await ctx.reply(
+        t.setup.inviteAlreadyPending(existingPending.displayName, household.householdName)
+      )
+      return
+    }
+
+    const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
+      householdId: household.householdId,
+      ...(ctx.from?.id
+        ? {
+            actorTelegramUserId: ctx.from.id.toString()
+          }
+        : {})
+    })
+
+    await options.promptRepository.upsertPendingAction({
+      telegramUserId: target.telegramUserId,
+      telegramChatId: invitePendingChatId(ctx.chat.id.toString()),
+      action: GROUP_INVITE_ACTION,
+      payload: {
+        joinToken: joinToken.token,
+        householdId: household.householdId,
+        householdName: household.householdName,
+        targetDisplayName: target.displayName
+      },
+      expiresAt: nowInstant().add({ milliseconds: GROUP_INVITE_TTL_MS })
+    })
+
+    const deepLink = buildGroupInviteDeepLink(
+      ctx.me.username,
+      ctx.chat.id.toString(),
+      target.telegramUserId
+    )
+    if (!deepLink) {
+      await ctx.reply(t.setup.inviteJoinExpired)
+      return
+    }
+
+    const inviteMessage = await ctx.reply(
+      t.setup.invitePrepared(target.displayName, household.householdName),
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: t.setup.joinHouseholdButton,
+                url: deepLink
+              }
+            ]
+          ]
+        }
+      }
+    )
+
+    await options.promptRepository.upsertPendingAction({
+      telegramUserId: target.telegramUserId,
+      telegramChatId: invitePendingChatId(ctx.chat.id.toString()),
+      action: GROUP_INVITE_ACTION,
+      payload: {
+        joinToken: joinToken.token,
+        householdId: household.householdId,
+        householdName: household.householdName,
+        targetDisplayName: target.displayName,
+        inviteMessageId: inviteMessage.message_id
+      },
+      expiresAt: nowInstant().add({ milliseconds: GROUP_INVITE_TTL_MS })
+    })
   })
 
   options.bot.callbackQuery(

@@ -39,6 +39,7 @@ const GROUP_ADMIN_COMMAND_NAMES = [
   'bind_feedback_topic',
   'bind_reminders_topic',
   'bind_payments_topic',
+  'invite',
   'pending_members',
   'approve_member'
 ] as const satisfies readonly TelegramCommandName[]
