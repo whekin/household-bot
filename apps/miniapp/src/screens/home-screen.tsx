@@ -18,130 +18,133 @@ type Props = {
 }
 
 export function HomeScreen(props: Props) {
-  if (!props.dashboard) {
-    return (
-      <div class="home-grid">
-        <div class="summary-card-grid">
-          <article class="stat-card">
-            <span>{props.copy.remainingLabel ?? ''}</span>
-            <strong>—</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.shareRent ?? ''}</span>
-            <strong>—</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.shareUtilities ?? ''}</span>
-            <strong>—</strong>
-          </article>
-          <article class="stat-card">
-            <span>{props.copy.purchasesTitle ?? ''}</span>
-            <strong>—</strong>
+  return (
+    <Show
+      when={props.dashboard}
+      fallback={
+        <div class="home-grid">
+          <div class="summary-card-grid">
+            <article class="stat-card">
+              <span>{props.copy.remainingLabel ?? ''}</span>
+              <strong>—</strong>
+            </article>
+            <article class="stat-card">
+              <span>{props.copy.shareRent ?? ''}</span>
+              <strong>—</strong>
+            </article>
+            <article class="stat-card">
+              <span>{props.copy.shareUtilities ?? ''}</span>
+              <strong>—</strong>
+            </article>
+            <article class="stat-card">
+              <span>{props.copy.purchasesTitle ?? ''}</span>
+              <strong>—</strong>
+            </article>
+          </div>
+        </div>
+      }
+    >
+      {(dashboard) => (
+        <div class="home-grid">
+          <div class="summary-card-grid">
+            <FinanceSummaryCards
+              dashboard={dashboard()}
+              utilityTotalMajor={props.utilityTotalMajor}
+              purchaseTotalMajor={props.purchaseTotalMajor}
+              labels={{
+                remaining: props.copy.remainingLabel ?? '',
+                rent: props.copy.shareRent ?? '',
+                utilities: props.copy.shareUtilities ?? '',
+                purchases: props.copy.purchasesTitle ?? ''
+              }}
+            />
+            <Show when={props.readyIsAdmin}>
+              <article class="stat-card">
+                <span>{props.copy.pendingRequests ?? ''}</span>
+                <strong>{String(props.pendingMembersCount)}</strong>
+              </article>
+            </Show>
+          </div>
+
+          <Show when={props.currentMemberLine}>
+            {(member) => (
+              <article class="balance-item balance-item--accent">
+                <header>
+                  <strong>{props.copy.yourBalanceTitle ?? ''}</strong>
+                  <span>
+                    {member().remainingMajor} {dashboard().currency}
+                  </span>
+                </header>
+                <p>
+                  {props.copy.shareRent ?? ''}: {dashboard().rentSourceAmountMajor}{' '}
+                  {dashboard().rentSourceCurrency}
+                  {dashboard().rentSourceCurrency !== dashboard().currency
+                    ? ` -> ${dashboard().rentDisplayAmountMajor} ${dashboard().currency}`
+                    : ''}
+                </p>
+                <div class="balance-breakdown">
+                  <article class="stat-card">
+                    <span>{props.copy.baseDue ?? ''}</span>
+                    <strong>
+                      {props.memberBaseDueMajor(member())} {dashboard().currency}
+                    </strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{props.copy.shareOffset ?? ''}</span>
+                    <strong>
+                      {member().purchaseOffsetMajor} {dashboard().currency}
+                    </strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{props.copy.finalDue ?? ''}</span>
+                    <strong>
+                      {member().netDueMajor} {dashboard().currency}
+                    </strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{props.copy.paidLabel ?? ''}</span>
+                    <strong>
+                      {member().paidMajor} {dashboard().currency}
+                    </strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>{props.copy.remainingLabel ?? ''}</span>
+                    <strong>
+                      {member().remainingMajor} {dashboard().currency}
+                    </strong>
+                  </article>
+                </div>
+              </article>
+            )}
+          </Show>
+
+          <article class="balance-item balance-item--wide">
+            <header>
+              <strong>{props.copy.latestActivityTitle ?? ''}</strong>
+            </header>
+            {dashboard().ledger.length === 0 ? (
+              <p>{props.copy.latestActivityEmpty ?? ''}</p>
+            ) : (
+              <div class="activity-list">
+                <For each={dashboard().ledger.slice(0, 3)}>
+                  {(entry) => (
+                    <article class="activity-row">
+                      <header>
+                        <strong>{props.ledgerTitle(entry)}</strong>
+                        <span>{props.ledgerPrimaryAmount(entry)}</span>
+                      </header>
+                      <Show when={props.ledgerSecondaryAmount(entry)}>
+                        {(secondary) => <p>{secondary()}</p>}
+                      </Show>
+                      <p>{entry.actorDisplayName ?? props.copy.ledgerActorFallback ?? ''}</p>
+                    </article>
+                  )}
+                </For>
+              </div>
+            )}
           </article>
         </div>
-      </div>
-    )
-  }
-
-  return (
-    <div class="home-grid">
-      <div class="summary-card-grid">
-        <FinanceSummaryCards
-          dashboard={props.dashboard}
-          utilityTotalMajor={props.utilityTotalMajor}
-          purchaseTotalMajor={props.purchaseTotalMajor}
-          labels={{
-            remaining: props.copy.remainingLabel ?? '',
-            rent: props.copy.shareRent ?? '',
-            utilities: props.copy.shareUtilities ?? '',
-            purchases: props.copy.purchasesTitle ?? ''
-          }}
-        />
-        <Show when={props.readyIsAdmin}>
-          <article class="stat-card">
-            <span>{props.copy.pendingRequests ?? ''}</span>
-            <strong>{String(props.pendingMembersCount)}</strong>
-          </article>
-        </Show>
-      </div>
-
-      <Show when={props.currentMemberLine}>
-        {(member) => (
-          <article class="balance-item balance-item--accent">
-            <header>
-              <strong>{props.copy.yourBalanceTitle ?? ''}</strong>
-              <span>
-                {member().remainingMajor} {props.dashboard!.currency}
-              </span>
-            </header>
-            <p>
-              {props.copy.shareRent ?? ''}: {props.dashboard!.rentSourceAmountMajor}{' '}
-              {props.dashboard!.rentSourceCurrency}
-              {props.dashboard!.rentSourceCurrency !== props.dashboard!.currency
-                ? ` -> ${props.dashboard!.rentDisplayAmountMajor} ${props.dashboard!.currency}`
-                : ''}
-            </p>
-            <div class="balance-breakdown">
-              <article class="stat-card">
-                <span>{props.copy.baseDue ?? ''}</span>
-                <strong>
-                  {props.memberBaseDueMajor(member())} {props.dashboard!.currency}
-                </strong>
-              </article>
-              <article class="stat-card">
-                <span>{props.copy.shareOffset ?? ''}</span>
-                <strong>
-                  {member().purchaseOffsetMajor} {props.dashboard!.currency}
-                </strong>
-              </article>
-              <article class="stat-card">
-                <span>{props.copy.finalDue ?? ''}</span>
-                <strong>
-                  {member().netDueMajor} {props.dashboard!.currency}
-                </strong>
-              </article>
-              <article class="stat-card">
-                <span>{props.copy.paidLabel ?? ''}</span>
-                <strong>
-                  {member().paidMajor} {props.dashboard!.currency}
-                </strong>
-              </article>
-              <article class="stat-card">
-                <span>{props.copy.remainingLabel ?? ''}</span>
-                <strong>
-                  {member().remainingMajor} {props.dashboard!.currency}
-                </strong>
-              </article>
-            </div>
-          </article>
-        )}
-      </Show>
-
-      <article class="balance-item balance-item--wide">
-        <header>
-          <strong>{props.copy.latestActivityTitle ?? ''}</strong>
-        </header>
-        {props.dashboard.ledger.length === 0 ? (
-          <p>{props.copy.latestActivityEmpty ?? ''}</p>
-        ) : (
-          <div class="activity-list">
-            <For each={props.dashboard.ledger.slice(0, 3)}>
-              {(entry) => (
-                <article class="activity-row">
-                  <header>
-                    <strong>{props.ledgerTitle(entry)}</strong>
-                    <span>{props.ledgerPrimaryAmount(entry)}</span>
-                  </header>
-                  <Show when={props.ledgerSecondaryAmount(entry)}>
-                    {(secondary) => <p>{secondary()}</p>}
-                  </Show>
-                  <p>{entry.actorDisplayName ?? props.copy.ledgerActorFallback ?? ''}</p>
-                </article>
-              )}
-            </For>
-          </div>
-        )}
-      </article>
-    </div>
+      )}
+    </Show>
   )
 }
