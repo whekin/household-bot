@@ -36,6 +36,20 @@ import {
   type MiniAppPendingMember
 } from './miniapp-api'
 import { Button, Field, IconButton, Modal } from './components/ui'
+import { HeroBanner } from './components/layout/hero-banner'
+import { NavigationTabs } from './components/layout/navigation-tabs'
+import { ProfileCard } from './components/layout/profile-card'
+import { TopBar } from './components/layout/top-bar'
+import { FinanceSummaryCards } from './components/finance/finance-summary-cards'
+import { FinanceVisuals } from './components/finance/finance-visuals'
+import {
+  demoAdminSettings,
+  demoCycleState,
+  demoDashboard,
+  demoMember,
+  demoPendingMembers,
+  demoTelegramUser
+} from './demo/miniapp-demo'
 import { getTelegramWebApp } from './telegram-webapp'
 
 type SessionState =
@@ -106,19 +120,8 @@ const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
   status: 'ready',
   mode: 'demo',
-  member: {
-    id: 'demo-member',
-    displayName: 'Demo Resident',
-    status: 'active',
-    isAdmin: false,
-    preferredLocale: 'en',
-    householdDefaultLocale: 'en'
-  },
-  telegramUser: {
-    firstName: 'Demo',
-    username: 'demo_user',
-    languageCode: 'en'
-  }
+  member: demoMember,
+  telegramUser: demoTelegramUser
 }
 
 function detectLocale(): Locale {
@@ -952,6 +955,68 @@ function App() {
     }
   }
 
+  function applyDemoState() {
+    setDisplayNameDraft(demoSession.member.displayName)
+    setSession(demoSession)
+    setDashboard(demoDashboard)
+    setPendingMembers([...demoPendingMembers])
+    setAdminSettings(demoAdminSettings)
+    setCycleState(demoCycleState)
+    setPurchaseDraftMap(purchaseDrafts(demoDashboard.ledger))
+    setPaymentDraftMap(paymentDrafts(demoDashboard.ledger))
+    setMemberDisplayNameDrafts(
+      Object.fromEntries(demoAdminSettings.members.map((member) => [member.id, member.displayName]))
+    )
+    setRentWeightDrafts(
+      Object.fromEntries(
+        demoAdminSettings.members.map((member) => [member.id, String(member.rentShareWeight)])
+      )
+    )
+    setMemberStatusDrafts(
+      Object.fromEntries(demoAdminSettings.members.map((member) => [member.id, member.status]))
+    )
+    setMemberAbsencePolicyDrafts(
+      Object.fromEntries(
+        demoAdminSettings.members.map((member) => [
+          member.id,
+          resolvedMemberAbsencePolicy(member.id, member.status, demoAdminSettings).policy
+        ])
+      )
+    )
+    setBillingForm({
+      settlementCurrency: demoAdminSettings.settings.settlementCurrency,
+      paymentBalanceAdjustmentPolicy: demoAdminSettings.settings.paymentBalanceAdjustmentPolicy,
+      rentAmountMajor: demoAdminSettings.settings.rentAmountMinor
+        ? (Number(demoAdminSettings.settings.rentAmountMinor) / 100).toFixed(2)
+        : '',
+      rentCurrency: demoAdminSettings.settings.rentCurrency,
+      rentDueDay: demoAdminSettings.settings.rentDueDay,
+      rentWarningDay: demoAdminSettings.settings.rentWarningDay,
+      utilitiesDueDay: demoAdminSettings.settings.utilitiesDueDay,
+      utilitiesReminderDay: demoAdminSettings.settings.utilitiesReminderDay,
+      timezone: demoAdminSettings.settings.timezone
+    })
+    setCycleForm((current) => ({
+      ...current,
+      period: demoCycleState.cycle?.period ?? current.period,
+      rentCurrency: demoAdminSettings.settings.rentCurrency,
+      utilityCurrency: demoAdminSettings.settings.settlementCurrency,
+      rentAmountMajor: demoAdminSettings.settings.rentAmountMinor
+        ? (Number(demoAdminSettings.settings.rentAmountMinor) / 100).toFixed(2)
+        : '',
+      utilityCategorySlug:
+        demoAdminSettings.categories.find((category) => category.isActive)?.slug ?? '',
+      utilityAmountMajor: ''
+    }))
+    setPaymentForm({
+      memberId: demoAdminSettings.members[0]?.id ?? '',
+      kind: 'rent',
+      amountMajor: '',
+      currency: demoAdminSettings.settings.settlementCurrency
+    })
+    setUtilityBillDrafts(cycleUtilityBillDrafts(demoCycleState.utilityBills))
+  }
+
   async function bootstrap() {
     const fallbackLocale = detectLocale()
     setLocale(fallbackLocale)
@@ -962,7 +1027,7 @@ function App() {
     const initData = webApp?.initData?.trim()
     if (!initData) {
       if (import.meta.env.DEV) {
-        setSession(demoSession)
+        applyDemoState()
         return
       }
 
@@ -1017,99 +1082,7 @@ function App() {
       }
     } catch {
       if (import.meta.env.DEV) {
-        setDisplayNameDraft(demoSession.member.displayName)
-        setSession(demoSession)
-        setDashboard({
-          period: '2026-03',
-          currency: 'GEL',
-          totalDueMajor: '1030.00',
-          totalPaidMajor: '501.00',
-          totalRemainingMajor: '529.00',
-          rentSourceAmountMajor: '700.00',
-          rentSourceCurrency: 'USD',
-          rentDisplayAmountMajor: '1932.00',
-          rentFxRateMicros: '2760000',
-          rentFxEffectiveDate: '2026-03-17',
-          members: [
-            {
-              memberId: 'demo-member',
-              displayName: 'Demo Resident',
-              rentShareMajor: '483.00',
-              utilityShareMajor: '32.00',
-              purchaseOffsetMajor: '-14.00',
-              netDueMajor: '501.00',
-              paidMajor: '501.00',
-              remainingMajor: '0.00',
-              explanations: ['Equal utility split', 'Shared purchase offset']
-            },
-            {
-              memberId: 'member-2',
-              displayName: 'Alice',
-              rentShareMajor: '483.00',
-              utilityShareMajor: '32.00',
-              purchaseOffsetMajor: '14.00',
-              netDueMajor: '529.00',
-              paidMajor: '0.00',
-              remainingMajor: '529.00',
-              explanations: ['Equal utility split']
-            }
-          ],
-          ledger: [
-            {
-              id: 'purchase-1',
-              kind: 'purchase',
-              title: 'Soap',
-              memberId: 'member-2',
-              paymentKind: null,
-              amountMajor: '30.00',
-              currency: 'GEL',
-              displayAmountMajor: '30.00',
-              displayCurrency: 'GEL',
-              fxRateMicros: null,
-              fxEffectiveDate: null,
-              actorDisplayName: 'Alice',
-              occurredAt: '2026-03-12T11:00:00.000Z'
-            },
-            {
-              id: 'utility-1',
-              kind: 'utility',
-              title: 'Electricity',
-              memberId: null,
-              paymentKind: null,
-              amountMajor: '120.00',
-              currency: 'GEL',
-              displayAmountMajor: '120.00',
-              displayCurrency: 'GEL',
-              fxRateMicros: null,
-              fxEffectiveDate: null,
-              actorDisplayName: 'Alice',
-              occurredAt: '2026-03-12T12:00:00.000Z'
-            },
-            {
-              id: 'payment-1',
-              kind: 'payment',
-              title: 'rent',
-              memberId: 'demo-member',
-              paymentKind: 'rent',
-              amountMajor: '501.00',
-              currency: 'GEL',
-              displayAmountMajor: '501.00',
-              displayCurrency: 'GEL',
-              fxRateMicros: null,
-              fxEffectiveDate: null,
-              actorDisplayName: 'Demo Resident',
-              occurredAt: '2026-03-18T15:10:00.000Z'
-            }
-          ]
-        })
-        setPendingMembers([
-          {
-            telegramUserId: '555777',
-            displayName: 'Mia',
-            username: 'mia',
-            languageCode: 'ru'
-          }
-        ])
+        applyDemoState()
         return
       }
 
@@ -1874,142 +1847,6 @@ function App() {
     }))
   }
 
-  function renderFinanceSummaryCards(data: MiniAppDashboard): JSX.Element {
-    return (
-      <>
-        <article class="stat-card">
-          <span>{copy().remainingLabel}</span>
-          <strong>
-            {data.totalRemainingMajor} {data.currency}
-          </strong>
-        </article>
-        <article class="stat-card">
-          <span>{copy().shareRent}</span>
-          <strong>
-            {data.rentDisplayAmountMajor} {data.currency}
-          </strong>
-        </article>
-        <article class="stat-card">
-          <span>{copy().shareUtilities}</span>
-          <strong>
-            {utilityTotalMajor()} {data.currency}
-          </strong>
-        </article>
-        <article class="stat-card">
-          <span>{copy().purchasesTitle}</span>
-          <strong>
-            {purchaseTotalMajor()} {data.currency}
-          </strong>
-        </article>
-      </>
-    )
-  }
-
-  function renderFinanceVisuals(data: MiniAppDashboard): JSX.Element {
-    const purchaseChart = purchaseInvestmentChart()
-
-    return (
-      <>
-        <article class="balance-item balance-item--wide">
-          <header>
-            <strong>{copy().financeVisualsTitle}</strong>
-            <span>
-              {copy().membersCount}: {String(data.members.length)}
-            </span>
-          </header>
-          <p>{copy().financeVisualsBody}</p>
-          <div class="member-visual-list">
-            {memberBalanceVisuals().map((item) => (
-              <article class="member-visual-card">
-                <header>
-                  <strong>{item.member.displayName}</strong>
-                  <span class={`balance-status ${memberRemainingClass(item.member)}`}>
-                    {item.member.remainingMajor} {data.currency}
-                  </span>
-                </header>
-                <div class="member-visual-bar">
-                  <div
-                    class="member-visual-bar__track"
-                    style={{ width: `${item.barWidthPercent}%` }}
-                  >
-                    {item.segments.map((segment) => (
-                      <span
-                        class={`member-visual-bar__segment member-visual-bar__segment--${segment.key}`}
-                        style={{ width: `${segment.widthPercent}%` }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div class="member-visual-meta">
-                  {item.segments.map((segment) => (
-                    <span class={`member-visual-chip member-visual-chip--${segment.key}`}>
-                      {segment.label}: {segment.amountMajor} {data.currency}
-                    </span>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
-
-        <article class="balance-item balance-item--wide">
-          <header>
-            <strong>{copy().purchaseInvestmentsTitle}</strong>
-            <span>
-              {copy().purchaseTotalLabel}: {purchaseChart.totalMajor} {data.currency}
-            </span>
-          </header>
-          <p>{copy().purchaseInvestmentsBody}</p>
-          {purchaseChart.slices.length === 0 ? (
-            <p>{copy().purchaseInvestmentsEmpty}</p>
-          ) : (
-            <div class="purchase-chart">
-              <div class="purchase-chart__figure">
-                <svg class="purchase-chart__donut" viewBox="0 0 120 120" aria-hidden="true">
-                  <circle class="purchase-chart__ring" cx="60" cy="60" r="42" />
-                  {purchaseChart.slices.map((slice) => (
-                    <circle
-                      class="purchase-chart__slice"
-                      cx="60"
-                      cy="60"
-                      r="42"
-                      stroke={slice.color}
-                      stroke-dasharray={slice.dasharray}
-                      stroke-dashoffset={slice.dashoffset}
-                    />
-                  ))}
-                </svg>
-                <div class="purchase-chart__center">
-                  <span>{copy().purchaseTotalLabel}</span>
-                  <strong>
-                    {purchaseChart.totalMajor} {data.currency}
-                  </strong>
-                </div>
-              </div>
-              <div class="purchase-chart__legend">
-                {purchaseChart.slices.map((slice) => (
-                  <article class="purchase-chart__legend-item">
-                    <div>
-                      <span
-                        class="purchase-chart__legend-swatch"
-                        style={{ 'background-color': slice.color }}
-                      />
-                      <strong>{slice.label}</strong>
-                    </div>
-                    <p>
-                      {slice.amountMajor} {data.currency} · {copy().purchaseShareLabel}{' '}
-                      {slice.percentage}%
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </article>
-      </>
-    )
-  }
-
   const renderPanel = () => {
     switch (activeNav()) {
       case 'balances':
@@ -2063,8 +1900,35 @@ function App() {
                       </div>
                     </article>
                   ) : null}
-                  <div class="home-grid home-grid--summary">{renderFinanceSummaryCards(data)}</div>
-                  {renderFinanceVisuals(data)}
+                  <div class="home-grid home-grid--summary">
+                    <FinanceSummaryCards
+                      dashboard={data}
+                      utilityTotalMajor={utilityTotalMajor()}
+                      purchaseTotalMajor={purchaseTotalMajor()}
+                      labels={{
+                        remaining: copy().remainingLabel,
+                        rent: copy().shareRent,
+                        utilities: copy().shareUtilities,
+                        purchases: copy().purchasesTitle
+                      }}
+                    />
+                  </div>
+                  <FinanceVisuals
+                    dashboard={data}
+                    memberVisuals={memberBalanceVisuals()}
+                    purchaseChart={purchaseInvestmentChart()}
+                    remainingClass={memberRemainingClass}
+                    labels={{
+                      financeVisualsTitle: copy().financeVisualsTitle,
+                      financeVisualsBody: copy().financeVisualsBody,
+                      membersCount: copy().membersCount,
+                      purchaseInvestmentsTitle: copy().purchaseInvestmentsTitle,
+                      purchaseInvestmentsBody: copy().purchaseInvestmentsBody,
+                      purchaseInvestmentsEmpty: copy().purchaseInvestmentsEmpty,
+                      purchaseTotalLabel: copy().purchaseTotalLabel,
+                      purchaseShareLabel: copy().purchaseShareLabel
+                    }}
+                  />
                   <article class="balance-item">
                     <header>
                       <strong>{copy().householdBalancesTitle}</strong>
@@ -3739,7 +3603,19 @@ function App() {
                   </article>
                 </>
               }
-              render={(data) => renderFinanceSummaryCards(data)}
+              render={(data) => (
+                <FinanceSummaryCards
+                  dashboard={data}
+                  utilityTotalMajor={utilityTotalMajor()}
+                  purchaseTotalMajor={purchaseTotalMajor()}
+                  labels={{
+                    remaining: copy().remainingLabel,
+                    rent: copy().shareRent,
+                    utilities: copy().shareUtilities,
+                    purchases: copy().purchasesTitle
+                  }}
+                />
+              )}
             />
             {readySession()?.member.isAdmin ? (
               <article class="stat-card">
@@ -3814,7 +3690,24 @@ function App() {
             <ShowDashboard
               dashboard={dashboard()}
               fallback={null}
-              render={(data) => renderFinanceVisuals(data)}
+              render={(data) => (
+                <FinanceVisuals
+                  dashboard={data}
+                  memberVisuals={memberBalanceVisuals()}
+                  purchaseChart={purchaseInvestmentChart()}
+                  remainingClass={memberRemainingClass}
+                  labels={{
+                    financeVisualsTitle: copy().financeVisualsTitle,
+                    financeVisualsBody: copy().financeVisualsBody,
+                    membersCount: copy().membersCount,
+                    purchaseInvestmentsTitle: copy().purchaseInvestmentsTitle,
+                    purchaseInvestmentsBody: copy().purchaseInvestmentsBody,
+                    purchaseInvestmentsEmpty: copy().purchaseInvestmentsEmpty,
+                    purchaseTotalLabel: copy().purchaseTotalLabel,
+                    purchaseShareLabel: copy().purchaseShareLabel
+                  }}
+                />
+              )}
             />
 
             <article class="balance-item balance-item--wide">
@@ -3856,66 +3749,46 @@ function App() {
       <div class="shell__backdrop shell__backdrop--top" />
       <div class="shell__backdrop shell__backdrop--bottom" />
 
-      <section class="topbar">
-        <div>
-          <p class="eyebrow">{copy().appSubtitle}</p>
-          <h1>{copy().appTitle}</h1>
-        </div>
-
-        <label class="locale-switch">
-          <span>{copy().language}</span>
-          <div class="locale-switch__buttons">
-            <button
-              classList={{ 'is-active': locale() === 'en' }}
-              type="button"
-              disabled={savingMemberLocale()}
-              onClick={() => void handleMemberLocaleChange('en')}
-            >
-              EN
-            </button>
-            <button
-              classList={{ 'is-active': locale() === 'ru' }}
-              type="button"
-              disabled={savingMemberLocale()}
-              onClick={() => void handleMemberLocaleChange('ru')}
-            >
-              RU
-            </button>
-          </div>
-        </label>
-      </section>
+      <TopBar
+        subtitle={copy().appSubtitle}
+        title={copy().appTitle}
+        languageLabel={copy().language}
+        locale={locale()}
+        saving={savingMemberLocale()}
+        onChange={(nextLocale) => void handleMemberLocaleChange(nextLocale)}
+      />
 
       <Switch>
         <Match when={session().status === 'loading'}>
-          <section class="hero-card">
-            <span class="pill">{copy().loadingBadge}</span>
-            <h2>{copy().loadingTitle}</h2>
-            <p>{copy().loadingBody}</p>
-          </section>
+          <HeroBanner
+            badges={[copy().loadingBadge]}
+            title={copy().loadingTitle}
+            body={copy().loadingBody}
+          />
         </Match>
 
         <Match when={session().status === 'blocked'}>
-          <section class="hero-card">
-            <span class="pill">{copy().loadingBadge}</span>
-            <h2>
-              {blockedSession()?.reason === 'telegram_only'
+          <HeroBanner
+            badges={[copy().loadingBadge]}
+            title={
+              blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyTitle
-                : copy().unexpectedErrorTitle}
-            </h2>
-            <p>
-              {blockedSession()?.reason === 'telegram_only'
+                : copy().unexpectedErrorTitle
+            }
+            body={
+              blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyBody
-                : copy().unexpectedErrorBody}
-            </p>
-            <button class="ghost-button" type="button" onClick={() => window.location.reload()}>
-              {copy().reload}
-            </button>
-          </section>
+                : copy().unexpectedErrorBody
+            }
+            action={{ label: copy().reload, onClick: () => window.location.reload() }}
+          />
         </Match>
 
         <Match when={session().status === 'onboarding'}>
           <section class="hero-card">
-            <span class="pill">{copy().loadingBadge}</span>
+            <div class="hero-card__meta">
+              <span class="pill">{copy().loadingBadge}</span>
+            </div>
             <h2>
               {onboardingSession()?.mode === 'pending'
                 ? copy().pendingTitle
@@ -3938,18 +3811,13 @@ function App() {
             </p>
             <div class="nav-grid">
               {onboardingSession()?.mode === 'join_required' ? (
-                <button
-                  class="ghost-button"
-                  type="button"
-                  disabled={joining()}
-                  onClick={handleJoinHousehold}
-                >
+                <Button variant="ghost" disabled={joining()} onClick={handleJoinHousehold}>
                   {joining() ? copy().joining : copy().joinAction}
-                </button>
+                </Button>
               ) : null}
               {joinDeepLink() ? (
                 <a
-                  class="ghost-button"
+                  class="ui-button ui-button--ghost"
                   href={joinDeepLink() ?? '#'}
                   target="_blank"
                   rel="noreferrer"
@@ -3957,83 +3825,60 @@ function App() {
                   {copy().botLinkAction}
                 </a>
               ) : null}
-              <button class="ghost-button" type="button" onClick={() => window.location.reload()}>
+              <Button variant="ghost" onClick={() => window.location.reload()}>
                 {copy().reload}
-              </button>
+              </Button>
             </div>
           </section>
         </Match>
 
         <Match when={session().status === 'ready'}>
-          <section class="hero-card">
-            <div class="hero-card__meta">
-              <span class="pill">
-                {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
-              </span>
-              <span class="pill pill--muted">
-                {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
-              </span>
-              <span class="pill pill--muted">
-                {readySession()?.member.status
-                  ? memberStatusLabel(readySession()!.member.status)
-                  : copy().memberStatusActive}
-              </span>
-            </div>
+          <HeroBanner
+            badges={[
+              readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge,
+              readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag,
+              readySession()?.member.status
+                ? memberStatusLabel(readySession()!.member.status)
+                : copy().memberStatusActive
+            ]}
+            title={`${copy().welcome}, ${readySession()?.telegramUser.firstName ?? readySession()?.member.displayName}`}
+            body={copy().overviewBody}
+            action={
+              readySession()?.mode === 'live'
+                ? {
+                    label: copy().manageProfileAction,
+                    onClick: () => setProfileEditorOpen(true)
+                  }
+                : undefined
+            }
+          />
 
-            <h2>
-              {copy().welcome},{' '}
-              {readySession()?.telegramUser.firstName ?? readySession()?.member.displayName}
-            </h2>
-            <p>{copy().overviewBody}</p>
-            <Show when={readySession()?.mode === 'live'}>
-              <div class="panel-toolbar">
-                <Button variant="secondary" onClick={() => setProfileEditorOpen(true)}>
-                  {copy().manageProfileAction}
-                </Button>
-              </div>
-            </Show>
-          </section>
-
-          <nav class="nav-grid">
-            {(
+          <NavigationTabs
+            items={
               [
-                ['home', copy().home],
-                ['balances', copy().balances],
-                ['ledger', copy().ledger],
-                ['house', copy().house]
+                { key: 'home', label: copy().home },
+                { key: 'balances', label: copy().balances },
+                { key: 'ledger', label: copy().ledger },
+                { key: 'house', label: copy().house }
               ] as const
-            ).map(([key, label]) => (
-              <button
-                classList={{ 'is-active': activeNav() === key }}
-                type="button"
-                onClick={() => setActiveNav(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+            }
+            active={activeNav()}
+            onChange={setActiveNav}
+          />
 
           <section class="content-grid">
-            <article class="balance-item balance-item--accent profile-card">
-              <header>
-                <strong>{readySession()?.member.displayName}</strong>
-                <span>{readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}</span>
-              </header>
-              <p>
-                {copy().memberStatusSummary.replace(
-                  '{status}',
-                  readySession()?.member.status
-                    ? memberStatusLabel(readySession()!.member.status)
-                    : copy().memberStatusActive
-                )}
-              </p>
-              <div class="ledger-compact-card__meta">
-                <span class="mini-chip">
-                  {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
-                </span>
-                <span class="mini-chip mini-chip--muted">{locale().toUpperCase()}</span>
-              </div>
-            </article>
+            <ProfileCard
+              displayName={readySession()?.member.displayName ?? ''}
+              roleLabel={readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
+              statusSummary={copy().memberStatusSummary.replace(
+                '{status}',
+                readySession()?.member.status
+                  ? memberStatusLabel(readySession()!.member.status)
+                  : copy().memberStatusActive
+              )}
+              modeBadge={readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
+              localeBadge={locale().toUpperCase()}
+            />
             <div class="content-stack">{renderPanel()}</div>
           </section>
           <Modal
