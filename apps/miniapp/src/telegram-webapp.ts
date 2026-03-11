@@ -1,31 +1,12 @@
-export interface TelegramWebAppUser {
-  id: number
-  first_name?: string
-  username?: string
-  language_code?: string
-}
+import WebApp from '@twa-dev/sdk'
 
-export interface TelegramWebApp {
-  initData: string
-  initDataUnsafe?: {
-    user?: TelegramWebAppUser
-  }
-  ready?: () => void
-  expand?: () => void
-}
-
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp?: TelegramWebApp
-    }
-  }
-}
+export type TelegramWebApp = typeof WebApp
+export type TelegramWebAppUser = NonNullable<NonNullable<TelegramWebApp['initDataUnsafe']>['user']>
 
 export function getTelegramWebApp(): TelegramWebApp | undefined {
   if (typeof window === 'undefined') {
     return undefined
   }
 
-  return window.Telegram?.WebApp
+  return WebApp
 }
