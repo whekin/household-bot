@@ -116,10 +116,10 @@ type Props = {
   onBillingAdjustmentPolicyChange: (value: 'utilities' | 'rent' | 'separate') => void
   onBillingRentAmountChange: (value: string) => void
   onBillingRentCurrencyChange: (value: 'USD' | 'GEL') => void
-  onBillingRentDueDayChange: (value: number) => void
-  onBillingRentWarningDayChange: (value: number) => void
-  onBillingUtilitiesDueDayChange: (value: number) => void
-  onBillingUtilitiesReminderDayChange: (value: number) => void
+  onBillingRentDueDayChange: (value: number | null) => void
+  onBillingRentWarningDayChange: (value: number | null) => void
+  onBillingUtilitiesDueDayChange: (value: number | null) => void
+  onBillingUtilitiesReminderDayChange: (value: number | null) => void
   onBillingTimezoneChange: (value: string) => void
   onOpenAddUtilityBill: () => void
   onCloseAddUtilityBill: () => void
@@ -165,6 +165,23 @@ type Props = {
 }
 
 export function HouseScreen(props: Props) {
+  function parseBillingDayInput(value: string): number | null {
+    const trimmed = value.trim()
+    if (trimmed.length === 0) {
+      return null
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1 || parsed > 31) {
+      return null
+    }
+
+    return parsed
+  }
+
+  const enabledLabel = () => props.copy.onLabel ?? 'ON'
+  const disabledLabel = () => props.copy.offLabel ?? 'OFF'
+
   return (
     <Show
       when={props.readyIsAdmin}
@@ -446,7 +463,9 @@ export function HouseScreen(props: Props) {
                     max="31"
                     value={String(props.billingForm.rentDueDay)}
                     onInput={(event) =>
-                      props.onBillingRentDueDayChange(Number(event.currentTarget.value))
+                      props.onBillingRentDueDayChange(
+                        parseBillingDayInput(event.currentTarget.value)
+                      )
                     }
                   />
                 </Field>
@@ -457,7 +476,9 @@ export function HouseScreen(props: Props) {
                     max="31"
                     value={String(props.billingForm.rentWarningDay)}
                     onInput={(event) =>
-                      props.onBillingRentWarningDayChange(Number(event.currentTarget.value))
+                      props.onBillingRentWarningDayChange(
+                        parseBillingDayInput(event.currentTarget.value)
+                      )
                     }
                   />
                 </Field>
@@ -468,7 +489,9 @@ export function HouseScreen(props: Props) {
                     max="31"
                     value={String(props.billingForm.utilitiesDueDay)}
                     onInput={(event) =>
-                      props.onBillingUtilitiesDueDayChange(Number(event.currentTarget.value))
+                      props.onBillingUtilitiesDueDayChange(
+                        parseBillingDayInput(event.currentTarget.value)
+                      )
                     }
                   />
                 </Field>
@@ -479,7 +502,9 @@ export function HouseScreen(props: Props) {
                     max="31"
                     value={String(props.billingForm.utilitiesReminderDay)}
                     onInput={(event) =>
-                      props.onBillingUtilitiesReminderDayChange(Number(event.currentTarget.value))
+                      props.onBillingUtilitiesReminderDayChange(
+                        parseBillingDayInput(event.currentTarget.value)
+                      )
                     }
                   />
                 </Field>
@@ -562,14 +587,14 @@ export function HouseScreen(props: Props) {
                         <div class="ledger-compact-card__main">
                           <header>
                             <strong>{category.name}</strong>
-                            <span>{category.isActive ? 'ON' : 'OFF'}</span>
+                            <span>{category.isActive ? enabledLabel() : disabledLabel()}</span>
                           </header>
                           <p>{props.copy.utilityCategoryName ?? ''}</p>
                           <div class="ledger-compact-card__meta">
                             <span
                               class={`mini-chip ${category.isActive ? '' : 'mini-chip--muted'}`}
                             >
-                              {category.isActive ? 'ON' : 'OFF'}
+                              {category.isActive ? enabledLabel() : disabledLabel()}
                             </span>
                           </div>
                         </div>
@@ -815,8 +840,8 @@ export function HouseScreen(props: Props) {
                             )
                           }
                         >
-                          <option value="true">ON</option>
-                          <option value="false">OFF</option>
+                          <option value="true">{enabledLabel()}</option>
+                          <option value="false">{disabledLabel()}</option>
                         </select>
                       </Field>
                     </div>

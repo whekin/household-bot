@@ -1,6 +1,7 @@
 import { Match, Show, Switch, createMemo, createSignal, onMount } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
+import { majorStringToMinor, minorToMajorString } from './lib/money'
 import {
   fetchAdminSettingsQuery,
   fetchBillingCycleQuery,
@@ -124,6 +125,7 @@ type PaymentDraft = {
 type TestingRolePreview = 'admin' | 'resident'
 
 const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7dc96d'] as const
+const TESTING_ROLE_TAP_WINDOW_MS = 30 * 60 * 1000
 
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
   status: 'ready',
@@ -176,27 +178,6 @@ function joinDeepLink(): string | null {
 
 function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
-}
-
-function majorStringToMinor(value: string): bigint {
-  const trimmed = value.trim()
-  const negative = trimmed.startsWith('-')
-  const normalized = negative ? trimmed.slice(1) : trimmed
-  const [whole = '0', fraction = ''] = normalized.split('.')
-  const major = BigInt(whole || '0')
-  const cents = BigInt((fraction.padEnd(2, '0').slice(0, 2) || '00').replace(/\D/g, '') || '0')
-  const minor = major * 100n + cents
-
-  return negative ? -minor : minor
-}
-
-function minorToMajorString(value: bigint): string {
-  const negative = value < 0n
-  const absolute = negative ? -value : value
-  const whole = absolute / 100n
-  const fraction = String(absolute % 100n).padStart(2, '0')
-
-  return `${negative ? '-' : ''}${whole.toString()}.${fraction}`
 }
 
 function absoluteMinor(value: bigint): bigint {
@@ -691,7 +672,10 @@ function App() {
     }
 
     const now = Date.now()
-    const nextHistory = [...roleChipTapHistory().filter((timestamp) => now - timestamp < 1800), now]
+    const nextHistory = [
+      ...roleChipTapHistory().filter((timestamp) => now - timestamp < TESTING_ROLE_TAP_WINDOW_MS),
+      now
+    ]
 
     if (nextHistory.length >= 5) {
       setRoleChipTapHistory([])
@@ -2209,28 +2193,36 @@ function App() {
               }))
             }
             onBillingRentDueDayChange={(value) =>
-              setBillingForm((current) => ({
-                ...current,
-                rentDueDay: value
-              }))
+              value === null
+                ? undefined
+                : setBillingForm((current) => ({
+                    ...current,
+                    rentDueDay: value
+                  }))
             }
             onBillingRentWarningDayChange={(value) =>
-              setBillingForm((current) => ({
-                ...current,
-                rentWarningDay: value
-              }))
+              value === null
+                ? undefined
+                : setBillingForm((current) => ({
+                    ...current,
+                    rentWarningDay: value
+                  }))
             }
             onBillingUtilitiesDueDayChange={(value) =>
-              setBillingForm((current) => ({
-                ...current,
-                utilitiesDueDay: value
-              }))
+              value === null
+                ? undefined
+                : setBillingForm((current) => ({
+                    ...current,
+                    utilitiesDueDay: value
+                  }))
             }
             onBillingUtilitiesReminderDayChange={(value) =>
-              setBillingForm((current) => ({
-                ...current,
-                utilitiesReminderDay: value
-              }))
+              value === null
+                ? undefined
+                : setBillingForm((current) => ({
+                    ...current,
+                    utilitiesReminderDay: value
+                  }))
             }
             onBillingTimezoneChange={(value) =>
               setBillingForm((current) => ({

@@ -884,6 +884,13 @@ button {
 }
 
 .mini-chip-button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
   cursor: pointer;
 }
 
