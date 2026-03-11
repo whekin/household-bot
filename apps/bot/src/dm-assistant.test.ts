@@ -397,7 +397,7 @@ describe('registerDmAssistant', () => {
 
     await bot.handleUpdate(privateMessageUpdate('How much do I still owe this month?') as never)
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendChatAction',
       payload: {
@@ -409,14 +409,6 @@ describe('registerDmAssistant', () => {
       method: 'sendMessage',
       payload: {
         chat_id: 123456,
-        text: 'Working on it...'
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
-        chat_id: 123456,
-        message_id: 2,
         text: 'You still owe 350.00 GEL this cycle.'
       }
     })
@@ -555,7 +547,7 @@ describe('registerDmAssistant', () => {
     await bot.handleUpdate(update as never)
     await bot.handleUpdate(update as never)
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(usageTracker.listHouseholdUsage('household-1')).toEqual([
       {
         householdId: 'household-1',

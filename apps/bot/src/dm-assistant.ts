@@ -257,57 +257,6 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   }
 }
 
-interface PendingAssistantReply {
-  chatId: number
-  messageId: number
-}
-
-async function sendAssistantProcessingReply(
-  ctx: Context,
-  text: string
-): Promise<PendingAssistantReply | null> {
-  const message = await ctx.reply(text)
-
-  if (!message?.chat?.id || typeof message.message_id !== 'number') {
-    return null
-  }
-
-  return {
-    chatId: message.chat.id,
-    messageId: message.message_id
-  }
-}
-
-async function finalizeAssistantReply(
-  ctx: Context,
-  pendingReply: PendingAssistantReply | null,
-  text: string,
-  replyMarkup?: {
-    inline_keyboard: Array<
-      Array<{
-        text: string
-        callback_data: string
-      }>
-    >
-  }
-): Promise<void> {
-  if (!pendingReply) {
-    await ctx.reply(text, replyMarkup ? { reply_markup: replyMarkup } : undefined)
-    return
-  }
-
-  try {
-    await ctx.api.editMessageText(
-      pendingReply.chatId,
-      pendingReply.messageId,
-      text,
-      replyMarkup ? { reply_markup: replyMarkup } : {}
-    )
-  } catch {
-    await ctx.reply(text, replyMarkup ? { reply_markup: replyMarkup } : undefined)
-  }
-}
-
 function parsePaymentProposalPayload(
   payload: Record<string, unknown>
 ): PaymentProposalPayload | null {
@@ -768,7 +717,6 @@ export function registerDmAssistant(options: {
 
       const memory = options.memoryStore.get(telegramUserId)
       const typingIndicator = startTypingIndicator(ctx)
-      let pendingReply: PendingAssistantReply | null = null
       const assistantStartedAt = Date.now()
       let stage: 'household_context' | 'assistant_response' = 'household_context'
       let contextBuildMs: number | null = null
@@ -785,7 +733,6 @@ export function registerDmAssistant(options: {
           financeService
         })
         contextBuildMs = Date.now() - contextStartedAt
-        pendingReply = await sendAssistantProcessingReply(ctx, t.processing)
         stage = 'assistant_response'
         const assistantResponseStartedAt = Date.now()
         const reply = await options.assistant.respond({
@@ -830,7 +777,7 @@ export function registerDmAssistant(options: {
           'DM assistant reply generated'
         )
 
-        await finalizeAssistantReply(ctx, pendingReply, reply.text)
+        await ctx.reply(reply.text)
       } catch (error) {
         options.logger?.error(
           {
@@ -846,7 +793,7 @@ export function registerDmAssistant(options: {
           },
           'DM assistant reply failed'
         )
-        await finalizeAssistantReply(ctx, pendingReply, t.unavailable)
+        await ctx.reply(t.unavailable)
       } finally {
         typingIndicator.stop()
       }

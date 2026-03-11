@@ -117,7 +117,6 @@ export const ruBotTranslations: BotTranslationCatalog = {
   },
   assistant: {
     unavailable: 'Ассистент сейчас недоступен. Попробуйте ещё раз чуть позже.',
-    processing: 'Сейчас разберусь...',
     noHousehold:
       'Я смогу помочь после того, как ваш Telegram-профиль будет привязан к дому. Сначала откройте группу дома и завершите вступление.',
     multipleHouseholds:

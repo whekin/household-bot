@@ -122,7 +122,6 @@ export interface BotTranslationCatalog {
   }
   assistant: {
     unavailable: string
-    processing: string
     noHousehold: string
     multipleHouseholds: string
     rateLimited: (retryDelay: string) => string
