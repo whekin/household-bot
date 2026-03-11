@@ -44,6 +44,8 @@ Boundary rules:
 - One ticket at a time, small commits
 - Before implementation: re-check ticket/spec and assumptions
 - Do not commit without explicit user approval
+- Use pre-commit and pre-push hooks as the default validation path
+- Run manual checks selectively for targeted validation or when hooks do not cover the relevant risk
 - Run Codex review before merge (`codex review --base origin/main`)
 
 ## Communication
