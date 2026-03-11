@@ -572,7 +572,7 @@ describe('buildJoinMiniAppUrl', () => {
       'join-token'
     )
 
-    expect(url).toBe('https://household-dev-mini-app.example.app/?join=join-token&bot=kojori_bot')
+    expect(url).toBe('https://household-dev-mini-app.example.app/?bot=kojori_bot&join=join-token')
   })
 
   test('returns null when no mini app url is configured', () => {
@@ -581,6 +581,80 @@ describe('buildJoinMiniAppUrl', () => {
 })
 
 describe('registerHouseholdSetupCommands', () => {
+  test('opens the mini app from a dashboard start payload in private chat', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createRejectedHouseholdSetupService(),
+      householdOnboardingService: {
+        async ensureHouseholdJoinToken() {
+          throw new Error('not used')
+        },
+        async getMiniAppAccess() {
+          throw new Error('not used')
+        },
+        async joinHousehold() {
+          throw new Error('not used')
+        }
+      },
+      householdAdminService: createHouseholdAdminService(),
+      miniAppUrl: 'https://miniapp.example.app'
+    })
+
+    await bot.handleUpdate(startUpdate('/start dashboard') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      chat_id: 123456,
+      text: 'Open the mini app from the button below.',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Open mini app',
+              web_app: {
+                url: 'https://miniapp.example.app/?bot=household_test_bot'
+              }
+            }
+          ]
+        ]
+      }
+    })
+  })
+
   test('offers an Open mini app button after a DM join request', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -662,7 +736,7 @@ describe('registerHouseholdSetupCommands', () => {
             {
               text: 'Open mini app',
               web_app: {
-                url: 'https://miniapp.example.app/?join=join-token&bot=household_test_bot'
+                url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
             }
           ]
@@ -750,7 +824,7 @@ describe('registerHouseholdSetupCommands', () => {
             {
               text: 'Открыть мини-приложение',
               web_app: {
-                url: 'https://miniapp.example.app/?join=join-token&bot=household_test_bot'
+                url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
             }
           ]

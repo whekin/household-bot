@@ -92,6 +92,7 @@ const bot = createTelegramBot(
   getLogger('telegram'),
   householdConfigurationRepositoryClient?.repository
 )
+bot.botInfo = await bot.api.getMe()
 const webhookHandler = webhookCallback(bot, 'std/http', {
   onTimeout: 'return'
 })
@@ -357,6 +358,11 @@ const reminderJobs = runtime.reminderJobsEnabled
         ...(runtime.miniAppAllowedOrigins[0]
           ? {
               miniAppUrl: runtime.miniAppAllowedOrigins[0]
+            }
+          : {}),
+        ...(bot.botInfo?.username
+          ? {
+              botUsername: bot.botInfo.username
             }
           : {}),
         logger: getLogger('scheduler')

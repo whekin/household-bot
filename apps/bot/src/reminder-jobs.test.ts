@@ -42,7 +42,8 @@ describe('createReminderJobsHandler', () => {
       releaseReminderDispatch: mock(async () => {}),
       sendReminderMessage,
       reminderService,
-      now: () => fixedNow
+      now: () => fixedNow,
+      botUsername: 'household_test_bot'
     })
 
     const response = await handler.handle(
@@ -71,6 +72,12 @@ describe('createReminderJobsHandler', () => {
               {
                 text: 'Шаблон',
                 callback_data: 'reminder_util:template'
+              }
+            ],
+            [
+              {
+                text: 'Открыть дашборд',
+                url: 'https://t.me/household_test_bot?start=dashboard'
               }
             ]
           ]

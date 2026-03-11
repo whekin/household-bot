@@ -44,6 +44,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     pendingMemberLine: (member, index) =>
       `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`,
     openMiniAppButton: 'Открыть мини-приложение',
+    openMiniAppFromPrivateChat: 'Откройте мини-приложение по кнопке ниже.',
+    openMiniAppUnavailable: 'Мини-приложение сейчас не настроено.',
     joinHouseholdButton: 'Вступить в дом',
     approveMemberButton: (displayName) => `Подтвердить ${displayName}`,
     telegramIdentityRequired: 'Чтобы вступить в дом, нужна Telegram-учётка пользователя.',

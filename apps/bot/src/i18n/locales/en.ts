@@ -42,6 +42,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     pendingMemberLine: (member, index) =>
       `${index + 1}. ${member.displayName} (${member.telegramUserId})${member.username ? ` @${member.username}` : ''}`,
     openMiniAppButton: 'Open mini app',
+    openMiniAppFromPrivateChat: 'Open the mini app from the button below.',
+    openMiniAppUnavailable: 'The mini app is not configured right now.',
     joinHouseholdButton: 'Join household',
     approveMemberButton: (displayName) => `Approve ${displayName}`,
     telegramIdentityRequired: 'Telegram user identity is required to join a household.',

@@ -17,6 +17,7 @@ import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import { buildBotStartDeepLink } from './telegram-deep-links'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
@@ -442,18 +443,15 @@ function buildGroupInviteDeepLink(
   telegramChatId: string,
   targetTelegramUserId: string
 ): string | null {
-  const normalizedBotUsername = botUsername?.trim()
-  if (!normalizedBotUsername) {
-    return null
-  }
-
-  return `https://t.me/${normalizedBotUsername}?start=${GROUP_INVITE_START_PREFIX}${telegramChatId}_${targetTelegramUserId}`
+  return buildBotStartDeepLink(
+    botUsername,
+    `${GROUP_INVITE_START_PREFIX}${telegramChatId}_${targetTelegramUserId}`
+  )
 }
 
-export function buildJoinMiniAppUrl(
+function buildMiniAppBaseUrl(
   miniAppUrl: string | undefined,
-  botUsername: string | undefined,
-  joinToken: string
+  botUsername?: string | undefined
 ): string | null {
   const normalizedMiniAppUrl = miniAppUrl?.trim()
   if (!normalizedMiniAppUrl) {
@@ -461,13 +459,35 @@ export function buildJoinMiniAppUrl(
   }
 
   const url = new URL(normalizedMiniAppUrl)
-  url.searchParams.set('join', joinToken)
 
   if (botUsername && botUsername.trim().length > 0) {
     url.searchParams.set('bot', botUsername.trim())
   }
 
   return url.toString()
+}
+
+export function buildJoinMiniAppUrl(
+  miniAppUrl: string | undefined,
+  botUsername: string | undefined,
+  joinToken: string
+): string | null {
+  const baseUrl = buildMiniAppBaseUrl(miniAppUrl, botUsername)
+  if (!baseUrl) {
+    return null
+  }
+
+  const url = new URL(baseUrl)
+  url.searchParams.set('join', joinToken)
+
+  return url.toString()
+}
+
+function buildOpenMiniAppUrl(
+  miniAppUrl: string | undefined,
+  botUsername: string | undefined
+): string | null {
+  return buildMiniAppBaseUrl(miniAppUrl, botUsername)
 }
 
 function miniAppReplyMarkup(
@@ -477,6 +497,32 @@ function miniAppReplyMarkup(
   joinToken: string
 ) {
   const webAppUrl = buildJoinMiniAppUrl(miniAppUrl, botUsername, joinToken)
+  if (!webAppUrl) {
+    return {}
+  }
+
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: getBotTranslations(locale).setup.openMiniAppButton,
+            web_app: {
+              url: webAppUrl
+            }
+          }
+        ]
+      ]
+    }
+  }
+}
+
+function openMiniAppReplyMarkup(
+  locale: BotLocale,
+  miniAppUrl: string | undefined,
+  botUsername: string | undefined
+) {
+  const webAppUrl = buildOpenMiniAppUrl(miniAppUrl, botUsername)
   if (!webAppUrl) {
     return {}
   }
@@ -895,6 +941,19 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     if (!startPayload.startsWith('join_')) {
+      if (startPayload === 'dashboard') {
+        if (!options.miniAppUrl) {
+          await ctx.reply(t.setup.openMiniAppUnavailable)
+          return
+        }
+
+        await ctx.reply(
+          t.setup.openMiniAppFromPrivateChat,
+          openMiniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username)
+        )
+        return
+      }
+
       await ctx.reply(t.common.useHelp)
       return
     }

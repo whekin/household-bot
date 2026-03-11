@@ -94,6 +94,7 @@ export function createReminderJobsHandler(options: {
   forceDryRun?: boolean
   now?: () => Temporal.Instant
   miniAppUrl?: string
+  botUsername?: string
   logger?: Logger
 }): {
   handle: (request: Request, rawReminderType: string) => Promise<Response>
@@ -109,7 +110,18 @@ export function createReminderJobsHandler(options: {
       case 'utilities':
         return {
           text: t.utilities(period),
-          replyMarkup: buildUtilitiesReminderReplyMarkup(target.locale, options.miniAppUrl)
+          replyMarkup: buildUtilitiesReminderReplyMarkup(target.locale, {
+            ...(options.miniAppUrl
+              ? {
+                  miniAppUrl: options.miniAppUrl
+                }
+              : {}),
+            ...(options.botUsername
+              ? {
+                  botUsername: options.botUsername
+                }
+              : {})
+          })
         }
       case 'rent-warning':
         return {

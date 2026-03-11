@@ -10,6 +10,7 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import { buildBotStartDeepLink } from './telegram-deep-links'
 
 export const REMINDER_UTILITY_GUIDED_CALLBACK = 'reminder_util:guided'
 export const REMINDER_UTILITY_TEMPLATE_CALLBACK = 'reminder_util:template'
@@ -358,10 +359,13 @@ async function resolveReminderContext(
 
 export function buildUtilitiesReminderReplyMarkup(
   locale: BotLocale,
-  miniAppUrl?: string
+  options?: {
+    miniAppUrl?: string
+    botUsername?: string
+  }
 ): InlineKeyboardMarkup {
   const t = getBotTranslations(locale).reminders
-  const dashboardUrl = miniAppUrl?.trim()
+  const dashboardUrl = buildBotStartDeepLink(options?.botUsername, 'dashboard')
 
   return {
     inline_keyboard: [
@@ -380,9 +384,7 @@ export function buildUtilitiesReminderReplyMarkup(
             [
               {
                 text: t.openDashboardButton,
-                web_app: {
-                  url: dashboardUrl
-                }
+                url: dashboardUrl
               }
             ]
           ]

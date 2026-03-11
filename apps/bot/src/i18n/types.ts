@@ -65,6 +65,8 @@ export interface BotTranslationCatalog {
     pendingMembersEmpty: (householdName: string) => string
     pendingMemberLine: (member: PendingMemberSummary, index: number) => string
     openMiniAppButton: string
+    openMiniAppFromPrivateChat: string
+    openMiniAppUnavailable: string
     joinHouseholdButton: string
     approveMemberButton: (displayName: string) => string
     telegramIdentityRequired: string

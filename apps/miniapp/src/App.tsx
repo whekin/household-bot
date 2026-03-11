@@ -2437,7 +2437,7 @@ function App() {
             </div>
             <Show when={readySession()?.mode === 'live'}>
               <Button
-                variant="ghost"
+                variant="secondary"
                 class="app-context-row__action"
                 onClick={() => setProfileEditorOpen(true)}
               >
