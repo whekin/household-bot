@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createMemo, createSignal, onMount } from 'solid-js'
+import { Match, Switch, createMemo, createSignal, onMount } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
 import {
@@ -35,7 +35,7 @@ import {
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from './miniapp-api'
-import { Button, Field, IconButton, Modal } from './components/ui'
+import { Button, Field, Modal } from './components/ui'
 import { HeroBanner } from './components/layout/hero-banner'
 import { NavigationTabs } from './components/layout/navigation-tabs'
 import { ProfileCard } from './components/layout/profile-card'
@@ -45,6 +45,7 @@ import { LoadingState } from './components/session/loading-state'
 import { OnboardingState } from './components/session/onboarding-state'
 import { BalancesScreen } from './screens/balances-screen'
 import { HomeScreen } from './screens/home-screen'
+import { HouseScreen } from './screens/house-screen'
 import { LedgerScreen } from './screens/ledger-screen'
 import {
   demoAdminSettings,
@@ -1996,1094 +1997,268 @@ function App() {
           />
         )
       case 'house':
-        return readySession()?.member.isAdmin ? (
-          <div class="admin-layout">
-            <article class="balance-item balance-item--accent admin-hero">
-              <header>
-                <strong>{copy().householdSettingsTitle}</strong>
-                <span>{adminSettings()?.settings.settlementCurrency ?? '—'}</span>
-              </header>
-              <p>{copy().householdSettingsBody}</p>
-              <div class="admin-summary-grid">
-                <article class="stat-card">
-                  <span>{copy().billingCycleTitle}</span>
-                  <strong>{cycleState()?.cycle?.period ?? copy().billingCycleEmpty}</strong>
-                </article>
-                <article class="stat-card">
-                  <span>{copy().settlementCurrency}</span>
-                  <strong>{adminSettings()?.settings.settlementCurrency ?? '—'}</strong>
-                </article>
-                <article class="stat-card">
-                  <span>{copy().membersCount}</span>
-                  <strong>{String(adminSettings()?.members.length ?? 0)}</strong>
-                </article>
-                <article class="stat-card">
-                  <span>{copy().pendingRequests}</span>
-                  <strong>{String(pendingMembers().length)}</strong>
-                </article>
-              </div>
-            </article>
+        return (
+          <HouseScreen
+            copy={copy()}
+            readyIsAdmin={readySession()?.member.isAdmin === true}
+            householdDefaultLocale={readySession()?.member.householdDefaultLocale ?? 'en'}
+            dashboard={dashboard()}
+            adminSettings={adminSettings()}
+            cycleState={cycleState()}
+            pendingMembers={pendingMembers()}
+            activeHouseSection={activeHouseSection()}
+            onChangeHouseSection={setActiveHouseSection}
+            billingForm={billingForm()}
+            cycleForm={cycleForm()}
+            newCategoryName={newCategoryName()}
+            cycleRentOpen={cycleRentOpen()}
+            billingSettingsOpen={billingSettingsOpen()}
+            addingUtilityBillOpen={addingUtilityBillOpen()}
+            editingUtilityBill={editingUtilityBill()}
+            editingUtilityBillId={editingUtilityBillId()}
+            utilityBillDrafts={utilityBillDrafts()}
+            editingCategorySlug={editingCategorySlug()}
+            editingCategory={editingCategory()}
+            editingMember={editingMember()}
+            memberDisplayNameDrafts={memberDisplayNameDrafts()}
+            memberStatusDrafts={memberStatusDrafts()}
+            memberAbsencePolicyDrafts={memberAbsencePolicyDrafts()}
+            rentWeightDrafts={rentWeightDrafts()}
+            openingCycle={openingCycle()}
+            closingCycle={closingCycle()}
+            savingCycleRent={savingCycleRent()}
+            savingBillingSettings={savingBillingSettings()}
+            savingUtilityBill={savingUtilityBill()}
+            savingUtilityBillId={savingUtilityBillId()}
+            deletingUtilityBillId={deletingUtilityBillId()}
+            savingCategorySlug={savingCategorySlug()}
+            approvingTelegramUserId={approvingTelegramUserId()}
+            savingMemberDisplayNameId={savingMemberDisplayNameId()}
+            savingMemberStatusId={savingMemberStatusId()}
+            savingMemberAbsencePolicyId={savingMemberAbsencePolicyId()}
+            savingRentWeightMemberId={savingRentWeightMemberId()}
+            promotingMemberId={promotingMemberId()}
+            savingHouseholdLocale={savingHouseholdLocale()}
+            minorToMajorString={minorToMajorString}
+            memberStatusLabel={memberStatusLabel}
+            topicRoleLabel={topicRoleLabel}
+            resolvedMemberAbsencePolicy={(memberId, status) =>
+              resolvedMemberAbsencePolicy(memberId, status)
+            }
+            onChangeHouseholdLocale={handleHouseholdLocaleChange}
+            onOpenCycleModal={() => setCycleRentOpen(true)}
+            onCloseCycleModal={() => setCycleRentOpen(false)}
+            onSaveCycleRent={handleSaveCycleRent}
+            onOpenCycle={handleOpenCycle}
+            onCloseCycle={handleCloseCycle}
+            onCycleRentAmountChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                rentAmountMajor: value
+              }))
+            }
+            onCycleRentCurrencyChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                rentCurrency: value
+              }))
+            }
+            onCyclePeriodChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                period: value
+              }))
+            }
+            onOpenBillingSettingsModal={() => setBillingSettingsOpen(true)}
+            onCloseBillingSettingsModal={() => setBillingSettingsOpen(false)}
+            onSaveBillingSettings={handleSaveBillingSettings}
+            onBillingSettlementCurrencyChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                settlementCurrency: value
+              }))
+            }
+            onBillingAdjustmentPolicyChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                paymentBalanceAdjustmentPolicy: value
+              }))
+            }
+            onBillingRentAmountChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                rentAmountMajor: value
+              }))
+            }
+            onBillingRentCurrencyChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                rentCurrency: value
+              }))
+            }
+            onBillingRentDueDayChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                rentDueDay: value
+              }))
+            }
+            onBillingRentWarningDayChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                rentWarningDay: value
+              }))
+            }
+            onBillingUtilitiesDueDayChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                utilitiesDueDay: value
+              }))
+            }
+            onBillingUtilitiesReminderDayChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                utilitiesReminderDay: value
+              }))
+            }
+            onBillingTimezoneChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                timezone: value
+              }))
+            }
+            onOpenAddUtilityBill={() => setAddingUtilityBillOpen(true)}
+            onCloseAddUtilityBill={() => setAddingUtilityBillOpen(false)}
+            onAddUtilityBill={handleAddUtilityBill}
+            onCycleUtilityCategoryChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                utilityCategorySlug: value
+              }))
+            }
+            onCycleUtilityAmountChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                utilityAmountMajor: value
+              }))
+            }
+            onCycleUtilityCurrencyChange={(value) =>
+              setCycleForm((current) => ({
+                ...current,
+                utilityCurrency: value
+              }))
+            }
+            onOpenUtilityBillEditor={setEditingUtilityBillId}
+            onCloseUtilityBillEditor={() => setEditingUtilityBillId(null)}
+            onDeleteUtilityBill={handleDeleteUtilityBill}
+            onSaveUtilityBill={handleUpdateUtilityBill}
+            onUtilityBillNameChange={(billId, bill, value) =>
+              updateUtilityBillDraft(billId, bill, (current) => ({
+                ...current,
+                billName: value
+              }))
+            }
+            onUtilityBillAmountChange={(billId, bill, value) =>
+              updateUtilityBillDraft(billId, bill, (current) => ({
+                ...current,
+                amountMajor: value
+              }))
+            }
+            onUtilityBillCurrencyChange={(billId, bill, value) =>
+              updateUtilityBillDraft(billId, bill, (current) => ({
+                ...current,
+                currency: value
+              }))
+            }
+            onOpenCategoryEditor={setEditingCategorySlug}
+            onCloseCategoryEditor={() => setEditingCategorySlug(null)}
+            onNewCategoryNameChange={setNewCategoryName}
+            onSaveNewCategory={() =>
+              handleSaveUtilityCategory({
+                name: newCategoryName(),
+                sortOrder: adminSettings()?.categories.length ?? 0,
+                isActive: true
+              })
+            }
+            onSaveExistingCategory={() => {
+              const category = editingCategory()
+              if (!category) {
+                return Promise.resolve()
+              }
 
-            <div class="section-switch">
-              {(
-                [
-                  ['billing', copy().houseSectionBilling],
-                  ['utilities', copy().houseSectionUtilities],
-                  ['members', copy().houseSectionMembers],
-                  ['topics', copy().houseSectionTopics]
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  classList={{ 'is-active': activeHouseSection() === key }}
-                  type="button"
-                  onClick={() => setActiveHouseSection(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <Show when={activeHouseSection() === 'billing'}>
-              <section class="admin-section">
-                <header class="admin-section__header">
-                  <div>
-                    <h3>{copy().billingCycleTitle}</h3>
-                    <p>{copy().billingSettingsTitle}</p>
-                  </div>
-                </header>
-                <div class="admin-grid">
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().billingCycleTitle}</strong>
-                      <span>{cycleState()?.cycle?.period ?? copy().billingCycleEmpty}</span>
-                    </header>
-                    <p>
-                      {cycleState()?.cycle
-                        ? copy().billingCycleStatus.replace(
-                            '{currency}',
-                            cycleState()?.cycle?.currency ?? billingForm().settlementCurrency
-                          )
-                        : copy().billingCycleOpenHint}
-                    </p>
-                    <Show when={dashboard()}>
-                      {(data) => (
-                        <p>
-                          {copy().shareRent}: {data().rentSourceAmountMajor}{' '}
-                          {data().rentSourceCurrency}
-                          {data().rentSourceCurrency !== data().currency
-                            ? ` -> ${data().rentDisplayAmountMajor} ${data().currency}`
-                            : ''}
-                        </p>
-                      )}
-                    </Show>
-                    <div class="panel-toolbar">
-                      <Button variant="secondary" onClick={() => setCycleRentOpen(true)}>
-                        {cycleState()?.cycle ? copy().manageCycleAction : copy().openCycleAction}
-                      </Button>
-                      <Show when={cycleState()?.cycle}>
-                        <Button
-                          variant="ghost"
-                          disabled={closingCycle()}
-                          onClick={() => void handleCloseCycle()}
-                        >
-                          {closingCycle() ? copy().closingCycle : copy().closeCycleAction}
-                        </Button>
-                      </Show>
-                    </div>
-                  </article>
-
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().billingSettingsTitle}</strong>
-                      <span>{billingForm().settlementCurrency}</span>
-                    </header>
-                    <p>
-                      {billingForm().paymentBalanceAdjustmentPolicy === 'utilities'
-                        ? copy().paymentBalanceAdjustmentUtilities
-                        : billingForm().paymentBalanceAdjustmentPolicy === 'rent'
-                          ? copy().paymentBalanceAdjustmentRent
-                          : copy().paymentBalanceAdjustmentSeparate}
-                    </p>
-                    <div class="ledger-compact-card__meta">
-                      <span class="mini-chip">
-                        {copy().rentAmount}: {billingForm().rentAmountMajor || '—'}{' '}
-                        {billingForm().rentCurrency}
-                      </span>
-                      <span class="mini-chip mini-chip--muted">
-                        {copy().timezone}: {billingForm().timezone}
-                      </span>
-                    </div>
-                    <div class="panel-toolbar">
-                      <Button variant="secondary" onClick={() => setBillingSettingsOpen(true)}>
-                        {copy().manageSettingsAction}
-                      </Button>
-                    </div>
-                  </article>
-
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().householdLanguage}</strong>
-                      <span>{readySession()?.member.householdDefaultLocale.toUpperCase()}</span>
-                    </header>
-                    <p>{copy().householdSettingsBody}</p>
-                    <div class="locale-switch__buttons">
-                      <button
-                        classList={{
-                          'is-active': readySession()?.member.householdDefaultLocale === 'en'
-                        }}
-                        type="button"
-                        disabled={savingHouseholdLocale()}
-                        onClick={() => void handleHouseholdLocaleChange('en')}
-                      >
-                        EN
-                      </button>
-                      <button
-                        classList={{
-                          'is-active': readySession()?.member.householdDefaultLocale === 'ru'
-                        }}
-                        type="button"
-                        disabled={savingHouseholdLocale()}
-                        onClick={() => void handleHouseholdLocaleChange('ru')}
-                      >
-                        RU
-                      </button>
-                    </div>
-                  </article>
-                </div>
-                <Modal
-                  open={cycleRentOpen()}
-                  title={copy().billingCycleTitle}
-                  description={copy().cycleEditorBody}
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setCycleRentOpen(false)}
-                  footer={
-                    cycleState()?.cycle ? (
-                      <div class="modal-action-row modal-action-row--single">
-                        <Button variant="ghost" onClick={() => setCycleRentOpen(false)}>
-                          {copy().closeEditorAction}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          disabled={
-                            savingCycleRent() || cycleForm().rentAmountMajor.trim().length === 0
-                          }
-                          onClick={() => void handleSaveCycleRent()}
-                        >
-                          {savingCycleRent() ? copy().savingCycleRent : copy().saveCycleRentAction}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div class="modal-action-row modal-action-row--single">
-                        <Button variant="ghost" onClick={() => setCycleRentOpen(false)}>
-                          {copy().closeEditorAction}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          disabled={openingCycle()}
-                          onClick={() => void handleOpenCycle()}
-                        >
-                          {openingCycle() ? copy().openingCycle : copy().openCycleAction}
-                        </Button>
-                      </div>
-                    )
-                  }
-                >
-                  {cycleState()?.cycle ? (
-                    <div class="editor-grid">
-                      <Field label={copy().rentAmount}>
-                        <input
-                          value={cycleForm().rentAmountMajor}
-                          onInput={(event) =>
-                            setCycleForm((current) => ({
-                              ...current,
-                              rentAmountMajor: event.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().shareRent}>
-                        <select
-                          value={cycleForm().rentCurrency}
-                          onChange={(event) =>
-                            setCycleForm((current) => ({
-                              ...current,
-                              rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                            }))
-                          }
-                        >
-                          <option value="USD">USD</option>
-                          <option value="GEL">GEL</option>
-                        </select>
-                      </Field>
-                    </div>
-                  ) : (
-                    <div class="editor-grid">
-                      <Field label={copy().billingCyclePeriod}>
-                        <input
-                          value={cycleForm().period}
-                          onInput={(event) =>
-                            setCycleForm((current) => ({
-                              ...current,
-                              period: event.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().settlementCurrency}>
-                        <div class="settings-field__value">{billingForm().settlementCurrency}</div>
-                      </Field>
-                    </div>
-                  )}
-                </Modal>
-                <Modal
-                  open={billingSettingsOpen()}
-                  title={copy().billingSettingsTitle}
-                  description={copy().billingSettingsEditorBody}
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setBillingSettingsOpen(false)}
-                  footer={
-                    <div class="modal-action-row modal-action-row--single">
-                      <Button variant="ghost" onClick={() => setBillingSettingsOpen(false)}>
-                        {copy().closeEditorAction}
-                      </Button>
-                      <Button
-                        variant="primary"
-                        disabled={savingBillingSettings()}
-                        onClick={() => void handleSaveBillingSettings()}
-                      >
-                        {savingBillingSettings()
-                          ? copy().savingSettings
-                          : copy().saveSettingsAction}
-                      </Button>
-                    </div>
-                  }
-                >
-                  <div class="editor-grid">
-                    <Field label={copy().settlementCurrency}>
-                      <select
-                        value={billingForm().settlementCurrency}
-                        onChange={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            settlementCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="GEL">GEL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </Field>
-                    <Field label={copy().paymentBalanceAdjustmentPolicy} wide>
-                      <select
-                        value={billingForm().paymentBalanceAdjustmentPolicy}
-                        onChange={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            paymentBalanceAdjustmentPolicy: event.currentTarget.value as
-                              | 'utilities'
-                              | 'rent'
-                              | 'separate'
-                          }))
-                        }
-                      >
-                        <option value="utilities">
-                          {copy().paymentBalanceAdjustmentUtilities}
-                        </option>
-                        <option value="rent">{copy().paymentBalanceAdjustmentRent}</option>
-                        <option value="separate">{copy().paymentBalanceAdjustmentSeparate}</option>
-                      </select>
-                    </Field>
-                    <Field label={copy().rentAmount}>
-                      <input
-                        value={billingForm().rentAmountMajor}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentAmountMajor: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().shareRent}>
-                      <select
-                        value={billingForm().rentCurrency}
-                        onChange={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="USD">USD</option>
-                        <option value="GEL">GEL</option>
-                      </select>
-                    </Field>
-                    <Field label={copy().rentDueDay}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().rentDueDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentDueDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().rentWarningDay}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().rentWarningDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            rentWarningDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().utilitiesDueDay}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().utilitiesDueDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            utilitiesDueDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().utilitiesReminderDay}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={String(billingForm().utilitiesReminderDay)}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            utilitiesReminderDay: Number(event.currentTarget.value)
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().timezone} wide>
-                      <input
-                        value={billingForm().timezone}
-                        onInput={(event) =>
-                          setBillingForm((current) => ({
-                            ...current,
-                            timezone: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </Field>
-                  </div>
-                </Modal>
-              </section>
-            </Show>
-
-            <Show when={activeHouseSection() === 'utilities'}>
-              <section class="admin-section">
-                <header class="admin-section__header">
-                  <div>
-                    <h3>{copy().utilityCategoriesTitle}</h3>
-                    <p>{copy().utilityCategoriesBody}</p>
-                  </div>
-                </header>
-                <div class="admin-grid">
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().utilityLedgerTitle}</strong>
-                      <span>{cycleForm().utilityCurrency}</span>
-                    </header>
-                    <p>{copy().utilityBillsEditorBody}</p>
-                    <div class="panel-toolbar">
-                      <Button variant="secondary" onClick={() => setAddingUtilityBillOpen(true)}>
-                        {copy().addUtilityBillAction}
-                      </Button>
-                    </div>
-                    <div class="ledger-list">
-                      {cycleState()?.utilityBills.length ? (
-                        cycleState()?.utilityBills.map((bill) => (
-                          <article class="ledger-compact-card">
-                            <div class="ledger-compact-card__main">
-                              <header>
-                                <strong>{bill.billName}</strong>
-                                <span>{bill.createdAt.slice(0, 10)}</span>
-                              </header>
-                              <p>{copy().utilityCategoryName}</p>
-                              <div class="ledger-compact-card__meta">
-                                <span class="mini-chip">
-                                  {minorToMajorString(BigInt(bill.amountMinor))} {bill.currency}
-                                </span>
-                              </div>
-                            </div>
-                            <div class="ledger-compact-card__actions">
-                              <IconButton
-                                label={copy().editUtilityBillAction}
-                                onClick={() => setEditingUtilityBillId(bill.id)}
-                              >
-                                ...
-                              </IconButton>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <p>{copy().utilityBillsEmpty}</p>
-                      )}
-                    </div>
-                  </article>
-
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().utilityCategoriesTitle}</strong>
-                      <span>{String(adminSettings()?.categories.length ?? 0)}</span>
-                    </header>
-                    <p>{copy().utilityCategoriesBody}</p>
-                    <div class="panel-toolbar">
-                      <Button variant="secondary" onClick={() => setEditingCategorySlug('__new__')}>
-                        {copy().addCategoryAction}
-                      </Button>
-                    </div>
-                    <div class="ledger-list">
-                      {adminSettings()?.categories.map((category) => (
-                        <article class="ledger-compact-card">
-                          <div class="ledger-compact-card__main">
-                            <header>
-                              <strong>{category.name}</strong>
-                              <span>{category.isActive ? 'ON' : 'OFF'}</span>
-                            </header>
-                            <p>{copy().utilityCategoryName}</p>
-                            <div class="ledger-compact-card__meta">
-                              <span
-                                class={`mini-chip ${category.isActive ? '' : 'mini-chip--muted'}`}
-                              >
-                                {category.isActive ? 'ON' : 'OFF'}
-                              </span>
-                            </div>
-                          </div>
-                          <div class="ledger-compact-card__actions">
-                            <IconButton
-                              label={copy().editCategoryAction}
-                              onClick={() => setEditingCategorySlug(category.slug)}
-                            >
-                              ...
-                            </IconButton>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </article>
-                </div>
-                <Modal
-                  open={addingUtilityBillOpen()}
-                  title={copy().addUtilityBillAction}
-                  description={copy().utilityBillCreateBody}
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setAddingUtilityBillOpen(false)}
-                  footer={
-                    <div class="modal-action-row modal-action-row--single">
-                      <Button variant="ghost" onClick={() => setAddingUtilityBillOpen(false)}>
-                        {copy().closeEditorAction}
-                      </Button>
-                      <Button
-                        variant="primary"
-                        disabled={
-                          savingUtilityBill() || cycleForm().utilityAmountMajor.trim().length === 0
-                        }
-                        onClick={() => void handleAddUtilityBill()}
-                      >
-                        {savingUtilityBill()
-                          ? copy().savingUtilityBill
-                          : copy().addUtilityBillAction}
-                      </Button>
-                    </div>
-                  }
-                >
-                  <div class="editor-grid">
-                    <Field label={copy().utilityCategoryLabel}>
-                      <select
-                        value={cycleForm().utilityCategorySlug}
-                        onChange={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityCategorySlug: event.currentTarget.value
-                          }))
-                        }
-                      >
-                        {adminSettings()
-                          ?.categories.filter((category) => category.isActive)
-                          .map((category) => (
-                            <option value={category.slug}>{category.name}</option>
-                          ))}
-                      </select>
-                    </Field>
-                    <Field label={copy().utilityAmount}>
-                      <input
-                        value={cycleForm().utilityAmountMajor}
-                        onInput={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityAmountMajor: event.currentTarget.value
-                          }))
-                        }
-                      />
-                    </Field>
-                    <Field label={copy().settlementCurrency}>
-                      <select
-                        value={cycleForm().utilityCurrency}
-                        onChange={(event) =>
-                          setCycleForm((current) => ({
-                            ...current,
-                            utilityCurrency: event.currentTarget.value as 'USD' | 'GEL'
-                          }))
-                        }
-                      >
-                        <option value="GEL">GEL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </Field>
-                  </div>
-                </Modal>
-                <Modal
-                  open={Boolean(editingUtilityBill())}
-                  title={copy().utilityLedgerTitle}
-                  description={copy().utilityBillEditorBody}
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setEditingUtilityBillId(null)}
-                  footer={(() => {
-                    const bill = editingUtilityBill()
-                    if (!bill) {
-                      return null
-                    }
-                    return (
-                      <div class="modal-action-row">
-                        <Button
-                          variant="danger"
-                          onClick={() => void handleDeleteUtilityBill(bill.id)}
-                        >
-                          {deletingUtilityBillId() === bill.id
-                            ? copy().deletingUtilityBill
-                            : copy().deleteUtilityBillAction}
-                        </Button>
-                        <div class="modal-action-row__primary">
-                          <Button variant="ghost" onClick={() => setEditingUtilityBillId(null)}>
-                            {copy().closeEditorAction}
-                          </Button>
-                          <Button
-                            variant="primary"
-                            disabled={savingUtilityBillId() === bill.id}
-                            onClick={() => void handleUpdateUtilityBill(bill.id)}
-                          >
-                            {savingUtilityBillId() === bill.id
-                              ? copy().savingUtilityBill
-                              : copy().saveUtilityBillAction}
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })()}
-                >
-                  {(() => {
-                    const bill = editingUtilityBill()
-                    if (!bill) {
-                      return null
-                    }
-                    const draft = utilityBillDrafts()[bill.id] ?? {
-                      billName: bill.billName,
-                      amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
-                      currency: bill.currency
-                    }
-                    return (
-                      <div class="editor-grid">
-                        <Field label={copy().utilityCategoryName} wide>
-                          <input
-                            value={draft.billName}
-                            onInput={(event) =>
-                              updateUtilityBillDraft(bill.id, bill, (current) => ({
-                                ...current,
-                                billName: event.currentTarget.value
-                              }))
+              return handleSaveUtilityCategory({
+                slug: category.slug,
+                name: category.name,
+                sortOrder: category.sortOrder,
+                isActive: category.isActive
+              })
+            }}
+            onEditingCategoryNameChange={(value) =>
+              setAdminSettings((current) =>
+                current && editingCategory()
+                  ? {
+                      ...current,
+                      categories: current.categories.map((item) =>
+                        item.slug === editingCategory()!.slug
+                          ? {
+                              ...item,
+                              name: value
                             }
-                          />
-                        </Field>
-                        <Field label={copy().utilityAmount}>
-                          <input
-                            value={draft.amountMajor}
-                            onInput={(event) =>
-                              updateUtilityBillDraft(bill.id, bill, (current) => ({
-                                ...current,
-                                amountMajor: event.currentTarget.value
-                              }))
-                            }
-                          />
-                        </Field>
-                        <Field label={copy().settlementCurrency}>
-                          <select
-                            value={draft.currency}
-                            onChange={(event) =>
-                              updateUtilityBillDraft(bill.id, bill, (current) => ({
-                                ...current,
-                                currency: event.currentTarget.value as 'USD' | 'GEL'
-                              }))
-                            }
-                          >
-                            <option value="GEL">GEL</option>
-                            <option value="USD">USD</option>
-                          </select>
-                        </Field>
-                      </div>
-                    )
-                  })()}
-                </Modal>
-                <Modal
-                  open={Boolean(editingCategorySlug())}
-                  title={
-                    editingCategorySlug() === '__new__'
-                      ? copy().addCategoryAction
-                      : copy().utilityCategoriesTitle
-                  }
-                  description={
-                    editingCategorySlug() === '__new__'
-                      ? copy().categoryCreateBody
-                      : copy().categoryEditorBody
-                  }
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setEditingCategorySlug(null)}
-                  footer={(() => {
-                    const category = editingCategory()
-                    const isNew = editingCategorySlug() === '__new__'
-                    return (
-                      <div class="modal-action-row modal-action-row--single">
-                        <Button variant="ghost" onClick={() => setEditingCategorySlug(null)}>
-                          {copy().closeEditorAction}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          disabled={
-                            isNew
-                              ? newCategoryName().trim().length === 0 ||
-                                savingCategorySlug() === '__new__'
-                              : !category || savingCategorySlug() === category.slug
-                          }
-                          onClick={() =>
-                            void handleSaveUtilityCategory(
-                              isNew
-                                ? {
-                                    name: newCategoryName(),
-                                    sortOrder: adminSettings()?.categories.length ?? 0,
-                                    isActive: true
-                                  }
-                                : {
-                                    slug: category!.slug,
-                                    name: category!.name,
-                                    sortOrder: category!.sortOrder,
-                                    isActive: category!.isActive
-                                  }
-                            )
-                          }
-                        >
-                          {savingCategorySlug() === (isNew ? '__new__' : (category?.slug ?? null))
-                            ? copy().savingCategory
-                            : isNew
-                              ? copy().addCategoryAction
-                              : copy().saveCategoryAction}
-                        </Button>
-                      </div>
-                    )
-                  })()}
-                >
-                  {editingCategorySlug() === '__new__' ? (
-                    <div class="editor-grid">
-                      <Field label={copy().utilityCategoryName} wide>
-                        <input
-                          value={newCategoryName()}
-                          onInput={(event) => setNewCategoryName(event.currentTarget.value)}
-                        />
-                      </Field>
-                    </div>
-                  ) : (
-                    (() => {
-                      const category = editingCategory()
-                      if (!category) {
-                        return null
-                      }
-                      return (
-                        <div class="editor-grid">
-                          <Field label={copy().utilityCategoryName} wide>
-                            <input
-                              value={category.name}
-                              onInput={(event) =>
-                                setAdminSettings((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        categories: current.categories.map((item) =>
-                                          item.slug === category.slug
-                                            ? {
-                                                ...item,
-                                                name: event.currentTarget.value
-                                              }
-                                            : item
-                                        )
-                                      }
-                                    : current
-                                )
-                              }
-                            />
-                          </Field>
-                          <Field label={copy().utilityCategoryActive}>
-                            <select
-                              value={category.isActive ? 'true' : 'false'}
-                              onChange={(event) =>
-                                setAdminSettings((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        categories: current.categories.map((item) =>
-                                          item.slug === category.slug
-                                            ? {
-                                                ...item,
-                                                isActive: event.currentTarget.value === 'true'
-                                              }
-                                            : item
-                                        )
-                                      }
-                                    : current
-                                )
-                              }
-                            >
-                              <option value="true">ON</option>
-                              <option value="false">OFF</option>
-                            </select>
-                          </Field>
-                        </div>
+                          : item
                       )
-                    })()
-                  )}
-                </Modal>
-              </section>
-            </Show>
-
-            <Show when={activeHouseSection() === 'members'}>
-              <section class="admin-section">
-                <header class="admin-section__header">
-                  <div>
-                    <h3>{copy().adminsTitle}</h3>
-                    <p>{copy().adminsBody}</p>
-                  </div>
-                </header>
-                <div class="admin-grid">
-                  <article class="balance-item admin-card--wide">
-                    <header>
-                      <strong>{copy().adminsTitle}</strong>
-                      <span>{String(adminSettings()?.members.length ?? 0)}</span>
-                    </header>
-                    <div class="ledger-list">
-                      {adminSettings()?.members.map((member) => (
-                        <article class="ledger-compact-card">
-                          <div class="ledger-compact-card__main">
-                            <header>
-                              <strong>{member.displayName}</strong>
-                              <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
-                            </header>
-                            <p>{memberStatusLabel(member.status)}</p>
-                            <div class="ledger-compact-card__meta">
-                              <span class="mini-chip">
-                                {copy().rentWeightLabel}: {member.rentShareWeight}
-                              </span>
-                              <span class="mini-chip mini-chip--muted">
-                                {resolvedMemberAbsencePolicy(member.id, member.status).policy ===
-                                'away_rent_only'
-                                  ? copy().absencePolicyAwayRentOnly
-                                  : resolvedMemberAbsencePolicy(member.id, member.status).policy ===
-                                      'away_rent_and_utilities'
-                                    ? copy().absencePolicyAwayRentAndUtilities
-                                    : resolvedMemberAbsencePolicy(member.id, member.status)
-                                          .policy === 'inactive'
-                                      ? copy().absencePolicyInactive
-                                      : copy().absencePolicyResident}
-                              </span>
-                            </div>
-                          </div>
-                          <div class="ledger-compact-card__actions">
-                            <IconButton
-                              label={copy().editMemberAction}
-                              onClick={() => setEditingMemberId(member.id)}
-                            >
-                              ...
-                            </IconButton>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </article>
-
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().pendingMembersTitle}</strong>
-                      <span>{String(pendingMembers().length)}</span>
-                    </header>
-                    <p>{copy().pendingMembersBody}</p>
-                    {pendingMembers().length === 0 ? (
-                      <p>{copy().pendingMembersEmpty}</p>
-                    ) : (
-                      <div class="admin-sublist admin-sublist--plain">
-                        {pendingMembers().map((member) => (
-                          <article class="ledger-item">
-                            <header>
-                              <strong>{member.displayName}</strong>
-                              <span>{member.telegramUserId}</span>
-                            </header>
-                            <p>
-                              {member.username
-                                ? copy().pendingMemberHandle.replace('{username}', member.username)
-                                : (member.languageCode ?? 'Telegram')}
-                            </p>
-                            <button
-                              class="ghost-button"
-                              type="button"
-                              disabled={approvingTelegramUserId() === member.telegramUserId}
-                              onClick={() => void handleApprovePendingMember(member.telegramUserId)}
-                            >
-                              {approvingTelegramUserId() === member.telegramUserId
-                                ? copy().approvingMember
-                                : copy().approveMemberAction}
-                            </button>
-                          </article>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                </div>
-                <Modal
-                  open={Boolean(editingMember())}
-                  title={copy().adminsTitle}
-                  description={copy().memberEditorBody}
-                  closeLabel={copy().closeEditorAction}
-                  onClose={() => setEditingMemberId(null)}
-                  footer={(() => {
-                    const member = editingMember()
-                    if (!member) {
-                      return null
                     }
-
-                    return (
-                      <div class="modal-action-row">
-                        <div class="modal-action-row__primary">
-                          <Button variant="ghost" onClick={() => setEditingMemberId(null)}>
-                            {copy().closeEditorAction}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={
-                              savingMemberDisplayNameId() === member.id ||
-                              (memberDisplayNameDrafts()[member.id] ?? member.displayName).trim()
-                                .length < 2 ||
-                              (
-                                memberDisplayNameDrafts()[member.id] ?? member.displayName
-                              ).trim() === member.displayName
+                  : current
+              )
+            }
+            onEditingCategoryActiveChange={(value) =>
+              setAdminSettings((current) =>
+                current && editingCategory()
+                  ? {
+                      ...current,
+                      categories: current.categories.map((item) =>
+                        item.slug === editingCategory()!.slug
+                          ? {
+                              ...item,
+                              isActive: value
                             }
-                            onClick={() => void handleSaveMemberDisplayName(member.id)}
-                          >
-                            {savingMemberDisplayNameId() === member.id
-                              ? copy().savingDisplayName
-                              : copy().saveDisplayName}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={savingMemberStatusId() === member.id}
-                            onClick={() => void handleSaveMemberStatus(member.id)}
-                          >
-                            {savingMemberStatusId() === member.id
-                              ? copy().savingMemberStatus
-                              : copy().saveMemberStatusAction}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={
-                              savingMemberAbsencePolicyId() === member.id ||
-                              (memberStatusDrafts()[member.id] ?? member.status) !== 'away'
-                            }
-                            onClick={() => void handleSaveMemberAbsencePolicy(member.id)}
-                          >
-                            {savingMemberAbsencePolicyId() === member.id
-                              ? copy().savingAbsencePolicy
-                              : copy().saveAbsencePolicyAction}
-                          </Button>
-                          <Button
-                            variant="primary"
-                            disabled={
-                              savingRentWeightMemberId() === member.id ||
-                              Number(rentWeightDrafts()[member.id] ?? member.rentShareWeight) <= 0
-                            }
-                            onClick={() => void handleSaveRentWeight(member.id)}
-                          >
-                            {savingRentWeightMemberId() === member.id
-                              ? copy().savingRentWeight
-                              : copy().saveRentWeightAction}
-                          </Button>
-                          <Show when={!member.isAdmin}>
-                            <Button
-                              variant="ghost"
-                              disabled={promotingMemberId() === member.id}
-                              onClick={() => void handlePromoteMember(member.id)}
-                            >
-                              {promotingMemberId() === member.id
-                                ? copy().promotingAdmin
-                                : copy().promoteAdminAction}
-                            </Button>
-                          </Show>
-                        </div>
-                      </div>
-                    )
-                  })()}
-                >
-                  {(() => {
-                    const member = editingMember()
-                    if (!member) {
-                      return null
+                          : item
+                      )
                     }
-
-                    return (
-                      <div class="editor-grid">
-                        <Field label={copy().displayNameLabel} hint={copy().displayNameHint} wide>
-                          <input
-                            value={memberDisplayNameDrafts()[member.id] ?? member.displayName}
-                            onInput={(event) =>
-                              setMemberDisplayNameDrafts((current) => ({
-                                ...current,
-                                [member.id]: event.currentTarget.value
-                              }))
-                            }
-                          />
-                        </Field>
-                        <Field label={copy().memberStatusLabel} wide>
-                          <select
-                            value={memberStatusDrafts()[member.id] ?? member.status}
-                            onChange={(event) =>
-                              setMemberStatusDrafts((current) => ({
-                                ...current,
-                                [member.id]: event.currentTarget.value as 'active' | 'away' | 'left'
-                              }))
-                            }
-                          >
-                            <option value="active">{copy().memberStatusActive}</option>
-                            <option value="away">{copy().memberStatusAway}</option>
-                            <option value="left">{copy().memberStatusLeft}</option>
-                          </select>
-                        </Field>
-                        <Field
-                          label={copy().absencePolicyLabel}
-                          hint={
-                            resolvedMemberAbsencePolicy(member.id, member.status)
-                              .effectiveFromPeriod
-                              ? copy().absencePolicyEffectiveFrom.replace(
-                                  '{period}',
-                                  resolvedMemberAbsencePolicy(member.id, member.status)
-                                    .effectiveFromPeriod
-                                )
-                              : copy().absencePolicyHint
-                          }
-                          wide
-                        >
-                          <select
-                            value={
-                              memberAbsencePolicyDrafts()[member.id] ??
-                              resolvedMemberAbsencePolicy(member.id, member.status).policy
-                            }
-                            disabled={(memberStatusDrafts()[member.id] ?? member.status) !== 'away'}
-                            onChange={(event) =>
-                              setMemberAbsencePolicyDrafts((current) => ({
-                                ...current,
-                                [member.id]: event.currentTarget.value as MiniAppMemberAbsencePolicy
-                              }))
-                            }
-                          >
-                            <option value="away_rent_and_utilities">
-                              {copy().absencePolicyAwayRentAndUtilities}
-                            </option>
-                            <option value="away_rent_only">
-                              {copy().absencePolicyAwayRentOnly}
-                            </option>
-                            <option value="inactive">{copy().absencePolicyInactive}</option>
-                            <option value="resident">{copy().absencePolicyResident}</option>
-                          </select>
-                        </Field>
-                        <Field label={copy().rentWeightLabel} wide>
-                          <input
-                            inputmode="numeric"
-                            value={rentWeightDrafts()[member.id] ?? String(member.rentShareWeight)}
-                            onInput={(event) =>
-                              setRentWeightDrafts((current) => ({
-                                ...current,
-                                [member.id]: event.currentTarget.value
-                              }))
-                            }
-                          />
-                        </Field>
-                      </div>
-                    )
-                  })()}
-                </Modal>
-              </section>
-            </Show>
-
-            <Show when={activeHouseSection() === 'topics'}>
-              <section class="admin-section">
-                <header class="admin-section__header">
-                  <div>
-                    <h3>{copy().topicBindingsTitle}</h3>
-                    <p>{copy().topicBindingsBody}</p>
-                  </div>
-                </header>
-                <div class="admin-grid">
-                  <article class="balance-item admin-card--wide">
-                    <header>
-                      <strong>{copy().topicBindingsTitle}</strong>
-                      <span>{String(adminSettings()?.topics.length ?? 0)}/4</span>
-                    </header>
-                    <div class="balance-list admin-sublist">
-                      {(['purchase', 'feedback', 'reminders', 'payments'] as const).map((role) => {
-                        const binding = adminSettings()?.topics.find((topic) => topic.role === role)
-
-                        return (
-                          <article class="ledger-item">
-                            <header>
-                              <strong>{topicRoleLabel(role)}</strong>
-                              <span>{binding ? copy().topicBound : copy().topicUnbound}</span>
-                            </header>
-                            <p>
-                              {binding
-                                ? `${binding.topicName ?? `Topic #${binding.telegramThreadId}`} · #${binding.telegramThreadId}`
-                                : copy().topicUnbound}
-                            </p>
-                          </article>
-                        )
-                      })}
-                    </div>
-                  </article>
-                </div>
-              </section>
-            </Show>
-          </div>
-        ) : (
-          <div class="balance-list">
-            <article class="balance-item">
-              <header>
-                <strong>{copy().residentHouseTitle}</strong>
-              </header>
-              <p>{copy().residentHouseBody}</p>
-            </article>
-          </div>
+                  : current
+              )
+            }
+            onOpenMemberEditor={setEditingMemberId}
+            onCloseMemberEditor={() => setEditingMemberId(null)}
+            onApprovePendingMember={handleApprovePendingMember}
+            onMemberDisplayNameDraftChange={(memberId, value) =>
+              setMemberDisplayNameDrafts((current) => ({
+                ...current,
+                [memberId]: value
+              }))
+            }
+            onMemberStatusDraftChange={(memberId, value) =>
+              setMemberStatusDrafts((current) => ({
+                ...current,
+                [memberId]: value
+              }))
+            }
+            onMemberAbsencePolicyDraftChange={(memberId, value) =>
+              setMemberAbsencePolicyDrafts((current) => ({
+                ...current,
+                [memberId]: value
+              }))
+            }
+            onRentWeightDraftChange={(memberId, value) =>
+              setRentWeightDrafts((current) => ({
+                ...current,
+                [memberId]: value
+              }))
+            }
+            onSaveMemberDisplayName={handleSaveMemberDisplayName}
+            onSaveMemberStatus={handleSaveMemberStatus}
+            onSaveMemberAbsencePolicy={handleSaveMemberAbsencePolicy}
+            onSaveRentWeight={handleSaveRentWeight}
+            onPromoteMember={handlePromoteMember}
+          />
         )
       default:
         return (
