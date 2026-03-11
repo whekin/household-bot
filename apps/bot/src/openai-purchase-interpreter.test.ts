@@ -200,4 +200,98 @@ describe('createOpenAiPurchaseInterpreter', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('corrects mis-scaled amountMinor when the source text contains a clear money amount', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-4o-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '350',
+                  currency: 'GEL',
+                  itemDescription: 'обои, 100 рулонов',
+                  confidence: 86,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!(
+        'Купил обои, 100 рулонов, чтобы клеить в 3 слоя. Выложил 350 кровных',
+        {
+          defaultCurrency: 'GEL'
+        }
+      )
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 35000n,
+        currency: 'GEL',
+        itemDescription: 'обои, 100 рулонов',
+        confidence: 86,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('corrects mis-scaled amountMinor for simple clarification replies', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-4o-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '350',
+                  currency: 'GEL',
+                  itemDescription: 'Рулоны обоев',
+                  confidence: 89,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('350', {
+        defaultCurrency: 'GEL',
+        clarificationContext: {
+          recentMessages: ['Купил обои, 100 рулонов, чтобы клеить в 3 слоя. Выложил 350 кровных']
+        }
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 35000n,
+        currency: 'GEL',
+        itemDescription: 'Рулоны обоев',
+        confidence: 89,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

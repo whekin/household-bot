@@ -51,6 +51,63 @@ function normalizeCurrency(value: string | null): 'GEL' | 'USD' | null {
   return value === 'GEL' || value === 'USD' ? value : null
 }
 
+function toMinorUnits(rawAmount: string): bigint {
+  const normalized = rawAmount.replace(',', '.')
+  const [wholePart, fractionalPart = ''] = normalized.split('.')
+  const cents = fractionalPart.padEnd(2, '0').slice(0, 2)
+
+  return BigInt(`${wholePart}${cents}`)
+}
+
+function extractLikelyMoneyAmountMinor(rawText: string): bigint | null {
+  const moneyCueMatches = Array.from(
+    rawText.matchAll(
+      /(?:за|выложил(?:а)?|отдал(?:а)?|заплатил(?:а)?|потратил(?:а)?|стоит|стоило)\s*(\d+(?:[.,]\d{1,2})?)/giu
+    )
+  )
+  if (moneyCueMatches.length === 1) {
+    const rawAmount = moneyCueMatches[0]?.[1]
+    if (rawAmount) {
+      return toMinorUnits(rawAmount)
+    }
+  }
+
+  const explicitMoneyMatches = Array.from(
+    rawText.matchAll(
+      /(\d+(?:[.,]\d{1,2})?)\s*(?:₾|gel|lari|лари|usd|\$|доллар(?:а|ов)?|кровн\p{L}*)/giu
+    )
+  )
+  if (explicitMoneyMatches.length === 1) {
+    const rawAmount = explicitMoneyMatches[0]?.[1]
+    if (rawAmount) {
+      return toMinorUnits(rawAmount)
+    }
+  }
+
+  const standaloneMatches = Array.from(rawText.matchAll(/\b(\d+(?:[.,]\d{1,2})?)\b/gu))
+  if (standaloneMatches.length === 1) {
+    const rawAmount = standaloneMatches[0]?.[1]
+    if (rawAmount) {
+      return toMinorUnits(rawAmount)
+    }
+  }
+
+  return null
+}
+
+function resolveAmountMinor(input: { rawText: string; amountMinor: bigint | null }): bigint | null {
+  if (input.amountMinor === null) {
+    return null
+  }
+
+  const explicitAmountMinor = extractLikelyMoneyAmountMinor(input.rawText)
+  if (explicitAmountMinor === null) {
+    return input.amountMinor
+  }
+
+  return explicitAmountMinor === input.amountMinor * 100n ? explicitAmountMinor : input.amountMinor
+}
+
 function normalizeConfidence(value: number): number {
   const scaled = value >= 0 && value <= 1 ? value * 100 : value
   return Math.max(0, Math.min(100, Math.round(scaled)))
@@ -123,6 +180,8 @@ export function createOpenAiPurchaseInterpreter(
               'You classify a purchase candidate from a household shared-purchases topic.',
               'Decide whether the latest message is a real shared purchase, needs clarification, or is not a shared purchase at all.',
               `The household default currency is ${options.defaultCurrency}. If a real purchase clearly omits currency, use ${options.defaultCurrency}.`,
+              'amountMinor must be expressed in minor currency units. Example: 350 GEL -> 35000, 3.50 GEL -> 350, 45 lari -> 4500.',
+              'Ignore item quantities like rolls, kilograms, or layers unless they are clearly the money amount.',
               'If recent messages from the same sender are provided, treat them as clarification context for the latest message.',
               'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
               'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',
@@ -216,7 +275,10 @@ export function createOpenAiPurchaseInterpreter(
       return null
     }
 
-    const amountMinor = asOptionalBigInt(parsedJson.amountMinor)
+    const amountMinor = resolveAmountMinor({
+      rawText,
+      amountMinor: asOptionalBigInt(parsedJson.amountMinor)
+    })
     const itemDescription = normalizeOptionalText(parsedJson.itemDescription)
     const currency = resolveMissingCurrency({
       decision: parsedJson.decision,
