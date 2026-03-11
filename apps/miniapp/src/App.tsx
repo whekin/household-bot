@@ -1923,7 +1923,7 @@ function App() {
     }))
   }
 
-  const renderPanel = () => {
+  const panel = createMemo(() => {
     switch (activeNav()) {
       case 'balances':
         return (
@@ -2342,7 +2342,7 @@ function App() {
           />
         )
     }
-  }
+  })
 
   return (
     <main class="shell">
@@ -2459,7 +2459,7 @@ function App() {
             onChange={setActiveNav}
           />
 
-          <section class="content-stack">{renderPanel()}</section>
+          <section class="content-stack">{panel()}</section>
           <Modal
             open={profileEditorOpen()}
             title={copy().displayNameLabel}
