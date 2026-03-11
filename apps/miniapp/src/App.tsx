@@ -2,6 +2,14 @@ import { Match, Switch, createMemo, createSignal, onMount } from 'solid-js'
 
 import { dictionary, type Locale } from './i18n'
 import {
+  fetchAdminSettingsQuery,
+  fetchBillingCycleQuery,
+  fetchDashboardQuery,
+  fetchPendingMembersQuery,
+  fetchSessionQuery,
+  invalidateHouseholdQueries
+} from './app/miniapp-queries'
+import {
   addMiniAppUtilityBill,
   addMiniAppPayment,
   approveMiniAppPendingMember,
@@ -9,11 +17,6 @@ import {
   deleteMiniAppPayment,
   deleteMiniAppPurchase,
   deleteMiniAppUtilityBill,
-  fetchMiniAppAdminSettings,
-  fetchMiniAppBillingCycle,
-  fetchMiniAppDashboard,
-  fetchMiniAppPendingMembers,
-  fetchMiniAppSession,
   joinMiniAppHousehold,
   openMiniAppBillingCycle,
   promoteMiniAppMember,
@@ -821,7 +824,7 @@ function App() {
 
   async function loadDashboard(initData: string) {
     try {
-      const nextDashboard = await fetchMiniAppDashboard(initData)
+      const nextDashboard = await fetchDashboardQuery(initData)
       setDashboard(nextDashboard)
       setPurchaseDraftMap(purchaseDrafts(nextDashboard.ledger))
       setPaymentDraftMap(paymentDrafts(nextDashboard.ledger))
@@ -838,7 +841,7 @@ function App() {
 
   async function loadPendingMembers(initData: string) {
     try {
-      setPendingMembers(await fetchMiniAppPendingMembers(initData))
+      setPendingMembers(await fetchPendingMembersQuery(initData))
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn('Failed to load pending mini app members', error)
@@ -850,7 +853,7 @@ function App() {
 
   async function loadAdminSettings(initData: string) {
     try {
-      const payload = await fetchMiniAppAdminSettings(initData)
+      const payload = await fetchAdminSettingsQuery(initData)
       setAdminSettings(payload)
       setMemberDisplayNameDrafts(
         Object.fromEntries(payload.members.map((member) => [member.id, member.displayName]))
@@ -909,7 +912,7 @@ function App() {
 
   async function loadCycleState(initData: string) {
     try {
-      const payload = await fetchMiniAppBillingCycle(initData)
+      const payload = await fetchBillingCycleQuery(initData)
       setCycleState(payload)
       setUtilityBillDrafts(cycleUtilityBillDrafts(payload.utilityBills))
       setCycleForm((current) => ({
@@ -938,7 +941,15 @@ function App() {
     }
   }
 
-  async function refreshHouseholdData(initData: string, includeAdmin = false) {
+  async function refreshHouseholdData(
+    initData: string,
+    includeAdmin = false,
+    forceRefresh = false
+  ) {
+    if (forceRefresh) {
+      await invalidateHouseholdQueries(initData)
+    }
+
     await loadDashboard(initData)
 
     if (includeAdmin) {
@@ -1044,7 +1055,7 @@ function App() {
     }
 
     try {
-      const payload = await fetchMiniAppSession(initData, joinContext().joinToken)
+      const payload = await fetchSessionQuery(initData, joinContext().joinToken)
       if (!payload.authorized || !payload.member || !payload.telegramUser) {
         setLocale(
           payload.onboarding?.householdDefaultLocale ??
@@ -1528,7 +1539,7 @@ function App() {
           })
         }
       })
-      await refreshHouseholdData(initData, true)
+      await refreshHouseholdData(initData, true, true)
       setEditingPurchaseId(null)
     } finally {
       setSavingPurchaseId(null)
@@ -1546,7 +1557,7 @@ function App() {
 
     try {
       await deleteMiniAppPurchase(initData, purchaseId)
-      await refreshHouseholdData(initData, true)
+      await refreshHouseholdData(initData, true, true)
       setEditingPurchaseId((current) => (current === purchaseId ? null : current))
     } finally {
       setDeletingPurchaseId(null)
@@ -1575,7 +1586,7 @@ function App() {
         ...current,
         amountMajor: ''
       }))
-      await refreshHouseholdData(initData, true)
+      await refreshHouseholdData(initData, true, true)
       setAddingPaymentOpen(false)
     } finally {
       setAddingPayment(false)
@@ -1607,7 +1618,7 @@ function App() {
         amountMajor: draft.amountMajor,
         currency: draft.currency
       })
-      await refreshHouseholdData(initData, true)
+      await refreshHouseholdData(initData, true, true)
       setEditingPaymentId(null)
     } finally {
       setSavingPaymentId(null)
@@ -1625,7 +1636,7 @@ function App() {
 
     try {
       await deleteMiniAppPayment(initData, paymentId)
-      await refreshHouseholdData(initData, true)
+      await refreshHouseholdData(initData, true, true)
       setEditingPaymentId((current) => (current === paymentId ? null : current))
     } finally {
       setDeletingPaymentId(null)
