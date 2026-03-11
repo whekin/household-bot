@@ -1,4 +1,4 @@
-import { For, Show } from 'solid-js'
+import { Show } from 'solid-js'
 
 import { cn } from '../../lib/cn'
 import { majorStringToMinor, sumMajorStrings } from '../../lib/money'
@@ -144,14 +144,6 @@ export function MemberBalanceCard(props: Props) {
             </article>
           </div>
         </section>
-      </Show>
-
-      <Show when={props.detail && props.member.explanations.length > 0}>
-        <div class="balance-spotlight__meta">
-          <For each={props.member.explanations}>
-            {(explanation) => <MiniChip muted>{explanation}</MiniChip>}
-          </For>
-        </div>
       </Show>
     </article>
   )
