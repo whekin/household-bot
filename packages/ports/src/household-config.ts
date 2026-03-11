@@ -86,6 +86,12 @@ export interface HouseholdBillingSettingsRecord {
   timezone: string
 }
 
+export interface HouseholdAssistantConfigRecord {
+  householdId: string
+  assistantContext: string | null
+  assistantTone: string | null
+}
+
 export interface HouseholdUtilityCategoryRecord {
   id: string
   householdId: string
@@ -166,6 +172,7 @@ export interface HouseholdConfigurationRepository {
   ): Promise<HouseholdMemberRecord | null>
   listHouseholdMembers(householdId: string): Promise<readonly HouseholdMemberRecord[]>
   getHouseholdBillingSettings(householdId: string): Promise<HouseholdBillingSettingsRecord>
+  getHouseholdAssistantConfig?(householdId: string): Promise<HouseholdAssistantConfigRecord>
   updateHouseholdBillingSettings(input: {
     householdId: string
     settlementCurrency?: CurrencyCode
@@ -178,6 +185,11 @@ export interface HouseholdConfigurationRepository {
     utilitiesReminderDay?: number
     timezone?: string
   }): Promise<HouseholdBillingSettingsRecord>
+  updateHouseholdAssistantConfig?(input: {
+    householdId: string
+    assistantContext?: string | null
+    assistantTone?: string | null
+  }): Promise<HouseholdAssistantConfigRecord>
   listHouseholdUtilityCategories(
     householdId: string
   ): Promise<readonly HouseholdUtilityCategoryRecord[]>

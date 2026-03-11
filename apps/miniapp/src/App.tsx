@@ -376,7 +376,9 @@ function App() {
     rentWarningDay: 17,
     utilitiesDueDay: 4,
     utilitiesReminderDay: 3,
-    timezone: 'Asia/Tbilisi'
+    timezone: 'Asia/Tbilisi',
+    assistantContext: '',
+    assistantTone: ''
   })
   const [newCategoryName, setNewCategoryName] = createSignal('')
   const [cycleForm, setCycleForm] = createSignal({
@@ -917,7 +919,9 @@ function App() {
         rentWarningDay: payload.settings.rentWarningDay,
         utilitiesDueDay: payload.settings.utilitiesDueDay,
         utilitiesReminderDay: payload.settings.utilitiesReminderDay,
-        timezone: payload.settings.timezone
+        timezone: payload.settings.timezone,
+        assistantContext: payload.assistantConfig.assistantContext ?? '',
+        assistantTone: payload.assistantConfig.assistantTone ?? ''
       })
       setPaymentForm((current) => ({
         ...current,
@@ -1033,7 +1037,9 @@ function App() {
       rentWarningDay: demoAdminSettings.settings.rentWarningDay,
       utilitiesDueDay: demoAdminSettings.settings.utilitiesDueDay,
       utilitiesReminderDay: demoAdminSettings.settings.utilitiesReminderDay,
-      timezone: demoAdminSettings.settings.timezone
+      timezone: demoAdminSettings.settings.timezone,
+      assistantContext: demoAdminSettings.assistantConfig.assistantContext ?? '',
+      assistantTone: demoAdminSettings.assistantConfig.assistantTone ?? ''
     })
     setCycleForm((current) => ({
       ...current,
@@ -1338,12 +1344,16 @@ function App() {
     setSavingBillingSettings(true)
 
     try {
-      const settings = await updateMiniAppBillingSettings(initData, billingForm())
+      const { settings, assistantConfig } = await updateMiniAppBillingSettings(
+        initData,
+        billingForm()
+      )
       setAdminSettings((current) =>
         current
           ? {
               ...current,
-              settings
+              settings,
+              assistantConfig
             }
           : current
       )
@@ -2228,6 +2238,18 @@ function App() {
               setBillingForm((current) => ({
                 ...current,
                 timezone: value
+              }))
+            }
+            onBillingAssistantContextChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                assistantContext: value
+              }))
+            }
+            onBillingAssistantToneChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                assistantTone: value
               }))
             }
             onOpenAddUtilityBill={() => setAddingUtilityBillOpen(true)}

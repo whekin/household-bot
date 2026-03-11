@@ -1,4 +1,5 @@
 import type {
+  HouseholdAssistantConfigRecord,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   HouseholdMemberAbsencePolicy,
@@ -29,6 +30,7 @@ export interface MiniAppAdminService {
     | {
         status: 'ok'
         settings: HouseholdBillingSettingsRecord
+        assistantConfig: HouseholdAssistantConfigRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
         members: readonly HouseholdMemberRecord[]
         memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
@@ -51,10 +53,13 @@ export interface MiniAppAdminService {
     utilitiesDueDay: number
     utilitiesReminderDay: number
     timezone: string
+    assistantContext?: string
+    assistantTone?: string
   }): Promise<
     | {
         status: 'ok'
         settings: HouseholdBillingSettingsRecord
+        assistantConfig: HouseholdAssistantConfigRecord
       }
     | {
         status: 'rejected'
@@ -210,6 +215,34 @@ function normalizeDisplayName(raw: string): string | null {
   return trimmed.replace(/\s+/g, ' ')
 }
 
+function defaultAssistantConfig(householdId: string): HouseholdAssistantConfigRecord {
+  return {
+    householdId,
+    assistantContext: null,
+    assistantTone: null
+  }
+}
+
+function normalizeAssistantText(
+  raw: string | undefined,
+  maxLength: number
+): string | null | undefined {
+  if (raw === undefined) {
+    return undefined
+  }
+
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) {
+    return null
+  }
+
+  if (trimmed.length > maxLength) {
+    return null
+  }
+
+  return trimmed
+}
+
 export function createMiniAppAdminService(
   repository: HouseholdConfigurationRepository
 ): MiniAppAdminService {
@@ -222,17 +255,22 @@ export function createMiniAppAdminService(
         }
       }
 
-      const [settings, categories, members, memberAbsencePolicies, topics] = await Promise.all([
-        repository.getHouseholdBillingSettings(input.householdId),
-        repository.listHouseholdUtilityCategories(input.householdId),
-        repository.listHouseholdMembers(input.householdId),
-        repository.listHouseholdMemberAbsencePolicies(input.householdId),
-        repository.listHouseholdTopicBindings(input.householdId)
-      ])
+      const [settings, assistantConfig, categories, members, memberAbsencePolicies, topics] =
+        await Promise.all([
+          repository.getHouseholdBillingSettings(input.householdId),
+          repository.getHouseholdAssistantConfig
+            ? repository.getHouseholdAssistantConfig(input.householdId)
+            : Promise.resolve(defaultAssistantConfig(input.householdId)),
+          repository.listHouseholdUtilityCategories(input.householdId),
+          repository.listHouseholdMembers(input.householdId),
+          repository.listHouseholdMemberAbsencePolicies(input.householdId),
+          repository.listHouseholdTopicBindings(input.householdId)
+        ])
 
       return {
         status: 'ok',
         settings,
+        assistantConfig,
         categories,
         members,
         memberAbsencePolicies,
@@ -256,6 +294,23 @@ export function createMiniAppAdminService(
         input.timezone.trim().length === 0 ||
         input.rentWarningDay > input.rentDueDay ||
         input.utilitiesReminderDay > input.utilitiesDueDay
+      ) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_settings'
+        }
+      }
+
+      const assistantContext = normalizeAssistantText(input.assistantContext, 1200)
+      const assistantTone = normalizeAssistantText(input.assistantTone, 160)
+
+      if (
+        (input.assistantContext !== undefined &&
+          assistantContext === null &&
+          input.assistantContext.trim().length > 0) ||
+        (input.assistantTone !== undefined &&
+          assistantTone === null &&
+          input.assistantTone.trim().length > 0)
       ) {
         return {
           status: 'rejected',
@@ -291,38 +346,65 @@ export function createMiniAppAdminService(
         rentCurrency = parseCurrency(input.rentCurrency ?? 'USD')
       }
 
-      const settings = await repository.updateHouseholdBillingSettings({
-        householdId: input.householdId,
-        ...(settlementCurrency
-          ? {
-              settlementCurrency
-            }
-          : {}),
-        ...(paymentBalanceAdjustmentPolicy
-          ? {
-              paymentBalanceAdjustmentPolicy
-            }
-          : {}),
-        ...(rentAmountMinor !== undefined
-          ? {
-              rentAmountMinor
-            }
-          : {}),
-        ...(rentCurrency
-          ? {
-              rentCurrency
-            }
-          : {}),
-        rentDueDay: input.rentDueDay,
-        rentWarningDay: input.rentWarningDay,
-        utilitiesDueDay: input.utilitiesDueDay,
-        utilitiesReminderDay: input.utilitiesReminderDay,
-        timezone: input.timezone.trim()
-      })
+      const shouldUpdateAssistantConfig =
+        assistantContext !== undefined || assistantTone !== undefined
+
+      const [settings, nextAssistantConfig] = await Promise.all([
+        repository.updateHouseholdBillingSettings({
+          householdId: input.householdId,
+          ...(settlementCurrency
+            ? {
+                settlementCurrency
+              }
+            : {}),
+          ...(paymentBalanceAdjustmentPolicy
+            ? {
+                paymentBalanceAdjustmentPolicy
+              }
+            : {}),
+          ...(rentAmountMinor !== undefined
+            ? {
+                rentAmountMinor
+              }
+            : {}),
+          ...(rentCurrency
+            ? {
+                rentCurrency
+              }
+            : {}),
+          rentDueDay: input.rentDueDay,
+          rentWarningDay: input.rentWarningDay,
+          utilitiesDueDay: input.utilitiesDueDay,
+          utilitiesReminderDay: input.utilitiesReminderDay,
+          timezone: input.timezone.trim()
+        }),
+        repository.updateHouseholdAssistantConfig && shouldUpdateAssistantConfig
+          ? repository.updateHouseholdAssistantConfig({
+              householdId: input.householdId,
+              ...(assistantContext !== undefined
+                ? {
+                    assistantContext
+                  }
+                : {}),
+              ...(assistantTone !== undefined
+                ? {
+                    assistantTone
+                  }
+                : {})
+            })
+          : repository.getHouseholdAssistantConfig
+            ? repository.getHouseholdAssistantConfig(input.householdId)
+            : Promise.resolve({
+                householdId: input.householdId,
+                assistantContext: assistantContext ?? null,
+                assistantTone: assistantTone ?? null
+              })
+      ])
 
       return {
         status: 'ok',
-        settings
+        settings,
+        assistantConfig: nextAssistantConfig
       }
     },
 

@@ -12,6 +12,7 @@ import {
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES,
   HOUSEHOLD_TOPIC_ROLES,
+  type HouseholdAssistantConfigRecord,
   type HouseholdMemberAbsencePolicy,
   type HouseholdMemberAbsencePolicyRecord,
   type HouseholdBillingSettingsRecord,
@@ -242,6 +243,18 @@ function toHouseholdBillingSettingsRecord(row: {
     utilitiesDueDay: row.utilitiesDueDay,
     utilitiesReminderDay: row.utilitiesReminderDay,
     timezone: row.timezone
+  }
+}
+
+function toHouseholdAssistantConfigRecord(row: {
+  householdId: string
+  assistantContext: string | null
+  assistantTone: string | null
+}): HouseholdAssistantConfigRecord {
+  return {
+    householdId: row.householdId,
+    assistantContext: row.assistantContext,
+    assistantTone: row.assistantTone
   }
 }
 
@@ -957,6 +970,25 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       return toHouseholdBillingSettingsRecord(row)
     },
 
+    async getHouseholdAssistantConfig(householdId) {
+      const rows = await db
+        .select({
+          householdId: schema.households.id,
+          assistantContext: schema.households.assistantContext,
+          assistantTone: schema.households.assistantTone
+        })
+        .from(schema.households)
+        .where(eq(schema.households.id, householdId))
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to load household assistant config')
+      }
+
+      return toHouseholdAssistantConfigRecord(row)
+    },
+
     async updateHouseholdBillingSettings(input) {
       await ensureBillingSettings(input.householdId)
 
@@ -1031,6 +1063,36 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       }
 
       return toHouseholdBillingSettingsRecord(row)
+    },
+
+    async updateHouseholdAssistantConfig(input) {
+      const rows = await db
+        .update(schema.households)
+        .set({
+          ...(input.assistantContext !== undefined
+            ? {
+                assistantContext: input.assistantContext
+              }
+            : {}),
+          ...(input.assistantTone !== undefined
+            ? {
+                assistantTone: input.assistantTone
+              }
+            : {})
+        })
+        .where(eq(schema.households.id, input.householdId))
+        .returning({
+          householdId: schema.households.id,
+          assistantContext: schema.households.assistantContext,
+          assistantTone: schema.households.assistantTone
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to update household assistant config')
+      }
+
+      return toHouseholdAssistantConfigRecord(row)
     },
 
     async listHouseholdUtilityCategories(householdId) {

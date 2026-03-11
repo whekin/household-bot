@@ -21,6 +21,8 @@ export type PurchaseMessageInterpreter = (
   options: {
     defaultCurrency: 'GEL' | 'USD'
     clarificationContext?: PurchaseClarificationContext
+    householdContext?: string | null
+    assistantTone?: string | null
   }
 ) => Promise<PurchaseInterpretation | null>
 
@@ -186,9 +188,18 @@ export function createOpenAiPurchaseInterpreter(
               'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
               'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',
               'Use clarification when the amount, currency, item, or overall intent is missing or uncertain.',
-              'Return a clarification question in the same language as the user message when clarification is needed.',
+              'Return a short, natural clarification question in the same language as the user message when clarification is needed.',
+              'The clarification should sound like a conversational household bot, not a form validator.',
+              options.assistantTone
+                ? `Use this tone lightly when asking clarification questions: ${options.assistantTone}.`
+                : null,
+              options.householdContext
+                ? `Household flavor context: ${options.householdContext}`
+                : null,
               'Return only JSON that matches the schema.'
-            ].join(' ')
+            ]
+              .filter(Boolean)
+              .join(' ')
           },
           {
             role: 'user',

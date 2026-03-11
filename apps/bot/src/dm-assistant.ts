@@ -123,6 +123,15 @@ function isCommandMessage(ctx: Context): boolean {
   return typeof ctx.msg?.text === 'string' && ctx.msg.text.trim().startsWith('/')
 }
 
+function isReplyToBotMessage(ctx: Context): boolean {
+  const replyAuthor = ctx.msg?.reply_to_message?.from
+  if (!replyAuthor) {
+    return false
+  }
+
+  return replyAuthor.id === ctx.me.id
+}
+
 function summarizeTurns(
   summary: string | null,
   turns: readonly AssistantConversationTurn[]
@@ -403,6 +412,44 @@ function createDmPurchaseRecord(ctx: Context, householdId: string): PurchaseTopi
   }
 }
 
+function createGroupPurchaseRecord(
+  ctx: Context,
+  householdId: string,
+  rawText: string
+): PurchaseTopicRecord | null {
+  if (!isGroupChat(ctx) || !ctx.msg || !ctx.from) {
+    return null
+  }
+
+  const normalized = rawText.trim()
+  if (normalized.length === 0) {
+    return null
+  }
+
+  const senderDisplayName = [ctx.from.first_name, ctx.from.last_name]
+    .filter((part) => !!part && part.trim().length > 0)
+    .join(' ')
+
+  return {
+    updateId: ctx.update.update_id,
+    householdId,
+    chatId: ctx.chat!.id.toString(),
+    messageId: ctx.msg.message_id.toString(),
+    threadId:
+      'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
+        ? ctx.msg.message_thread_id.toString()
+        : ctx.chat!.id.toString(),
+    senderTelegramUserId: ctx.from.id.toString(),
+    rawText: normalized,
+    messageSentAt: instantFromEpochSeconds(ctx.msg.date),
+    ...(senderDisplayName.length > 0
+      ? {
+          senderDisplayName
+        }
+      : {})
+  }
+}
+
 function looksLikePurchaseIntent(rawText: string): boolean {
   const normalized = rawText.trim()
   if (normalized.length === 0) {
@@ -414,6 +461,19 @@ function looksLikePurchaseIntent(rawText: string): boolean {
   }
 
   return PURCHASE_MONEY_PATTERN.test(normalized) && /\p{L}/u.test(normalized)
+}
+
+async function resolveAssistantConfig(
+  householdConfigurationRepository: HouseholdConfigurationRepository,
+  householdId: string
+) {
+  return householdConfigurationRepository.getHouseholdAssistantConfig
+    ? await householdConfigurationRepository.getHouseholdAssistantConfig(householdId)
+    : {
+        householdId,
+        assistantContext: null,
+        assistantTone: null
+      }
 }
 
 function formatAssistantLedger(
@@ -440,9 +500,10 @@ async function buildHouseholdContext(input: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   financeService: FinanceCommandService
 }): Promise<string> {
-  const [household, settings, dashboard, members] = await Promise.all([
+  const [household, settings, assistantConfig, dashboard, members] = await Promise.all([
     input.householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
     input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
+    resolveAssistantConfig(input.householdConfigurationRepository, input.householdId),
     input.financeService.generateDashboard(),
     input.householdConfigurationRepository.listHouseholdMembers(input.householdId)
   ])
@@ -455,6 +516,14 @@ async function buildHouseholdContext(input: {
     `Timezone: ${settings.timezone}`,
     `Current billing cycle: ${dashboard?.period ?? 'not available'}`
   ]
+
+  if (assistantConfig.assistantTone) {
+    lines.push(`Preferred assistant tone: ${assistantConfig.assistantTone}`)
+  }
+
+  if (assistantConfig.assistantContext) {
+    lines.push(`Household narrative context: ${assistantConfig.assistantContext}`)
+  }
 
   if (!dashboard) {
     lines.push('No current dashboard data is available yet.')
@@ -988,14 +1057,20 @@ export function registerDmAssistant(options: {
         const typingIndicator = startTypingIndicator(ctx)
 
         try {
-          const settings =
-            await options.householdConfigurationRepository.getHouseholdBillingSettings(
+          const [settings, assistantConfig] = await Promise.all([
+            options.householdConfigurationRepository.getHouseholdBillingSettings(
               member.householdId
-            )
+            ),
+            resolveAssistantConfig(options.householdConfigurationRepository, member.householdId)
+          ])
           const purchaseResult = await options.purchaseRepository.save(
             purchaseRecord,
             options.purchaseInterpreter,
-            settings.settlementCurrency
+            settings.settlementCurrency,
+            {
+              householdContext: assistantConfig.assistantContext,
+              assistantTone: assistantConfig.assistantTone
+            }
           )
 
           if (purchaseResult.status !== 'ignored_not_purchase') {
@@ -1174,10 +1249,9 @@ export function registerDmAssistant(options: {
     }
 
     const mention = stripExplicitBotMention(ctx)
-    if (!mention || mention.strippedText.length === 0) {
-      await next()
-      return
-    }
+    const isAddressed = Boolean(
+      (mention && mention.strippedText.length > 0) || isReplyToBotMessage(ctx)
+    )
 
     const telegramUserId = ctx.from?.id?.toString()
     const telegramChatId = ctx.chat?.id?.toString()
@@ -1193,6 +1267,26 @@ export function registerDmAssistant(options: {
       return
     }
 
+    if (
+      !isAddressed &&
+      ctx.msg &&
+      'is_topic_message' in ctx.msg &&
+      ctx.msg.is_topic_message === true &&
+      'message_thread_id' in ctx.msg &&
+      ctx.msg.message_thread_id !== undefined
+    ) {
+      const binding =
+        await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+          telegramChatId,
+          telegramThreadId: ctx.msg.message_thread_id.toString()
+        })
+
+      if (binding) {
+        await next()
+        return
+      }
+    }
+
     const member = await options.householdConfigurationRepository.getHouseholdMember(
       household.householdId,
       telegramUserId
@@ -1203,13 +1297,6 @@ export function registerDmAssistant(options: {
     }
 
     const locale = member.preferredLocale ?? household.defaultLocale ?? 'en'
-    const rateLimit = options.rateLimiter.consume(`${household.householdId}:${telegramUserId}`)
-    const t = getBotTranslations(locale).assistant
-
-    if (!rateLimit.allowed) {
-      await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
-      return
-    }
 
     const updateId = ctx.update.update_id?.toString()
     const dedupeClaim =
@@ -1243,13 +1330,73 @@ export function registerDmAssistant(options: {
 
     try {
       const financeService = options.financeServiceForHousehold(household.householdId)
+      const [settings, assistantConfig] = await Promise.all([
+        options.householdConfigurationRepository.getHouseholdBillingSettings(household.householdId),
+        resolveAssistantConfig(options.householdConfigurationRepository, household.householdId)
+      ])
       const memoryKey = conversationMemoryKey({
         telegramUserId,
         telegramChatId,
         isPrivateChat: false
       })
+      const messageText = mention?.strippedText ?? ctx.msg.text.trim()
+
+      if (options.purchaseRepository && options.purchaseInterpreter) {
+        const purchaseRecord = createGroupPurchaseRecord(ctx, household.householdId, messageText)
+
+        if (purchaseRecord) {
+          const purchaseResult = await options.purchaseRepository.save(
+            purchaseRecord,
+            options.purchaseInterpreter,
+            settings.settlementCurrency,
+            {
+              householdContext: assistantConfig.assistantContext,
+              assistantTone: assistantConfig.assistantTone
+            }
+          )
+
+          if (purchaseResult.status === 'pending_confirmation') {
+            const purchaseText = getBotTranslations(locale).purchase.proposal(
+              formatPurchaseSummary(locale, purchaseResult),
+              null
+            )
+
+            await ctx.reply(purchaseText, {
+              reply_markup: purchaseProposalReplyMarkup(locale, purchaseResult.purchaseMessageId)
+            })
+            return
+          }
+
+          if (purchaseResult.status === 'clarification_needed') {
+            await ctx.reply(buildPurchaseClarificationText(locale, purchaseResult))
+            return
+          }
+
+          if (!isAddressed) {
+            await next()
+            return
+          }
+        }
+      } else if (!isAddressed) {
+        await next()
+        return
+      }
+
+      if (!isAddressed || messageText.length === 0) {
+        await next()
+        return
+      }
+
+      const rateLimit = options.rateLimiter.consume(`${household.householdId}:${telegramUserId}`)
+      const t = getBotTranslations(locale).assistant
+
+      if (!rateLimit.allowed) {
+        await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
+        return
+      }
+
       const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
-        rawText: mention.strippedText,
+        rawText: messageText,
         householdId: household.householdId,
         memberId: member.id,
         financeService,
@@ -1262,7 +1409,7 @@ export function registerDmAssistant(options: {
       }
 
       const memberInsightReply = await maybeCreateMemberInsightReply({
-        rawText: mention.strippedText,
+        rawText: messageText,
         locale,
         householdId: household.householdId,
         currentMemberId: member.id,
@@ -1274,7 +1421,7 @@ export function registerDmAssistant(options: {
       if (memberInsightReply) {
         options.memoryStore.appendTurn(memoryKey, {
           role: 'user',
-          text: mention.strippedText
+          text: messageText
         })
         options.memoryStore.appendTurn(memoryKey, {
           role: 'assistant',
@@ -1294,7 +1441,7 @@ export function registerDmAssistant(options: {
         telegramUserId,
         telegramChatId,
         locale,
-        userMessage: mention.strippedText,
+        userMessage: messageText,
         householdConfigurationRepository: options.householdConfigurationRepository,
         financeService,
         memoryStore: options.memoryStore,

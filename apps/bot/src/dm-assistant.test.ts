@@ -59,7 +59,12 @@ function privateMessageUpdate(text: string) {
   }
 }
 
-function topicMentionUpdate(text: string) {
+function topicMessageUpdate(
+  text: string,
+  options?: {
+    replyToBot?: boolean
+  }
+) {
   return {
     update_id: 3001,
     message: {
@@ -77,9 +82,32 @@ function topicMentionUpdate(text: string) {
         first_name: 'Stan',
         language_code: 'en'
       },
-      text
+      text,
+      ...(options?.replyToBot
+        ? {
+            reply_to_message: {
+              message_id: 87,
+              date: Math.floor(Date.now() / 1000),
+              chat: {
+                id: -100123,
+                type: 'supergroup'
+              },
+              from: {
+                id: 999000,
+                is_bot: true,
+                first_name: 'Household Test Bot',
+                username: 'household_test_bot'
+              },
+              text: 'previous bot reply'
+            }
+          }
+        : {})
     }
   }
+}
+
+function topicMentionUpdate(text: string) {
+  return topicMessageUpdate(text)
 }
 
 function privateCallbackUpdate(data: string) {
@@ -1208,6 +1236,241 @@ Confirm or cancel below.`,
         chat_id: -100123,
         message_thread_id: 777,
         text: 'Still standing.'
+      }
+    })
+  })
+
+  test('stays silent for regular group chatter when the bot is not addressed', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'I should not speak here.',
+            usage: {
+              inputTokens: 12,
+              outputTokens: 5,
+              totalTokens: 17
+            }
+          }
+        }
+      },
+      purchaseRepository: createPurchaseRepository(),
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMessageUpdate('Dima is joking with Stas again') as never)
+
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('creates a purchase proposal in a household topic without an explicit mention', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          return {
+            text: 'fallback',
+            usage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12
+            }
+          }
+        }
+      },
+      purchaseRepository: createPurchaseRepository(),
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMessageUpdate('I bought a door handle for 30 lari') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123,
+        message_thread_id: 777,
+        text: expect.stringContaining('door handle - 30.00 GEL'),
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Confirm',
+                callback_data: 'assistant_purchase:confirm:purchase-1'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'assistant_purchase:cancel:purchase-1'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
+  test('replies when a household member answers the bot message in a topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond(input) {
+          assistantCalls += 1
+          expect(input.userMessage).toBe('tell me a joke')
+          return {
+            text: 'Rent is still due on the 20th.',
+            usage: {
+              inputTokens: 17,
+              outputTokens: 8,
+              totalTokens: 25
+            }
+          }
+        }
+      },
+      purchaseRepository: createPurchaseRepository(),
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(
+      topicMessageUpdate('tell me a joke', {
+        replyToBot: true
+      }) as never
+    )
+
+    expect(assistantCalls).toBe(1)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: -100123,
+        action: 'typing',
+        message_thread_id: 777
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123,
+        message_thread_id: 777,
+        text: 'Rent is still due on the 20th.'
       }
     })
   })

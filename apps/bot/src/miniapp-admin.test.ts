@@ -185,6 +185,16 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
       timezone: input.timezone ?? 'Asia/Tbilisi'
     }),
+    getHouseholdAssistantConfig: async (householdId) => ({
+      householdId,
+      assistantContext: 'House in Kojori',
+      assistantTone: 'Playful'
+    }),
+    updateHouseholdAssistantConfig: async (input) => ({
+      householdId: input.householdId,
+      assistantContext: input.assistantContext ?? 'House in Kojori',
+      assistantTone: input.assistantTone ?? 'Playful'
+    }),
     listHouseholdUtilityCategories: async () => [],
     upsertHouseholdUtilityCategory: async (input) => ({
       id: input.slug ?? 'utility-category-1',
@@ -471,6 +481,11 @@ describe('createMiniAppSettingsHandler', () => {
         timezone: 'Asia/Tbilisi',
         paymentBalanceAdjustmentPolicy: 'utilities'
       },
+      assistantConfig: {
+        householdId: 'household-1',
+        assistantContext: 'House in Kojori',
+        assistantTone: 'Playful'
+      },
       topics: [
         {
           householdId: 'household-1',
@@ -566,6 +581,11 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         utilitiesReminderDay: 5,
         timezone: 'Asia/Tbilisi',
         paymentBalanceAdjustmentPolicy: 'utilities'
+      },
+      assistantConfig: {
+        householdId: 'household-1',
+        assistantContext: 'House in Kojori',
+        assistantTone: 'Playful'
       }
     })
   })

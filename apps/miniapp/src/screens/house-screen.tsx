@@ -37,6 +37,8 @@ type BillingForm = {
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  assistantContext: string
+  assistantTone: string
 }
 
 type CycleForm = {
@@ -121,6 +123,8 @@ type Props = {
   onBillingUtilitiesDueDayChange: (value: number | null) => void
   onBillingUtilitiesReminderDayChange: (value: number | null) => void
   onBillingTimezoneChange: (value: string) => void
+  onBillingAssistantContextChange: (value: string) => void
+  onBillingAssistantToneChange: (value: string) => void
   onOpenAddUtilityBill: () => void
   onCloseAddUtilityBill: () => void
   onAddUtilityBill: () => Promise<void>
@@ -260,23 +264,22 @@ export function HouseScreen(props: Props) {
 
               <article class="balance-item">
                 <header>
-                  <strong>{props.copy.billingSettingsTitle ?? ''}</strong>
-                  <span>{props.billingForm.settlementCurrency}</span>
+                  <strong>{props.copy.assistantSettingsTitle ?? ''}</strong>
+                  <span>
+                    {props.billingForm.assistantTone || (props.copy.assistantToneDefault ?? '')}
+                  </span>
                 </header>
-                <p>
-                  {props.billingForm.paymentBalanceAdjustmentPolicy === 'utilities'
-                    ? props.copy.paymentBalanceAdjustmentUtilities
-                    : props.billingForm.paymentBalanceAdjustmentPolicy === 'rent'
-                      ? props.copy.paymentBalanceAdjustmentRent
-                      : props.copy.paymentBalanceAdjustmentSeparate}
-                </p>
+                <p>{props.copy.assistantSettingsBody ?? ''}</p>
                 <div class="ledger-compact-card__meta">
                   <span class="mini-chip">
-                    {props.copy.rentAmount ?? ''}: {props.billingForm.rentAmountMajor || '—'}{' '}
-                    {props.billingForm.rentCurrency}
+                    {props.copy.assistantToneLabel ?? ''}:{' '}
+                    {props.billingForm.assistantTone || props.copy.assistantToneDefault || '—'}
                   </span>
                   <span class="mini-chip mini-chip--muted">
-                    {props.copy.timezone ?? ''}: {props.billingForm.timezone}
+                    {props.copy.assistantContextLabel ?? ''}:{' '}
+                    {props.billingForm.assistantContext.trim().length > 0
+                      ? props.billingForm.assistantContext.trim().slice(0, 80)
+                      : (props.copy.assistantContextEmpty ?? '')}
                   </span>
                 </div>
                 <div class="panel-toolbar">
@@ -512,6 +515,27 @@ export function HouseScreen(props: Props) {
                   <input
                     value={props.billingForm.timezone}
                     onInput={(event) => props.onBillingTimezoneChange(event.currentTarget.value)}
+                  />
+                </Field>
+                <Field label={props.copy.assistantToneLabel ?? ''} wide>
+                  <input
+                    value={props.billingForm.assistantTone}
+                    maxlength="160"
+                    placeholder={props.copy.assistantTonePlaceholder ?? ''}
+                    onInput={(event) =>
+                      props.onBillingAssistantToneChange(event.currentTarget.value)
+                    }
+                  />
+                </Field>
+                <Field label={props.copy.assistantContextLabel ?? ''} wide>
+                  <textarea
+                    rows="6"
+                    maxlength="1200"
+                    placeholder={props.copy.assistantContextPlaceholder ?? ''}
+                    value={props.billingForm.assistantContext}
+                    onInput={(event) =>
+                      props.onBillingAssistantContextChange(event.currentTarget.value)
+                    }
                   />
                 </Field>
               </div>

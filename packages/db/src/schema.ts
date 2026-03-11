@@ -16,6 +16,8 @@ export const households = pgTable('households', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
   defaultLocale: text('default_locale').default('ru').notNull(),
+  assistantContext: text('assistant_context'),
+  assistantTone: text('assistant_tone'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 })
 

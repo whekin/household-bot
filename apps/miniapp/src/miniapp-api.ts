@@ -70,6 +70,12 @@ export interface MiniAppBillingSettings {
   timezone: string
 }
 
+export interface MiniAppAssistantConfig {
+  householdId: string
+  assistantContext: string | null
+  assistantTone: string | null
+}
+
 export interface MiniAppUtilityCategory {
   id: string
   householdId: string
@@ -133,6 +139,7 @@ export interface MiniAppDashboard {
 
 export interface MiniAppAdminSettingsPayload {
   settings: MiniAppBillingSettings
+  assistantConfig: MiniAppAssistantConfig
   topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
   members: readonly MiniAppMember[]
@@ -380,6 +387,7 @@ export async function fetchMiniAppAdminSettings(
     ok: boolean
     authorized?: boolean
     settings?: MiniAppBillingSettings
+    assistantConfig?: MiniAppAssistantConfig
     topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
     members?: MiniAppMember[]
@@ -391,6 +399,7 @@ export async function fetchMiniAppAdminSettings(
     !response.ok ||
     !payload.authorized ||
     !payload.settings ||
+    !payload.assistantConfig ||
     !payload.topics ||
     !payload.categories ||
     !payload.members ||
@@ -401,6 +410,7 @@ export async function fetchMiniAppAdminSettings(
 
   return {
     settings: payload.settings,
+    assistantConfig: payload.assistantConfig,
     topics: payload.topics,
     categories: payload.categories,
     members: payload.members,
@@ -420,8 +430,13 @@ export async function updateMiniAppBillingSettings(
     utilitiesDueDay: number
     utilitiesReminderDay: number
     timezone: string
+    assistantContext?: string
+    assistantTone?: string
   }
-): Promise<MiniAppBillingSettings> {
+): Promise<{
+  settings: MiniAppBillingSettings
+  assistantConfig: MiniAppAssistantConfig
+}> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/settings/update`, {
     method: 'POST',
     headers: {
@@ -437,14 +452,18 @@ export async function updateMiniAppBillingSettings(
     ok: boolean
     authorized?: boolean
     settings?: MiniAppBillingSettings
+    assistantConfig?: MiniAppAssistantConfig
     error?: string
   }
 
-  if (!response.ok || !payload.authorized || !payload.settings) {
+  if (!response.ok || !payload.authorized || !payload.settings || !payload.assistantConfig) {
     throw new Error(payload.error ?? 'Failed to update billing settings')
   }
 
-  return payload.settings
+  return {
+    settings: payload.settings,
+    assistantConfig: payload.assistantConfig
+  }
 }
 
 export async function upsertMiniAppUtilityCategory(

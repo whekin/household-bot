@@ -58,6 +58,8 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  assistantContext?: string
+  assistantTone?: string
 }> {
   const clonedRequest = request.clone()
   const payload = await readMiniAppRequestPayload(request)
@@ -76,6 +78,8 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     utilitiesDueDay?: number
     utilitiesReminderDay?: number
     timezone?: string
+    assistantContext?: string
+    assistantTone?: string
   }
   try {
     parsed = JSON.parse(text)
@@ -113,6 +117,16 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     ...(typeof parsed.rentCurrency === 'string'
       ? {
           rentCurrency: parsed.rentCurrency
+        }
+      : {}),
+    ...(typeof parsed.assistantContext === 'string'
+      ? {
+          assistantContext: parsed.assistantContext
+        }
+      : {}),
+    ...(typeof parsed.assistantTone === 'string'
+      ? {
+          assistantTone: parsed.assistantTone
         }
       : {}),
     rentDueDay: parsed.rentDueDay,
@@ -352,6 +366,18 @@ function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
   }
 }
 
+function serializeAssistantConfig(config: {
+  householdId: string
+  assistantContext: string | null
+  assistantTone: string | null
+}) {
+  return {
+    householdId: config.householdId,
+    assistantContext: config.assistantContext,
+    assistantTone: config.assistantTone
+  }
+}
+
 async function authenticateAdminSession(
   request: Request,
   sessionService: ReturnType<typeof createMiniAppSessionService>,
@@ -520,6 +546,7 @@ export function createMiniAppSettingsHandler(options: {
             ok: true,
             authorized: true,
             settings: serializeBillingSettings(result.settings),
+            assistantConfig: serializeAssistantConfig(result.assistantConfig),
             topics: result.topics,
             categories: result.categories,
             members: result.members,
@@ -617,7 +644,17 @@ export function createMiniAppUpdateSettingsHandler(options: {
           rentWarningDay: payload.rentWarningDay,
           utilitiesDueDay: payload.utilitiesDueDay,
           utilitiesReminderDay: payload.utilitiesReminderDay,
-          timezone: payload.timezone
+          timezone: payload.timezone,
+          ...(payload.assistantContext !== undefined
+            ? {
+                assistantContext: payload.assistantContext
+              }
+            : {}),
+          ...(payload.assistantTone !== undefined
+            ? {
+                assistantTone: payload.assistantTone
+              }
+            : {})
         })
 
         if (result.status === 'rejected') {
@@ -638,7 +675,8 @@ export function createMiniAppUpdateSettingsHandler(options: {
           {
             ok: true,
             authorized: true,
-            settings: serializeBillingSettings(result.settings)
+            settings: serializeBillingSettings(result.settings),
+            assistantConfig: serializeAssistantConfig(result.assistantConfig)
           },
           200,
           origin

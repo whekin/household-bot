@@ -172,6 +172,16 @@ function repository(): HouseholdConfigurationRepository {
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
       timezone: input.timezone ?? 'Asia/Tbilisi'
     }),
+    getHouseholdAssistantConfig: async (householdId) => ({
+      householdId,
+      assistantContext: 'House in Kojori',
+      assistantTone: 'Playful'
+    }),
+    updateHouseholdAssistantConfig: async (input) => ({
+      householdId: input.householdId,
+      assistantContext: input.assistantContext ?? 'House in Kojori',
+      assistantTone: input.assistantTone ?? 'Playful'
+    }),
     listHouseholdUtilityCategories: async () => [],
     upsertHouseholdUtilityCategory: async (input) => ({
       id: input.slug ?? 'utility-category-1',
@@ -269,6 +279,11 @@ describe('createMiniAppAdminService', () => {
         utilitiesReminderDay: 3,
         timezone: 'Asia/Tbilisi'
       },
+      assistantConfig: {
+        householdId: 'household-1',
+        assistantContext: 'House in Kojori',
+        assistantTone: 'Playful'
+      },
       topics: [
         {
           householdId: 'household-1',
@@ -322,6 +337,11 @@ describe('createMiniAppAdminService', () => {
         utilitiesDueDay: 5,
         utilitiesReminderDay: 4,
         timezone: 'Asia/Tbilisi'
+      },
+      assistantConfig: {
+        householdId: 'household-1',
+        assistantContext: 'House in Kojori',
+        assistantTone: 'Playful'
       }
     })
   })

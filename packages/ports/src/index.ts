@@ -19,6 +19,7 @@ export {
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdMemberAbsencePolicy,
   type HouseholdMemberAbsencePolicyRecord,
+  type HouseholdAssistantConfigRecord,
   type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdConfigurationRepository,
   type HouseholdBillingSettingsRecord,

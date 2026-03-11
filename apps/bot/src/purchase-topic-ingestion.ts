@@ -157,7 +157,11 @@ export interface PurchaseMessageIngestionRepository {
   save(
     record: PurchaseTopicRecord,
     interpreter?: PurchaseMessageInterpreter,
-    defaultCurrency?: 'GEL' | 'USD'
+    defaultCurrency?: 'GEL' | 'USD',
+    options?: {
+      householdContext?: string | null
+      assistantTone?: string | null
+    }
   ): Promise<PurchaseMessageIngestionResult>
   confirm(
     purchaseMessageId: string,
@@ -820,7 +824,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       return Boolean(clarificationContext && clarificationContext.length > 0)
     },
 
-    async save(record, interpreter, defaultCurrency) {
+    async save(record, interpreter, defaultCurrency, options) {
       const matchedMember = await db
         .select({ id: schema.members.id })
         .from(schema.members)
@@ -839,6 +843,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       const interpretation = interpreter
         ? await interpreter(record.rawText, {
             defaultCurrency: defaultCurrency ?? 'GEL',
+            householdContext: options?.householdContext ?? null,
+            assistantTone: options?.assistantTone ?? null,
             ...(clarificationContext
               ? {
                   clarificationContext: {
@@ -1190,6 +1196,23 @@ async function resolveHouseholdLocale(
   return householdChat?.defaultLocale ?? 'en'
 }
 
+async function resolveAssistantConfig(
+  householdConfigurationRepository: HouseholdConfigurationRepository,
+  householdId: string
+): Promise<{
+  householdId: string
+  assistantContext: string | null
+  assistantTone: string | null
+}> {
+  return householdConfigurationRepository.getHouseholdAssistantConfig
+    ? await householdConfigurationRepository.getHouseholdAssistantConfig(householdId)
+    : {
+        householdId,
+        assistantContext: null,
+        assistantTone: null
+      }
+}
+
 async function handlePurchaseMessageResult(
   ctx: Context,
   record: PurchaseTopicRecord,
@@ -1529,9 +1552,10 @@ export function registerConfiguredPurchaseTopicIngestion(
     const typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
 
     try {
-      const billingSettings = await householdConfigurationRepository.getHouseholdBillingSettings(
-        record.householdId
-      )
+      const [billingSettings, assistantConfig] = await Promise.all([
+        householdConfigurationRepository.getHouseholdBillingSettings(record.householdId),
+        resolveAssistantConfig(householdConfigurationRepository, record.householdId)
+      ])
       const locale = await resolveHouseholdLocale(
         householdConfigurationRepository,
         record.householdId
@@ -1542,7 +1566,11 @@ export function registerConfiguredPurchaseTopicIngestion(
       const result = await repository.save(
         record,
         options.interpreter,
-        billingSettings.settlementCurrency
+        billingSettings.settlementCurrency,
+        {
+          householdContext: assistantConfig.assistantContext,
+          assistantTone: assistantConfig.assistantTone
+        }
       )
       if (stripExplicitBotMention(ctx) && result.status === 'ignored_not_purchase') {
         return await next()

@@ -37,7 +37,14 @@ describe('createBotWebhookServer', () => {
     miniAppSettings: {
       handler: async () =>
         new Response(
-          JSON.stringify({ ok: true, authorized: true, settings: {}, categories: [], members: [] }),
+          JSON.stringify({
+            ok: true,
+            authorized: true,
+            settings: {},
+            assistantConfig: {},
+            categories: [],
+            members: []
+          }),
           {
             status: 200,
             headers: {
@@ -48,12 +55,15 @@ describe('createBotWebhookServer', () => {
     },
     miniAppUpdateSettings: {
       handler: async () =>
-        new Response(JSON.stringify({ ok: true, authorized: true, settings: {} }), {
-          status: 200,
-          headers: {
-            'content-type': 'application/json; charset=utf-8'
+        new Response(
+          JSON.stringify({ ok: true, authorized: true, settings: {}, assistantConfig: {} }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json; charset=utf-8'
+            }
           }
-        })
+        )
     },
     miniAppUpsertUtilityCategory: {
       handler: async () =>
@@ -305,6 +315,7 @@ describe('createBotWebhookServer', () => {
       ok: true,
       authorized: true,
       settings: {},
+      assistantConfig: {},
       categories: [],
       members: []
     })
@@ -322,7 +333,8 @@ describe('createBotWebhookServer', () => {
     expect(await response.json()).toEqual({
       ok: true,
       authorized: true,
-      settings: {}
+      settings: {},
+      assistantConfig: {}
     })
   })
 

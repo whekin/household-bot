@@ -203,6 +203,11 @@ export const demoAdminSettings: MiniAppAdminSettingsPayload = {
     utilitiesReminderDay: 3,
     timezone: 'Asia/Tbilisi'
   },
+  assistantConfig: {
+    householdId: 'demo-household',
+    assistantContext: 'The household is a house in Kojori with a backyard and pine forest nearby.',
+    assistantTone: 'Playful but concise'
+  },
   topics: [
     { role: 'purchase', telegramThreadId: '101', topicName: 'Purchases' },
     { role: 'feedback', telegramThreadId: '102', topicName: 'Anonymous feedback' },
