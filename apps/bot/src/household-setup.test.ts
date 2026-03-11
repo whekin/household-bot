@@ -810,11 +810,11 @@ describe('registerHouseholdSetupCommands', () => {
         ],
         [
           {
-            text: 'Create purchases',
+            text: 'Create purchases topic',
             callback_data: 'setup_topic:create:purchase'
           },
           {
-            text: 'Bind purchases',
+            text: 'Bind purchases topic',
             callback_data: 'setup_topic:bind:purchase'
           }
         ]
@@ -1060,15 +1060,24 @@ describe('registerHouseholdSetupCommands', () => {
     expect(await promptRepository.getPendingAction('-100123456', '123456')).toMatchObject({
       action: 'setup_topic_binding',
       payload: {
-        role: 'payments'
+        role: 'payments',
+        setupMessageId: 91
       }
     })
 
     calls.length = 0
     await bot.handleUpdate(topicMessageUpdate('hello from payments', 444) as never)
 
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        chat_id: -100123456,
+        message_id: 91,
+        text: expect.stringContaining('- payments: bound to thread 444')
+      }
+    })
+    expect(calls[2]).toMatchObject({
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,

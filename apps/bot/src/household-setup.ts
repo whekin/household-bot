@@ -321,12 +321,20 @@ function isHouseholdTopicRole(value: string): value is HouseholdTopicRole {
 
 function parseSetupBindPayload(payload: Record<string, unknown>): {
   role: HouseholdTopicRole
+  setupMessageId?: number
 } | null {
-  return typeof payload.role === 'string' && isHouseholdTopicRole(payload.role)
-    ? {
-        role: payload.role
-      }
-    : null
+  if (typeof payload.role !== 'string' || !isHouseholdTopicRole(payload.role)) {
+    return null
+  }
+
+  return {
+    role: payload.role,
+    ...(typeof payload.setupMessageId === 'number' && Number.isInteger(payload.setupMessageId)
+      ? {
+          setupMessageId: payload.setupMessageId
+        }
+      : {})
+  }
 }
 
 export function buildJoinMiniAppUrl(
@@ -525,6 +533,22 @@ export function registerHouseholdSetupCommands(options: {
       if (result.status === 'rejected') {
         await ctx.reply(bindRejectionMessage(locale, result.reason))
         return
+      }
+
+      if (payload.setupMessageId && options.householdConfigurationRepository) {
+        const reply = await buildSetupReplyForHousehold({
+          ctx,
+          locale,
+          household: result.household,
+          created: false
+        })
+
+        await ctx.api.editMessageText(
+          Number(telegramChatId),
+          payload.setupMessageId,
+          reply.text,
+          'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
+        )
       }
 
       await ctx.reply(
@@ -1027,7 +1051,12 @@ export function registerHouseholdSetupCommands(options: {
           telegramChatId,
           action: SETUP_BIND_TOPIC_ACTION,
           payload: {
-            role
+            role,
+            ...(ctx.msg
+              ? {
+                  setupMessageId: ctx.msg.message_id
+                }
+              : {})
           },
           expiresAt: nowInstant().add({ milliseconds: SETUP_BIND_TOPIC_TTL_MS })
         })

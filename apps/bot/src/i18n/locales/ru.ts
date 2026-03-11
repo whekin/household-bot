@@ -62,8 +62,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     setupTopicsHeading: 'Настройка топиков:',
     setupTopicBound: (role, topic) => `- ${role}: привязан к ${topic}`,
     setupTopicMissing: (role) => `- ${role}: не настроен`,
-    setupTopicCreateButton: (role) => `Создать ${role}`,
-    setupTopicBindButton: (role) => `Привязать ${role}`,
+    setupTopicCreateButton: (role) => `Создать топик для ${role}`,
+    setupTopicBindButton: (role) => `Привязать топик для ${role}`,
     setupTopicCreateFailed:
       'Не удалось создать этот топик. Проверьте права бота и включённые форум-топики в группе.',
     setupTopicCreateForbidden:
@@ -263,8 +263,20 @@ export const ruBotTranslations: BotTranslationCatalog = {
   payments: {
     topicMissing:
       'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /bind_payments_topic.',
+    proposal: (kind, amount, currency) =>
+      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${amount} ${currency}. Подтвердите или отмените ниже.`,
+    clarification:
+      'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
+    unsupportedCurrency:
+      'Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
+    noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    confirmButton: 'Подтвердить оплату',
+    cancelButton: 'Отменить',
     recorded: (kind, amount, currency) =>
       `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${amount} ${currency}`,
+    cancelled: 'Предложение оплаты отменено.',
+    proposalUnavailable: 'Это предложение оплаты уже недоступно.',
+    notYourProposal: 'Подтвердить или отменить эту оплату может только отправитель сообщения.',
     savedForReview: 'Это подтверждение оплаты сохранено на проверку.',
     duplicate: 'Это подтверждение оплаты уже было обработано.'
   }
