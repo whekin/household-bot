@@ -231,15 +231,21 @@ export const enBotTranslations: BotTranslationCatalog = {
     noStatementCycle: 'No cycle found for statement.',
     householdStatusTitle: (period) => `Household status for ${period}`,
     householdStatusDueDate: (dueDate) => `Rent due by ${dueDate}`,
+    householdStatusChargesHeading: 'Charges',
     householdStatusRentDirect: (amount, currency) => `Rent: ${amount} ${currency}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
       `Rent: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
     householdStatusUtilities: (amount, currency) => `Utilities: ${amount} ${currency}`,
     householdStatusPurchases: (amount, currency) => `Shared purchases: ${amount} ${currency}`,
-    householdStatusMember: (displayName, balance, paid, remaining, currency) =>
-      `- ${displayName}: balance ${balance} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
-    householdStatusTotals: (balance, paid, remaining, currency) =>
-      `Household total: balance ${balance} ${currency}, paid ${paid} ${currency}, remaining ${remaining} ${currency}`,
+    householdStatusSettlementHeading: 'Settlement',
+    householdStatusSettlementBalance: (amount, currency) => `Gross balance: ${amount} ${currency}`,
+    householdStatusSettlementPaid: (amount, currency) => `Paid so far: ${amount} ${currency}`,
+    householdStatusSettlementRemaining: (amount, currency) => `Remaining: ${amount} ${currency}`,
+    householdStatusMembersHeading: 'Members',
+    householdStatusMemberCompact: (displayName, remaining, currency) =>
+      `- ${displayName}: remaining ${remaining} ${currency}`,
+    householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
+      `- ${displayName}: remaining ${remaining} ${currency} (${balance} balance, ${paid} paid)`,
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,

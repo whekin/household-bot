@@ -125,8 +125,8 @@ function createDashboard(): NonNullable<
     period: '2026-03',
     currency: 'GEL',
     totalDue: Money.fromMajor('400', 'GEL'),
-    totalPaid: Money.fromMajor('150', 'GEL'),
-    totalRemaining: Money.fromMajor('250', 'GEL'),
+    totalPaid: Money.fromMajor('100', 'GEL'),
+    totalRemaining: Money.fromMajor('300', 'GEL'),
     rentSourceAmount: Money.fromMajor('700', 'USD'),
     rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
     rentFxRateMicros: 2_700_000n,
@@ -150,8 +150,8 @@ function createDashboard(): NonNullable<
         utilityShare: Money.fromMajor('20', 'GEL'),
         purchaseOffset: Money.fromMajor('10', 'GEL'),
         netDue: Money.fromMajor('190', 'GEL'),
-        paid: Money.fromMajor('50', 'GEL'),
-        remaining: Money.fromMajor('140', 'GEL'),
+        paid: Money.zero('GEL'),
+        remaining: Money.fromMajor('190', 'GEL'),
         explanations: []
       }
     ],
@@ -238,7 +238,7 @@ function createFinanceService(): FinanceCommandService {
 }
 
 describe('createFinanceCommandsService', () => {
-  test('replies with a compact localized household status summary', async () => {
+  test('replies with a clearer localized household status summary', async () => {
     const repository = createRepository()
     const financeService = createFinanceService()
     const bot = createTelegramBot('000000:test-token', undefined, repository)
@@ -282,12 +282,18 @@ describe('createFinanceCommandsService', () => {
 
     const payload = calls[0]?.payload as { text?: string } | undefined
     expect(payload?.text).toContain('Статус на март 2026')
+    expect(payload?.text).toContain('\n\nНачисления\n')
     expect(payload?.text).toContain('Аренда: 700.00 USD (~1890.00 GEL)')
     expect(payload?.text).toContain('Коммуналка: 82.00 GEL')
     expect(payload?.text).toContain('Общие покупки: 30.00 GEL')
     expect(payload?.text).toContain('Срок оплаты аренды: до 20 марта')
-    expect(payload?.text).toContain(
-      '- Стас: баланс 210.00 GEL, оплачено 100.00 GEL, остаток 110.00 GEL'
-    )
+    expect(payload?.text).toContain('Расчёты')
+    expect(payload?.text).toContain('Общий баланс: 400.00 GEL')
+    expect(payload?.text).toContain('Уже оплачено: 100.00 GEL')
+    expect(payload?.text).toContain('Осталось оплатить: 300.00 GEL')
+    expect(payload?.text).toContain('Участники')
+    expect(payload?.text).toContain('- Ион: остаток 190.00 GEL')
+    expect(payload?.text).toContain('- Стас: остаток 110.00 GEL (210.00 баланс, 100.00 оплачено)')
+    expect(payload?.text).not.toContain('- Ион: остаток 190.00 GEL (')
   })
 })

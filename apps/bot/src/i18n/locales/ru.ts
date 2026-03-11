@@ -234,15 +234,22 @@ export const ruBotTranslations: BotTranslationCatalog = {
     noStatementCycle: 'Для выписки период не найден.',
     householdStatusTitle: (period) => `Статус на ${period}`,
     householdStatusDueDate: (dueDate) => `Срок оплаты аренды: до ${dueDate}`,
+    householdStatusChargesHeading: 'Начисления',
     householdStatusRentDirect: (amount, currency) => `Аренда: ${amount} ${currency}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
       `Аренда: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
     householdStatusUtilities: (amount, currency) => `Коммуналка: ${amount} ${currency}`,
     householdStatusPurchases: (amount, currency) => `Общие покупки: ${amount} ${currency}`,
-    householdStatusMember: (displayName, balance, paid, remaining, currency) =>
-      `- ${displayName}: баланс ${balance} ${currency}, оплачено ${paid} ${currency}, остаток ${remaining} ${currency}`,
-    householdStatusTotals: (balance, paid, remaining, currency) =>
-      `Итого по дому: баланс ${balance} ${currency}, оплачено ${paid} ${currency}, остаток ${remaining} ${currency}`,
+    householdStatusSettlementHeading: 'Расчёты',
+    householdStatusSettlementBalance: (amount, currency) => `Общий баланс: ${amount} ${currency}`,
+    householdStatusSettlementPaid: (amount, currency) => `Уже оплачено: ${amount} ${currency}`,
+    householdStatusSettlementRemaining: (amount, currency) =>
+      `Осталось оплатить: ${amount} ${currency}`,
+    householdStatusMembersHeading: 'Участники',
+    householdStatusMemberCompact: (displayName, remaining, currency) =>
+      `- ${displayName}: остаток ${remaining} ${currency}`,
+    householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
+      `- ${displayName}: остаток ${remaining} ${currency} (${balance} баланс, ${paid} оплачено)`,
     statementTitle: (period) => `Выписка за ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Итого: ${amount} ${currency}`,

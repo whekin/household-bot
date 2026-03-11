@@ -111,27 +111,45 @@ export function createFinanceCommandsService(options: {
             dashboard.currency
           )
 
+    const memberLines = [...dashboard.members]
+      .sort((left, right) => right.remaining.compare(left.remaining))
+      .map((member) =>
+        member.paid.isZero()
+          ? t.householdStatusMemberCompact(
+              member.displayName,
+              member.remaining.toMajorString(),
+              dashboard.currency
+            )
+          : t.householdStatusMemberDetailed(
+              member.displayName,
+              member.remaining.toMajorString(),
+              member.netDue.toMajorString(),
+              member.paid.toMajorString(),
+              dashboard.currency
+            )
+      )
+
     return [
       t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period)),
       t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay)),
+      '',
+      t.householdStatusChargesHeading,
       rentLine,
       t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency),
       t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency),
-      ...dashboard.members.map((member) =>
-        t.householdStatusMember(
-          member.displayName,
-          member.netDue.toMajorString(),
-          member.paid.toMajorString(),
-          member.remaining.toMajorString(),
-          dashboard.currency
-        )
-      ),
-      t.householdStatusTotals(
-        dashboard.totalDue.toMajorString(),
-        dashboard.totalPaid.toMajorString(),
+      '',
+      t.householdStatusSettlementHeading,
+      t.householdStatusSettlementBalance(dashboard.totalDue.toMajorString(), dashboard.currency),
+      ...(!dashboard.totalPaid.isZero()
+        ? [t.householdStatusSettlementPaid(dashboard.totalPaid.toMajorString(), dashboard.currency)]
+        : []),
+      t.householdStatusSettlementRemaining(
         dashboard.totalRemaining.toMajorString(),
         dashboard.currency
-      )
+      ),
+      '',
+      t.householdStatusMembersHeading,
+      ...memberLines
     ].join('\n')
   }
 
