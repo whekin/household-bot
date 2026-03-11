@@ -69,6 +69,10 @@ type Props = {
   utilityBillDrafts: Record<string, UtilityBillDraft>
   editingCategorySlug: string | null
   editingCategory: MiniAppAdminSettingsPayload['categories'][number] | null
+  editingCategoryDraft: {
+    name: string
+    isActive: boolean
+  } | null
   editingMember: MiniAppAdminSettingsPayload['members'][number] | null
   memberDisplayNameDrafts: Record<string, string>
   memberStatusDrafts: Record<string, 'active' | 'away' | 'left'>
@@ -779,14 +783,15 @@ export function HouseScreen(props: Props) {
             ) : (
               (() => {
                 const category = props.editingCategory
-                if (!category) {
+                const draft = props.editingCategoryDraft
+                if (!category || !draft) {
                   return null
                 }
                 return (
                   <div class="editor-grid">
                     <Field label={props.copy.utilityCategoryName ?? ''} wide>
                       <input
-                        value={category.name}
+                        value={draft.name}
                         onInput={(event) =>
                           props.onEditingCategoryNameChange(event.currentTarget.value)
                         }
@@ -794,7 +799,7 @@ export function HouseScreen(props: Props) {
                     </Field>
                     <Field label={props.copy.utilityCategoryActive ?? ''}>
                       <select
-                        value={category.isActive ? 'true' : 'false'}
+                        value={draft.isActive ? 'true' : 'false'}
                         onChange={(event) =>
                           props.onEditingCategoryActiveChange(event.currentTarget.value === 'true')
                         }

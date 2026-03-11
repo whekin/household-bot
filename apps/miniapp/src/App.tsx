@@ -371,6 +371,10 @@ function App() {
   const [editingUtilityBillId, setEditingUtilityBillId] = createSignal<string | null>(null)
   const [editingMemberId, setEditingMemberId] = createSignal<string | null>(null)
   const [editingCategorySlug, setEditingCategorySlug] = createSignal<string | null>(null)
+  const [editingCategoryDraft, setEditingCategoryDraft] = createSignal<{
+    name: string
+    isActive: boolean
+  } | null>(null)
   const [billingSettingsOpen, setBillingSettingsOpen] = createSignal(false)
   const [cycleRentOpen, setCycleRentOpen] = createSignal(false)
   const [addingUtilityBillOpen, setAddingUtilityBillOpen] = createSignal(false)
@@ -2237,8 +2241,30 @@ function App() {
                 currency: value
               }))
             }
-            onOpenCategoryEditor={setEditingCategorySlug}
-            onCloseCategoryEditor={() => setEditingCategorySlug(null)}
+            onOpenCategoryEditor={(slug) => {
+              setEditingCategorySlug(slug)
+              if (slug === '__new__') {
+                setNewCategoryName('')
+                setEditingCategoryDraft(null)
+                return
+              }
+
+              const category =
+                adminSettings()?.categories.find((item) => item.slug === slug) ?? null
+              setEditingCategoryDraft(
+                category
+                  ? {
+                      name: category.name,
+                      isActive: category.isActive
+                    }
+                  : null
+              )
+            }}
+            onCloseCategoryEditor={() => {
+              setEditingCategorySlug(null)
+              setEditingCategoryDraft(null)
+              setNewCategoryName('')
+            }}
             onNewCategoryNameChange={setNewCategoryName}
             onSaveNewCategory={() =>
               handleSaveUtilityCategory({
@@ -2255,41 +2281,28 @@ function App() {
 
               return handleSaveUtilityCategory({
                 slug: category.slug,
-                name: category.name,
+                name: editingCategoryDraft()?.name ?? category.name,
                 sortOrder: category.sortOrder,
-                isActive: category.isActive
+                isActive: editingCategoryDraft()?.isActive ?? category.isActive
               })
             }}
+            editingCategoryDraft={editingCategoryDraft()}
             onEditingCategoryNameChange={(value) =>
-              setAdminSettings((current) =>
-                current && editingCategory()
+              setEditingCategoryDraft((current) =>
+                current
                   ? {
                       ...current,
-                      categories: current.categories.map((item) =>
-                        item.slug === editingCategory()!.slug
-                          ? {
-                              ...item,
-                              name: value
-                            }
-                          : item
-                      )
+                      name: value
                     }
                   : current
               )
             }
             onEditingCategoryActiveChange={(value) =>
-              setAdminSettings((current) =>
-                current && editingCategory()
+              setEditingCategoryDraft((current) =>
+                current
                   ? {
                       ...current,
-                      categories: current.categories.map((item) =>
-                        item.slug === editingCategory()!.slug
-                          ? {
-                              ...item,
-                              isActive: value
-                            }
-                          : item
-                      )
+                      isActive: value
                     }
                   : current
               )
