@@ -101,6 +101,7 @@ export interface MiniAppSessionResult {
     id: string
     householdId: string
     displayName: string
+    status: 'active' | 'away' | 'left'
     isAdmin: boolean
     preferredLocale: SupportedLocale | null
     householdDefaultLocale: SupportedLocale

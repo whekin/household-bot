@@ -6,6 +6,7 @@ export interface MiniAppSession {
     id: string
     householdId: string
     displayName: string
+    status: 'active' | 'away' | 'left'
     isAdmin: boolean
     preferredLocale: 'en' | 'ru' | null
     householdDefaultLocale: 'en' | 'ru'
@@ -39,6 +40,7 @@ export interface MiniAppPendingMember {
 export interface MiniAppMember {
   id: string
   displayName: string
+  status: 'active' | 'away' | 'left'
   rentShareWeight: number
   isAdmin: boolean
 }
@@ -509,6 +511,37 @@ export async function updateMiniAppMemberRentWeight(
 
   if (!response.ok || !payload.member) {
     throw new Error(payload.error ?? 'Failed to update member rent weight')
+  }
+
+  return payload.member
+}
+
+export async function updateMiniAppMemberStatus(
+  initData: string,
+  memberId: string,
+  status: 'active' | 'away' | 'left'
+): Promise<MiniAppMember> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/status`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId,
+      status
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppMember
+    error?: string
+  }
+
+  if (!response.ok || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to update member status')
   }
 
   return payload.member

@@ -49,6 +49,7 @@ import {
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
+  createMiniAppUpdateMemberStatusHandler,
   createMiniAppUpdateMemberRentWeightHandler,
   createMiniAppUpdateSettingsHandler,
   createMiniAppUpsertUtilityCategoryHandler
@@ -529,6 +530,15 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppUpdateMemberRentWeight: householdOnboardingService
     ? createMiniAppUpdateMemberRentWeightHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppUpdateMemberStatus: householdOnboardingService
+    ? createMiniAppUpdateMemberStatusHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

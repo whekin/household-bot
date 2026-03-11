@@ -2,8 +2,10 @@ import type { CurrencyCode, SupportedLocale } from '@household/domain'
 import type { ReminderTarget } from './reminders'
 
 export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders', 'payments'] as const
+export const HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES = ['active', 'away', 'left'] as const
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
+export type HouseholdMemberLifecycleStatus = (typeof HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES)[number]
 
 export interface HouseholdTelegramChatRecord {
   householdId: string
@@ -43,6 +45,7 @@ export interface HouseholdMemberRecord {
   householdId: string
   telegramUserId: string
   displayName: string
+  status: HouseholdMemberLifecycleStatus
   preferredLocale: SupportedLocale | null
   householdDefaultLocale: SupportedLocale
   rentShareWeight: number
@@ -130,6 +133,7 @@ export interface HouseholdConfigurationRepository {
     householdId: string
     telegramUserId: string
     displayName: string
+    status?: HouseholdMemberLifecycleStatus
     preferredLocale?: SupportedLocale | null
     rentShareWeight?: number
     isAdmin?: boolean
@@ -187,5 +191,10 @@ export interface HouseholdConfigurationRepository {
     householdId: string,
     memberId: string,
     rentShareWeight: number
+  ): Promise<HouseholdMemberRecord | null>
+  updateHouseholdMemberStatus(
+    householdId: string,
+    memberId: string,
+    status: HouseholdMemberLifecycleStatus
   ): Promise<HouseholdMemberRecord | null>
 }

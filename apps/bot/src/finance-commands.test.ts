@@ -78,6 +78,7 @@ function createRepository(): HouseholdConfigurationRepository {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: 'ru',
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -109,7 +110,8 @@ function createRepository(): HouseholdConfigurationRepository {
     },
     updateMemberPreferredLocale: async () => null,
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

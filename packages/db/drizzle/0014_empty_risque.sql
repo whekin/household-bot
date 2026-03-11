@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "lifecycle_status" text DEFAULT 'active' NOT NULL;

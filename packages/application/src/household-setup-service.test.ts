@@ -174,6 +174,7 @@ function createRepositoryStub() {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? existing?.status ?? 'active',
         preferredLocale: input.preferredLocale ?? existing?.preferredLocale ?? null,
         householdDefaultLocale:
           [...households.values()].find((household) => household.householdId === input.householdId)
@@ -215,6 +216,7 @@ function createRepositoryStub() {
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale:
           [...households.values()].find(
@@ -319,6 +321,22 @@ function createRepositoryStub() {
       }
       members.set(`${householdId}:${member.telegramUserId}`, next)
       return next
+    },
+
+    async updateHouseholdMemberStatus(householdId, memberId, status) {
+      const member = [...members.values()].find(
+        (entry) => entry.householdId === householdId && entry.id === memberId
+      )
+      if (!member) {
+        return null
+      }
+
+      const next = {
+        ...member,
+        status
+      }
+      members.set(`${householdId}:${member.telegramUserId}`, next)
+      return next
     }
   }
 
@@ -353,6 +371,7 @@ describe('createHouseholdSetupService', () => {
       householdId: result.household.householdId,
       telegramUserId: '42',
       displayName: 'Stan',
+      status: 'active',
       preferredLocale: null,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,
@@ -391,6 +410,7 @@ describe('createHouseholdSetupService', () => {
       householdId: result.household.householdId,
       telegramUserId: '77',
       displayName: 'Mia',
+      status: 'active',
       preferredLocale: null,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,

@@ -8,10 +8,12 @@ import {
   type CurrencyCode
 } from '@household/domain'
 import {
+  HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdBillingSettingsRecord,
   type HouseholdConfigurationRepository,
   type HouseholdJoinTokenRecord,
+  type HouseholdMemberLifecycleStatus,
   type HouseholdMemberRecord,
   type HouseholdPendingMemberRecord,
   type HouseholdTelegramChatRecord,
@@ -30,6 +32,16 @@ function normalizeTopicRole(role: string): HouseholdTopicRole {
   }
 
   throw new Error(`Unsupported household topic role: ${role}`)
+}
+
+function normalizeMemberLifecycleStatus(raw: string): HouseholdMemberLifecycleStatus {
+  const normalized = raw.trim().toLowerCase()
+
+  if ((HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES as readonly string[]).includes(normalized)) {
+    return normalized as HouseholdMemberLifecycleStatus
+  }
+
+  throw new Error(`Unsupported household member lifecycle status: ${raw}`)
 }
 
 function toHouseholdTelegramChatRecord(row: {
@@ -113,6 +125,7 @@ function toHouseholdMemberRecord(row: {
   householdId: string
   telegramUserId: string
   displayName: string
+  lifecycleStatus: string
   preferredLocale: string | null
   defaultLocale: string
   rentShareWeight: number
@@ -128,6 +141,7 @@ function toHouseholdMemberRecord(row: {
     householdId: row.householdId,
     telegramUserId: row.telegramUserId,
     displayName: row.displayName,
+    status: normalizeMemberLifecycleStatus(row.lifecycleStatus),
     preferredLocale: normalizeSupportedLocale(row.preferredLocale),
     householdDefaultLocale,
     rentShareWeight: row.rentShareWeight,
@@ -775,6 +789,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: input.householdId,
           telegramUserId: input.telegramUserId,
           displayName: input.displayName,
+          lifecycleStatus: input.status ?? 'active',
           preferredLocale: input.preferredLocale ?? null,
           rentShareWeight: input.rentShareWeight ?? 1,
           isAdmin: input.isAdmin ? 1 : 0
@@ -783,6 +798,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           target: [schema.members.householdId, schema.members.telegramUserId],
           set: {
             displayName: input.displayName,
+            lifecycleStatus: input.status ?? schema.members.lifecycleStatus,
             preferredLocale: input.preferredLocale ?? schema.members.preferredLocale,
             rentShareWeight: input.rentShareWeight ?? schema.members.rentShareWeight,
             ...(input.isAdmin
@@ -797,6 +813,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
@@ -825,6 +842,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
@@ -851,6 +869,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
@@ -1033,6 +1052,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           defaultLocale: schema.households.defaultLocale,
@@ -1104,6 +1124,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdId: pending.householdId,
             telegramUserId: pending.telegramUserId,
             displayName: pending.displayName,
+            lifecycleStatus: 'active',
             preferredLocale: normalizeSupportedLocale(pending.languageCode),
             rentShareWeight: 1,
             isAdmin: input.isAdmin ? 1 : 0
@@ -1112,6 +1133,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             target: [schema.members.householdId, schema.members.telegramUserId],
             set: {
               displayName: pending.displayName,
+              lifecycleStatus: 'active',
               preferredLocale:
                 normalizeSupportedLocale(pending.languageCode) ?? schema.members.preferredLocale,
               ...(input.isAdmin
@@ -1126,6 +1148,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             householdId: schema.members.householdId,
             telegramUserId: schema.members.telegramUserId,
             displayName: schema.members.displayName,
+            lifecycleStatus: schema.members.lifecycleStatus,
             preferredLocale: schema.members.preferredLocale,
             rentShareWeight: schema.members.rentShareWeight,
             isAdmin: schema.members.isAdmin
@@ -1198,6 +1221,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
@@ -1231,6 +1255,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
@@ -1264,6 +1289,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           householdId: schema.members.householdId,
           telegramUserId: schema.members.telegramUserId,
           displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
           preferredLocale: schema.members.preferredLocale,
           rentShareWeight: schema.members.rentShareWeight,
           isAdmin: schema.members.isAdmin
@@ -1277,6 +1303,40 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       const household = await this.getHouseholdChatByHouseholdId(householdId)
       if (!household) {
         throw new Error('Failed to resolve household chat after rent weight update')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
+    },
+
+    async updateHouseholdMemberStatus(householdId, memberId, status) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          lifecycleStatus: status
+        })
+        .where(and(eq(schema.members.householdId, householdId), eq(schema.members.id, memberId)))
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
+          preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after member status update')
       }
 
       return toHouseholdMemberRecord({

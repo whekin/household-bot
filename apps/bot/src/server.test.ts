@@ -82,6 +82,15 @@ describe('createBotWebhookServer', () => {
           }
         })
     },
+    miniAppUpdateMemberStatus: {
+      handler: async () =>
+        new Response(JSON.stringify({ ok: true, authorized: true, member: {} }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8'
+          }
+        })
+    },
     miniAppBillingCycle: {
       handler: async () =>
         new Response(JSON.stringify({ ok: true, authorized: true, cycleState: {} }), {
@@ -334,6 +343,22 @@ describe('createBotWebhookServer', () => {
   test('accepts mini app rent weight update request', async () => {
     const response = await server.fetch(
       new Request('http://localhost/api/miniapp/admin/members/rent-weight', {
+        method: 'POST',
+        body: JSON.stringify({ initData: 'payload' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {}
+    })
+  })
+
+  test('accepts mini app member status update request', async () => {
+    const response = await server.fetch(
+      new Request('http://localhost/api/miniapp/admin/members/status', {
         method: 'POST',
         body: JSON.stringify({ initData: 'payload' })
       })

@@ -17,6 +17,7 @@ import {
   joinMiniAppHousehold,
   openMiniAppBillingCycle,
   promoteMiniAppMember,
+  updateMiniAppMemberStatus,
   updateMiniAppMemberRentWeight,
   type MiniAppAdminCycleState,
   type MiniAppAdminSettingsPayload,
@@ -56,6 +57,7 @@ type SessionState =
       member: {
         id: string
         displayName: string
+        status: 'active' | 'away' | 'left'
         isAdmin: boolean
         preferredLocale: Locale | null
         householdDefaultLocale: Locale
@@ -95,6 +97,7 @@ const demoSession: Extract<SessionState, { status: 'ready' }> = {
   member: {
     id: 'demo-member',
     displayName: 'Demo Resident',
+    status: 'active',
     isAdmin: false,
     preferredLocale: 'en',
     householdDefaultLocale: 'en'
@@ -278,7 +281,11 @@ function App() {
   const [approvingTelegramUserId, setApprovingTelegramUserId] = createSignal<string | null>(null)
   const [promotingMemberId, setPromotingMemberId] = createSignal<string | null>(null)
   const [savingRentWeightMemberId, setSavingRentWeightMemberId] = createSignal<string | null>(null)
+  const [savingMemberStatusId, setSavingMemberStatusId] = createSignal<string | null>(null)
   const [rentWeightDrafts, setRentWeightDrafts] = createSignal<Record<string, string>>({})
+  const [memberStatusDrafts, setMemberStatusDrafts] = createSignal<
+    Record<string, 'active' | 'away' | 'left'>
+  >({})
   const [savingMemberLocale, setSavingMemberLocale] = createSignal(false)
   const [savingHouseholdLocale, setSavingHouseholdLocale] = createSignal(false)
   const [savingBillingSettings, setSavingBillingSettings] = createSignal(false)
@@ -382,6 +389,17 @@ function App() {
     }
   }
 
+  function memberStatusLabel(status: 'active' | 'away' | 'left'): string {
+    switch (status) {
+      case 'active':
+        return copy().memberStatusActive
+      case 'away':
+        return copy().memberStatusAway
+      case 'left':
+        return copy().memberStatusLeft
+    }
+  }
+
   async function loadDashboard(initData: string) {
     try {
       const nextDashboard = await fetchMiniAppDashboard(initData)
@@ -419,6 +437,9 @@ function App() {
         Object.fromEntries(
           payload.members.map((member) => [member.id, String(member.rentShareWeight)])
         )
+      )
+      setMemberStatusDrafts(
+        Object.fromEntries(payload.members.map((member) => [member.id, member.status]))
       )
       setCycleForm((current) => ({
         ...current,
@@ -1228,6 +1249,35 @@ function App() {
       }))
     } finally {
       setSavingRentWeightMemberId(null)
+    }
+  }
+
+  async function handleSaveMemberStatus(memberId: string) {
+    const initData = webApp?.initData?.trim()
+    const currentReady = readySession()
+    const nextStatus = memberStatusDrafts()[memberId]
+    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin || !nextStatus) {
+      return
+    }
+
+    setSavingMemberStatusId(memberId)
+
+    try {
+      const member = await updateMiniAppMemberStatus(initData, memberId, nextStatus)
+      setAdminSettings((current) =>
+        current
+          ? {
+              ...current,
+              members: current.members.map((item) => (item.id === member.id ? member : item))
+            }
+          : current
+      )
+      setMemberStatusDrafts((current) => ({
+        ...current,
+        [member.id]: member.status
+      }))
+    } finally {
+      setSavingMemberStatusId(null)
     }
   }
 
@@ -2372,9 +2422,31 @@ function App() {
                         <article class="utility-bill-row">
                           <header>
                             <strong>{member.displayName}</strong>
-                            <span>{member.isAdmin ? copy().adminTag : copy().residentTag}</span>
+                            <span>
+                              {member.isAdmin ? copy().adminTag : copy().residentTag}
+                              {` · ${memberStatusLabel(member.status)}`}
+                            </span>
                           </header>
                           <div class="settings-grid">
+                            <label class="settings-field settings-field--wide">
+                              <span>{copy().memberStatusLabel}</span>
+                              <select
+                                value={memberStatusDrafts()[member.id] ?? member.status}
+                                onChange={(event) =>
+                                  setMemberStatusDrafts((current) => ({
+                                    ...current,
+                                    [member.id]: event.currentTarget.value as
+                                      | 'active'
+                                      | 'away'
+                                      | 'left'
+                                  }))
+                                }
+                              >
+                                <option value="active">{copy().memberStatusActive}</option>
+                                <option value="away">{copy().memberStatusAway}</option>
+                                <option value="left">{copy().memberStatusLeft}</option>
+                              </select>
+                            </label>
                             <label class="settings-field settings-field--wide">
                               <span>{copy().rentWeightLabel}</span>
                               <input
@@ -2392,6 +2464,16 @@ function App() {
                             </label>
                           </div>
                           <div class="inline-actions">
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              disabled={savingMemberStatusId() === member.id}
+                              onClick={() => void handleSaveMemberStatus(member.id)}
+                            >
+                              {savingMemberStatusId() === member.id
+                                ? copy().savingMemberStatus
+                                : copy().saveMemberStatusAction}
+                            </button>
                             <button
                               class="ghost-button"
                               type="button"
@@ -2770,6 +2852,11 @@ function App() {
               <span class="pill pill--muted">
                 {readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}
               </span>
+              <span class="pill pill--muted">
+                {readySession()?.member.status
+                  ? memberStatusLabel(readySession()!.member.status)
+                  : copy().memberStatusActive}
+              </span>
             </div>
 
             <h2>
@@ -2802,6 +2889,14 @@ function App() {
             <article class="panel panel--wide">
               <p class="eyebrow">{copy().overviewTitle}</p>
               <h3>{readySession()?.member.displayName}</h3>
+              <p>
+                {copy().memberStatusSummary.replace(
+                  '{status}',
+                  readySession()?.member.status
+                    ? memberStatusLabel(readySession()!.member.status)
+                    : copy().memberStatusActive
+                )}
+              </p>
               <div>{renderPanel()}</div>
             </article>
           </section>

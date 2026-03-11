@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { createHouseholdOnboardingService } from '@household/application'
 import type {
   HouseholdConfigurationRepository,
+  HouseholdMemberRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
 
@@ -19,19 +20,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     defaultLocale: 'ru' as const
   }
   let joinToken: string | null = 'join-token'
-  const members = new Map<
-    string,
-    {
-      id: string
-      householdId: string
-      telegramUserId: string
-      displayName: string
-      preferredLocale: 'en' | 'ru' | null
-      householdDefaultLocale: 'en' | 'ru'
-      rentShareWeight: number
-      isAdmin: boolean
-    }
-  >()
+  const members = new Map<string, HouseholdMemberRecord>()
   let pending: {
     householdId: string
     householdName: string
@@ -97,6 +86,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         householdId: household.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? 'active',
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -118,11 +108,12 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         return null
       }
 
-      const member = {
+      const member: HouseholdMemberRecord = {
         id: `member-${pending.telegramUserId}`,
         householdId: household.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -151,6 +142,15 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         ? {
             ...member,
             rentShareWeight
+          }
+        : null
+    },
+    updateHouseholdMemberStatus: async (_householdId, memberId, status) => {
+      const member = [...members.values()].find((entry) => entry.id === memberId)
+      return member
+        ? {
+            ...member,
+            status
           }
         : null
     },
@@ -232,6 +232,7 @@ describe('createMiniAppAuthHandler', () => {
       authorized: true,
       member: {
         displayName: 'Stan',
+        status: 'active',
         isAdmin: true,
         preferredLocale: null,
         householdDefaultLocale: 'ru'

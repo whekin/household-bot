@@ -99,6 +99,7 @@ function createRepositoryStub() {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? 'active',
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -133,6 +134,7 @@ function createRepositoryStub() {
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -197,6 +199,9 @@ function createRepositoryStub() {
       return null
     },
     async updateHouseholdMemberRentShareWeight() {
+      return null
+    },
+    async updateHouseholdMemberStatus() {
       return null
     }
   }
@@ -325,6 +330,7 @@ describe('createHouseholdOnboardingService', () => {
         id: 'member-42',
         householdId: 'household-1',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -340,6 +346,7 @@ describe('createHouseholdOnboardingService', () => {
       householdId: 'household-1',
       telegramUserId: '42',
       displayName: 'Stan',
+      status: 'active',
       preferredLocale: null,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,
@@ -358,6 +365,7 @@ describe('createHouseholdOnboardingService', () => {
         householdId: 'household-2',
         telegramUserId: '42',
         displayName: 'Stan elsewhere',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,

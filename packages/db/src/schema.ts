@@ -194,6 +194,7 @@ export const members = pgTable(
       .references(() => households.id, { onDelete: 'cascade' }),
     telegramUserId: text('telegram_user_id').notNull(),
     displayName: text('display_name').notNull(),
+    lifecycleStatus: text('lifecycle_status').default('active').notNull(),
     preferredLocale: text('preferred_locale'),
     rentShareWeight: integer('rent_share_weight').default(1).notNull(),
     isAdmin: integer('is_admin').default(0).notNull(),

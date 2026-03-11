@@ -71,6 +71,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       householdId: household.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      status: input.status ?? 'active',
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: household.defaultLocale,
       rentShareWeight: 1,
@@ -115,6 +116,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -129,7 +131,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     }),
     updateMemberPreferredLocale: async () => null,
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

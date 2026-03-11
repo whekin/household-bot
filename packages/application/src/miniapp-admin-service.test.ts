@@ -61,6 +61,7 @@ function repository(): HouseholdConfigurationRepository {
       householdId: input.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      status: input.status ?? 'active',
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,
@@ -87,6 +88,7 @@ function repository(): HouseholdConfigurationRepository {
             householdId: input.householdId,
             telegramUserId: input.telegramUserId,
             displayName: 'Stan',
+            status: 'active',
             preferredLocale: null,
             householdDefaultLocale: 'ru',
             rentShareWeight: 1,
@@ -108,6 +110,7 @@ function repository(): HouseholdConfigurationRepository {
             householdId: 'household-1',
             telegramUserId,
             displayName: 'Stan',
+            status: 'active',
             preferredLocale: locale,
             householdDefaultLocale: 'ru',
             rentShareWeight: 1,
@@ -152,6 +155,7 @@ function repository(): HouseholdConfigurationRepository {
             householdId,
             telegramUserId: '123456',
             displayName: 'Stan',
+            status: 'active',
             preferredLocale: null,
             householdDefaultLocale: 'ru',
             rentShareWeight: 1,
@@ -165,9 +169,24 @@ function repository(): HouseholdConfigurationRepository {
             householdId: 'household-1',
             telegramUserId: '123456',
             displayName: 'Stan',
+            status: 'active',
             preferredLocale: null,
             householdDefaultLocale: 'ru',
             rentShareWeight,
+            isAdmin: false
+          }
+        : null,
+    updateHouseholdMemberStatus: async (_householdId, memberId, status) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId: 'household-1',
+            telegramUserId: '123456',
+            displayName: 'Stan',
+            status,
+            preferredLocale: null,
+            householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null
@@ -318,6 +337,7 @@ describe('createMiniAppAdminService', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -342,10 +362,37 @@ describe('createMiniAppAdminService', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
         isAdmin: true
+      }
+    })
+  })
+
+  test('updates a household member lifecycle status for admins', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateMemberStatus({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456',
+      status: 'away'
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'away',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
       }
     })
   })

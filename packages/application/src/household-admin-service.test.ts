@@ -28,6 +28,7 @@ function createRepositoryStub() {
     householdId: household.householdId,
     telegramUserId: '1',
     displayName: 'Stan',
+    status: 'active',
     preferredLocale: null,
     householdDefaultLocale: household.defaultLocale,
     rentShareWeight: 1,
@@ -94,6 +95,7 @@ function createRepositoryStub() {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? 'active',
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -121,6 +123,7 @@ function createRepositoryStub() {
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -174,7 +177,8 @@ function createRepositoryStub() {
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 
   return {
@@ -243,6 +247,7 @@ describe('createHouseholdAdminService', () => {
         householdId: 'household-1',
         telegramUserId: '2',
         displayName: 'Alice',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,

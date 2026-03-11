@@ -19,6 +19,7 @@ function createRepository(): HouseholdConfigurationRepository {
     householdId: 'household-1',
     telegramUserId: '123456',
     displayName: 'Stan',
+    status: 'active',
     preferredLocale: null,
     householdDefaultLocale: 'ru',
     rentShareWeight: 1,
@@ -109,7 +110,8 @@ function createRepository(): HouseholdConfigurationRepository {
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

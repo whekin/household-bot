@@ -178,6 +178,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       householdId: input.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      status: input.status ?? 'active',
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,
@@ -191,6 +192,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -212,6 +214,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       householdId: 'household-1',
       telegramUserId,
       displayName: 'Stan',
+      status: 'active',
       preferredLocale: locale,
       householdDefaultLocale: 'ru',
       rentShareWeight: 1,
@@ -249,7 +252,8 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 }
 
@@ -351,6 +355,7 @@ describe('registerAnonymousFeedback', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: 'en',
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,

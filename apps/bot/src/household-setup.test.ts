@@ -384,6 +384,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? existing?.status ?? 'active',
         preferredLocale: input.preferredLocale ?? existing?.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: input.rentShareWeight ?? existing?.rentShareWeight ?? 1,
@@ -456,6 +457,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         householdId: pending.householdId,
         telegramUserId: pending.telegramUserId,
         displayName: pending.displayName,
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: pending.householdDefaultLocale,
         rentShareWeight: 1,
@@ -491,6 +493,9 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       return null
     },
     async updateHouseholdMemberRentShareWeight() {
+      return null
+    },
+    async updateHouseholdMemberStatus() {
       return null
     }
   }

@@ -17,6 +17,7 @@ export type HouseholdMiniAppAccess =
         id: string
         householdId: string
         displayName: string
+        status: HouseholdMemberRecord['status']
         isAdmin: boolean
         preferredLocale: SupportedLocale | null
         householdDefaultLocale: SupportedLocale
@@ -68,6 +69,7 @@ export interface HouseholdOnboardingService {
           id: string
           householdId: string
           displayName: string
+          status: HouseholdMemberRecord['status']
           isAdmin: boolean
           preferredLocale: SupportedLocale | null
           householdDefaultLocale: SupportedLocale
@@ -84,6 +86,7 @@ function toMember(member: HouseholdMemberRecord): {
   id: string
   householdId: string
   displayName: string
+  status: HouseholdMemberRecord['status']
   isAdmin: boolean
   preferredLocale: SupportedLocale | null
   householdDefaultLocale: SupportedLocale
@@ -93,6 +96,7 @@ function toMember(member: HouseholdMemberRecord): {
     id: member.id,
     householdId: member.householdId,
     displayName: member.displayName,
+    status: member.status,
     isAdmin: member.isAdmin,
     preferredLocale: member.preferredLocale,
     householdDefaultLocale: member.householdDefaultLocale,

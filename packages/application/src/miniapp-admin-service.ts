@@ -1,6 +1,7 @@
 import type {
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
+  HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
   HouseholdTopicBindingRecord,
@@ -124,6 +125,21 @@ export interface MiniAppAdminService {
     | {
         status: 'rejected'
         reason: 'not_admin' | 'invalid_weight' | 'member_not_found'
+      }
+  >
+  updateMemberStatus(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+    status: HouseholdMemberLifecycleStatus
+  }): Promise<
+    | {
+        status: 'ok'
+        member: HouseholdMemberRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'member_not_found'
       }
   >
 }
@@ -341,6 +357,32 @@ export function createMiniAppAdminService(
         input.householdId,
         input.memberId,
         input.rentShareWeight
+      )
+      if (!member) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        member
+      }
+    },
+
+    async updateMemberStatus(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const member = await repository.updateHouseholdMemberStatus(
+        input.householdId,
+        input.memberId,
+        input.status
       )
       if (!member) {
         return {

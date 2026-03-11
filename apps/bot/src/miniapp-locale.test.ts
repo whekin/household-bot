@@ -31,6 +31,7 @@ function repository(): HouseholdConfigurationRepository {
         householdId: household.householdId,
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -44,6 +45,7 @@ function repository(): HouseholdConfigurationRepository {
         householdId: household.householdId,
         telegramUserId: '222222',
         displayName: 'Mia',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -93,6 +95,7 @@ function repository(): HouseholdConfigurationRepository {
         householdId: input.householdId,
         telegramUserId: input.telegramUserId,
         displayName: input.displayName,
+        status: input.status ?? 'active',
         preferredLocale: input.preferredLocale ?? null,
         householdDefaultLocale: household.defaultLocale,
         rentShareWeight: 1,
@@ -161,7 +164,8 @@ function repository(): HouseholdConfigurationRepository {
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
-    updateHouseholdMemberRentShareWeight: async () => null
+    updateHouseholdMemberRentShareWeight: async () => null,
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

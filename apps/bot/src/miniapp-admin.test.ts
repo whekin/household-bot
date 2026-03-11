@@ -11,6 +11,7 @@ import {
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
+  createMiniAppUpdateMemberStatusHandler,
   createMiniAppUpdateSettingsHandler
 } from './miniapp-admin'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
@@ -75,6 +76,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       householdId: household.householdId,
       telegramUserId: input.telegramUserId,
       displayName: input.displayName,
+      status: input.status ?? 'active',
       preferredLocale: input.preferredLocale ?? null,
       householdDefaultLocale: household.defaultLocale,
       rentShareWeight: 1,
@@ -101,6 +103,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             householdId: household.householdId,
             telegramUserId: '555777',
             displayName: 'Mia',
+            status: 'active',
             preferredLocale: null,
             householdDefaultLocale: household.defaultLocale,
             rentShareWeight: 1,
@@ -118,6 +121,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             householdId: household.householdId,
             telegramUserId,
             displayName: 'Mia',
+            status: 'active',
             preferredLocale: locale,
             householdDefaultLocale: household.defaultLocale,
             rentShareWeight: 1,
@@ -162,6 +166,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
           householdId,
           telegramUserId: '123456',
           displayName: 'Stan',
+          status: 'active' as const,
           preferredLocale: null,
           householdDefaultLocale: household.defaultLocale,
           rentShareWeight: 1,
@@ -183,9 +188,24 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             householdId: household.householdId,
             telegramUserId: '123456',
             displayName: 'Stan',
+            status: 'active',
             preferredLocale: null,
             householdDefaultLocale: household.defaultLocale,
             rentShareWeight,
+            isAdmin: false
+          }
+        : null,
+    updateHouseholdMemberStatus: async (_householdId, memberId, status) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId: household.householdId,
+            telegramUserId: '123456',
+            displayName: 'Stan',
+            status,
+            preferredLocale: null,
+            householdDefaultLocale: household.defaultLocale,
+            rentShareWeight: 1,
             isAdmin: false
           }
         : null
@@ -202,6 +222,7 @@ describe('createMiniAppPendingMembersHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -265,6 +286,7 @@ describe('createMiniAppApproveMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -309,6 +331,7 @@ describe('createMiniAppApproveMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '555777',
         displayName: 'Mia',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -328,6 +351,7 @@ describe('createMiniAppSettingsHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -340,6 +364,7 @@ describe('createMiniAppSettingsHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -405,6 +430,7 @@ describe('createMiniAppSettingsHandler', () => {
           householdId: 'household-1',
           telegramUserId: '123456',
           displayName: 'Stan',
+          status: 'active',
           preferredLocale: null,
           householdDefaultLocale: 'ru',
           rentShareWeight: 1,
@@ -425,6 +451,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -495,6 +522,7 @@ describe('createMiniAppPromoteMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
@@ -539,10 +567,77 @@ describe('createMiniAppPromoteMemberHandler', () => {
         householdId: 'household-1',
         telegramUserId: '123456',
         displayName: 'Stan',
+        status: 'active',
         preferredLocale: null,
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
         isAdmin: true
+      }
+    })
+  })
+})
+
+describe('createMiniAppUpdateMemberStatusHandler', () => {
+  test('updates a household member status for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppUpdateMemberStatusHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/members/status', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          memberId: 'member-123456',
+          status: 'away'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'away',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
       }
     })
   })
