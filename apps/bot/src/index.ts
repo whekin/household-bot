@@ -1,4 +1,5 @@
 import { webhookCallback } from 'grammy'
+import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import {
   createAnonymousFeedbackService,
@@ -40,6 +41,7 @@ import {
 } from './purchase-topic-ingestion'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
 import { createReminderJobsHandler } from './reminder-jobs'
+import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
 import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
@@ -328,7 +330,7 @@ const reminderJobs = runtime.reminderJobsEnabled
         },
         releaseReminderDispatch: (input) =>
           reminderRepositoryClient.repository.releaseReminderDispatch(input),
-        sendReminderMessage: async (target, text) => {
+        sendReminderMessage: async (target, content) => {
           const threadId =
             target.telegramThreadId !== null ? Number(target.telegramThreadId) : undefined
 
@@ -338,17 +340,25 @@ const reminderJobs = runtime.reminderJobsEnabled
             )
           }
 
-          await bot.api.sendMessage(
-            target.telegramChatId,
-            text,
-            threadId
+          await bot.api.sendMessage(target.telegramChatId, content.text, {
+            ...(threadId
               ? {
                   message_thread_id: threadId
                 }
-              : undefined
-          )
+              : {}),
+            ...(content.replyMarkup
+              ? {
+                  reply_markup: content.replyMarkup as InlineKeyboardMarkup
+                }
+              : {})
+          })
         },
         reminderService,
+        ...(runtime.miniAppAllowedOrigins[0]
+          ? {
+              miniAppUrl: runtime.miniAppAllowedOrigins[0]
+            }
+          : {}),
         logger: getLogger('scheduler')
       })
     })()
@@ -445,6 +455,16 @@ if (
       logger: getLogger('dm-assistant')
     })
   }
+}
+
+if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
+  registerReminderTopicUtilities({
+    bot,
+    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+    promptRepository: telegramPendingActionRepositoryClient.repository,
+    financeServiceForHousehold,
+    logger: getLogger('reminder-utilities')
+  })
 }
 
 const server = createBotWebhookServer({

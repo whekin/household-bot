@@ -29,6 +29,10 @@ function parsePendingActionType(raw: string): TelegramPendingActionType {
     return raw
   }
 
+  if (raw === 'reminder_utility_entry') {
+    return raw
+  }
+
   if (raw === 'setup_topic_binding') {
     return raw
   }

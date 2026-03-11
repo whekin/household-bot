@@ -258,7 +258,34 @@ export const ruBotTranslations: BotTranslationCatalog = {
   reminders: {
     utilities: (period) => `Напоминание по коммунальным платежам за ${period}`,
     rentWarning: (period) => `Напоминание по аренде за ${period}: срок оплаты скоро наступит.`,
-    rentDue: (period) => `Напоминание по аренде за ${period}: пожалуйста, оплатите сегодня.`
+    rentDue: (period) => `Напоминание по аренде за ${period}: пожалуйста, оплатите сегодня.`,
+    guidedEntryButton: 'Ввести по шагам',
+    copyTemplateButton: 'Шаблон',
+    openDashboardButton: 'Открыть дашборд',
+    noActiveCategories:
+      'Для этого дома пока нет активных категорий коммуналки. Сначала добавьте их в дашборде.',
+    startToast: 'Пошаговый ввод коммуналки запущен.',
+    templateToast: 'Шаблон коммуналки отправлен.',
+    promptAmount: (categoryName, currency, remainingCount) =>
+      `Ответьте суммой для «${categoryName}» в ${currency}. Отправьте 0 или «пропуск», если эту категорию не нужно добавлять.${remainingCount > 0 ? ` После этого останется ещё ${remainingCount}.` : ''}`,
+    invalidAmount: (categoryName, currency) =>
+      `Не удалось распознать сумму для «${categoryName}». Отправьте число в ${currency} или 0 / «пропуск».`,
+    templateIntro: (currency) =>
+      `Заполните суммы по коммуналке ниже в ${currency}, затем отправьте заполненное сообщение обратно в этот топик.`,
+    templateInstruction:
+      'Для любой категории, которую не нужно добавлять, укажите 0 или слово «пропуск».',
+    templateInvalid:
+      'Не удалось распознать ни одной суммы в этом шаблоне. Отправьте заполненный шаблон хотя бы с одной суммой.',
+    summaryTitle: (period) => `Коммунальные начисления за ${period}`,
+    summaryLine: (categoryName, amount, currency) => `- ${categoryName}: ${amount} ${currency}`,
+    confirmPrompt: 'Подтвердите или отмените ниже.',
+    confirmButton: 'Сохранить коммуналку',
+    cancelButton: 'Отменить',
+    cancelled: 'Ввод коммуналки отменён.',
+    saved: (count, period) =>
+      `Сохранено ${count} ${count === 1 ? 'начисление коммуналки' : 'начислений коммуналки'} за ${period}.`,
+    proposalUnavailable: 'Это предложение по коммуналке уже недоступно.',
+    onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.'
   },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',

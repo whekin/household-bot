@@ -2,13 +2,20 @@ import type { ReminderJobService } from '@household/application'
 import { BillingPeriod, Temporal, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import { REMINDER_TYPES, type ReminderTarget, type ReminderType } from '@household/ports'
+import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { getBotTranslations } from './i18n'
+import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
 
 interface ReminderJobRequestBody {
   period?: string
   jobId?: string
   dryRun?: boolean
+}
+
+export interface ReminderMessageContent {
+  text: string
+  replyMarkup?: InlineKeyboardMarkup
 }
 
 function json(body: object, status = 200): Response {
@@ -82,24 +89,36 @@ export function createReminderJobsHandler(options: {
     period: string
     reminderType: ReminderType
   }) => Promise<void>
-  sendReminderMessage: (target: ReminderTarget, text: string) => Promise<void>
+  sendReminderMessage: (target: ReminderTarget, content: ReminderMessageContent) => Promise<void>
   reminderService: ReminderJobService
   forceDryRun?: boolean
   now?: () => Temporal.Instant
+  miniAppUrl?: string
   logger?: Logger
 }): {
   handle: (request: Request, rawReminderType: string) => Promise<Response>
 } {
-  function messageText(target: ReminderTarget, reminderType: ReminderType, period: string): string {
+  function messageContent(
+    target: ReminderTarget,
+    reminderType: ReminderType,
+    period: string
+  ): ReminderMessageContent {
     const t = getBotTranslations(target.locale).reminders
 
     switch (reminderType) {
       case 'utilities':
-        return t.utilities(period)
+        return {
+          text: t.utilities(period),
+          replyMarkup: buildUtilitiesReminderReplyMarkup(target.locale, options.miniAppUrl)
+        }
       case 'rent-warning':
-        return t.rentWarning(period)
+        return {
+          text: t.rentWarning(period)
+        }
       case 'rent-due':
-        return t.rentDue(period)
+        return {
+          text: t.rentDue(period)
+        }
     }
   }
 
@@ -149,14 +168,14 @@ export function createReminderJobsHandler(options: {
             reminderType,
             dryRun
           })
-          const text = messageText(target, reminderType, period)
+          const content = messageContent(target, reminderType, period)
 
           let outcome: 'dry-run' | 'claimed' | 'duplicate' | 'failed' = result.status
           let error: string | undefined
 
           if (result.status === 'claimed') {
             try {
-              await options.sendReminderMessage(target, text)
+              await options.sendReminderMessage(target, content)
             } catch (dispatchError) {
               await options.releaseReminderDispatch({
                 householdId: target.householdId,
@@ -196,7 +215,7 @@ export function createReminderJobsHandler(options: {
             period,
             dedupeKey: result.dedupeKey,
             outcome,
-            messageText: text,
+            messageText: content.text,
             ...(error ? { error } : {})
           })
         }

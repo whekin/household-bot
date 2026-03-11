@@ -59,7 +59,23 @@ describe('createReminderJobsHandler', () => {
     expect(sendReminderMessage).toHaveBeenCalledTimes(1)
     expect(sendReminderMessage).toHaveBeenCalledWith(
       target,
-      'Напоминание по коммунальным платежам за 2026-03'
+      expect.objectContaining({
+        text: 'Напоминание по коммунальным платежам за 2026-03',
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Ввести по шагам',
+                callback_data: 'reminder_util:guided'
+              },
+              {
+                text: 'Шаблон',
+                callback_data: 'reminder_util:template'
+              }
+            ]
+          ]
+        }
+      })
     )
 
     expect(response.status).toBe(200)

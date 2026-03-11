@@ -242,6 +242,26 @@ export interface BotTranslationCatalog {
     utilities: (period: string) => string
     rentWarning: (period: string) => string
     rentDue: (period: string) => string
+    guidedEntryButton: string
+    copyTemplateButton: string
+    openDashboardButton: string
+    noActiveCategories: string
+    startToast: string
+    templateToast: string
+    promptAmount: (categoryName: string, currency: string, remainingCount: number) => string
+    invalidAmount: (categoryName: string, currency: string) => string
+    templateIntro: (currency: string) => string
+    templateInstruction: string
+    templateInvalid: string
+    summaryTitle: (period: string) => string
+    summaryLine: (categoryName: string, amount: string, currency: string) => string
+    confirmPrompt: string
+    confirmButton: string
+    cancelButton: string
+    cancelled: string
+    saved: (count: number, period: string) => string
+    proposalUnavailable: string
+    onlyOriginalSender: string
   }
   purchase: {
     sharedPurchaseFallback: string

@@ -254,7 +254,33 @@ export const enBotTranslations: BotTranslationCatalog = {
   reminders: {
     utilities: (period) => `Utilities reminder for ${period}`,
     rentWarning: (period) => `Rent reminder for ${period}: payment is coming up soon.`,
-    rentDue: (period) => `Rent due reminder for ${period}: please settle payment today.`
+    rentDue: (period) => `Rent due reminder for ${period}: please settle payment today.`,
+    guidedEntryButton: 'Guided entry',
+    copyTemplateButton: 'Copy template',
+    openDashboardButton: 'Open dashboard',
+    noActiveCategories:
+      'This household has no active utility categories yet. Use the dashboard to add them first.',
+    startToast: 'Guided utility entry started.',
+    templateToast: 'Utility template sent.',
+    promptAmount: (categoryName, currency, remainingCount) =>
+      `Reply with the amount for ${categoryName} in ${currency}. Send 0 or "skip" to leave it out.${remainingCount > 0 ? ` ${remainingCount} categories remain after this.` : ''}`,
+    invalidAmount: (categoryName, currency) =>
+      `I could not read that amount for ${categoryName}. Reply with a number in ${currency}, or send 0 / "skip".`,
+    templateIntro: (currency) =>
+      `Fill in the utility amounts below in ${currency}, then send the completed message back in this topic.`,
+    templateInstruction: 'Use 0 or skip for any category you want to leave empty.',
+    templateInvalid:
+      'I could not read any utility amounts from that template. Send the filled template back with at least one amount.',
+    summaryTitle: (period) => `Utility charges for ${period}`,
+    summaryLine: (categoryName, amount, currency) => `- ${categoryName}: ${amount} ${currency}`,
+    confirmPrompt: 'Confirm or cancel below.',
+    confirmButton: 'Save utility charges',
+    cancelButton: 'Cancel',
+    cancelled: 'Utility submission cancelled.',
+    saved: (count, period) =>
+      `Saved ${count} utility ${count === 1 ? 'charge' : 'charges'} for ${period}.`,
+    proposalUnavailable: 'This utility submission is no longer available.',
+    onlyOriginalSender: 'Only the person who started this utility submission can confirm it.'
   },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
