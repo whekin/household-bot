@@ -72,6 +72,19 @@ function setupRejectionMessage(
   }
 }
 
+function unsetupRejectionMessage(
+  locale: BotLocale,
+  reason: 'not_admin' | 'invalid_chat_type'
+): string {
+  const t = getBotTranslations(locale).setup
+  switch (reason) {
+    case 'not_admin':
+      return t.onlyTelegramAdminsUnsetup
+    case 'invalid_chat_type':
+      return t.useUnsetupInGroup
+  }
+}
+
 function bindRejectionMessage(
   locale: BotLocale,
   reason: 'not_admin' | 'household_not_found' | 'not_topic_message'
@@ -666,6 +679,57 @@ export function registerHouseholdSetupCommands(options: {
       created: result.status === 'created'
     })
     await ctx.reply(reply.text, 'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {})
+  })
+
+  options.bot.command('unsetup', async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale)
+
+    if (!isGroupChat(ctx)) {
+      await ctx.reply(t.setup.useUnsetupInGroup)
+      return
+    }
+
+    const telegramChatId = ctx.chat.id.toString()
+    const result = await options.householdSetupService.unsetupGroupChat({
+      actorIsAdmin: await isGroupAdmin(ctx),
+      telegramChatId,
+      telegramChatType: ctx.chat.type
+    })
+
+    if (result.status === 'rejected') {
+      await ctx.reply(unsetupRejectionMessage(locale, result.reason))
+      return
+    }
+
+    if (result.status === 'noop') {
+      await options.promptRepository?.clearPendingActionsForChat(
+        telegramChatId,
+        SETUP_BIND_TOPIC_ACTION
+      )
+      await ctx.reply(t.setup.unsetupNoop)
+      return
+    }
+
+    await options.promptRepository?.clearPendingActionsForChat(
+      telegramChatId,
+      SETUP_BIND_TOPIC_ACTION
+    )
+
+    options.logger?.info(
+      {
+        event: 'household_setup.chat_reset',
+        telegramChatId,
+        householdId: result.household.householdId,
+        actorTelegramUserId: ctx.from?.id?.toString()
+      },
+      'Household setup state reset'
+    )
+
+    await ctx.reply(t.setup.unsetupComplete(result.household.householdName))
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {

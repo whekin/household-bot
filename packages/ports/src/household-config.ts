@@ -103,6 +103,7 @@ export interface HouseholdConfigurationRepository {
     telegramThreadId: string
   }): Promise<HouseholdTopicBindingRecord | null>
   listHouseholdTopicBindings(householdId: string): Promise<readonly HouseholdTopicBindingRecord[]>
+  clearHouseholdTopicBindings(householdId: string): Promise<void>
   listReminderTargets(): Promise<readonly ReminderTarget[]>
   upsertHouseholdJoinToken(input: {
     householdId: string

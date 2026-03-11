@@ -8,6 +8,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     anon: 'Send anonymous household feedback',
     cancel: 'Cancel the current prompt',
     setup: 'Register this group as a household',
+    unsetup: 'Reset topic setup for this group',
     bind_purchase_topic: 'Bind the current topic as purchases',
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
@@ -94,6 +95,11 @@ export const enBotTranslations: BotTranslationCatalog = {
           return 'Payments'
       }
     },
+    onlyTelegramAdminsUnsetup: 'Only Telegram group admins can run /unsetup.',
+    useUnsetupInGroup: 'Use /unsetup inside the household group.',
+    unsetupComplete: (householdName) =>
+      `Setup state reset for ${householdName}. Run /setup again to bind topics from scratch.`,
+    unsetupNoop: 'Nothing to reset for this group yet. Run /setup when you are ready.',
     useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Purchase topic saved for ${householdName} (thread ${threadId}).`,

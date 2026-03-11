@@ -8,6 +8,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     anon: 'Отправить анонимное сообщение по дому',
     cancel: 'Отменить текущий ввод',
     setup: 'Подключить эту группу как дом',
+    unsetup: 'Сбросить настройку топиков для этой группы',
     bind_purchase_topic: 'Назначить текущий топик для покупок',
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
@@ -96,6 +97,11 @@ export const ruBotTranslations: BotTranslationCatalog = {
           return 'Оплаты'
       }
     },
+    onlyTelegramAdminsUnsetup: 'Только админы Telegram-группы могут запускать /unsetup.',
+    useUnsetupInGroup: 'Используйте /unsetup внутри группы дома.',
+    unsetupComplete: (householdName) =>
+      `Состояние настройки для ${householdName} сброшено. Запустите /setup ещё раз, чтобы заново привязать топики.`,
+    unsetupNoop: 'Для этой группы пока нечего сбрасывать. Когда будете готовы, запустите /setup.',
     useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Топик покупок сохранён для ${householdName} (тред ${threadId}).`,

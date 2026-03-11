@@ -34,6 +34,7 @@ const GROUP_MEMBER_COMMAND_NAMES = [
 const GROUP_ADMIN_COMMAND_NAMES = [
   ...GROUP_MEMBER_COMMAND_NAMES,
   'setup',
+  'unsetup',
   'bind_purchase_topic',
   'bind_feedback_topic',
   'bind_reminders_topic',

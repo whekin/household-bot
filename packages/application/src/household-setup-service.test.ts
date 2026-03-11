@@ -93,6 +93,9 @@ function createRepositoryStub() {
     async listHouseholdTopicBindings(householdId) {
       return bindings.get(householdId) ?? []
     },
+    async clearHouseholdTopicBindings(householdId) {
+      bindings.set(householdId, [])
+    },
     async listReminderTargets() {
       return []
     },
@@ -512,6 +515,58 @@ describe('createHouseholdSetupService', () => {
     expect(result).toEqual({
       status: 'rejected',
       reason: 'not_topic_message'
+    })
+  })
+
+  test('clears topic bindings when unsetup is run by a group admin', async () => {
+    const { repository } = createRepositoryStub()
+    const service = createHouseholdSetupService(repository)
+    const setup = await service.setupGroupChat({
+      actorIsAdmin: true,
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House'
+    })
+
+    expect(setup.status).toBe('created')
+    if (setup.status === 'rejected') {
+      return
+    }
+
+    await service.bindTopic({
+      actorIsAdmin: true,
+      telegramChatId: '-100123',
+      role: 'purchase',
+      telegramThreadId: '777',
+      topicName: 'Shared purchases'
+    })
+
+    const result = await service.unsetupGroupChat({
+      actorIsAdmin: true,
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup'
+    })
+
+    expect(result).toEqual({
+      status: 'reset',
+      household: setup.household
+    })
+    expect(await repository.listHouseholdTopicBindings(setup.household.householdId)).toEqual([])
+    expect(await repository.getTelegramHouseholdChat('-100123')).toEqual(setup.household)
+  })
+
+  test('treats repeated unsetup as a no-op', async () => {
+    const { repository } = createRepositoryStub()
+    const service = createHouseholdSetupService(repository)
+
+    const result = await service.unsetupGroupChat({
+      actorIsAdmin: true,
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup'
+    })
+
+    expect(result).toEqual({
+      status: 'noop'
     })
   })
 })

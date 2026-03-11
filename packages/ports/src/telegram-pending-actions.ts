@@ -23,4 +23,8 @@ export interface TelegramPendingActionRepository {
     telegramUserId: string
   ): Promise<TelegramPendingActionRecord | null>
   clearPendingAction(telegramChatId: string, telegramUserId: string): Promise<void>
+  clearPendingActionsForChat(
+    telegramChatId: string,
+    action?: TelegramPendingActionType
+  ): Promise<void>
 }

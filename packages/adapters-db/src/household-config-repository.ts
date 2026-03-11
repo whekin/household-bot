@@ -503,6 +503,12 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       return rows.map(toHouseholdTopicBindingRecord)
     },
 
+    async clearHouseholdTopicBindings(householdId) {
+      await db
+        .delete(schema.householdTopicBindings)
+        .where(eq(schema.householdTopicBindings.householdId, householdId))
+    },
+
     async listReminderTargets() {
       const rows = await db
         .select({

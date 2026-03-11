@@ -55,6 +55,7 @@ function createRepositoryStub() {
     async listHouseholdTopicBindings() {
       return []
     },
+    async clearHouseholdTopicBindings() {},
     async listReminderTargets() {
       return []
     },

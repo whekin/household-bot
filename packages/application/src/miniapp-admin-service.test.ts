@@ -35,6 +35,7 @@ function repository(): HouseholdConfigurationRepository {
         topicName: 'Общие покупки'
       }
     ],
+    clearHouseholdTopicBindings: async () => {},
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => ({
       householdId: 'household-1',

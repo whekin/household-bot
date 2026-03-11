@@ -89,6 +89,19 @@ function createPromptRepository(): TelegramPendingActionRepository {
     },
     async clearPendingAction(telegramChatId, telegramUserId) {
       store.delete(`${telegramChatId}:${telegramUserId}`)
+    },
+    async clearPendingActionsForChat(telegramChatId, action) {
+      for (const [key, record] of store.entries()) {
+        if (!key.startsWith(`${telegramChatId}:`)) {
+          continue
+        }
+
+        if (action && record.action !== action) {
+          continue
+        }
+
+        store.delete(key)
+      }
     }
   }
 }
@@ -139,6 +152,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
         : null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    clearHouseholdTopicBindings: async () => {},
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => ({
       householdId: 'household-1',

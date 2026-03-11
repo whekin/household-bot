@@ -6,6 +6,7 @@ export type TelegramCommandName =
   | 'anon'
   | 'cancel'
   | 'setup'
+  | 'unsetup'
   | 'bind_purchase_topic'
   | 'bind_feedback_topic'
   | 'bind_reminders_topic'
@@ -20,6 +21,7 @@ export interface BotCommandDescriptions {
   anon: string
   cancel: string
   setup: string
+  unsetup: string
   bind_purchase_topic: string
   bind_feedback_topic: string
   bind_reminders_topic: string
@@ -86,6 +88,10 @@ export interface BotTranslationCatalog {
     setupTopicBindNotAvailable: string
     setupTopicBindRoleName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
     setupTopicSuggestedName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
+    onlyTelegramAdminsUnsetup: string
+    useUnsetupInGroup: string
+    unsetupComplete: (householdName: string) => string
+    unsetupNoop: string
     useBindPurchaseTopicInGroup: string
     purchaseTopicSaved: (householdName: string, threadId: string) => string
     useBindFeedbackTopicInGroup: string

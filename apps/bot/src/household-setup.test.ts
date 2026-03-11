@@ -68,6 +68,11 @@ function createRejectedHouseholdSetupService(): HouseholdSetupService {
         status: 'rejected',
         reason: 'household_not_found'
       }
+    },
+    async unsetupGroupChat() {
+      return {
+        status: 'noop'
+      }
     }
   }
 }
@@ -206,6 +211,19 @@ function createPromptRepository(): TelegramPendingActionRepository {
     },
     async clearPendingAction(telegramChatId, telegramUserId) {
       store.delete(`${telegramChatId}:${telegramUserId}`)
+    },
+    async clearPendingActionsForChat(telegramChatId, action) {
+      for (const [key, record] of store.entries()) {
+        if (!key.startsWith(`${telegramChatId}:`)) {
+          continue
+        }
+
+        if (action && record.action !== action) {
+          continue
+        }
+
+        store.delete(key)
+      }
     }
   }
 }
@@ -287,6 +305,9 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     },
     async listHouseholdTopicBindings(householdId) {
       return bindings.get(householdId) ?? []
+    },
+    async clearHouseholdTopicBindings(householdId) {
+      bindings.set(householdId, [])
     },
     async listReminderTargets() {
       return []
@@ -1058,6 +1079,234 @@ describe('registerHouseholdSetupCommands', () => {
     expect(await promptRepository.getPendingAction('-100123456', '123456')).toBeNull()
     expect(await repository.getHouseholdTopicBinding('household-1', 'payments')).toMatchObject({
       telegramThreadId: '444'
+    })
+  })
+
+  test('resets setup state with /unsetup and clears pending setup bindings', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+    const promptRepository = createPromptRepository()
+    const householdOnboardingService: HouseholdOnboardingService = {
+      async ensureHouseholdJoinToken() {
+        return {
+          householdId: 'household-1',
+          householdName: 'Kojori House',
+          token: 'join-token'
+        }
+      },
+      async getMiniAppAccess() {
+        return {
+          status: 'open_from_group'
+        }
+      },
+      async joinHousehold() {
+        return {
+          status: 'pending',
+          household: {
+            id: 'household-1',
+            name: 'Kojori House',
+            defaultLocale: 'en'
+          }
+        }
+      }
+    }
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: true
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'getChatMember') {
+        return {
+          ok: true,
+          result: {
+            status: 'administrator',
+            user: {
+              id: 123456,
+              is_bot: false,
+              first_name: 'Stan'
+            }
+          }
+        } as never
+      }
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123456,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const householdSetupService = createHouseholdSetupService(repository)
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService,
+      householdOnboardingService,
+      householdAdminService: createHouseholdAdminService(),
+      householdConfigurationRepository: repository,
+      promptRepository
+    })
+
+    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
+    await householdSetupService.bindTopic({
+      actorIsAdmin: true,
+      telegramChatId: '-100123456',
+      role: 'purchase',
+      telegramThreadId: '777',
+      topicName: 'Shared purchases'
+    })
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '123456',
+      telegramChatId: '-100123456',
+      action: 'setup_topic_binding',
+      payload: {
+        role: 'payments'
+      },
+      expiresAt: nowInstant().add({ minutes: 10 })
+    })
+
+    calls.length = 0
+    await bot.handleUpdate(groupCommandUpdate('/unsetup') as never)
+
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123456,
+        text: 'Setup state reset for Kojori House. Run /setup again to bind topics from scratch.'
+      }
+    })
+    expect(await repository.listHouseholdTopicBindings('household-1')).toEqual([])
+    expect(await repository.getTelegramHouseholdChat('-100123456')).toMatchObject({
+      householdId: 'household-1'
+    })
+    expect(await promptRepository.getPendingAction('-100123456', '123456')).toBeNull()
+  })
+
+  test('treats repeated /unsetup as a safe no-op', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: true
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'getChatMember') {
+        return {
+          ok: true,
+          result: {
+            status: 'administrator',
+            user: {
+              id: 123456,
+              is_bot: false,
+              first_name: 'Stan'
+            }
+          }
+        } as never
+      }
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123456,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createHouseholdSetupService(repository),
+      householdOnboardingService: {
+        async ensureHouseholdJoinToken() {
+          return {
+            householdId: 'household-1',
+            householdName: 'Kojori House',
+            token: 'join-token'
+          }
+        },
+        async getMiniAppAccess() {
+          return {
+            status: 'open_from_group'
+          }
+        },
+        async joinHousehold() {
+          return {
+            status: 'pending',
+            household: {
+              id: 'household-1',
+              name: 'Kojori House',
+              defaultLocale: 'en'
+            }
+          }
+        }
+      },
+      householdAdminService: createHouseholdAdminService(),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(groupCommandUpdate('/unsetup') as never)
+
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123456,
+        text: 'Nothing to reset for this group yet. Run /setup when you are ready.'
+      }
     })
   })
 })

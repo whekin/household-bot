@@ -41,6 +41,23 @@ export interface HouseholdSetupService {
         reason: 'not_admin' | 'household_not_found' | 'not_topic_message'
       }
   >
+  unsetupGroupChat(input: {
+    actorIsAdmin: boolean
+    telegramChatId: string
+    telegramChatType: string
+  }): Promise<
+    | {
+        status: 'reset'
+        household: HouseholdTelegramChatRecord
+      }
+    | {
+        status: 'noop'
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'invalid_chat_type'
+      }
+  >
 }
 
 function isSupportedGroupChat(chatType: string): boolean {
@@ -145,6 +162,36 @@ export function createHouseholdSetupService(
         status: 'bound',
         household,
         binding
+      }
+    },
+
+    async unsetupGroupChat(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      if (!isSupportedGroupChat(input.telegramChatType)) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_chat_type'
+        }
+      }
+
+      const household = await repository.getTelegramHouseholdChat(input.telegramChatId)
+      if (!household) {
+        return {
+          status: 'noop'
+        }
+      }
+
+      await repository.clearHouseholdTopicBindings(household.householdId)
+
+      return {
+        status: 'reset',
+        household
       }
     }
   }

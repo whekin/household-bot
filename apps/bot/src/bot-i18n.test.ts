@@ -74,6 +74,7 @@ function createRepository(isAdmin = false): HouseholdConfigurationRepository {
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    clearHouseholdTopicBindings: async () => {},
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => {
       throw new Error('not implemented')

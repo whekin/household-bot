@@ -151,6 +151,19 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
             eq(schema.telegramPendingActions.telegramUserId, telegramUserId)
           )
         )
+    },
+
+    async clearPendingActionsForChat(telegramChatId, action) {
+      await db
+        .delete(schema.telegramPendingActions)
+        .where(
+          action
+            ? and(
+                eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
+                eq(schema.telegramPendingActions.action, action)
+              )
+            : eq(schema.telegramPendingActions.telegramChatId, telegramChatId)
+        )
     }
   }
 

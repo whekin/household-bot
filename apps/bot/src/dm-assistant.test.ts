@@ -106,6 +106,7 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
     getHouseholdTopicBinding: async () => null,
     findHouseholdTopicByTelegramContext: async () => null,
     listHouseholdTopicBindings: async () => [],
+    clearHouseholdTopicBindings: async () => {},
     listReminderTargets: async () => [],
     upsertHouseholdJoinToken: async () => {
       throw new Error('not used')
@@ -309,6 +310,17 @@ function createPromptRepository(): TelegramPendingActionRepository {
       return pending
     },
     async clearPendingAction() {
+      pending = null
+    },
+    async clearPendingActionsForChat(telegramChatId, action) {
+      if (!pending || pending.telegramChatId !== telegramChatId) {
+        return
+      }
+
+      if (action && pending.action !== action) {
+        return
+      }
+
       pending = null
     }
   }
