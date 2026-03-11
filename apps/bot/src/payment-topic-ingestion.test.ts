@@ -556,4 +556,90 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(paymentConfirmationService.submitted).toHaveLength(0)
   })
+
+  test('skips explicitly tagged bot messages in the payments topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot как жизнь?') as never)
+
+    expect(calls).toHaveLength(0)
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+  })
+
+  test('still handles tagged payment-like messages in the payments topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot за жилье закинул') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      text: 'Я могу записать эту оплату аренды: 472.50 GEL. Подтвердите или отмените ниже.'
+    })
+  })
 })

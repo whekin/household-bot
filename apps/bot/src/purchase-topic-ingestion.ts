@@ -14,6 +14,7 @@ import type {
   PurchaseMessageInterpreter
 } from './openai-purchase-interpreter'
 import { startTypingIndicator } from './telegram-chat-action'
+import { stripExplicitBotMention } from './telegram-mentions'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
@@ -392,7 +393,7 @@ function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
     messageId: message.message_id.toString(),
     threadId: message.message_thread_id.toString(),
     senderTelegramUserId,
-    rawText: message.text,
+    rawText: stripExplicitBotMention(ctx)?.strippedText ?? message.text,
     messageSentAt: instantFromEpochSeconds(message.date)
   }
 
@@ -1054,6 +1055,9 @@ export function registerPurchaseTopicIngestion(
         ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
         : null
       const result = await repository.save(record, options.interpreter, 'GEL')
+      if (stripExplicitBotMention(ctx) && result.status === 'ignored_not_purchase') {
+        return await next()
+      }
       await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
     } catch (error) {
       options.logger?.error(
@@ -1130,6 +1134,9 @@ export function registerConfiguredPurchaseTopicIngestion(
         options.interpreter,
         billingSettings.settlementCurrency
       )
+      if (stripExplicitBotMention(ctx) && result.status === 'ignored_not_purchase') {
+        return await next()
+      }
 
       await handlePurchaseMessageResult(ctx, record, result, locale, options.logger, pendingReply)
     } catch (error) {

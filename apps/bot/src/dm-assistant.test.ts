@@ -58,6 +58,29 @@ function privateMessageUpdate(text: string) {
   }
 }
 
+function topicMentionUpdate(text: string) {
+  return {
+    update_id: 3001,
+    message: {
+      message_id: 88,
+      date: Math.floor(Date.now() / 1000),
+      message_thread_id: 777,
+      is_topic_message: true,
+      chat: {
+        id: -100123,
+        type: 'supergroup'
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: 'en'
+      },
+      text
+    }
+  }
+}
+
 function privateCallbackUpdate(data: string) {
   return {
     update_id: 2002,
@@ -939,6 +962,86 @@ describe('registerDmAssistant', () => {
       payload: {
         chat_id: 123456,
         text: 'general fallback reply'
+      }
+    })
+  })
+
+  test('replies as the general assistant when explicitly mentioned in a household topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond(input) {
+          assistantCalls += 1
+          expect(input.userMessage).toBe('how is life?')
+          return {
+            text: 'Still standing.',
+            usage: {
+              inputTokens: 15,
+              outputTokens: 4,
+              totalTokens: 19
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
+
+    expect(assistantCalls).toBe(1)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: -100123,
+        action: 'typing',
+        message_thread_id: 777
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123,
+        message_thread_id: 777,
+        text: 'Still standing.'
       }
     })
   })

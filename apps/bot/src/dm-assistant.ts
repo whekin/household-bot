@@ -19,6 +19,7 @@ import type {
   PurchaseTopicRecord
 } from './purchase-topic-ingestion'
 import { startTypingIndicator } from './telegram-chat-action'
+import { stripExplicitBotMention } from './telegram-mentions'
 
 const ASSISTANT_PAYMENT_ACTION = 'assistant_payment_confirmation' as const
 const ASSISTANT_PAYMENT_CONFIRM_CALLBACK_PREFIX = 'assistant_payment:confirm:'
@@ -26,6 +27,7 @@ const ASSISTANT_PAYMENT_CANCEL_CALLBACK_PREFIX = 'assistant_payment:cancel:'
 const ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX = 'assistant_purchase:confirm:'
 const ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX = 'assistant_purchase:cancel:'
 const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
+const GROUP_ASSISTANT_MESSAGE_SOURCE = 'telegram-group-assistant'
 const MEMORY_SUMMARY_MAX_CHARS = 1200
 const PURCHASE_VERB_PATTERN =
   /\b(?:bought|buy|got|picked up|spent|купил(?:а|и)?|взял(?:а|и)?|выложил(?:а|и)?|отдал(?:а|и)?|потратил(?:а|и)?)\b/iu
@@ -106,6 +108,10 @@ function isPrivateChat(ctx: Context): boolean {
   return ctx.chat?.type === 'private'
 }
 
+function isGroupChat(ctx: Context): boolean {
+  return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
+}
+
 function isCommandMessage(ctx: Context): boolean {
   return typeof ctx.msg?.text === 'string' && ctx.msg.text.trim().startsWith('/')
 }
@@ -121,6 +127,16 @@ function summarizeTurns(
   return next.length <= MEMORY_SUMMARY_MAX_CHARS
     ? next
     : next.slice(next.length - MEMORY_SUMMARY_MAX_CHARS)
+}
+
+function conversationMemoryKey(input: {
+  telegramUserId: string
+  telegramChatId: string
+  isPrivateChat: boolean
+}): string {
+  return input.isPrivateChat
+    ? input.telegramUserId
+    : `group:${input.telegramChatId}:${input.telegramUserId}`
 }
 
 export function createInMemoryAssistantConversationMemoryStore(
@@ -455,6 +471,118 @@ async function buildHouseholdContext(input: {
   return lines.join('\n')
 }
 
+async function replyWithAssistant(input: {
+  ctx: Context
+  assistant: ConversationalAssistant | undefined
+  householdId: string
+  memberId: string
+  memberDisplayName: string
+  telegramUserId: string
+  telegramChatId: string
+  locale: BotLocale
+  userMessage: string
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  financeService: FinanceCommandService
+  memoryStore: AssistantConversationMemoryStore
+  usageTracker: AssistantUsageTracker
+  logger: Logger | undefined
+}): Promise<void> {
+  const t = getBotTranslations(input.locale).assistant
+
+  if (!input.assistant) {
+    await input.ctx.reply(t.unavailable)
+    return
+  }
+
+  const memoryKey = conversationMemoryKey({
+    telegramUserId: input.telegramUserId,
+    telegramChatId: input.telegramChatId,
+    isPrivateChat: isPrivateChat(input.ctx)
+  })
+  const memory = input.memoryStore.get(memoryKey)
+  const typingIndicator = startTypingIndicator(input.ctx)
+  const assistantStartedAt = Date.now()
+  let stage: 'household_context' | 'assistant_response' = 'household_context'
+  let contextBuildMs: number | null = null
+  let assistantResponseMs: number | null = null
+
+  try {
+    const contextStartedAt = Date.now()
+    const householdContext = await buildHouseholdContext({
+      householdId: input.householdId,
+      memberId: input.memberId,
+      memberDisplayName: input.memberDisplayName,
+      locale: input.locale,
+      householdConfigurationRepository: input.householdConfigurationRepository,
+      financeService: input.financeService
+    })
+    contextBuildMs = Date.now() - contextStartedAt
+    stage = 'assistant_response'
+    const assistantResponseStartedAt = Date.now()
+    const reply = await input.assistant.respond({
+      locale: input.locale,
+      householdContext,
+      memorySummary: memory.summary,
+      recentTurns: memory.turns,
+      userMessage: input.userMessage
+    })
+    assistantResponseMs = Date.now() - assistantResponseStartedAt
+
+    input.usageTracker.record({
+      householdId: input.householdId,
+      telegramUserId: input.telegramUserId,
+      displayName: input.memberDisplayName,
+      usage: reply.usage
+    })
+    input.memoryStore.appendTurn(memoryKey, {
+      role: 'user',
+      text: input.userMessage
+    })
+    input.memoryStore.appendTurn(memoryKey, {
+      role: 'assistant',
+      text: reply.text
+    })
+
+    input.logger?.info(
+      {
+        event: 'assistant.reply',
+        householdId: input.householdId,
+        telegramUserId: input.telegramUserId,
+        contextBuildMs,
+        assistantResponseMs,
+        totalDurationMs: Date.now() - assistantStartedAt,
+        householdContextChars: householdContext.length,
+        recentTurnsCount: memory.turns.length,
+        memorySummaryChars: memory.summary?.length ?? 0,
+        inputTokens: reply.usage.inputTokens,
+        outputTokens: reply.usage.outputTokens,
+        totalTokens: reply.usage.totalTokens
+      },
+      'Assistant reply generated'
+    )
+
+    await input.ctx.reply(reply.text)
+  } catch (error) {
+    input.logger?.error(
+      {
+        event: 'assistant.reply_failed',
+        householdId: input.householdId,
+        telegramUserId: input.telegramUserId,
+        stage,
+        contextBuildMs,
+        assistantResponseMs,
+        totalDurationMs: Date.now() - assistantStartedAt,
+        ...describeError(error),
+        error
+      },
+      'Assistant reply failed'
+    )
+    await input.ctx.reply(t.unavailable)
+  } finally {
+    typingIndicator.stop()
+  }
+}
+
 export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
@@ -741,6 +869,11 @@ export function registerDmAssistant(options: {
       await next()
       return
     }
+    const memoryKey = conversationMemoryKey({
+      telegramUserId,
+      telegramChatId,
+      isPrivateChat: true
+    })
 
     const memberships =
       await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
@@ -831,11 +964,11 @@ export function registerDmAssistant(options: {
                   ? buildPurchaseClarificationText(locale, purchaseResult)
                   : getBotTranslations(locale).purchase.parseFailed
 
-            options.memoryStore.appendTurn(telegramUserId, {
+            options.memoryStore.appendTurn(memoryKey, {
               role: 'user',
               text: ctx.msg.text
             })
-            options.memoryStore.appendTurn(telegramUserId, {
+            options.memoryStore.appendTurn(memoryKey, {
               role: 'assistant',
               text: purchaseText
             })
@@ -902,11 +1035,11 @@ export function registerDmAssistant(options: {
           amount.toMajorString(),
           amount.currency
         )
-        options.memoryStore.appendTurn(telegramUserId, {
+        options.memoryStore.appendTurn(memoryKey, {
           role: 'user',
           text: ctx.msg.text
         })
-        options.memoryStore.appendTurn(telegramUserId, {
+        options.memoryStore.appendTurn(memoryKey, {
           role: 'assistant',
           text: proposalText
         })
@@ -917,98 +1050,131 @@ export function registerDmAssistant(options: {
         return
       }
 
-      if (!options.assistant) {
-        await ctx.reply(t.unavailable)
-        return
-      }
-
-      const memory = options.memoryStore.get(telegramUserId)
-      const typingIndicator = startTypingIndicator(ctx)
-      const assistantStartedAt = Date.now()
-      let stage: 'household_context' | 'assistant_response' = 'household_context'
-      let contextBuildMs: number | null = null
-      let assistantResponseMs: number | null = null
-
-      try {
-        const contextStartedAt = Date.now()
-        const householdContext = await buildHouseholdContext({
-          householdId: member.householdId,
-          memberId: member.id,
-          memberDisplayName: member.displayName,
-          locale,
-          householdConfigurationRepository: options.householdConfigurationRepository,
-          financeService
-        })
-        contextBuildMs = Date.now() - contextStartedAt
-        stage = 'assistant_response'
-        const assistantResponseStartedAt = Date.now()
-        const reply = await options.assistant.respond({
-          locale,
-          householdContext,
-          memorySummary: memory.summary,
-          recentTurns: memory.turns,
-          userMessage: ctx.msg.text
-        })
-        assistantResponseMs = Date.now() - assistantResponseStartedAt
-
-        options.usageTracker.record({
-          householdId: member.householdId,
-          telegramUserId,
-          displayName: member.displayName,
-          usage: reply.usage
-        })
-        options.memoryStore.appendTurn(telegramUserId, {
-          role: 'user',
-          text: ctx.msg.text
-        })
-        options.memoryStore.appendTurn(telegramUserId, {
-          role: 'assistant',
-          text: reply.text
-        })
-
-        options.logger?.info(
-          {
-            event: 'assistant.reply',
-            householdId: member.householdId,
-            telegramUserId,
-            contextBuildMs,
-            assistantResponseMs,
-            totalDurationMs: Date.now() - assistantStartedAt,
-            householdContextChars: householdContext.length,
-            recentTurnsCount: memory.turns.length,
-            memorySummaryChars: memory.summary?.length ?? 0,
-            inputTokens: reply.usage.inputTokens,
-            outputTokens: reply.usage.outputTokens,
-            totalTokens: reply.usage.totalTokens
-          },
-          'DM assistant reply generated'
-        )
-
-        await ctx.reply(reply.text)
-      } catch (error) {
-        options.logger?.error(
-          {
-            event: 'assistant.reply_failed',
-            householdId: member.householdId,
-            telegramUserId,
-            stage,
-            contextBuildMs,
-            assistantResponseMs,
-            totalDurationMs: Date.now() - assistantStartedAt,
-            ...describeError(error),
-            error
-          },
-          'DM assistant reply failed'
-        )
-        await ctx.reply(t.unavailable)
-      } finally {
-        typingIndicator.stop()
-      }
+      await replyWithAssistant({
+        ctx,
+        assistant: options.assistant,
+        householdId: member.householdId,
+        memberId: member.id,
+        memberDisplayName: member.displayName,
+        telegramUserId,
+        telegramChatId,
+        locale,
+        userMessage: ctx.msg.text,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        financeService,
+        memoryStore: options.memoryStore,
+        usageTracker: options.usageTracker,
+        logger: options.logger
+      })
     } catch (error) {
       if (dedupeClaim) {
         await dedupeClaim.repository.releaseMessage({
           householdId: member.householdId,
           source: DM_ASSISTANT_MESSAGE_SOURCE,
+          sourceMessageKey: dedupeClaim.updateId
+        })
+      }
+
+      throw error
+    }
+  })
+
+  options.bot.on('message:text', async (ctx, next) => {
+    if (!isGroupChat(ctx) || isCommandMessage(ctx)) {
+      await next()
+      return
+    }
+
+    const mention = stripExplicitBotMention(ctx)
+    if (!mention || mention.strippedText.length === 0) {
+      await next()
+      return
+    }
+
+    const telegramUserId = ctx.from?.id?.toString()
+    const telegramChatId = ctx.chat?.id?.toString()
+    if (!telegramUserId || !telegramChatId) {
+      await next()
+      return
+    }
+
+    const household =
+      await options.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
+    if (!household) {
+      await next()
+      return
+    }
+
+    const member = await options.householdConfigurationRepository.getHouseholdMember(
+      household.householdId,
+      telegramUserId
+    )
+    if (!member) {
+      await next()
+      return
+    }
+
+    const locale = member.preferredLocale ?? household.defaultLocale ?? 'en'
+    const rateLimit = options.rateLimiter.consume(`${household.householdId}:${telegramUserId}`)
+    const t = getBotTranslations(locale).assistant
+
+    if (!rateLimit.allowed) {
+      await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
+      return
+    }
+
+    const updateId = ctx.update.update_id?.toString()
+    const dedupeClaim =
+      options.messageProcessingRepository && typeof updateId === 'string'
+        ? {
+            repository: options.messageProcessingRepository,
+            updateId
+          }
+        : null
+
+    if (dedupeClaim) {
+      const claim = await dedupeClaim.repository.claimMessage({
+        householdId: household.householdId,
+        source: GROUP_ASSISTANT_MESSAGE_SOURCE,
+        sourceMessageKey: dedupeClaim.updateId
+      })
+
+      if (!claim.claimed) {
+        options.logger?.info(
+          {
+            event: 'assistant.duplicate_update',
+            householdId: household.householdId,
+            telegramUserId,
+            updateId: dedupeClaim.updateId
+          },
+          'Duplicate group assistant mention ignored'
+        )
+        return
+      }
+    }
+
+    try {
+      await replyWithAssistant({
+        ctx,
+        assistant: options.assistant,
+        householdId: household.householdId,
+        memberId: member.id,
+        memberDisplayName: member.displayName,
+        telegramUserId,
+        telegramChatId,
+        locale,
+        userMessage: mention.strippedText,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        financeService: options.financeServiceForHousehold(household.householdId),
+        memoryStore: options.memoryStore,
+        usageTracker: options.usageTracker,
+        logger: options.logger
+      })
+    } catch (error) {
+      if (dedupeClaim) {
+        await dedupeClaim.repository.releaseMessage({
+          householdId: household.householdId,
+          source: GROUP_ASSISTANT_MESSAGE_SOURCE,
           sourceMessageKey: dedupeClaim.updateId
         })
       }

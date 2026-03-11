@@ -542,6 +542,95 @@ describe('registerPurchaseTopicIngestion', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('skips explicitly tagged bot messages in the purchase topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        return {
+          status: 'ignored_not_purchase' as const,
+          purchaseMessageId: 'ignored-1'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(purchaseUpdate('@household_test_bot how is life?') as never)
+
+    expect(saveCalls).toBe(1)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('still handles tagged purchase-like messages in the purchase topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        expect(record.rawText).toBe('Bought toilet paper 30 gel')
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-1',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'toilet paper',
+          parserConfidence: 92,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(
+      purchaseUpdate('@household_test_bot Bought toilet paper 30 gel') as never
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'I think this shared purchase was: toilet paper - 30.00 GEL. Confirm or cancel below.'
+      }
+    })
+  })
+
   test('confirms a pending proposal and edits the bot message', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []

@@ -15,6 +15,7 @@ import {
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
 } from './payment-proposals'
+import { stripExplicitBotMention } from './telegram-mentions'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
@@ -95,7 +96,7 @@ function attachmentCount(ctx: Context): number {
 
 function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
   const message = ctx.message
-  const rawText = readMessageText(ctx)
+  const rawText = stripExplicitBotMention(ctx)?.strippedText ?? readMessageText(ctx)
   if (!message || !rawText) {
     return null
   }
