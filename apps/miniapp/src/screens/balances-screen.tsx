@@ -94,7 +94,7 @@ export function BalancesScreen(props: Props) {
           </article>
         )}
       </Show>
-      <div class="home-grid home-grid--summary">
+      <div class="summary-card-grid">
         <FinanceSummaryCards
           dashboard={props.dashboard}
           utilityTotalMajor={props.utilityTotalMajor}

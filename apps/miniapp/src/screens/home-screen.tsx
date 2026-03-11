@@ -46,46 +46,50 @@ type Props = {
 export function HomeScreen(props: Props) {
   if (!props.dashboard) {
     return (
-      <div class="home-grid home-grid--summary">
-        <article class="stat-card">
-          <span>{props.copy.remainingLabel ?? ''}</span>
-          <strong>—</strong>
-        </article>
-        <article class="stat-card">
-          <span>{props.copy.shareRent ?? ''}</span>
-          <strong>—</strong>
-        </article>
-        <article class="stat-card">
-          <span>{props.copy.shareUtilities ?? ''}</span>
-          <strong>—</strong>
-        </article>
-        <article class="stat-card">
-          <span>{props.copy.purchasesTitle ?? ''}</span>
-          <strong>—</strong>
-        </article>
+      <div class="home-grid">
+        <div class="summary-card-grid">
+          <article class="stat-card">
+            <span>{props.copy.remainingLabel ?? ''}</span>
+            <strong>—</strong>
+          </article>
+          <article class="stat-card">
+            <span>{props.copy.shareRent ?? ''}</span>
+            <strong>—</strong>
+          </article>
+          <article class="stat-card">
+            <span>{props.copy.shareUtilities ?? ''}</span>
+            <strong>—</strong>
+          </article>
+          <article class="stat-card">
+            <span>{props.copy.purchasesTitle ?? ''}</span>
+            <strong>—</strong>
+          </article>
+        </div>
       </div>
     )
   }
 
   return (
-    <div class="home-grid home-grid--summary">
-      <FinanceSummaryCards
-        dashboard={props.dashboard}
-        utilityTotalMajor={props.utilityTotalMajor}
-        purchaseTotalMajor={props.purchaseTotalMajor}
-        labels={{
-          remaining: props.copy.remainingLabel ?? '',
-          rent: props.copy.shareRent ?? '',
-          utilities: props.copy.shareUtilities ?? '',
-          purchases: props.copy.purchasesTitle ?? ''
-        }}
-      />
-      <Show when={props.readyIsAdmin}>
-        <article class="stat-card">
-          <span>{props.copy.pendingRequests ?? ''}</span>
-          <strong>{String(props.pendingMembersCount)}</strong>
-        </article>
-      </Show>
+    <div class="home-grid">
+      <div class="summary-card-grid">
+        <FinanceSummaryCards
+          dashboard={props.dashboard}
+          utilityTotalMajor={props.utilityTotalMajor}
+          purchaseTotalMajor={props.purchaseTotalMajor}
+          labels={{
+            remaining: props.copy.remainingLabel ?? '',
+            rent: props.copy.shareRent ?? '',
+            utilities: props.copy.shareUtilities ?? '',
+            purchases: props.copy.purchasesTitle ?? ''
+          }}
+        />
+        <Show when={props.readyIsAdmin}>
+          <article class="stat-card">
+            <span>{props.copy.pendingRequests ?? ''}</span>
+            <strong>{String(props.pendingMembersCount)}</strong>
+          </article>
+        </Show>
+      </div>
 
       <Show
         when={props.currentMemberLine}
