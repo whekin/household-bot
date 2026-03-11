@@ -369,6 +369,7 @@ function App() {
   const [cycleRentOpen, setCycleRentOpen] = createSignal(false)
   const [addingUtilityBillOpen, setAddingUtilityBillOpen] = createSignal(false)
   const [addingPaymentOpen, setAddingPaymentOpen] = createSignal(false)
+  const [profileEditorOpen, setProfileEditorOpen] = createSignal(false)
   const [addingPayment, setAddingPayment] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
@@ -3984,6 +3985,13 @@ function App() {
               {readySession()?.telegramUser.firstName ?? readySession()?.member.displayName}
             </h2>
             <p>{copy().overviewBody}</p>
+            <Show when={readySession()?.mode === 'live'}>
+              <div class="panel-toolbar">
+                <Button variant="secondary" onClick={() => setProfileEditorOpen(true)}>
+                  {copy().manageProfileAction}
+                </Button>
+              </div>
+            </Show>
           </section>
 
           <nav class="nav-grid">
@@ -4006,9 +4014,11 @@ function App() {
           </nav>
 
           <section class="content-grid">
-            <article class="panel panel--wide">
-              <p class="eyebrow">{copy().overviewTitle}</p>
-              <h3>{readySession()?.member.displayName}</h3>
+            <article class="balance-item balance-item--accent profile-card">
+              <header>
+                <strong>{readySession()?.member.displayName}</strong>
+                <span>{readySession()?.member.isAdmin ? copy().adminTag : copy().residentTag}</span>
+              </header>
               <p>
                 {copy().memberStatusSummary.replace(
                   '{status}',
@@ -4017,35 +4027,49 @@ function App() {
                     : copy().memberStatusActive
                 )}
               </p>
-              <Show when={readySession()?.mode === 'live'}>
-                <div class="settings-grid">
-                  <label class="settings-field settings-field--wide">
-                    <span>{copy().displayNameLabel}</span>
-                    <input
-                      value={displayNameDraft()}
-                      onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
-                    />
-                    <small>{copy().displayNameHint}</small>
-                  </label>
-                </div>
-                <div class="inline-actions">
-                  <button
-                    class="ghost-button"
-                    type="button"
-                    disabled={
-                      savingOwnDisplayName() ||
-                      displayNameDraft().trim().length < 2 ||
-                      displayNameDraft().trim() === readySession()?.member.displayName
-                    }
-                    onClick={() => void handleSaveOwnDisplayName()}
-                  >
-                    {savingOwnDisplayName() ? copy().savingDisplayName : copy().saveDisplayName}
-                  </button>
-                </div>
-              </Show>
-              <div>{renderPanel()}</div>
+              <div class="ledger-compact-card__meta">
+                <span class="mini-chip">
+                  {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
+                </span>
+                <span class="mini-chip mini-chip--muted">{locale().toUpperCase()}</span>
+              </div>
             </article>
+            <div class="content-stack">{renderPanel()}</div>
           </section>
+          <Modal
+            open={profileEditorOpen()}
+            title={copy().displayNameLabel}
+            description={copy().profileEditorBody}
+            closeLabel={copy().closeEditorAction}
+            onClose={() => setProfileEditorOpen(false)}
+            footer={
+              <div class="modal-action-row modal-action-row--single">
+                <Button variant="ghost" onClick={() => setProfileEditorOpen(false)}>
+                  {copy().closeEditorAction}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={
+                    savingOwnDisplayName() ||
+                    displayNameDraft().trim().length < 2 ||
+                    displayNameDraft().trim() === readySession()?.member.displayName
+                  }
+                  onClick={() => void handleSaveOwnDisplayName()}
+                >
+                  {savingOwnDisplayName() ? copy().savingDisplayName : copy().saveDisplayName}
+                </Button>
+              </div>
+            }
+          >
+            <div class="editor-grid">
+              <Field label={copy().displayNameLabel} hint={copy().displayNameHint} wide>
+                <input
+                  value={displayNameDraft()}
+                  onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
+                />
+              </Field>
+            </div>
+          </Modal>
         </Match>
       </Switch>
     </main>

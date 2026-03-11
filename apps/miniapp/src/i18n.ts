@@ -181,6 +181,8 @@ export const dictionary = {
     adminsBody: 'Promote trusted household members so they can manage billing and approvals.',
     displayNameLabel: 'Household display name',
     displayNameHint: 'This name appears in balances, ledger entries, and assistant replies.',
+    manageProfileAction: 'Edit profile',
+    profileEditorBody: 'Keep your own display name in a focused editor instead of the page body.',
     memberEditorBody: 'Member billing state and admin controls stay grouped in one editor.',
     editMemberAction: 'Edit member',
     saveDisplayName: 'Save name',
@@ -402,6 +404,9 @@ export const dictionary = {
       'Повышай доверенных участников, чтобы они могли управлять биллингом и подтверждениями.',
     displayNameLabel: 'Имя в household',
     displayNameHint: 'Это имя будет видно в балансе, леджере и ответах ассистента.',
+    manageProfileAction: 'Редактировать профиль',
+    profileEditorBody:
+      'Своё имя для household лучше менять в отдельном окне, а не на самой странице.',
     memberEditorBody: 'Статус, политика и админские действия по участнику собраны в одном окне.',
     editMemberAction: 'Редактировать участника',
     saveDisplayName: 'Сохранить имя',
