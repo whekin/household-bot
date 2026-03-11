@@ -40,11 +40,11 @@ import { HeroBanner } from './components/layout/hero-banner'
 import { NavigationTabs } from './components/layout/navigation-tabs'
 import { ProfileCard } from './components/layout/profile-card'
 import { TopBar } from './components/layout/top-bar'
-import { FinanceSummaryCards } from './components/finance/finance-summary-cards'
-import { FinanceVisuals } from './components/finance/finance-visuals'
 import { BlockedState } from './components/session/blocked-state'
 import { LoadingState } from './components/session/loading-state'
 import { OnboardingState } from './components/session/onboarding-state'
+import { BalancesScreen } from './screens/balances-screen'
+import { HomeScreen } from './screens/home-screen'
 import {
   demoAdminSettings,
   demoCycleState,
@@ -1854,122 +1854,17 @@ function App() {
     switch (activeNav()) {
       case 'balances':
         return (
-          <div class="balance-list">
-            <ShowDashboard
-              dashboard={dashboard()}
-              fallback={<p>{copy().emptyDashboard}</p>}
-              render={(data) => (
-                <>
-                  {currentMemberLine() ? (
-                    <article class="balance-item balance-item--accent">
-                      <header>
-                        <strong>{copy().yourBalanceTitle}</strong>
-                        <span>
-                          {currentMemberLine()!.netDueMajor} {data.currency}
-                        </span>
-                      </header>
-                      <p>{copy().yourBalanceBody}</p>
-                      <div class="balance-breakdown">
-                        <div class="stat-card">
-                          <span>{copy().baseDue}</span>
-                          <strong>
-                            {memberBaseDueMajor(currentMemberLine()!)} {data.currency}
-                          </strong>
-                        </div>
-                        <div class="stat-card">
-                          <span>{copy().shareOffset}</span>
-                          <strong>
-                            {currentMemberLine()!.purchaseOffsetMajor} {data.currency}
-                          </strong>
-                        </div>
-                        <div class="stat-card">
-                          <span>{copy().finalDue}</span>
-                          <strong>
-                            {currentMemberLine()!.netDueMajor} {data.currency}
-                          </strong>
-                        </div>
-                        <div class="stat-card">
-                          <span>{copy().paidLabel}</span>
-                          <strong>
-                            {currentMemberLine()!.paidMajor} {data.currency}
-                          </strong>
-                        </div>
-                        <div class="stat-card">
-                          <span>{copy().remainingLabel}</span>
-                          <strong>
-                            {currentMemberLine()!.remainingMajor} {data.currency}
-                          </strong>
-                        </div>
-                      </div>
-                    </article>
-                  ) : null}
-                  <div class="home-grid home-grid--summary">
-                    <FinanceSummaryCards
-                      dashboard={data}
-                      utilityTotalMajor={utilityTotalMajor()}
-                      purchaseTotalMajor={purchaseTotalMajor()}
-                      labels={{
-                        remaining: copy().remainingLabel,
-                        rent: copy().shareRent,
-                        utilities: copy().shareUtilities,
-                        purchases: copy().purchasesTitle
-                      }}
-                    />
-                  </div>
-                  <FinanceVisuals
-                    dashboard={data}
-                    memberVisuals={memberBalanceVisuals()}
-                    purchaseChart={purchaseInvestmentChart()}
-                    remainingClass={memberRemainingClass}
-                    labels={{
-                      financeVisualsTitle: copy().financeVisualsTitle,
-                      financeVisualsBody: copy().financeVisualsBody,
-                      membersCount: copy().membersCount,
-                      purchaseInvestmentsTitle: copy().purchaseInvestmentsTitle,
-                      purchaseInvestmentsBody: copy().purchaseInvestmentsBody,
-                      purchaseInvestmentsEmpty: copy().purchaseInvestmentsEmpty,
-                      purchaseTotalLabel: copy().purchaseTotalLabel,
-                      purchaseShareLabel: copy().purchaseShareLabel
-                    }}
-                  />
-                  <article class="balance-item">
-                    <header>
-                      <strong>{copy().householdBalancesTitle}</strong>
-                    </header>
-                    <p>{copy().householdBalancesBody}</p>
-                  </article>
-                  {data.members.map((member) => (
-                    <article class="balance-item">
-                      <header>
-                        <strong>{member.displayName}</strong>
-                        <span>
-                          {member.remainingMajor} {data.currency}
-                        </span>
-                      </header>
-                      <p>
-                        {copy().baseDue}: {memberBaseDueMajor(member)} {data.currency}
-                      </p>
-                      <p>
-                        {copy().shareRent}: {member.rentShareMajor} {data.currency}
-                      </p>
-                      <p>
-                        {copy().shareUtilities}: {member.utilityShareMajor} {data.currency}
-                      </p>
-                      <p>
-                        {copy().shareOffset}: {member.purchaseOffsetMajor} {data.currency}
-                      </p>
-                      <p>
-                        {copy().paidLabel}: {member.paidMajor} {data.currency}
-                      </p>
-                      <p class={`balance-status ${memberRemainingClass(member)}`}>
-                        {copy().remainingLabel}: {member.remainingMajor} {data.currency}
-                      </p>
-                    </article>
-                  ))}
-                </>
-              )}
-            />
-          </div>
+          <BalancesScreen
+            copy={copy()}
+            dashboard={dashboard()}
+            currentMemberLine={currentMemberLine()}
+            utilityTotalMajor={utilityTotalMajor()}
+            purchaseTotalMajor={purchaseTotalMajor()}
+            memberBalanceVisuals={memberBalanceVisuals()}
+            purchaseChart={purchaseInvestmentChart()}
+            memberBaseDueMajor={memberBaseDueMajor}
+            memberRemainingClass={memberRemainingClass}
+          />
         )
       case 'ledger':
         return (
@@ -3583,166 +3478,22 @@ function App() {
         )
       default:
         return (
-          <div class="home-grid home-grid--summary">
-            <ShowDashboard
-              dashboard={dashboard()}
-              fallback={
-                <>
-                  <article class="stat-card">
-                    <span>{copy().remainingLabel}</span>
-                    <strong>—</strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{copy().shareRent}</span>
-                    <strong>—</strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{copy().shareUtilities}</span>
-                    <strong>—</strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>{copy().purchasesTitle}</span>
-                    <strong>—</strong>
-                  </article>
-                </>
-              }
-              render={(data) => (
-                <FinanceSummaryCards
-                  dashboard={data}
-                  utilityTotalMajor={utilityTotalMajor()}
-                  purchaseTotalMajor={purchaseTotalMajor()}
-                  labels={{
-                    remaining: copy().remainingLabel,
-                    rent: copy().shareRent,
-                    utilities: copy().shareUtilities,
-                    purchases: copy().purchasesTitle
-                  }}
-                />
-              )}
-            />
-            {readySession()?.member.isAdmin ? (
-              <article class="stat-card">
-                <span>{copy().pendingRequests}</span>
-                <strong>{String(pendingMembers().length)}</strong>
-              </article>
-            ) : null}
-
-            {currentMemberLine() ? (
-              <article class="balance-item balance-item--accent">
-                <header>
-                  <strong>{copy().yourBalanceTitle}</strong>
-                  <span>
-                    {currentMemberLine()!.remainingMajor} {dashboard()?.currency ?? ''}
-                  </span>
-                </header>
-                <p>{copy().yourBalanceBody}</p>
-                <ShowDashboard
-                  dashboard={dashboard()}
-                  fallback={null}
-                  render={(data) => (
-                    <p>
-                      {copy().shareRent}: {data.rentSourceAmountMajor} {data.rentSourceCurrency}
-                      {data.rentSourceCurrency !== data.currency
-                        ? ` -> ${data.rentDisplayAmountMajor} ${data.currency}`
-                        : ''}
-                    </p>
-                  )}
-                />
-                <div class="balance-breakdown">
-                  <div class="stat-card">
-                    <span>{copy().baseDue}</span>
-                    <strong>
-                      {memberBaseDueMajor(currentMemberLine()!)} {dashboard()?.currency ?? ''}
-                    </strong>
-                  </div>
-                  <div class="stat-card">
-                    <span>{copy().shareOffset}</span>
-                    <strong>
-                      {currentMemberLine()!.purchaseOffsetMajor} {dashboard()?.currency ?? ''}
-                    </strong>
-                  </div>
-                  <div class="stat-card">
-                    <span>{copy().finalDue}</span>
-                    <strong>
-                      {currentMemberLine()!.netDueMajor} {dashboard()?.currency ?? ''}
-                    </strong>
-                  </div>
-                  <div class="stat-card">
-                    <span>{copy().paidLabel}</span>
-                    <strong>
-                      {currentMemberLine()!.paidMajor} {dashboard()?.currency ?? ''}
-                    </strong>
-                  </div>
-                  <div class="stat-card">
-                    <span>{copy().remainingLabel}</span>
-                    <strong>
-                      {currentMemberLine()!.remainingMajor} {dashboard()?.currency ?? ''}
-                    </strong>
-                  </div>
-                </div>
-              </article>
-            ) : (
-              <article class="balance-item">
-                <header>
-                  <strong>{copy().overviewTitle}</strong>
-                </header>
-                <p>{copy().overviewBody}</p>
-              </article>
-            )}
-
-            <ShowDashboard
-              dashboard={dashboard()}
-              fallback={null}
-              render={(data) => (
-                <FinanceVisuals
-                  dashboard={data}
-                  memberVisuals={memberBalanceVisuals()}
-                  purchaseChart={purchaseInvestmentChart()}
-                  remainingClass={memberRemainingClass}
-                  labels={{
-                    financeVisualsTitle: copy().financeVisualsTitle,
-                    financeVisualsBody: copy().financeVisualsBody,
-                    membersCount: copy().membersCount,
-                    purchaseInvestmentsTitle: copy().purchaseInvestmentsTitle,
-                    purchaseInvestmentsBody: copy().purchaseInvestmentsBody,
-                    purchaseInvestmentsEmpty: copy().purchaseInvestmentsEmpty,
-                    purchaseTotalLabel: copy().purchaseTotalLabel,
-                    purchaseShareLabel: copy().purchaseShareLabel
-                  }}
-                />
-              )}
-            />
-
-            <article class="balance-item balance-item--wide">
-              <header>
-                <strong>{copy().latestActivityTitle}</strong>
-              </header>
-              <ShowDashboard
-                dashboard={dashboard()}
-                fallback={<p>{copy().latestActivityEmpty}</p>}
-                render={(data) =>
-                  data.ledger.length === 0 ? (
-                    <p>{copy().latestActivityEmpty}</p>
-                  ) : (
-                    <div class="activity-list">
-                      {data.ledger.slice(0, 3).map((entry) => (
-                        <article class="activity-row">
-                          <header>
-                            <strong>{ledgerTitle(entry)}</strong>
-                            <span>{ledgerPrimaryAmount(entry)}</span>
-                          </header>
-                          <Show when={ledgerSecondaryAmount(entry)}>
-                            {(secondary) => <p>{secondary()}</p>}
-                          </Show>
-                          <p>{entry.actorDisplayName ?? copy().ledgerActorFallback}</p>
-                        </article>
-                      ))}
-                    </div>
-                  )
-                }
-              />
-            </article>
-          </div>
+          <HomeScreen
+            copy={copy()}
+            dashboard={dashboard()}
+            readyIsAdmin={Boolean(readySession()?.member.isAdmin)}
+            pendingMembersCount={pendingMembers().length}
+            currentMemberLine={currentMemberLine()}
+            utilityTotalMajor={utilityTotalMajor()}
+            purchaseTotalMajor={purchaseTotalMajor()}
+            memberBalanceVisuals={memberBalanceVisuals()}
+            purchaseChart={purchaseInvestmentChart()}
+            memberBaseDueMajor={memberBaseDueMajor}
+            memberRemainingClass={memberRemainingClass}
+            ledgerTitle={ledgerTitle}
+            ledgerPrimaryAmount={ledgerPrimaryAmount}
+            ledgerSecondaryAmount={ledgerSecondaryAmount}
+          />
         )
     }
   }
