@@ -249,6 +249,15 @@ export interface BotTranslationCatalog {
   payments: {
     topicMissing: string
     recorded: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    proposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    clarification: string
+    unsupportedCurrency: string
+    noBalance: string
+    confirmButton: string
+    cancelButton: string
+    cancelled: string
+    proposalUnavailable: string
+    notYourProposal: string
     savedForReview: string
     duplicate: string
   }

@@ -60,8 +60,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     setupTopicsHeading: 'Topic setup:',
     setupTopicBound: (role, topic) => `- ${role}: bound to ${topic}`,
     setupTopicMissing: (role) => `- ${role}: not configured`,
-    setupTopicCreateButton: (role) => `Create ${role}`,
-    setupTopicBindButton: (role) => `Bind ${role}`,
+    setupTopicCreateButton: (role) => `Create ${role} topic`,
+    setupTopicBindButton: (role) => `Bind ${role} topic`,
     setupTopicCreateFailed:
       'I could not create that topic. Check bot admin permissions and forum settings.',
     setupTopicCreateForbidden:
@@ -260,8 +260,20 @@ export const enBotTranslations: BotTranslationCatalog = {
   payments: {
     topicMissing:
       'Payments topic is not configured for this household yet. Ask an admin to run /bind_payments_topic.',
+    proposal: (kind, amount, currency) =>
+      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}. Confirm or cancel below.`,
+    clarification:
+      'I could not confirm this payment yet. Please clarify whether this was rent or utilities and include the amount/currency if needed.',
+    unsupportedCurrency:
+      'I can only record payments in the household settlement currency for this topic right now.',
+    noBalance: 'There is no payable balance for that payment type right now.',
+    confirmButton: 'Confirm payment',
+    cancelButton: 'Cancel',
     recorded: (kind, amount, currency) =>
       `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}`,
+    cancelled: 'Payment proposal cancelled.',
+    proposalUnavailable: 'This payment proposal is no longer available.',
+    notYourProposal: 'Only the original sender can confirm or cancel this payment.',
     savedForReview: 'Saved this payment confirmation for review.',
     duplicate: 'This payment confirmation was already processed.'
   }

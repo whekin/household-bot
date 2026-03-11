@@ -1,4 +1,4 @@
-import { parsePaymentConfirmationMessage, type FinanceCommandService } from '@household/application'
+import type { FinanceCommandService } from '@household/application'
 import { instantFromEpochSeconds, Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -12,6 +12,7 @@ import { resolveReplyLocale } from './bot-locale'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantReply, ConversationalAssistant } from './openai-chat-assistant'
 import type { PurchaseMessageInterpreter } from './openai-purchase-interpreter'
+import { maybeCreatePaymentProposal, parsePaymentProposalPayload } from './payment-proposals'
 import type {
   PurchaseMessageIngestionRepository,
   PurchaseProposalActionResult,
@@ -74,15 +75,6 @@ export interface AssistantUsageTracker {
     usage: AssistantReply['usage']
   }): void
   listHouseholdUsage(householdId: string): readonly AssistantUsageSnapshot[]
-}
-
-interface PaymentProposalPayload {
-  proposalId: string
-  householdId: string
-  memberId: string
-  kind: 'rent' | 'utilities'
-  amountMinor: string
-  currency: 'GEL' | 'USD'
 }
 
 type PurchaseActionResult = Extract<
@@ -401,34 +393,6 @@ function looksLikePurchaseIntent(rawText: string): boolean {
   return PURCHASE_MONEY_PATTERN.test(normalized) && /\p{L}/u.test(normalized)
 }
 
-function parsePaymentProposalPayload(
-  payload: Record<string, unknown>
-): PaymentProposalPayload | null {
-  if (
-    typeof payload.proposalId !== 'string' ||
-    typeof payload.householdId !== 'string' ||
-    typeof payload.memberId !== 'string' ||
-    (payload.kind !== 'rent' && payload.kind !== 'utilities') ||
-    typeof payload.amountMinor !== 'string' ||
-    (payload.currency !== 'USD' && payload.currency !== 'GEL')
-  ) {
-    return null
-  }
-
-  if (!/^[0-9]+$/.test(payload.amountMinor)) {
-    return null
-  }
-
-  return {
-    proposalId: payload.proposalId,
-    householdId: payload.householdId,
-    memberId: payload.memberId,
-    kind: payload.kind,
-    amountMinor: payload.amountMinor,
-    currency: payload.currency
-  }
-}
-
 function formatAssistantLedger(
   dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
 ) {
@@ -489,92 +453,6 @@ async function buildHouseholdContext(input: {
   lines.push(`Recent ledger activity:\n${formatAssistantLedger(dashboard)}`)
 
   return lines.join('\n')
-}
-
-async function maybeCreatePaymentProposal(input: {
-  rawText: string
-  householdId: string
-  memberId: string
-  financeService: FinanceCommandService
-  householdConfigurationRepository: HouseholdConfigurationRepository
-}): Promise<
-  | {
-      status: 'no_intent'
-    }
-  | {
-      status: 'clarification'
-    }
-  | {
-      status: 'unsupported_currency'
-    }
-  | {
-      status: 'no_balance'
-    }
-  | {
-      status: 'proposal'
-      payload: PaymentProposalPayload
-    }
-> {
-  const settings = await input.householdConfigurationRepository.getHouseholdBillingSettings(
-    input.householdId
-  )
-  const parsed = parsePaymentConfirmationMessage(input.rawText, settings.settlementCurrency)
-
-  if (!parsed.kind && parsed.reviewReason === 'intent_missing') {
-    return {
-      status: 'no_intent'
-    }
-  }
-
-  if (!parsed.kind || parsed.reviewReason) {
-    return {
-      status: 'clarification'
-    }
-  }
-
-  const dashboard = await input.financeService.generateDashboard()
-  if (!dashboard) {
-    return {
-      status: 'clarification'
-    }
-  }
-
-  const memberLine = dashboard.members.find((line) => line.memberId === input.memberId)
-  if (!memberLine) {
-    return {
-      status: 'clarification'
-    }
-  }
-
-  if (parsed.explicitAmount && parsed.explicitAmount.currency !== dashboard.currency) {
-    return {
-      status: 'unsupported_currency'
-    }
-  }
-
-  const amount =
-    parsed.explicitAmount ??
-    (parsed.kind === 'rent'
-      ? memberLine.rentShare
-      : memberLine.utilityShare.add(memberLine.purchaseOffset))
-
-  if (amount.amountMinor <= 0n) {
-    return {
-      status: 'no_balance'
-    }
-  }
-
-  return {
-    status: 'proposal',
-    payload: {
-      proposalId: crypto.randomUUID(),
-      householdId: input.householdId,
-      memberId: input.memberId,
-      kind: parsed.kind,
-      amountMinor: amount.amountMinor.toString(),
-      currency: amount.currency
-    }
-  }
 }
 
 export function registerDmAssistant(options: {
