@@ -40,6 +40,14 @@ interface OpenAiStructuredResult {
   clarificationQuestion: string | null
 }
 
+const PLANNING_ONLY_PATTERN =
+  /\b(?:want to buy|thinking about|thinking of|plan to buy|planning to buy|going to buy|might buy|tomorrow|later)\b|(?:^|[^\p{L}])(?:(?:хочу|хотим|думаю|планирую|планируем|может)\s+(?:купить|взять|заказать)|(?:подумаю|завтра|потом))(?=$|[^\p{L}])/iu
+const COMPLETED_PURCHASE_PATTERN =
+  /\b(?:bought|purchased|ordered|picked up|grabbed|got|spent|paid)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|взял(?:а|и)?|заказал(?:а|и)?|потратил(?:а|и)?|заплатил(?:а|и)?|сторговался(?:\s+до)?)(?=$|[^\p{L}])/iu
+const META_REFERENCE_PATTERN =
+  /\b(?:already said(?: above)?|said above|question above|have context|from the dialog(?:ue)?|based on the dialog(?:ue)?)\b|(?:^|[^\p{L}])(?:я\s+уже\s+сказал(?:\s+выше)?|уже\s+сказал(?:\s+выше)?|вопрос\s+выше|это\s+вопрос|контекст(?:\s+диалога)?|основываясь\s+на\s+диалоге)(?=$|[^\p{L}])/iu
+const META_REFERENCE_STRIP_PATTERN = new RegExp(META_REFERENCE_PATTERN.source, 'giu')
+
 function asOptionalBigInt(value: string | null): bigint | null {
   if (value === null || !/^[0-9]+$/.test(value)) {
     return null
@@ -117,6 +125,33 @@ export function buildPurchaseInterpretationInput(
   ].join('\n')
 }
 
+function isBareMetaReference(rawText: string): boolean {
+  const normalized = rawText.trim()
+  if (!META_REFERENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  const stripped = normalized
+    .replace(META_REFERENCE_STRIP_PATTERN, ' ')
+    .replace(/[\s,.:;!?()[\]{}"'`-]+/gu, ' ')
+    .trim()
+
+  return stripped.length === 0
+}
+
+function shouldReturnNotPurchase(rawText: string): boolean {
+  const normalized = rawText.trim()
+  if (normalized.length === 0) {
+    return true
+  }
+
+  if (isBareMetaReference(normalized)) {
+    return true
+  }
+
+  return PLANNING_ONLY_PATTERN.test(normalized) && !COMPLETED_PURCHASE_PATTERN.test(normalized)
+}
+
 export function createOpenAiPurchaseInterpreter(
   apiKey: string | undefined,
   model: string
@@ -126,6 +161,20 @@ export function createOpenAiPurchaseInterpreter(
   }
 
   return async (rawText, options) => {
+    if (shouldReturnNotPurchase(rawText)) {
+      return {
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        amountSource: null,
+        calculationExplanation: null,
+        confidence: 94,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      }
+    }
+
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -147,6 +196,8 @@ export function createOpenAiPurchaseInterpreter(
               'When amountSource is "calculated", also return a short calculationExplanation in the user message language, such as "5 × 6 lari = 30 lari".',
               'Ignore item quantities like rolls, kilograms, or layers unless they are clearly the money amount.',
               'Treat colloquial completed-buy phrasing like "взял", "сходил и взял", or "сторговался до X" as a completed purchase when the message reports a real buy fact.',
+              'Plans, wishes, future intent, tomorrow-talk, and approximate future prices are not purchases. Return not_purchase for those.',
+              'Meta replies like "I already said above", "the question is above", or "do you have context" are not purchase details. Return not_purchase unless the latest message clearly supplies the missing purchase fact.',
               'If recent messages from the same sender are provided, treat them as clarification context for the latest message.',
               'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
               'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',

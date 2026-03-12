@@ -9,7 +9,7 @@ export interface TopicHistoryTurn {
 }
 
 const MEMORY_LOOKUP_PATTERN =
-  /\b(?:do you remember|remember|what were we talking about|what did we say today)\b|(?:^|[^\p{L}])(?:помнишь|ты\s+помнишь|что\s+мы\s+сегодня\s+обсуждали|о\s+чем\s+мы\s+говорили)(?=$|[^\p{L}])/iu
+  /\b(?:do you remember|remember|what were we talking about|what did we say today|what was the question above|do you have context|based on the dialog(?:ue)?|from the dialog(?:ue)?)\b|(?:^|[^\p{L}])(?:помнишь|ты\s+помнишь|что\s+мы\s+сегодня\s+обсуждали|о\s+чем\s+(?:мы\s+)?говорили|о\s+чем\s+была\s+речь|контекст\s+диалога|у\s+тебя\s+есть\s+контекст(?:\s+диалога)?|основываясь\s+на\s+диалоге|вопрос\s+выше|что\s+было\s+выше)(?=$|[^\p{L}])/iu
 
 export function shouldLoadExpandedChatHistory(text: string): boolean {
   return MEMORY_LOOKUP_PATTERN.test(text.trim())

@@ -93,6 +93,11 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'Default to one to three short sentences.',
   'For simple greetings or small talk, reply in a single short sentence unless the user asks for more.',
   'If the user is joking or testing you, you may answer playfully in one short sentence.',
+  'When the user refers to something said above, earlier, already mentioned, or in the dialog, answer from the provided conversation history if the answer is there.',
+  'For dialogue-memory questions, prioritize recent topic thread messages first, then same-day chat history, then per-user memory summary.',
+  'Do not ask the user to repeat information that is already present in the provided conversation history.',
+  'Treat wishes, plans, tomorrow-talk, approximate future prices, and thinking aloud as plans, not completed purchases or payments.',
+  'If the user is only discussing a possible future purchase, respond naturally instead of collecting missing purchase fields.',
   'If the user tells you to stop, back off briefly and do not keep asking follow-up questions.',
   'Do not repeat the same clarification after the user declines, backs off, or says they are only thinking.',
   'Do not restate the full household context unless the user explicitly asks for details.',
@@ -140,13 +145,6 @@ export function createOpenAiChatAssistant(
                   topicCapabilityNotes(input.topicRole),
                   'Bounded household context:',
                   input.householdContext,
-                  input.memorySummary ? `Conversation summary:\n${input.memorySummary}` : null,
-                  input.recentTurns.length > 0
-                    ? [
-                        'Recent conversation turns:',
-                        ...input.recentTurns.map((turn) => `${turn.role}: ${turn.text}`)
-                      ].join('\n')
-                    : null,
                   input.recentThreadMessages && input.recentThreadMessages.length > 0
                     ? [
                         'Recent topic thread messages:',
@@ -164,7 +162,14 @@ export function createOpenAiChatAssistant(
                             : `${message.speaker} (${message.role}): ${message.text}`
                         )
                       ].join('\n')
-                    : null
+                    : null,
+                  input.recentTurns.length > 0
+                    ? [
+                        'Recent conversation turns:',
+                        ...input.recentTurns.map((turn) => `${turn.role}: ${turn.text}`)
+                      ].join('\n')
+                    : null,
+                  input.memorySummary ? `Conversation summary:\n${input.memorySummary}` : null
                 ]
                   .filter(Boolean)
                   .join('\n\n')

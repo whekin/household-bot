@@ -55,6 +55,12 @@ describe('createOpenAiChatAssistant', () => {
       expect(capturedBody!.input[0]?.role).toBe('system')
       expect(capturedBody!.input[0]?.content).toContain('Default to one to three short sentences.')
       expect(capturedBody!.input[0]?.content).toContain(
+        'Do not ask the user to repeat information that is already present in the provided conversation history.'
+      )
+      expect(capturedBody!.input[0]?.content).toContain(
+        'Treat wishes, plans, tomorrow-talk, approximate future prices, and thinking aloud as plans, not completed purchases or payments.'
+      )
+      expect(capturedBody!.input[0]?.content).toContain(
         'There is no general feature for creating or scheduling arbitrary personal reminders'
       )
       expect(capturedBody!.input[1]?.role).toBe('system')

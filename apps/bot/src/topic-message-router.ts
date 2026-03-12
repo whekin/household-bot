@@ -69,11 +69,14 @@ type ContextWithTopicMessageRouteCache = Context & {
 const BACKOFF_PATTERN =
   /\b(?:leave me alone|go away|stop|not now|back off|shut up)\b|(?:^|[^\p{L}])(?:отстань|хватит|не сейчас|замолчи|оставь(?:\s+меня)?\s+в\s+покое)(?=$|[^\p{L}])/iu
 const PLANNING_PATTERN =
-  /\b(?:want to buy|thinking about buying|thinking of buying|going to buy|plan to buy|might buy)\b|(?:^|[^\p{L}])(?:хочу|думаю|планирую|может)\s+(?:купить|взять|заказать)(?=$|[^\p{L}])/iu
+  /\b(?:want to buy|thinking about buying|thinking of buying|going to buy|plan to buy|might buy|tomorrow|later)\b|(?:^|[^\p{L}])(?:(?:хочу|думаю|планирую|может)\s+(?:купить|взять|заказать)|(?:подумаю|завтра|потом))(?=$|[^\p{L}])/iu
 const LIKELY_PURCHASE_PATTERN =
   /\b(?:bought|ordered|picked up|spent|paid)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|взял(?:а|и)?|заказал(?:а|и)?|потратил(?:а|и)?|заплатил(?:а|и)?|сторговался(?:\s+до)?)(?=$|[^\p{L}])/iu
 const LIKELY_PAYMENT_PATTERN =
   /\b(?:paid rent|paid utilities|rent paid|utilities paid)\b|(?:^|[^\p{L}])(?:оплатил(?:а|и)?|заплатил(?:а|и)?)(?=$|[^\p{L}])/iu
+const CONTEXT_REFERENCE_PATTERN =
+  /\b(?:already said(?: above)?|said above|question above|do you have context|from the dialog(?:ue)?|based on the dialog(?:ue)?)\b|(?:^|[^\p{L}])(?:контекст(?:\s+диалога)?|у\s+тебя\s+есть\s+контекст(?:\s+диалога)?|основываясь\s+на\s+диалоге|я\s+уже\s+сказал(?:\s+выше)?|уже\s+сказал(?:\s+выше)?|вопрос\s+выше|вопрос\s+уже\s+есть|это\s+вопрос|ответь\s+на\s+него)(?=$|[^\p{L}])/iu
+const CONTEXT_REFERENCE_STRIP_PATTERN = new RegExp(CONTEXT_REFERENCE_PATTERN.source, 'giu')
 const LETTER_PATTERN = /\p{L}/u
 const DIRECT_BOT_ADDRESS_PATTERN =
   /^\s*(?:(?:ну|эй|слышь|слушай|hey|yo)\s*,?\s*)*(?:бот|bot)(?=$|[^\p{L}])/iu
@@ -123,6 +126,83 @@ function fallbackReply(locale: 'en' | 'ru', kind: 'backoff' | 'watching'): strin
     : "I'm here. If there's a real purchase or payment, I'll jump in."
 }
 
+function isBareContextReference(text: string): boolean {
+  const normalized = text.trim()
+  if (!CONTEXT_REFERENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  const stripped = normalized
+    .replace(CONTEXT_REFERENCE_STRIP_PATTERN, ' ')
+    .replace(/[\s,.:;!?()[\]{}"'`-]+/gu, ' ')
+    .trim()
+
+  return stripped.length === 0
+}
+
+function isPlanningMessage(text: string): boolean {
+  const normalized = text.trim()
+  return PLANNING_PATTERN.test(normalized) && !LIKELY_PURCHASE_PATTERN.test(normalized)
+}
+
+function assistantFallbackRoute(
+  input: TopicMessageRoutingInput,
+  reason: string,
+  shouldClearWorkflow: boolean
+): TopicMessageRoutingResult {
+  const shouldReply = input.isExplicitMention || input.isReplyToBot || input.activeWorkflow !== null
+
+  return shouldReply
+    ? {
+        route: 'topic_helper',
+        replyText: null,
+        helperKind: 'assistant',
+        shouldStartTyping: true,
+        shouldClearWorkflow,
+        confidence: 88,
+        reason
+      }
+    : {
+        route: 'silent',
+        replyText: null,
+        helperKind: null,
+        shouldStartTyping: false,
+        shouldClearWorkflow,
+        confidence: 88,
+        reason
+      }
+}
+
+function applyRouteGuards(
+  input: TopicMessageRoutingInput,
+  route: TopicMessageRoutingResult
+): TopicMessageRoutingResult {
+  const normalized = input.messageText.trim()
+  if (normalized.length === 0) {
+    return route
+  }
+
+  if (
+    isBareContextReference(normalized) &&
+    (route.route === 'purchase_candidate' ||
+      route.route === 'purchase_followup' ||
+      route.route === 'payment_candidate' ||
+      route.route === 'payment_followup')
+  ) {
+    return assistantFallbackRoute(input, 'context_reference', input.activeWorkflow !== null)
+  }
+
+  if (
+    input.topicRole === 'purchase' &&
+    isPlanningMessage(normalized) &&
+    (route.route === 'purchase_candidate' || route.route === 'purchase_followup')
+  ) {
+    return assistantFallbackRoute(input, 'planning_guard', input.activeWorkflow !== null)
+  }
+
+  return route
+}
+
 export function fallbackTopicMessageRoute(
   input: TopicMessageRoutingInput
 ): TopicMessageRoutingResult {
@@ -153,7 +233,15 @@ export function fallbackTopicMessageRoute(
     }
   }
 
+  if (isBareContextReference(normalized)) {
+    return assistantFallbackRoute(input, 'context_reference', input.activeWorkflow !== null)
+  }
+
   if (input.topicRole === 'purchase') {
+    if (input.activeWorkflow === 'purchase_clarification' && isPlanningMessage(normalized)) {
+      return assistantFallbackRoute(input, 'planning_guard', true)
+    }
+
     if (input.activeWorkflow === 'purchase_clarification') {
       return {
         route: 'purchase_followup',
@@ -442,7 +530,7 @@ export function createOpenAiTopicMessageRouter(
           ? parsedObject.replyText.trim()
           : null
 
-      return {
+      return applyRouteGuards(input, {
         route,
         replyText,
         helperKind:
@@ -455,7 +543,7 @@ export function createOpenAiTopicMessageRouter(
           typeof parsedObject.confidence === 'number' ? parsedObject.confidence : null
         ),
         reason: typeof parsedObject.reason === 'string' ? parsedObject.reason : null
-      }
+      })
     } catch {
       return fallbackTopicMessageRoute(input)
     } finally {

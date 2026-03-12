@@ -32,6 +32,175 @@ describe('createOpenAiPurchaseInterpreter', () => {
     )
   })
 
+  test('returns not_purchase for planning chatter without calling the llm', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return successfulResponse({})
+    }) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Хочу рыбу. Завтра подумаю, примерно 20 лари.', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        amountSource: null,
+        calculationExplanation: null,
+        confidence: 94,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+      expect(fetchCalls).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('returns not_purchase for meta references without calling the llm', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return successfulResponse({})
+    }) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Я уже сказал выше', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        amountSource: null,
+        calculationExplanation: null,
+        confidence: 94,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+      expect(fetchCalls).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('does not short-circuit meta references that also include purchase details', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '3200',
+                  currency: 'GEL',
+                  itemDescription: 'молоко',
+                  confidence: 91,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Я уже сказал выше, 32 лари за молоко', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(fetchCalls).toBe(1)
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 3200n,
+        currency: 'GEL',
+        itemDescription: 'молоко',
+        amountSource: 'explicit',
+        calculationExplanation: null,
+        confidence: 91,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('does not short-circuit approximate clarification answers', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '2000',
+                  currency: 'GEL',
+                  itemDescription: 'молоко',
+                  confidence: 87,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('примерно 20 лари', {
+        defaultCurrency: 'GEL',
+        clarificationContext: {
+          recentMessages: ['Купил молоко']
+        }
+      })
+
+      expect(fetchCalls).toBe(1)
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        itemDescription: 'молоко',
+        amountSource: 'explicit',
+        calculationExplanation: null,
+        confidence: 87,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('parses nested responses api content output', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
     expect(interpreter).toBeDefined()
