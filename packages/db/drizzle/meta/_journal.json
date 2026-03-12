@@ -134,6 +134,13 @@
       "when": 1773252000000,
       "tag": "0018_nimble_kojori",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1773327708167,
+      "tag": "0019_faithful_madame_masque",
+      "breakpoints": true
     }
   ]
 }

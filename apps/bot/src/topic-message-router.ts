@@ -31,6 +31,12 @@ export interface TopicMessageRoutingInput {
     role: 'user' | 'assistant'
     text: string
   }[]
+  recentThreadMessages?: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
 }
 
 export interface TopicMessageRoutingResult {
@@ -251,6 +257,17 @@ function buildRecentTurns(input: TopicMessageRoutingInput): string | null {
     : null
 }
 
+function buildRecentThreadMessages(input: TopicMessageRoutingInput): string | null {
+  const recentMessages = input.recentThreadMessages
+    ?.slice(-8)
+    .map((message) => `${message.speaker} (${message.role}): ${message.text.trim()}`)
+    .filter((line) => line.length > 0)
+
+  return recentMessages && recentMessages.length > 0
+    ? ['Recent messages in this topic thread:', ...recentMessages].join('\n')
+    : null
+}
+
 export function cacheTopicMessageRoute(
   ctx: Context,
   topicRole: CachedTopicMessageRole,
@@ -305,6 +322,7 @@ export function createOpenAiTopicMessageRouter(
                 'When the user directly addresses the bot with small talk, joking, or testing, prefer chat_reply with one short sentence.',
                 'In a purchase topic, if the user is discussing a possible future purchase and asks for an opinion, prefer chat_reply with a short contextual opinion instead of a workflow.',
                 'Use the recent conversation when writing replyText. Do not ignore the already-established subject.',
+                'The recent thread messages are more important than the per-user memory summary.',
                 'If the user asks what you think about a price or quantity, mention the actual item/price from context when possible.',
                 'Use topic_helper only when the message is a real question or request that likely needs household knowledge or a topic-specific helper.',
                 'Use purchase_candidate only for a clear completed shared purchase.',
@@ -331,6 +349,7 @@ export function createOpenAiTopicMessageRouter(
                 `Reply to bot: ${input.isReplyToBot ? 'yes' : 'no'}`,
                 `Looks like direct address: ${looksLikeDirectBotAddress(input.messageText) ? 'yes' : 'no'}`,
                 `Active workflow: ${input.activeWorkflow ?? 'none'}`,
+                buildRecentThreadMessages(input),
                 buildRecentTurns(input),
                 `Latest message:\n${input.messageText}`
               ]

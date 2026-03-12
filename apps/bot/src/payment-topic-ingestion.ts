@@ -5,7 +5,8 @@ import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
   HouseholdTopicBindingRecord,
-  TelegramPendingActionRepository
+  TelegramPendingActionRepository,
+  TopicMessageHistoryRepository
 } from '@household/ports'
 
 import { getBotTranslations, type BotLocale } from './i18n'
@@ -25,6 +26,7 @@ import {
   looksLikeDirectBotAddress,
   type TopicMessageRouter
 } from './topic-message-router'
+import { historyRecordToTurn } from './topic-history'
 import { stripExplicitBotMention } from './telegram-mentions'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
@@ -215,6 +217,46 @@ function appendConversation(
   })
 }
 
+async function listRecentThreadMessages(
+  repository: TopicMessageHistoryRepository | undefined,
+  record: PaymentTopicRecord
+) {
+  if (!repository) {
+    return []
+  }
+
+  const messages = await repository.listRecentThreadMessages({
+    householdId: record.householdId,
+    telegramChatId: record.chatId,
+    telegramThreadId: record.threadId,
+    limit: 8
+  })
+
+  return messages.map(historyRecordToTurn)
+}
+
+async function persistIncomingTopicMessage(
+  repository: TopicMessageHistoryRepository | undefined,
+  record: PaymentTopicRecord
+) {
+  if (!repository || record.rawText.trim().length === 0) {
+    return
+  }
+
+  await repository.saveMessage({
+    householdId: record.householdId,
+    telegramChatId: record.chatId,
+    telegramThreadId: record.threadId,
+    telegramMessageId: record.messageId,
+    telegramUpdateId: String(record.updateId),
+    senderTelegramUserId: record.senderTelegramUserId,
+    senderDisplayName: null,
+    isBot: false,
+    rawText: record.rawText.trim(),
+    messageSentAt: record.messageSentAt
+  })
+}
+
 async function routePaymentTopicMessage(input: {
   record: PaymentTopicRecord
   locale: BotLocale
@@ -225,6 +267,7 @@ async function routePaymentTopicMessage(input: {
   assistantContext: string | null
   assistantTone: string | null
   memoryStore: AssistantConversationMemoryStore | undefined
+  historyRepository: TopicMessageHistoryRepository | undefined
   router: TopicMessageRouter | undefined
 }) {
   if (!input.router) {
@@ -249,6 +292,8 @@ async function routePaymentTopicMessage(input: {
         }
   }
 
+  const recentThreadMessages = await listRecentThreadMessages(input.historyRepository, input.record)
+
   return input.router({
     locale: input.locale,
     topicRole: input.topicRole,
@@ -258,7 +303,8 @@ async function routePaymentTopicMessage(input: {
     activeWorkflow: input.activeWorkflow,
     assistantContext: input.assistantContext,
     assistantTone: input.assistantTone,
-    recentTurns: input.memoryStore?.get(memoryKeyForRecord(input.record)).turns ?? []
+    recentTurns: input.memoryStore?.get(memoryKeyForRecord(input.record)).turns ?? [],
+    recentThreadMessages
   })
 }
 
@@ -379,6 +425,7 @@ export function registerConfiguredPaymentTopicIngestion(
   options: {
     router?: TopicMessageRouter
     memoryStore?: AssistantConversationMemoryStore
+    historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
   } = {}
 ): void {
@@ -574,6 +621,7 @@ export function registerConfiguredPaymentTopicIngestion(
           assistantContext: assistantConfig.assistantContext,
           assistantTone: assistantConfig.assistantTone,
           memoryStore: options.memoryStore,
+          historyRepository: options.historyRepository,
           router: options.router
         }))
       cacheTopicMessageRoute(ctx, 'payments', route)
@@ -722,6 +770,8 @@ export function registerConfiguredPaymentTopicIngestion(
         },
         'Failed to ingest payment confirmation'
       )
+    } finally {
+      await persistIncomingTopicMessage(options.historyRepository, record)
     }
   })
 }

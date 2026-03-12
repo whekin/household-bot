@@ -18,7 +18,8 @@ import {
   createDbHouseholdConfigurationRepository,
   createDbProcessedBotMessageRepository,
   createDbReminderDispatchRepository,
-  createDbTelegramPendingActionRepository
+  createDbTelegramPendingActionRepository,
+  createDbTopicMessageHistoryRepository
 } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
@@ -126,6 +127,9 @@ const processedBotMessageRepositoryClient =
     : null
 const purchaseRepositoryClient = runtime.databaseUrl
   ? createPurchaseMessageRepository(runtime.databaseUrl!)
+  : null
+const topicMessageHistoryRepositoryClient = runtime.databaseUrl
+  ? createDbTopicMessageHistoryRepository(runtime.databaseUrl!)
   : null
 const purchaseInterpreter = createOpenAiPurchaseInterpreter(
   runtime.openaiApiKey,
@@ -237,6 +241,10 @@ if (purchaseRepositoryClient) {
   shutdownTasks.push(purchaseRepositoryClient.close)
 }
 
+if (topicMessageHistoryRepositoryClient) {
+  shutdownTasks.push(topicMessageHistoryRepositoryClient.close)
+}
+
 if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
   registerConfiguredPurchaseTopicIngestion(
     bot,
@@ -246,7 +254,12 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
       ...(topicMessageRouter
         ? {
             router: topicMessageRouter,
-            memoryStore: assistantMemoryStore
+            memoryStore: assistantMemoryStore,
+            ...(topicMessageHistoryRepositoryClient
+              ? {
+                  historyRepository: topicMessageHistoryRepositoryClient.repository
+                }
+              : {})
           }
         : {}),
       ...(purchaseInterpreter
@@ -268,7 +281,12 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
       ...(topicMessageRouter
         ? {
             router: topicMessageRouter,
-            memoryStore: assistantMemoryStore
+            memoryStore: assistantMemoryStore,
+            ...(topicMessageHistoryRepositoryClient
+              ? {
+                  historyRepository: topicMessageHistoryRepositoryClient.repository
+                }
+              : {})
           }
         : {}),
       logger: getLogger('payment-ingestion')
@@ -440,6 +458,11 @@ if (
             purchaseRepository: purchaseRepositoryClient.repository
           }
         : {}),
+      ...(topicMessageHistoryRepositoryClient
+        ? {
+            topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
+          }
+        : {}),
       ...(purchaseInterpreter
         ? {
             purchaseInterpreter
@@ -469,6 +492,11 @@ if (
       ...(purchaseRepositoryClient
         ? {
             purchaseRepository: purchaseRepositoryClient.repository
+          }
+        : {}),
+      ...(topicMessageHistoryRepositoryClient
+        ? {
+            topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
           }
         : {}),
       ...(purchaseInterpreter

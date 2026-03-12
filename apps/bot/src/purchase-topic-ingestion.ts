@@ -4,7 +4,8 @@ import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
-  HouseholdTopicBindingRecord
+  HouseholdTopicBindingRecord,
+  TopicMessageHistoryRepository
 } from '@household/ports'
 
 import { createDbClient, schema } from '@household/db'
@@ -22,6 +23,7 @@ import {
   type TopicMessageRouter,
   type TopicMessageRoutingResult
 } from './topic-message-router'
+import { historyRecordToTurn } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
 
@@ -1476,6 +1478,46 @@ function rememberAssistantTurn(
   })
 }
 
+async function listRecentThreadMessages(
+  repository: TopicMessageHistoryRepository | undefined,
+  record: PurchaseTopicRecord
+) {
+  if (!repository) {
+    return []
+  }
+
+  const messages = await repository.listRecentThreadMessages({
+    householdId: record.householdId,
+    telegramChatId: record.chatId,
+    telegramThreadId: record.threadId,
+    limit: 8
+  })
+
+  return messages.map(historyRecordToTurn)
+}
+
+async function persistIncomingTopicMessage(
+  repository: TopicMessageHistoryRepository | undefined,
+  record: PurchaseTopicRecord
+) {
+  if (!repository || record.rawText.trim().length === 0) {
+    return
+  }
+
+  await repository.saveMessage({
+    householdId: record.householdId,
+    telegramChatId: record.chatId,
+    telegramThreadId: record.threadId,
+    telegramMessageId: record.messageId,
+    telegramUpdateId: String(record.updateId),
+    senderTelegramUserId: record.senderTelegramUserId,
+    senderDisplayName: record.senderDisplayName ?? null,
+    isBot: false,
+    rawText: record.rawText.trim(),
+    messageSentAt: record.messageSentAt
+  })
+}
+
 async function routePurchaseTopicMessage(input: {
   ctx: Pick<Context, 'msg' | 'me'>
   record: PurchaseTopicRecord
@@ -1486,6 +1528,7 @@ async function routePurchaseTopicMessage(input: {
   >
   router: TopicMessageRouter | undefined
   memoryStore: AssistantConversationMemoryStore | undefined
+  historyRepository: TopicMessageHistoryRepository | undefined
   assistantContext?: string | null
   assistantTone?: string | null
 }): Promise<TopicMessageRoutingResult> {
@@ -1543,6 +1586,7 @@ async function routePurchaseTopicMessage(input: {
 
   const key = memoryKeyForRecord(input.record)
   const recentTurns = input.memoryStore?.get(key).turns ?? []
+  const recentThreadMessages = await listRecentThreadMessages(input.historyRepository, input.record)
 
   return input.router({
     locale: input.locale,
@@ -1557,7 +1601,8 @@ async function routePurchaseTopicMessage(input: {
       : null,
     assistantContext: input.assistantContext ?? null,
     assistantTone: input.assistantTone ?? null,
-    recentTurns
+    recentTurns,
+    recentThreadMessages
   })
 }
 
@@ -1890,6 +1935,7 @@ export function registerPurchaseTopicIngestion(
     interpreter?: PurchaseMessageInterpreter
     router?: TopicMessageRouter
     memoryStore?: AssistantConversationMemoryStore
+    historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
   } = {}
 ): void {
@@ -1919,7 +1965,8 @@ export function registerPurchaseTopicIngestion(
           locale: 'en',
           repository,
           router: options.router,
-          memoryStore: options.memoryStore
+          memoryStore: options.memoryStore,
+          historyRepository: options.historyRepository
         }))
       cacheTopicMessageRoute(ctx, 'purchase', route)
 
@@ -1980,6 +2027,7 @@ export function registerPurchaseTopicIngestion(
         'Failed to ingest purchase topic message'
       )
     } finally {
+      await persistIncomingTopicMessage(options.historyRepository, record)
       typingIndicator?.stop()
     }
   })
@@ -1993,6 +2041,7 @@ export function registerConfiguredPurchaseTopicIngestion(
     interpreter?: PurchaseMessageInterpreter
     router?: TopicMessageRouter
     memoryStore?: AssistantConversationMemoryStore
+    historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
   } = {}
 ): void {
@@ -2046,6 +2095,7 @@ export function registerConfiguredPurchaseTopicIngestion(
           repository,
           router: options.router,
           memoryStore: options.memoryStore,
+          historyRepository: options.historyRepository,
           assistantContext: assistantConfig.assistantContext,
           assistantTone: assistantConfig.assistantTone
         }))
@@ -2121,6 +2171,7 @@ export function registerConfiguredPurchaseTopicIngestion(
         'Failed to ingest purchase topic message'
       )
     } finally {
+      await persistIncomingTopicMessage(options.historyRepository, record)
       typingIndicator?.stop()
     }
   })

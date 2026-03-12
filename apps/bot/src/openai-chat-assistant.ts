@@ -1,4 +1,5 @@
 import { extractOpenAiResponseText, type OpenAiResponsePayload } from './openai-responses'
+import type { TopicMessageRole } from './topic-message-router'
 
 const ASSISTANT_MAX_OUTPUT_TOKENS = 220
 
@@ -16,14 +17,68 @@ export interface AssistantReply {
 export interface ConversationalAssistant {
   respond(input: {
     locale: 'en' | 'ru'
+    topicRole: TopicMessageRole
     householdContext: string
     memorySummary: string | null
     recentTurns: readonly {
       role: 'user' | 'assistant'
       text: string
     }[]
+    recentThreadMessages?: readonly {
+      role: 'user' | 'assistant'
+      speaker: string
+      text: string
+      threadId: string | null
+    }[]
+    sameDayChatMessages?: readonly {
+      role: 'user' | 'assistant'
+      speaker: string
+      text: string
+      threadId: string | null
+    }[]
     userMessage: string
   }): Promise<AssistantReply>
+}
+
+function topicCapabilityNotes(topicRole: TopicMessageRole): string {
+  switch (topicRole) {
+    case 'purchase':
+      return [
+        'Purchase topic capabilities:',
+        '- You can discuss shared household purchases, clarify intent, and help with purchase recording flow.',
+        '- You cannot claim a purchase was saved unless the system explicitly confirmed it.',
+        '- You cannot create unrelated reminders, tasks, or household settings changes.'
+      ].join('\n')
+    case 'payments':
+      return [
+        'Payments topic capabilities:',
+        '- You can discuss rent and utility payment status and supported payment confirmation flows.',
+        '- You cannot claim a payment was recorded unless the system explicitly confirmed it.',
+        '- You cannot schedule reminders or create arbitrary tasks.'
+      ].join('\n')
+    case 'reminders':
+      return [
+        'Reminders topic capabilities:',
+        '- You can discuss existing household rent/utilities reminder timing and the supported utility-bill collection flow.',
+        '- You cannot create, schedule, snooze, or manage arbitrary personal reminders.',
+        '- You cannot promise future reminder setup. If asked, say that this feature is not supported.'
+      ].join('\n')
+    case 'feedback':
+      return [
+        'Feedback topic capabilities:',
+        '- You can discuss the anonymous feedback flow and household feedback context.',
+        '- You cannot claim a submission was posted unless the system explicitly confirmed it.',
+        '- You cannot schedule reminders or create unrelated workflow items.'
+      ].join('\n')
+    case 'generic':
+    default:
+      return [
+        'General household chat capabilities:',
+        '- You can answer household finance and context questions using the provided information.',
+        '- You cannot create arbitrary reminders, scheduled tasks, or background jobs.',
+        '- Never imply unsupported features exist.'
+      ].join('\n')
+  }
 }
 
 const ASSISTANT_SYSTEM_PROMPT = [
@@ -41,6 +96,8 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'If the user tells you to stop, back off briefly and do not keep asking follow-up questions.',
   'Do not repeat the same clarification after the user declines, backs off, or says they are only thinking.',
   'Do not restate the full household context unless the user explicitly asks for details.',
+  'Do not imply capabilities that are not explicitly provided in the system context.',
+  'There is no general feature for creating or scheduling arbitrary personal reminders unless the system explicitly says so.',
   'Avoid bullet lists unless the user asked for a list or several distinct items.',
   'Reply in the user language inferred from the latest user message and locale context.'
 ].join(' ')
@@ -79,6 +136,8 @@ export function createOpenAiChatAssistant(
                 role: 'system',
                 content: [
                   `User locale: ${input.locale}`,
+                  `Topic role: ${input.topicRole}`,
+                  topicCapabilityNotes(input.topicRole),
                   'Bounded household context:',
                   input.householdContext,
                   input.memorySummary ? `Conversation summary:\n${input.memorySummary}` : null,
@@ -86,6 +145,24 @@ export function createOpenAiChatAssistant(
                     ? [
                         'Recent conversation turns:',
                         ...input.recentTurns.map((turn) => `${turn.role}: ${turn.text}`)
+                      ].join('\n')
+                    : null,
+                  input.recentThreadMessages && input.recentThreadMessages.length > 0
+                    ? [
+                        'Recent topic thread messages:',
+                        ...input.recentThreadMessages.map(
+                          (message) => `${message.speaker} (${message.role}): ${message.text}`
+                        )
+                      ].join('\n')
+                    : null,
+                  input.sameDayChatMessages && input.sameDayChatMessages.length > 0
+                    ? [
+                        'Additional same-day household chat history:',
+                        ...input.sameDayChatMessages.map((message) =>
+                          message.threadId
+                            ? `[thread ${message.threadId}] ${message.speaker} (${message.role}): ${message.text}`
+                            : `${message.speaker} (${message.role}): ${message.text}`
+                        )
                       ].join('\n')
                     : null
                 ]

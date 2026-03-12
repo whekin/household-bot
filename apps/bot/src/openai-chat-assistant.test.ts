@@ -41,6 +41,7 @@ describe('createOpenAiChatAssistant', () => {
     try {
       const reply = await assistant!.respond({
         locale: 'en',
+        topicRole: 'reminders',
         householdContext: 'Household: Kojori House',
         memorySummary: null,
         recentTurns: [],
@@ -51,10 +52,16 @@ describe('createOpenAiChatAssistant', () => {
       expect(capturedBody).not.toBeNull()
       expect(capturedBody!.max_output_tokens).toBe(220)
       expect(capturedBody!.model).toBe('gpt-5-mini')
-      expect(capturedBody!.input[0]).toMatchObject({
-        role: 'system',
-        content: expect.stringContaining('Default to one to three short sentences.')
-      })
+      expect(capturedBody!.input[0]?.role).toBe('system')
+      expect(capturedBody!.input[0]?.content).toContain('Default to one to three short sentences.')
+      expect(capturedBody!.input[0]?.content).toContain(
+        'There is no general feature for creating or scheduling arbitrary personal reminders'
+      )
+      expect(capturedBody!.input[1]?.role).toBe('system')
+      expect(capturedBody!.input[1]?.content).toContain('Topic role: reminders')
+      expect(capturedBody!.input[1]?.content).toContain(
+        'You cannot create, schedule, snooze, or manage arbitrary personal reminders.'
+      )
     } finally {
       globalThis.fetch = originalFetch
     }

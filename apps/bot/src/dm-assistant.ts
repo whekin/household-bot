@@ -4,7 +4,8 @@ import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
   ProcessedBotMessageRepository,
-  TelegramPendingActionRepository
+  TelegramPendingActionRepository,
+  TopicMessageHistoryRepository
 } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
@@ -37,6 +38,11 @@ import {
   getCachedTopicMessageRoute,
   looksLikeDirectBotAddress
 } from './topic-message-router'
+import {
+  historyRecordToTurn,
+  shouldLoadExpandedChatHistory,
+  startOfCurrentDayInTimezone
+} from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
 
@@ -319,6 +325,92 @@ async function resolveAssistantConfig(
       }
 }
 
+function currentThreadId(ctx: Context): string | null {
+  return ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
+    ? ctx.msg.message_thread_id.toString()
+    : null
+}
+
+function currentMessageId(ctx: Context): string | null {
+  return ctx.msg?.message_id?.toString() ?? null
+}
+
+function currentMessageSentAt(ctx: Context) {
+  return typeof ctx.msg?.date === 'number' ? instantFromEpochSeconds(ctx.msg.date) : null
+}
+
+async function listRecentThreadMessages(input: {
+  repository: TopicMessageHistoryRepository | undefined
+  householdId: string
+  telegramChatId: string
+  telegramThreadId: string | null
+}) {
+  if (!input.repository || !input.telegramThreadId) {
+    return []
+  }
+
+  const messages = await input.repository.listRecentThreadMessages({
+    householdId: input.householdId,
+    telegramChatId: input.telegramChatId,
+    telegramThreadId: input.telegramThreadId,
+    limit: 8
+  })
+
+  return messages.map(historyRecordToTurn)
+}
+
+async function listExpandedChatMessages(input: {
+  repository: TopicMessageHistoryRepository | undefined
+  householdId: string
+  telegramChatId: string
+  timezone: string
+  shouldLoad: boolean
+}) {
+  if (!input.repository || !input.shouldLoad) {
+    return []
+  }
+
+  const messages = await input.repository.listRecentChatMessages({
+    householdId: input.householdId,
+    telegramChatId: input.telegramChatId,
+    sentAtOrAfter: startOfCurrentDayInTimezone(input.timezone),
+    limit: 40
+  })
+
+  return messages.map(historyRecordToTurn)
+}
+
+async function persistIncomingTopicMessage(input: {
+  repository: TopicMessageHistoryRepository | undefined
+  householdId: string
+  telegramChatId: string
+  telegramThreadId: string | null
+  telegramMessageId: string | null
+  telegramUpdateId: string | null
+  senderTelegramUserId: string
+  senderDisplayName: string | null
+  rawText: string
+  messageSentAt: ReturnType<typeof currentMessageSentAt>
+}) {
+  const normalizedText = input.rawText.trim()
+  if (!input.repository || normalizedText.length === 0) {
+    return
+  }
+
+  await input.repository.saveMessage({
+    householdId: input.householdId,
+    telegramChatId: input.telegramChatId,
+    telegramThreadId: input.telegramThreadId,
+    telegramMessageId: input.telegramMessageId,
+    telegramUpdateId: input.telegramUpdateId,
+    senderTelegramUserId: input.senderTelegramUserId,
+    senderDisplayName: input.senderDisplayName,
+    isBot: false,
+    rawText: normalizedText,
+    messageSentAt: input.messageSentAt
+  })
+}
+
 async function routeGroupAssistantMessage(input: {
   router: TopicMessageRouter | undefined
   locale: BotLocale
@@ -330,6 +422,12 @@ async function routeGroupAssistantMessage(input: {
   assistantTone: string | null
   memoryStore: AssistantConversationMemoryStore
   memoryKey: string
+  recentThreadMessages: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
 }) {
   if (!input.router) {
     return fallbackTopicMessageRoute({
@@ -341,7 +439,8 @@ async function routeGroupAssistantMessage(input: {
       activeWorkflow: null,
       assistantContext: input.assistantContext,
       assistantTone: input.assistantTone,
-      recentTurns: input.memoryStore.get(input.memoryKey).turns
+      recentTurns: input.memoryStore.get(input.memoryKey).turns,
+      recentThreadMessages: input.recentThreadMessages
     })
   }
 
@@ -354,7 +453,8 @@ async function routeGroupAssistantMessage(input: {
     activeWorkflow: null,
     assistantContext: input.assistantContext,
     assistantTone: input.assistantTone,
-    recentTurns: input.memoryStore.get(input.memoryKey).turns
+    recentTurns: input.memoryStore.get(input.memoryKey).turns,
+    recentThreadMessages: input.recentThreadMessages
   })
 }
 
@@ -469,6 +569,7 @@ async function buildHouseholdContext(input: {
 async function replyWithAssistant(input: {
   ctx: Context
   assistant: ConversationalAssistant | undefined
+  topicRole: TopicMessageRole
   householdId: string
   memberId: string
   memberDisplayName: string
@@ -481,6 +582,18 @@ async function replyWithAssistant(input: {
   memoryStore: AssistantConversationMemoryStore
   usageTracker: AssistantUsageTracker
   logger: Logger | undefined
+  recentThreadMessages: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
+  sameDayChatMessages: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
 }): Promise<void> {
   const t = getBotTranslations(input.locale).assistant
 
@@ -516,9 +629,12 @@ async function replyWithAssistant(input: {
     const assistantResponseStartedAt = Date.now()
     const reply = await input.assistant.respond({
       locale: input.locale,
+      topicRole: input.topicRole,
       householdContext,
       memorySummary: memory.summary,
       recentTurns: memory.turns,
+      recentThreadMessages: input.recentThreadMessages,
+      sameDayChatMessages: input.sameDayChatMessages,
       userMessage: input.userMessage
     })
     assistantResponseMs = Date.now() - assistantResponseStartedAt
@@ -582,6 +698,7 @@ export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
   topicRouter?: TopicMessageRouter
+  topicMessageHistoryRepository?: TopicMessageHistoryRepository
   purchaseRepository?: PurchaseMessageIngestionRepository
   purchaseInterpreter?: PurchaseMessageInterpreter
   householdConfigurationRepository: HouseholdConfigurationRepository
@@ -1100,6 +1217,7 @@ export function registerDmAssistant(options: {
       await replyWithAssistant({
         ctx,
         assistant: options.assistant,
+        topicRole: 'generic',
         householdId: member.householdId,
         memberId: member.id,
         memberDisplayName: member.displayName,
@@ -1111,7 +1229,9 @@ export function registerDmAssistant(options: {
         financeService,
         memoryStore: options.memoryStore,
         usageTracker: options.usageTracker,
-        logger: options.logger
+        logger: options.logger,
+        recentThreadMessages: [],
+        sameDayChatMessages: []
       })
     } catch (error) {
       if (dedupeClaim) {
@@ -1217,6 +1337,7 @@ export function registerDmAssistant(options: {
         telegramChatId,
         isPrivateChat: false
       })
+      const telegramThreadId = currentThreadId(ctx)
       const messageText = mention?.strippedText ?? ctx.msg.text.trim()
       const assistantConfig = await resolveAssistantConfig(
         options.householdConfigurationRepository,
@@ -1233,6 +1354,12 @@ export function registerDmAssistant(options: {
         topicRole === 'purchase' || topicRole === 'payments'
           ? getCachedTopicMessageRoute(ctx, topicRole)
           : null
+      const recentThreadMessages = await listRecentThreadMessages({
+        repository: options.topicMessageHistoryRepository,
+        householdId: household.householdId,
+        telegramChatId,
+        telegramThreadId
+      })
       const route =
         cachedRoute ??
         (options.topicRouter
@@ -1246,7 +1373,8 @@ export function registerDmAssistant(options: {
               assistantContext: assistantConfig.assistantContext,
               assistantTone: assistantConfig.assistantTone,
               memoryStore: options.memoryStore,
-              memoryKey
+              memoryKey,
+              recentThreadMessages
             })
           : null)
 
@@ -1367,6 +1495,7 @@ export function registerDmAssistant(options: {
       await replyWithAssistant({
         ctx,
         assistant: options.assistant,
+        topicRole,
         householdId: household.householdId,
         memberId: member.id,
         memberDisplayName: member.displayName,
@@ -1378,7 +1507,15 @@ export function registerDmAssistant(options: {
         financeService,
         memoryStore: options.memoryStore,
         usageTracker: options.usageTracker,
-        logger: options.logger
+        logger: options.logger,
+        recentThreadMessages,
+        sameDayChatMessages: await listExpandedChatMessages({
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          timezone: settings.timezone,
+          shouldLoad: shouldLoadExpandedChatHistory(messageText)
+        })
       })
     } catch (error) {
       if (dedupeClaim) {
@@ -1390,6 +1527,19 @@ export function registerDmAssistant(options: {
       }
 
       throw error
+    } finally {
+      await persistIncomingTopicMessage({
+        repository: options.topicMessageHistoryRepository,
+        householdId: household.householdId,
+        telegramChatId,
+        telegramThreadId: currentThreadId(ctx),
+        telegramMessageId: currentMessageId(ctx),
+        telegramUpdateId: ctx.update.update_id?.toString() ?? null,
+        senderTelegramUserId: telegramUserId,
+        senderDisplayName: ctx.from?.first_name ?? member.displayName ?? ctx.from?.username ?? null,
+        rawText: mention?.strippedText ?? ctx.msg.text.trim(),
+        messageSentAt: currentMessageSentAt(ctx)
+      })
     }
   })
 }

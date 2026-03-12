@@ -6,7 +6,9 @@ import type {
   HouseholdConfigurationRepository,
   ProcessedBotMessageRepository,
   TelegramPendingActionRecord,
-  TelegramPendingActionRepository
+  TelegramPendingActionRepository,
+  TopicMessageHistoryRecord,
+  TopicMessageHistoryRepository
 } from '@household/ports'
 
 import { createTelegramBot } from './bot'
@@ -675,6 +677,37 @@ function createProcessedBotMessageRepository(): ProcessedBotMessageRepository {
     },
     async releaseMessage(input) {
       claims.delete(`${input.householdId}:${input.source}:${input.sourceMessageKey}`)
+    }
+  }
+}
+
+function createTopicMessageHistoryRepository(): TopicMessageHistoryRepository {
+  const rows: TopicMessageHistoryRecord[] = []
+
+  return {
+    async saveMessage(input) {
+      rows.push(input)
+    },
+    async listRecentThreadMessages(input) {
+      return rows
+        .filter(
+          (row) =>
+            row.householdId === input.householdId &&
+            row.telegramChatId === input.telegramChatId &&
+            row.telegramThreadId === input.telegramThreadId
+        )
+        .slice(-input.limit)
+    },
+    async listRecentChatMessages(input) {
+      return rows
+        .filter(
+          (row) =>
+            row.householdId === input.householdId &&
+            row.telegramChatId === input.telegramChatId &&
+            row.messageSentAt &&
+            row.messageSentAt.epochMilliseconds >= input.sentAtOrAfter.epochMilliseconds
+        )
+        .slice(-input.limit)
     }
   }
 }
@@ -1699,6 +1732,81 @@ Confirm or cancel below.`,
         chat_id: -100123,
         message_thread_id: 777,
         text: 'Rent is still due on the 20th.'
+      }
+    })
+  })
+
+  test('loads persisted thread and same-day chat history for memory-style prompts', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const topicMessageHistoryRepository = createTopicMessageHistoryRepository()
+    let recentThreadTexts: string[] = []
+    let sameDayTexts: string[] = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond(input) {
+          recentThreadTexts = input.recentThreadMessages?.map((message) => message.text) ?? []
+          sameDayTexts = input.sameDayChatMessages?.map((message) => message.text) ?? []
+
+          return {
+            text: 'Yes. You were discussing a TV for the house.',
+            usage: {
+              inputTokens: 20,
+              outputTokens: 9,
+              totalTokens: 29
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker(),
+      topicMessageHistoryRepository
+    })
+
+    await bot.handleUpdate(topicMessageUpdate('I think we need a TV in the house') as never)
+    await bot.handleUpdate(topicMessageUpdate('Bot, do you remember what we said today?') as never)
+
+    expect(recentThreadTexts).toContain('I think we need a TV in the house')
+    expect(sameDayTexts).toContain('I think we need a TV in the house')
+    expect(calls.at(-1)).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Yes. You were discussing a TV for the house.'
       }
     })
   })

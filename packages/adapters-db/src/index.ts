@@ -4,3 +4,4 @@ export { createDbHouseholdConfigurationRepository } from './household-config-rep
 export { createDbProcessedBotMessageRepository } from './processed-bot-message-repository'
 export { createDbReminderDispatchRepository } from './reminder-dispatch-repository'
 export { createDbTelegramPendingActionRepository } from './telegram-pending-action-repository'
+export { createDbTopicMessageHistoryRepository } from './topic-message-history-repository'

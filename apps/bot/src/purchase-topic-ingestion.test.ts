@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import { instantFromIso } from '@household/domain'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import type {
+  HouseholdConfigurationRepository,
+  TopicMessageHistoryRecord,
+  TopicMessageHistoryRepository
+} from '@household/ports'
 import { createTelegramBot } from './bot'
-import { createInMemoryAssistantConversationMemoryStore } from './assistant-state'
 
 import {
   buildPurchaseAcknowledgement,
@@ -152,6 +155,37 @@ function createTestBot() {
   }
 
   return bot
+}
+
+function createTopicMessageHistoryRepository(): TopicMessageHistoryRepository {
+  const rows: TopicMessageHistoryRecord[] = []
+
+  return {
+    async saveMessage(input) {
+      rows.push(input)
+    },
+    async listRecentThreadMessages(input) {
+      return rows
+        .filter(
+          (row) =>
+            row.householdId === input.householdId &&
+            row.telegramChatId === input.telegramChatId &&
+            row.telegramThreadId === input.telegramThreadId
+        )
+        .slice(-input.limit)
+    },
+    async listRecentChatMessages(input) {
+      return rows
+        .filter(
+          (row) =>
+            row.householdId === input.householdId &&
+            row.telegramChatId === input.telegramChatId &&
+            row.messageSentAt &&
+            row.messageSentAt.epochMilliseconds >= input.sentAtOrAfter.epochMilliseconds
+        )
+        .slice(-input.limit)
+    }
+  }
 }
 
 describe('extractPurchaseTopicCandidate', () => {
@@ -1667,7 +1701,7 @@ Confirm or cancel below.`,
   test('uses recent silent planning context for direct bot-address advice replies', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
-    const memoryStore = createInMemoryAssistantConversationMemoryStore(12)
+    const historyRepository = createTopicMessageHistoryRepository()
     let sawDirectAddress = false
     let recentTurnTexts: string[] = []
 
@@ -1699,7 +1733,7 @@ Confirm or cancel below.`,
     }
 
     registerPurchaseTopicIngestion(bot, config, repository, {
-      memoryStore,
+      historyRepository,
       router: async (input) => {
         if (input.messageText.includes('думаю купить')) {
           return {
@@ -1714,7 +1748,7 @@ Confirm or cancel below.`,
         }
 
         sawDirectAddress = input.isExplicitMention
-        recentTurnTexts = input.recentTurns?.map((turn) => turn.text) ?? []
+        recentTurnTexts = input.recentThreadMessages?.map((turn) => turn.text) ?? []
 
         return {
           route: 'chat_reply',
@@ -1795,7 +1829,7 @@ Confirm or cancel below.`,
   test('keeps silent planning context scoped to the current purchase thread', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
-    const memoryStore = createInMemoryAssistantConversationMemoryStore(12)
+    const historyRepository = createTopicMessageHistoryRepository()
     let recentTurnTexts: string[] = []
 
     bot.api.config.use(async (_prev, method, payload) => {
@@ -1874,7 +1908,7 @@ Confirm or cancel below.`,
       householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
       repository,
       {
-        memoryStore,
+        historyRepository,
         router: async (input) => {
           if (input.messageText.includes('картошки')) {
             return {
@@ -1888,7 +1922,7 @@ Confirm or cancel below.`,
             }
           }
 
-          recentTurnTexts = input.recentTurns?.map((turn) => turn.text) ?? []
+          recentTurnTexts = input.recentThreadMessages?.map((turn) => turn.text) ?? []
 
           return {
             route: 'chat_reply',

@@ -66,3 +66,9 @@ export {
   type TelegramPendingActionRepository,
   type TelegramPendingActionType
 } from './telegram-pending-actions'
+export type {
+  ListRecentChatTopicMessagesInput,
+  ListRecentThreadTopicMessagesInput,
+  TopicMessageHistoryRecord,
+  TopicMessageHistoryRepository
+} from './topic-message-history'

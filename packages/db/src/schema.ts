@@ -499,6 +499,48 @@ export const processedBotMessages = pgTable(
   })
 )
 
+export const topicMessages = pgTable(
+  'topic_messages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramThreadId: text('telegram_thread_id'),
+    telegramMessageId: text('telegram_message_id'),
+    telegramUpdateId: text('telegram_update_id'),
+    senderTelegramUserId: text('sender_telegram_user_id'),
+    senderDisplayName: text('sender_display_name'),
+    isBot: integer('is_bot').default(0).notNull(),
+    rawText: text('raw_text').notNull(),
+    messageSentAt: timestamp('message_sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdThreadSentIdx: index('topic_messages_household_thread_sent_idx').on(
+      table.householdId,
+      table.telegramChatId,
+      table.telegramThreadId,
+      table.messageSentAt
+    ),
+    householdChatSentIdx: index('topic_messages_household_chat_sent_idx').on(
+      table.householdId,
+      table.telegramChatId,
+      table.messageSentAt
+    ),
+    householdMessageUnique: uniqueIndex('topic_messages_household_tg_message_unique').on(
+      table.householdId,
+      table.telegramChatId,
+      table.telegramMessageId
+    ),
+    householdUpdateUnique: uniqueIndex('topic_messages_household_tg_update_unique').on(
+      table.householdId,
+      table.telegramUpdateId
+    )
+  })
+)
+
 export const anonymousMessages = pgTable(
   'anonymous_messages',
   {
@@ -682,6 +724,7 @@ export type BillingCycleExchangeRate = typeof billingCycleExchangeRates.$inferSe
 export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseEntry = typeof purchaseEntries.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect
+export type TopicMessage = typeof topicMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
 export type PaymentConfirmation = typeof paymentConfirmations.$inferSelect
 export type PaymentRecord = typeof paymentRecords.$inferSelect
