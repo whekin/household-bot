@@ -124,6 +124,9 @@ function createDashboard(): NonNullable<
   return {
     period: '2026-03',
     currency: 'GEL',
+    timezone: 'Asia/Tbilisi',
+    rentDueDay: 20,
+    utilitiesDueDay: 4,
     paymentBalanceAdjustmentPolicy: 'utilities',
     totalDue: Money.fromMajor('400', 'GEL'),
     totalPaid: Money.fromMajor('100', 'GEL'),

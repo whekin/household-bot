@@ -490,6 +490,12 @@ button:disabled {
   gap: 8px;
 }
 
+.balance-spotlight__copy small,
+.balance-detail-row__main small {
+  color: #c6c2bb;
+  font-size: 0.86rem;
+}
+
 .balance-spotlight__hero {
   display: grid;
   gap: 6px;
@@ -1174,6 +1180,32 @@ button:disabled {
 .balance-item > p + .ledger-list,
 .balance-item > p + .balance-list {
   margin-top: 4px;
+}
+
+.balance-section {
+  gap: 16px;
+}
+
+.balance-section__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.balance-section__copy {
+  display: grid;
+  gap: 8px;
+}
+
+.household-balance-list {
+  display: grid;
+  gap: 12px;
+}
+
+.household-balance-list__card .ledger-compact-card__meta {
+  margin-top: 12px;
 }
 
 .app-context-row {

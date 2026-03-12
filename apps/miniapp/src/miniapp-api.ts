@@ -95,6 +95,9 @@ export interface MiniAppTopicBinding {
 export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
+  timezone: string
+  rentDueDay: number
+  utilitiesDueDay: number
   paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
   totalDueMajor: string
   totalPaidMajor: string

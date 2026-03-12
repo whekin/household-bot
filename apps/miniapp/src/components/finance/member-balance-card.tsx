@@ -1,7 +1,7 @@
 import { Show } from 'solid-js'
 
 import { cn } from '../../lib/cn'
-import { formatFriendlyDate } from '../../lib/dates'
+import { formatCyclePeriod, formatFriendlyDate } from '../../lib/dates'
 import { majorStringToMinor, sumMajorStrings } from '../../lib/money'
 import type { MiniAppDashboard } from '../../miniapp-api'
 import { MiniChip, StatCard } from '../ui'
@@ -44,25 +44,25 @@ export function MemberBalanceCard(props: Props) {
       <header class="balance-spotlight__header">
         <div class="balance-spotlight__copy">
           <strong>{props.copy.yourBalanceTitle ?? ''}</strong>
-          <p>{props.copy.yourBalanceBody ?? ''}</p>
+          <Show when={props.copy.yourBalanceBody}>{(body) => <p>{body()}</p>}</Show>
         </div>
         <div class="balance-spotlight__hero">
           <span>{props.copy.remainingLabel ?? ''}</span>
           <strong>
             {props.member.remainingMajor} {props.dashboard.currency}
           </strong>
-          <small>
-            {props.copy.totalDue ?? ''}: {props.member.netDueMajor} {props.dashboard.currency}
-          </small>
+          <Show when={majorStringToMinor(props.member.paidMajor) > 0n}>
+            <small>
+              {props.copy.totalDue ?? ''}: {props.member.netDueMajor} {props.dashboard.currency}
+            </small>
+          </Show>
         </div>
       </header>
 
       <div class="balance-spotlight__stats">
         <StatCard class="balance-spotlight__stat">
-          <span>{props.copy.totalDue ?? ''}</span>
-          <strong>
-            {props.member.netDueMajor} {props.dashboard.currency}
-          </strong>
+          <span>{props.copy.currentCycleLabel ?? ''}</span>
+          <strong>{formatCyclePeriod(props.dashboard.period, props.locale)}</strong>
         </StatCard>
         <StatCard class="balance-spotlight__stat">
           <span>{props.copy.paidLabel ?? ''}</span>

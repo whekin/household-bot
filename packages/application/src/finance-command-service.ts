@@ -140,6 +140,9 @@ export interface FinanceDashboardLedgerEntry {
 export interface FinanceDashboard {
   period: string
   currency: CurrencyCode
+  timezone: string
+  rentDueDay: number
+  utilitiesDueDay: number
   paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
   totalDue: Money
   totalPaid: Money
@@ -559,6 +562,9 @@ async function buildFinanceDashboard(
   return {
     period: cycle.period,
     currency: cycle.currency,
+    timezone: settings.timezone,
+    rentDueDay: settings.rentDueDay,
+    utilitiesDueDay: settings.utilitiesDueDay,
     paymentBalanceAdjustmentPolicy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
     totalDue: settlement.totalDue,
     totalPaid: paymentRecords.reduce(

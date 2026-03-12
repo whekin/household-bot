@@ -26,6 +26,9 @@ export const demoTelegramUser: NonNullable<MiniAppSession['telegramUser']> = {
 export const demoDashboard: MiniAppDashboard = {
   period: '2026-03',
   currency: 'GEL',
+  timezone: 'Asia/Tbilisi',
+  rentDueDay: 20,
+  utilitiesDueDay: 4,
   paymentBalanceAdjustmentPolicy: 'utilities',
   totalDueMajor: '2410.00',
   totalPaidMajor: '650.00',

@@ -88,6 +88,9 @@ export function createMiniAppDashboardHandler(options: {
             dashboard: {
               period: dashboard.period,
               currency: dashboard.currency,
+              timezone: dashboard.timezone,
+              rentDueDay: dashboard.rentDueDay,
+              utilitiesDueDay: dashboard.utilitiesDueDay,
               paymentBalanceAdjustmentPolicy: dashboard.paymentBalanceAdjustmentPolicy,
               totalDueMajor: dashboard.totalDue.toMajorString(),
               totalPaidMajor: dashboard.totalPaid.toMajorString(),

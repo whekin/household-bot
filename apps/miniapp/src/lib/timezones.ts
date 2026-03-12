@@ -2,6 +2,7 @@ const CURATED_TIMEZONES = [
   'Asia/Tbilisi',
   'Europe/Berlin',
   'Europe/London',
+  'Europe/Moscow',
   'Europe/Paris',
   'Europe/Warsaw',
   'America/New_York',

@@ -107,46 +107,54 @@ export function BalancesScreen(props: Props) {
               purchaseShareLabel: props.copy.purchaseShareLabel ?? ''
             }}
           />
-          <article class="balance-item balance-item--wide">
-            <header>
-              <strong>{props.copy.householdBalancesTitle ?? ''}</strong>
-              <span>{String(dashboard().members.length)}</span>
+          <section class="balance-item balance-item--wide balance-section">
+            <header class="balance-section__header">
+              <div class="balance-section__copy">
+                <strong>{props.copy.householdBalancesTitle ?? ''}</strong>
+                <p>{props.copy.householdBalancesBody ?? ''}</p>
+              </div>
+              <span class="mini-chip mini-chip--muted">
+                {String(dashboard().members.length)} {props.copy.membersCount ?? ''}
+              </span>
             </header>
-            <p>{props.copy.householdBalancesBody ?? ''}</p>
-          </article>
-          <For each={dashboard().members}>
-            {(member) => (
-              <article class="balance-item">
-                <header>
-                  <strong>{member.displayName}</strong>
-                  <span>
-                    {member.remainingMajor} {dashboard().currency}
-                  </span>
-                </header>
-                <p>
-                  {props.copy.baseDue ?? ''}: {props.memberBaseDueMajor(member)}{' '}
-                  {dashboard().currency}
-                </p>
-                <p>
-                  {props.copy.shareRent ?? ''}: {member.rentShareMajor} {dashboard().currency}
-                </p>
-                <p>
-                  {props.copy.shareUtilities ?? ''}: {member.utilityShareMajor}{' '}
-                  {dashboard().currency}
-                </p>
-                <p>
-                  {props.copy.shareOffset ?? ''}: {member.purchaseOffsetMajor}{' '}
-                  {dashboard().currency}
-                </p>
-                <p>
-                  {props.copy.paidLabel ?? ''}: {member.paidMajor} {dashboard().currency}
-                </p>
-                <p class={`balance-status ${props.memberRemainingClass(member)}`}>
-                  {props.copy.remainingLabel ?? ''}: {member.remainingMajor} {dashboard().currency}
-                </p>
-              </article>
-            )}
-          </For>
+            <div class="household-balance-list">
+              <For each={dashboard().members}>
+                {(member) => (
+                  <article class="ledger-compact-card household-balance-list__card">
+                    <div class="ledger-compact-card__main">
+                      <header>
+                        <strong>{member.displayName}</strong>
+                        <span class={`balance-status ${props.memberRemainingClass(member)}`}>
+                          {member.remainingMajor} {dashboard().currency}
+                        </span>
+                      </header>
+                      <div class="ledger-compact-card__meta">
+                        <span class="mini-chip mini-chip--muted">
+                          {props.copy.baseDue ?? ''}: {props.memberBaseDueMajor(member)}{' '}
+                          {dashboard().currency}
+                        </span>
+                        <span class="mini-chip mini-chip--muted">
+                          {props.copy.shareRent ?? ''}: {member.rentShareMajor}{' '}
+                          {dashboard().currency}
+                        </span>
+                        <span class="mini-chip mini-chip--muted">
+                          {props.copy.shareUtilities ?? ''}: {member.utilityShareMajor}{' '}
+                          {dashboard().currency}
+                        </span>
+                        <span class="mini-chip mini-chip--muted">
+                          {props.copy.shareOffset ?? ''}: {member.purchaseOffsetMajor}{' '}
+                          {dashboard().currency}
+                        </span>
+                        <span class="mini-chip mini-chip--muted">
+                          {props.copy.paidLabel ?? ''}: {member.paidMajor} {dashboard().currency}
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                )}
+              </For>
+            </div>
+          </section>
         </div>
       )}
     </Show>

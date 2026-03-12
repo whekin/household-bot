@@ -168,6 +168,9 @@ function createFinanceService(): FinanceCommandService {
     generateDashboard: async () => ({
       period: '2026-03',
       currency: 'GEL',
+      timezone: 'Asia/Tbilisi',
+      rentDueDay: 20,
+      utilitiesDueDay: 4,
       paymentBalanceAdjustmentPolicy: 'utilities',
       totalDue: Money.fromMajor('1000', 'GEL'),
       totalPaid: Money.zero('GEL'),
