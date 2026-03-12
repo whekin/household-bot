@@ -1,10 +1,12 @@
 import { Show } from 'solid-js'
 
 import { MemberBalanceCard } from '../components/finance/member-balance-card'
+import { formatCyclePeriod } from '../lib/dates'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 type Props = {
   copy: Record<string, string | undefined>
+  locale: 'en' | 'ru'
   dashboard: MiniAppDashboard | null
   currentMemberLine: MiniAppDashboard['members'][number] | null
 }
@@ -25,6 +27,7 @@ export function BalancesScreen(props: Props) {
             {(member) => (
               <MemberBalanceCard
                 copy={props.copy}
+                locale={props.locale}
                 dashboard={dashboard()}
                 member={member()}
                 detail
@@ -34,7 +37,7 @@ export function BalancesScreen(props: Props) {
           <article class="balance-item balance-item--muted">
             <header>
               <strong>{props.copy.balanceScreenScopeTitle ?? ''}</strong>
-              <span>{dashboard().period}</span>
+              <span>{formatCyclePeriod(dashboard().period, props.locale)}</span>
             </header>
             <p>{props.copy.balanceScreenScopeBody ?? ''}</p>
           </article>

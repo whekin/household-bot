@@ -1,12 +1,14 @@
 import { Show } from 'solid-js'
 
 import { cn } from '../../lib/cn'
+import { formatFriendlyDate } from '../../lib/dates'
 import { majorStringToMinor, sumMajorStrings } from '../../lib/money'
 import type { MiniAppDashboard } from '../../miniapp-api'
 import { MiniChip, StatCard } from '../ui'
 
 type Props = {
   copy: Record<string, string | undefined>
+  locale: 'en' | 'ru'
   dashboard: MiniAppDashboard
   member: MiniAppDashboard['members'][number]
   detail?: boolean
@@ -123,7 +125,8 @@ export function MemberBalanceCard(props: Props) {
             <Show when={props.dashboard.rentFxEffectiveDate}>
               {(date) => (
                 <MiniChip muted>
-                  {props.copy.fxEffectiveDateLabel ?? ''}: {date()}
+                  {props.copy.fxEffectiveDateLabel ?? ''}:{' '}
+                  {formatFriendlyDate(date(), props.locale)}
                 </MiniChip>
               )}
             </Show>

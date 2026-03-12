@@ -431,6 +431,7 @@ function App() {
   const editingPaymentEntry = createMemo(
     () => paymentLedger().find((entry) => entry.id === editingPaymentId()) ?? null
   )
+  const defaultPaymentMemberId = createMemo(() => adminSettings()?.members[0]?.id ?? '')
   const editingUtilityBill = createMemo(
     () => cycleState()?.utilityBills.find((bill) => bill.id === editingUtilityBillId()) ?? null
   )
@@ -777,7 +778,10 @@ function App() {
       })
       setPaymentForm((current) => ({
         ...current,
-        memberId: current.memberId || payload.members[0]?.id || '',
+        memberId:
+          (current.memberId && payload.members.some((member) => member.id === current.memberId)
+            ? current.memberId
+            : payload.members[0]?.id) ?? '',
         currency: payload.settings.settlementCurrency
       }))
     } catch (error) {
@@ -1214,6 +1218,7 @@ function App() {
         rentCurrency: settings.rentCurrency,
         utilityCurrency: settings.settlementCurrency
       }))
+      await refreshHouseholdData(initData, true, true)
       setBillingSettingsOpen(false)
     } finally {
       setSavingBillingSettings(false)
@@ -1241,6 +1246,7 @@ function App() {
         period: state.cycle?.period ?? current.period,
         utilityCurrency: billingForm().settlementCurrency
       }))
+      await refreshHouseholdData(initData, true, true)
       setCycleRentOpen(false)
     } finally {
       setOpeningCycle(false)
@@ -1268,6 +1274,7 @@ function App() {
       })
       setCycleState(state)
       setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
+      await refreshHouseholdData(initData, true, true)
       setCycleRentOpen(false)
     } finally {
       setSavingCycleRent(false)
@@ -1304,6 +1311,7 @@ function App() {
         ...current,
         utilityAmountMajor: ''
       }))
+      await refreshHouseholdData(initData, true, true)
       setAddingUtilityBillOpen(false)
     } finally {
       setSavingUtilityBill(false)
@@ -1337,6 +1345,7 @@ function App() {
       })
       setCycleState(state)
       setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
+      await refreshHouseholdData(initData, true, true)
       setEditingUtilityBillId(null)
     } finally {
       setSavingUtilityBillId(null)
@@ -1356,6 +1365,7 @@ function App() {
       const state = await deleteMiniAppUtilityBill(initData, billId)
       setCycleState(state)
       setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
+      await refreshHouseholdData(initData, true, true)
       setEditingUtilityBillId((current) => (current === billId ? null : current))
     } finally {
       setDeletingUtilityBillId(null)
@@ -1437,11 +1447,12 @@ function App() {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const draft = paymentForm()
+    const memberId = draft.memberId.trim() || defaultPaymentMemberId()
     if (
       !initData ||
       currentReady?.mode !== 'live' ||
       !currentReady.member.isAdmin ||
-      draft.memberId.trim().length === 0 ||
+      memberId.length === 0 ||
       draft.amountMajor.trim().length === 0
     ) {
       return
@@ -1450,9 +1461,13 @@ function App() {
     setAddingPayment(true)
 
     try {
-      await addMiniAppPayment(initData, draft)
+      await addMiniAppPayment(initData, {
+        ...draft,
+        memberId
+      })
       setPaymentForm((current) => ({
         ...current,
+        memberId,
         amountMajor: ''
       }))
       await refreshHouseholdData(initData, true, true)
@@ -1582,7 +1597,11 @@ function App() {
     }
   }
 
-  async function handleSaveRentWeight(memberId: string, closeEditor = true) {
+  async function handleSaveRentWeight(
+    memberId: string,
+    closeEditor = true,
+    refreshAfterSave = true
+  ) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const nextWeight = Number(rentWeightDrafts()[memberId] ?? '')
@@ -1612,6 +1631,9 @@ function App() {
         ...current,
         [member.id]: String(member.rentShareWeight)
       }))
+      if (refreshAfterSave) {
+        await refreshHouseholdData(initData, true, true)
+      }
       if (closeEditor) {
         setEditingMemberId(null)
       }
@@ -1620,7 +1642,11 @@ function App() {
     }
   }
 
-  async function handleSaveMemberStatus(memberId: string, closeEditor = true) {
+  async function handleSaveMemberStatus(
+    memberId: string,
+    closeEditor = true,
+    refreshAfterSave = true
+  ) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const nextStatus = memberStatusDrafts()[memberId]
@@ -1651,6 +1677,9 @@ function App() {
           resolvedMemberAbsencePolicy(member.id, member.status).policy ??
           defaultAbsencePolicyForStatus(member.status)
       }))
+      if (refreshAfterSave) {
+        await refreshHouseholdData(initData, true, true)
+      }
       if (closeEditor) {
         setEditingMemberId(null)
       }
@@ -1659,7 +1688,11 @@ function App() {
     }
   }
 
-  async function handleSaveMemberAbsencePolicy(memberId: string, closeEditor = true) {
+  async function handleSaveMemberAbsencePolicy(
+    memberId: string,
+    closeEditor = true,
+    refreshAfterSave = true
+  ) {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
     const member = adminSettings()?.members.find((entry) => entry.id === memberId)
@@ -1702,6 +1735,9 @@ function App() {
         ...current,
         [memberId]: savedPolicy.policy
       }))
+      if (refreshAfterSave) {
+        await refreshHouseholdData(initData, true, true)
+      }
       if (closeEditor) {
         setEditingMemberId(null)
       }
@@ -1736,6 +1772,7 @@ function App() {
     const hasNameChange = nextDisplayName !== member.displayName
     const hasStatusChange = nextStatus !== member.status
     const hasWeightChange = nextWeight !== member.rentShareWeight
+    const requiresDashboardRefresh = hasStatusChange || wantsAwayPolicySave || hasWeightChange
 
     if (!hasNameChange && !hasStatusChange && !wantsAwayPolicySave && !hasWeightChange) {
       return
@@ -1749,15 +1786,22 @@ function App() {
       }
 
       if (hasStatusChange) {
-        await handleSaveMemberStatus(memberId, false)
+        await handleSaveMemberStatus(memberId, false, false)
       }
 
       if (wantsAwayPolicySave) {
-        await handleSaveMemberAbsencePolicy(memberId, false)
+        await handleSaveMemberAbsencePolicy(memberId, false, false)
       }
 
       if (hasWeightChange) {
-        await handleSaveRentWeight(memberId, false)
+        await handleSaveRentWeight(memberId, false, false)
+      }
+
+      if (requiresDashboardRefresh) {
+        const initData = webApp?.initData?.trim()
+        if (initData) {
+          await refreshHouseholdData(initData, true, true)
+        }
       }
 
       setEditingMemberId(null)
@@ -1800,6 +1844,7 @@ function App() {
         return (
           <BalancesScreen
             copy={copy()}
+            locale={locale()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
           />
@@ -1808,6 +1853,7 @@ function App() {
         return (
           <LedgerScreen
             copy={copy()}
+            locale={locale()}
             dashboard={dashboard()}
             readyIsAdmin={effectiveIsAdmin()}
             adminMembers={adminSettings()?.members ?? []}
@@ -1875,7 +1921,14 @@ function App() {
                 )
               }))
             }
-            onOpenAddPayment={() => setAddingPaymentOpen(true)}
+            onOpenAddPayment={() => {
+              setPaymentForm((current) => ({
+                ...current,
+                memberId: current.memberId.trim() || defaultPaymentMemberId(),
+                currency: adminSettings()?.settings.settlementCurrency ?? current.currency
+              }))
+              setAddingPaymentOpen(true)
+            }}
             onCloseAddPayment={() => setAddingPaymentOpen(false)}
             onAddPayment={handleAddPayment}
             onPaymentFormMemberChange={(value) =>
@@ -1936,6 +1989,7 @@ function App() {
         return (
           <HouseScreen
             copy={copy()}
+            locale={locale()}
             readyIsAdmin={effectiveIsAdmin()}
             householdDefaultLocale={readySession()?.member.householdDefaultLocale ?? 'en'}
             dashboard={dashboard()}
@@ -2219,6 +2273,7 @@ function App() {
         return (
           <HomeScreen
             copy={copy()}
+            locale={locale()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
             utilityTotalMajor={utilityTotalMajor()}

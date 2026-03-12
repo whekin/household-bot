@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js'
 
-import { Button, Field, IconButton, Modal, PencilIcon } from '../components/ui'
+import { Button, Field, IconButton, Modal, PencilIcon, PlusIcon, TrashIcon } from '../components/ui'
+import { formatFriendlyDate } from '../lib/dates'
 import type { MiniAppAdminSettingsPayload, MiniAppDashboard } from '../miniapp-api'
 
 type PurchaseDraft = {
@@ -23,6 +24,7 @@ type PaymentDraft = {
 
 type Props = {
   copy: Record<string, string | undefined>
+  locale: 'en' | 'ru'
   dashboard: MiniAppDashboard | null
   readyIsAdmin: boolean
   adminMembers: readonly MiniAppAdminSettingsPayload['members'][number][]
@@ -147,7 +149,11 @@ export function LedgerScreen(props: Props) {
                     <div class="ledger-compact-card__main">
                       <header>
                         <strong>{entry.title}</strong>
-                        <span>{entry.occurredAt?.slice(0, 10) ?? '—'}</span>
+                        <span>
+                          {entry.occurredAt
+                            ? formatFriendlyDate(entry.occurredAt, props.locale)
+                            : '—'}
+                        </span>
                       </header>
                       <p>{entry.actorDisplayName ?? props.copy.ledgerActorFallback ?? ''}</p>
                       <div class="ledger-compact-card__meta">
@@ -194,6 +200,7 @@ export function LedgerScreen(props: Props) {
             return (
               <div class="modal-action-row">
                 <Button variant="danger" onClick={() => void props.onDeletePurchase(entry.id)}>
+                  <TrashIcon />
                   {props.deletingPurchaseId === entry.id
                     ? props.copy.deletingPurchase
                     : props.copy.purchaseDeleteAction}
@@ -394,6 +401,7 @@ export function LedgerScreen(props: Props) {
             <p>{props.copy.paymentsAdminBody ?? ''}</p>
             <div class="panel-toolbar">
               <Button variant="secondary" onClick={props.onOpenAddPayment}>
+                <PlusIcon />
                 {props.copy.paymentsAddAction ?? ''}
               </Button>
             </div>
@@ -408,7 +416,11 @@ export function LedgerScreen(props: Props) {
                     <div class="ledger-compact-card__main">
                       <header>
                         <strong>{props.paymentMemberName(entry)}</strong>
-                        <span>{entry.occurredAt?.slice(0, 10) ?? '—'}</span>
+                        <span>
+                          {entry.occurredAt
+                            ? formatFriendlyDate(entry.occurredAt, props.locale)
+                            : '—'}
+                        </span>
                       </header>
                       <p>{props.ledgerTitle(entry)}</p>
                       <div class="ledger-compact-card__meta">
@@ -449,7 +461,11 @@ export function LedgerScreen(props: Props) {
               </Button>
               <Button
                 variant="primary"
-                disabled={props.addingPayment || props.paymentForm.amountMajor.trim().length === 0}
+                disabled={
+                  props.addingPayment ||
+                  props.paymentForm.memberId.trim().length === 0 ||
+                  props.paymentForm.amountMajor.trim().length === 0
+                }
                 onClick={() => void props.onAddPayment()}
               >
                 {props.addingPayment ? props.copy.addingPayment : props.copy.paymentsAddAction}
@@ -514,6 +530,7 @@ export function LedgerScreen(props: Props) {
             return (
               <div class="modal-action-row">
                 <Button variant="danger" onClick={() => void props.onDeletePayment(entry.id)}>
+                  <TrashIcon />
                   {props.deletingPaymentId === entry.id
                     ? props.copy.deletingPayment
                     : props.copy.paymentDeleteAction}

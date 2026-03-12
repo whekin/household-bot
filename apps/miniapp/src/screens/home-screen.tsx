@@ -1,11 +1,13 @@
 import { Show } from 'solid-js'
 
 import { FinanceSummaryCards } from '../components/finance/finance-summary-cards'
+import { formatCyclePeriod } from '../lib/dates'
 import { sumMajorStrings } from '../lib/money'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 type Props = {
   copy: Record<string, string | undefined>
+  locale: 'en' | 'ru'
   dashboard: MiniAppDashboard | null
   currentMemberLine: MiniAppDashboard['members'][number] | null
   utilityTotalMajor: string
@@ -85,7 +87,7 @@ export function HomeScreen(props: Props) {
                   </article>
                   <article class="stat-card balance-spotlight__stat">
                     <span>{props.copy.currentCycleLabel ?? ''}</span>
-                    <strong>{dashboard().period}</strong>
+                    <strong>{formatCyclePeriod(dashboard().period, props.locale)}</strong>
                   </article>
                 </div>
 
@@ -122,7 +124,7 @@ export function HomeScreen(props: Props) {
           <article class="balance-item balance-item--wide balance-item--muted">
             <header>
               <strong>{props.copy.houseSnapshotTitle ?? ''}</strong>
-              <span>{dashboard().period}</span>
+              <span>{formatCyclePeriod(dashboard().period, props.locale)}</span>
             </header>
             <p>{props.copy.houseSnapshotBody ?? ''}</p>
             <div class="summary-card-grid summary-card-grid--secondary">

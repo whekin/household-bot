@@ -9,8 +9,10 @@ import {
   Modal,
   PencilIcon,
   PlusIcon,
-  SettingsIcon
+  SettingsIcon,
+  TrashIcon
 } from '../components/ui'
+import { formatCyclePeriod, formatFriendlyDate } from '../lib/dates'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -50,6 +52,7 @@ type CycleForm = {
 
 type Props = {
   copy: Record<string, string | undefined>
+  locale: 'en' | 'ru'
   readyIsAdmin: boolean
   householdDefaultLocale: 'en' | 'ru'
   dashboard: MiniAppDashboard | null
@@ -226,7 +229,9 @@ export function HouseScreen(props: Props) {
                 <header>
                   <strong>{props.copy.billingCycleTitle ?? ''}</strong>
                   <span>
-                    {props.cycleState?.cycle?.period ?? props.copy.billingCycleEmpty ?? ''}
+                    {props.cycleState?.cycle?.period
+                      ? formatCyclePeriod(props.cycleState.cycle.period, props.locale)
+                      : (props.copy.billingCycleEmpty ?? '')}
                   </span>
                 </header>
                 <p>
@@ -565,7 +570,7 @@ export function HouseScreen(props: Props) {
                           <div class="ledger-compact-card__main">
                             <header>
                               <strong>{bill.billName}</strong>
-                              <span>{bill.createdAt.slice(0, 10)}</span>
+                              <span>{formatFriendlyDate(bill.createdAt, props.locale)}</span>
                             </header>
                             <p>{props.copy.utilityCategoryName ?? ''}</p>
                             <div class="ledger-compact-card__meta">
@@ -714,6 +719,7 @@ export function HouseScreen(props: Props) {
                       variant="danger"
                       onClick={() => void props.onDeleteUtilityBill(bill.id)}
                     >
+                      <TrashIcon />
                       {props.deletingUtilityBillId === bill.id
                         ? props.copy.deletingUtilityBill
                         : props.copy.deleteUtilityBillAction}
@@ -1085,7 +1091,7 @@ export function HouseScreen(props: Props) {
                         resolvedPolicy.effectiveFromPeriod
                           ? (props.copy.absencePolicyEffectiveFrom ?? '').replace(
                               '{period}',
-                              resolvedPolicy.effectiveFromPeriod
+                              formatCyclePeriod(resolvedPolicy.effectiveFromPeriod, props.locale)
                             )
                           : (props.copy.absencePolicyHint ?? '')
                       }

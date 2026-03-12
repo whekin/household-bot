@@ -124,3 +124,15 @@ export function XIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M4 7h16" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+      <path d="M9 4h6l1 3H8l1-3Z" />
+    </svg>
+  )
+}
