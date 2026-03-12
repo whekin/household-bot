@@ -1,4 +1,4 @@
-import { For, Show, createMemo, type JSX } from 'solid-js'
+import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 
 import {
   Button,
@@ -177,17 +177,25 @@ function HouseSection(props: {
   defaultOpen?: boolean | undefined
   children: JSX.Element
 }) {
+  const [open, setOpen] = createSignal(props.defaultOpen ?? false)
+
   return (
-    <details class="admin-disclosure" open={props.defaultOpen}>
-      <summary class="admin-disclosure__summary">
+    <section class="admin-disclosure">
+      <button
+        class="admin-disclosure__summary"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
         <div class="admin-disclosure__copy">
           <strong>{props.title}</strong>
           <Show when={props.body}>{(body) => <p>{body()}</p>}</Show>
         </div>
-        <ChevronDownIcon class="admin-disclosure__icon" />
-      </summary>
-      <div class="admin-disclosure__content">{props.children}</div>
-    </details>
+        <ChevronDownIcon class={`admin-disclosure__icon${open() ? ' is-open' : ''}`} />
+      </button>
+      <Show when={open()}>
+        <div class="admin-disclosure__content">{props.children}</div>
+      </Show>
+    </section>
   )
 }
 
@@ -1047,13 +1055,16 @@ export function HouseScreen(props: Props) {
           </section>
         </HouseSection>
 
-        <HouseSection title={props.copy.houseSectionMembers ?? ''} body={props.copy.adminsBody}>
+        <HouseSection title={props.copy.houseSectionMembers ?? ''} body={props.copy.membersBody}>
           <section class="admin-section">
             <div class="admin-grid">
               <article class="balance-item admin-card--wide">
                 <header>
-                  <strong>{props.copy.adminsTitle ?? ''}</strong>
-                  <span>{String(props.adminSettings?.members.length ?? 0)}</span>
+                  <strong>{props.copy.membersTitle ?? props.copy.houseSectionMembers ?? ''}</strong>
+                  <span class="mini-chip mini-chip--muted">
+                    {String(props.adminSettings?.members.length ?? 0)}{' '}
+                    {props.copy.membersCount ?? ''}
+                  </span>
                 </header>
                 <div class="ledger-list">
                   <For each={props.adminSettings?.members ?? []}>
@@ -1146,7 +1157,7 @@ export function HouseScreen(props: Props) {
             </div>
             <Modal
               open={Boolean(props.editingMember)}
-              title={props.copy.adminsTitle ?? ''}
+              title={props.copy.membersTitle ?? props.copy.houseSectionMembers ?? ''}
               description={props.copy.memberEditorBody ?? ''}
               closeLabel={props.copy.closeEditorAction ?? ''}
               onClose={props.onCloseMemberEditor}

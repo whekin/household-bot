@@ -406,12 +406,10 @@ export function LedgerScreen(props: Props) {
           <Show when={props.readyIsAdmin}>
             <p>{props.copy.paymentsAdminBody ?? ''}</p>
             <div class="panel-toolbar">
-              <IconButton
-                label={props.copy.paymentsAddAction ?? ''}
-                onClick={props.onOpenAddPayment}
-              >
+              <Button variant="secondary" onClick={props.onOpenAddPayment}>
                 <PlusIcon />
-              </IconButton>
+                {props.copy.paymentsAddAction ?? ''}
+              </Button>
             </div>
           </Show>
           {props.paymentEntries.length === 0 ? (

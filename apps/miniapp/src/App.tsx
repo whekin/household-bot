@@ -106,6 +106,8 @@ type SessionState =
 
 type NavigationKey = 'home' | 'balances' | 'ledger' | 'house'
 
+const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7dc96d'] as const
+
 type UtilityBillDraft = {
   billName: string
   amountMajor: string
@@ -185,6 +187,30 @@ function joinDeepLink(): string | null {
 
 function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
+}
+
+function absoluteMinor(value: bigint): bigint {
+  return value < 0n ? -value : value
+}
+
+function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
+  return minorToMajorString(
+    majorStringToMinor(member.rentShareMajor) + majorStringToMinor(member.utilityShareMajor)
+  )
+}
+
+function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {
+  const remainingMinor = majorStringToMinor(member.remainingMajor)
+
+  if (remainingMinor < 0n) {
+    return 'is-credit'
+  }
+
+  if (remainingMinor === 0n) {
+    return 'is-settled'
+  }
+
+  return 'is-due'
 }
 
 function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
@@ -458,6 +484,134 @@ function App() {
       )
     )
   )
+  const memberBalanceVisuals = createMemo(() => {
+    const data = dashboard()
+    if (!data) {
+      return []
+    }
+
+    const totals = data.members.map((member) => {
+      const rentMinor = absoluteMinor(majorStringToMinor(member.rentShareMajor))
+      const utilityMinor = absoluteMinor(majorStringToMinor(member.utilityShareMajor))
+      const purchaseMinor = absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor))
+
+      return {
+        member,
+        totalMinor: rentMinor + utilityMinor + purchaseMinor,
+        segments: [
+          {
+            key: 'rent',
+            label: copy().shareRent,
+            amountMajor: member.rentShareMajor,
+            amountMinor: rentMinor
+          },
+          {
+            key: 'utilities',
+            label: copy().shareUtilities,
+            amountMajor: member.utilityShareMajor,
+            amountMinor: utilityMinor
+          },
+          {
+            key:
+              majorStringToMinor(member.purchaseOffsetMajor) < 0n
+                ? 'purchase-credit'
+                : 'purchase-debit',
+            label: copy().shareOffset,
+            amountMajor: member.purchaseOffsetMajor,
+            amountMinor: purchaseMinor
+          }
+        ]
+      }
+    })
+
+    const maxTotalMinor = totals.reduce(
+      (max, item) => (item.totalMinor > max ? item.totalMinor : max),
+      0n
+    )
+
+    return totals
+      .sort((left, right) => {
+        const leftRemaining = majorStringToMinor(left.member.remainingMajor)
+        const rightRemaining = majorStringToMinor(right.member.remainingMajor)
+
+        if (rightRemaining === leftRemaining) {
+          return left.member.displayName.localeCompare(right.member.displayName)
+        }
+
+        return rightRemaining > leftRemaining ? 1 : -1
+      })
+      .map((item) => ({
+        ...item,
+        barWidthPercent:
+          maxTotalMinor > 0n ? (Number(item.totalMinor) / Number(maxTotalMinor)) * 100 : 0,
+        segments: item.segments.map((segment) => ({
+          ...segment,
+          widthPercent:
+            item.totalMinor > 0n ? (Number(segment.amountMinor) / Number(item.totalMinor)) * 100 : 0
+        }))
+      }))
+  })
+  const purchaseInvestmentChart = createMemo(() => {
+    const data = dashboard()
+    if (!data) {
+      return {
+        totalMajor: '0.00',
+        slices: []
+      }
+    }
+
+    const membersById = new Map(data.members.map((member) => [member.memberId, member.displayName]))
+    const totals = new Map<string, { label: string; amountMinor: bigint }>()
+
+    for (const entry of purchaseLedger()) {
+      const key = entry.memberId ?? entry.actorDisplayName ?? entry.id
+      const label =
+        (entry.memberId ? membersById.get(entry.memberId) : null) ??
+        entry.actorDisplayName ??
+        copy().ledgerActorFallback
+      const current = totals.get(key) ?? {
+        label,
+        amountMinor: 0n
+      }
+
+      totals.set(key, {
+        label,
+        amountMinor:
+          current.amountMinor + absoluteMinor(majorStringToMinor(entry.displayAmountMajor))
+      })
+    }
+
+    const items = [...totals.entries()]
+      .map(([key, value], index) => ({
+        key,
+        label: value.label,
+        amountMinor: value.amountMinor,
+        amountMajor: minorToMajorString(value.amountMinor),
+        color: chartPalette[index % chartPalette.length]!
+      }))
+      .filter((item) => item.amountMinor > 0n)
+      .sort((left, right) => (right.amountMinor > left.amountMinor ? 1 : -1))
+
+    const totalMinor = items.reduce((sum, item) => sum + item.amountMinor, 0n)
+    const circumference = 2 * Math.PI * 42
+    let offset = 0
+
+    return {
+      totalMajor: minorToMajorString(totalMinor),
+      slices: items.map((item) => {
+        const ratio = totalMinor > 0n ? Number(item.amountMinor) / Number(totalMinor) : 0
+        const dash = ratio * circumference
+        const slice = {
+          ...item,
+          percentage: Math.round(ratio * 100),
+          dasharray: `${dash} ${Math.max(circumference - dash, 0)}`,
+          dashoffset: `${-offset}`
+        }
+        offset += dash
+        return slice
+      })
+    }
+  })
   const webApp = getTelegramWebApp()
 
   function ledgerTitle(entry: MiniAppDashboard['ledger'][number]): string {
@@ -1870,6 +2024,12 @@ function App() {
             locale={locale()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
+            utilityTotalMajor={utilityTotalMajor()}
+            purchaseTotalMajor={purchaseTotalMajor()}
+            memberBalanceVisuals={memberBalanceVisuals()}
+            purchaseChart={purchaseInvestmentChart()}
+            memberBaseDueMajor={memberBaseDueMajor}
+            memberRemainingClass={memberRemainingClass}
           />
         )
       case 'ledger':
