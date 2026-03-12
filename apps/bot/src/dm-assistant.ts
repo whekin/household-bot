@@ -1078,6 +1078,7 @@ export function registerDmAssistant(options: {
               purchaseResult.status === 'pending_confirmation'
                 ? getBotTranslations(locale).purchase.proposal(
                     formatPurchaseSummary(locale, purchaseResult),
+                    null,
                     null
                   )
                 : purchaseResult.status === 'clarification_needed'
@@ -1358,6 +1359,7 @@ export function registerDmAssistant(options: {
           if (purchaseResult.status === 'pending_confirmation') {
             const purchaseText = getBotTranslations(locale).purchase.proposal(
               formatPurchaseSummary(locale, purchaseResult),
+              null,
               null
             )
 

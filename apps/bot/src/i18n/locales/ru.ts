@@ -292,8 +292,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     processing: 'Проверяю покупку...',
-    proposal: (summary, participants) =>
-      `Похоже, это общая покупка: ${summary}.${participants ? `\n\n${participants}` : ''}\nПодтвердите или отмените ниже.`,
+    proposal: (summary: string, calculationNote: string | null, participants: string | null) =>
+      `Похоже, это общая покупка: ${summary}.${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nПодтвердите или отмените ниже.`,
+    calculatedAmountNote: (explanation: string | null) =>
+      explanation
+        ? `Я посчитал итог как ${explanation}. Всё верно?`
+        : 'Я посчитал итоговую сумму для этой покупки. Всё верно?',
     clarification: (question) => question,
     clarificationMissingAmountAndCurrency:
       'Какую сумму и валюту нужно записать для этой общей покупки?',
@@ -308,7 +312,13 @@ export const ruBotTranslations: BotTranslationCatalog = {
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
     confirmButton: 'Подтвердить',
+    calculatedConfirmButton: 'Верно',
+    calculatedFixAmountButton: 'Исправить сумму',
     cancelButton: 'Отменить',
+    calculatedFixAmountPrompt:
+      'Ответьте в этот топик исправленной итоговой суммой и валютой, и я заново проверю покупку.',
+    calculatedFixAmountRequestedToast: 'Ответьте исправленной суммой.',
+    calculatedFixAmountAlreadyRequested: 'Жду исправленную сумму.',
     confirmed: (summary) => `Покупка подтверждена: ${summary}`,
     cancelled: (summary) => `Предложение покупки отменено: ${summary}`,
     confirmedToast: 'Покупка подтверждена.',

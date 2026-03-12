@@ -288,8 +288,12 @@ export const enBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     processing: 'Checking that purchase...',
-    proposal: (summary, participants) =>
-      `I think this shared purchase was: ${summary}.${participants ? `\n\n${participants}` : ''}\nConfirm or cancel below.`,
+    proposal: (summary: string, calculationNote: string | null, participants: string | null) =>
+      `I think this shared purchase was: ${summary}.${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nConfirm or cancel below.`,
+    calculatedAmountNote: (explanation: string | null) =>
+      explanation
+        ? `I calculated the total as ${explanation}. Is that right?`
+        : 'I calculated the total for this purchase. Is that right?',
     clarification: (question) => question,
     clarificationMissingAmountAndCurrency:
       'What amount and currency should I record for this shared purchase?',
@@ -304,7 +308,13 @@ export const enBotTranslations: BotTranslationCatalog = {
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
     confirmButton: 'Confirm',
+    calculatedConfirmButton: 'Looks right',
+    calculatedFixAmountButton: 'Fix amount',
     cancelButton: 'Cancel',
+    calculatedFixAmountPrompt:
+      'Reply with the corrected total and currency in this topic, and I will re-check the purchase.',
+    calculatedFixAmountRequestedToast: 'Reply with the corrected total.',
+    calculatedFixAmountAlreadyRequested: 'Waiting for the corrected total.',
     confirmed: (summary) => `Purchase confirmed: ${summary}`,
     cancelled: (summary) => `Purchase proposal cancelled: ${summary}`,
     confirmedToast: 'Purchase confirmed.',

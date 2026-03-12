@@ -268,7 +268,12 @@ export interface BotTranslationCatalog {
   purchase: {
     sharedPurchaseFallback: string
     processing: string
-    proposal: (summary: string, participants: string | null) => string
+    proposal: (
+      summary: string,
+      calculationNote: string | null,
+      participants: string | null
+    ) => string
+    calculatedAmountNote: (explanation: string | null) => string
     clarification: (question: string) => string
     clarificationMissingAmountAndCurrency: string
     clarificationMissingAmount: string
@@ -281,7 +286,12 @@ export interface BotTranslationCatalog {
     participantToggleIncluded: (displayName: string) => string
     participantToggleExcluded: (displayName: string) => string
     confirmButton: string
+    calculatedConfirmButton: string
+    calculatedFixAmountButton: string
     cancelButton: string
+    calculatedFixAmountPrompt: string
+    calculatedFixAmountRequestedToast: string
+    calculatedFixAmountAlreadyRequested: string
     confirmed: (summary: string) => string
     cancelled: (summary: string) => string
     confirmedToast: string

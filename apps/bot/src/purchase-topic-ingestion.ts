@@ -10,6 +10,7 @@ import type {
 import { createDbClient, schema } from '@household/db'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type {
+  PurchaseInterpretationAmountSource,
   PurchaseInterpretation,
   PurchaseMessageInterpreter
 } from './openai-purchase-interpreter'
@@ -19,13 +20,14 @@ import { stripExplicitBotMention } from './telegram-mentions'
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
 const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
+const PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX = 'purchase:fix_amount:'
 const MIN_PROPOSAL_CONFIDENCE = 70
 const LIKELY_PURCHASE_VERB_PATTERN =
-  /\b(?:bought|purchased|paid|spent|ordered|picked up|grabbed|got)\b|\b(?:купил(?:а|и)?|куплено|заказал(?:а|и)?|оплатил(?:а|и)?|потратил(?:а|и)?|взял(?:а|и)?)\b/iu
+  /\b(?:bought|purchased|paid|spent|ordered|picked up|grabbed|got)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|куплено|заказал(?:а|и)?|оплатил(?:а|и)?|потратил(?:а|и)?|взял(?:а|и)?)(?=$|[^\p{L}])/iu
 const PLANNING_PURCHASE_PATTERN =
-  /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|\b(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)\b|\b(?:купим|возьмем|возьмём|закажем|оплатим)\b/iu
+  /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|(?:^|[^\p{L}])(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:купим|возьмем|возьмём|закажем|оплатим)(?=$|[^\p{L}])/iu
 const MONEY_SIGNAL_PATTERN =
-  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|tetri|тетри|usd|\$|доллар(?:а|ов)?)\b|\b(?:for|за|на)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent|заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?)\s+\d+(?:[.,]\d{1,2})?\b/iu
+  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лари|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
 const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
 
 type PurchaseTopicEngagement =
@@ -68,6 +70,8 @@ interface PurchaseProposalFields {
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
   parsedItemDescription: string | null
+  amountSource?: PurchaseInterpretationAmountSource | null
+  calculationExplanation?: string | null
   parserConfidence: number | null
   parserMode: 'llm' | null
 }
@@ -173,6 +177,29 @@ export type PurchaseProposalParticipantToggleResult =
       status: 'not_found'
     }
 
+export type PurchaseProposalAmountCorrectionResult =
+  | {
+      status: 'requested'
+      purchaseMessageId: string
+      householdId: string
+    }
+  | {
+      status: 'already_requested'
+      purchaseMessageId: string
+      householdId: string
+    }
+  | {
+      status: 'forbidden'
+      householdId: string
+    }
+  | {
+      status: 'not_pending'
+      householdId: string
+    }
+  | {
+      status: 'not_found'
+    }
+
 export interface PurchaseMessageIngestionRepository {
   hasClarificationContext(record: PurchaseTopicRecord): Promise<boolean>
   save(
@@ -196,6 +223,10 @@ export interface PurchaseMessageIngestionRepository {
     participantId: string,
     actorTelegramUserId: string
   ): Promise<PurchaseProposalParticipantToggleResult>
+  requestAmountCorrection?(
+    purchaseMessageId: string,
+    actorTelegramUserId: string
+  ): Promise<PurchaseProposalAmountCorrectionResult>
 }
 
 interface PurchasePersistenceDecision {
@@ -203,6 +234,8 @@ interface PurchasePersistenceDecision {
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
   parsedItemDescription: string | null
+  amountSource: PurchaseInterpretationAmountSource | null
+  calculationExplanation: string | null
   parserConfidence: number | null
   parserMode: 'llm' | null
   clarificationQuestion: string | null
@@ -292,6 +325,8 @@ function normalizeInterpretation(
       parsedAmountMinor: null,
       parsedCurrency: null,
       parsedItemDescription: null,
+      amountSource: null,
+      calculationExplanation: null,
       parserConfidence: null,
       parserMode: null,
       clarificationQuestion: null,
@@ -306,6 +341,8 @@ function normalizeInterpretation(
       parsedAmountMinor: interpretation.amountMinor,
       parsedCurrency: interpretation.currency,
       parsedItemDescription: interpretation.itemDescription,
+      amountSource: interpretation.amountSource ?? null,
+      calculationExplanation: interpretation.calculationExplanation ?? null,
       parserConfidence: interpretation.confidence,
       parserMode: interpretation.parserMode,
       clarificationQuestion: null,
@@ -329,6 +366,8 @@ function normalizeInterpretation(
       parsedAmountMinor: interpretation.amountMinor,
       parsedCurrency: interpretation.currency,
       parsedItemDescription: interpretation.itemDescription,
+      amountSource: interpretation.amountSource ?? null,
+      calculationExplanation: interpretation.calculationExplanation ?? null,
       parserConfidence: interpretation.confidence,
       parserMode: interpretation.parserMode,
       clarificationQuestion: interpretation.clarificationQuestion,
@@ -342,6 +381,8 @@ function normalizeInterpretation(
     parsedAmountMinor: interpretation.amountMinor,
     parsedCurrency: interpretation.currency,
     parsedItemDescription: interpretation.itemDescription,
+    amountSource: interpretation.amountSource ?? null,
+    calculationExplanation: interpretation.calculationExplanation ?? null,
     parserConfidence: interpretation.confidence,
     parserMode: interpretation.parserMode,
     clarificationQuestion: null,
@@ -398,6 +439,8 @@ function toProposalFields(row: StoredPurchaseMessageRow): PurchaseProposalFields
     parsedAmountMinor: row.parsedAmountMinor,
     parsedCurrency: row.parsedCurrency,
     parsedItemDescription: row.parsedItemDescription,
+    amountSource: null,
+    calculationExplanation: null,
     parserConfidence: row.parserConfidence,
     parserMode: row.parserMode
   }
@@ -991,6 +1034,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor,
             parsedCurrency: decision.parsedCurrency,
             parsedItemDescription: decision.parsedItemDescription,
+            amountSource: decision.amountSource,
+            calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence,
             parserMode: decision.parserMode
           }
@@ -1018,6 +1063,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor!,
             parsedCurrency: decision.parsedCurrency!,
             parsedItemDescription: decision.parsedItemDescription!,
+            amountSource: decision.amountSource,
+            calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence ?? MIN_PROPOSAL_CONFIDENCE,
             parserMode: decision.parserMode ?? 'llm',
             participants: toProposalParticipants(await getStoredParticipants(insertedRow.id))
@@ -1135,6 +1182,84 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
           await getStoredParticipants(existing.purchaseMessageId)
         )
       }
+    },
+
+    async requestAmountCorrection(purchaseMessageId, actorTelegramUserId) {
+      const existing = await getStoredMessage(purchaseMessageId)
+      if (!existing) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (existing.senderTelegramUserId !== actorTelegramUserId) {
+        return {
+          status: 'forbidden',
+          householdId: existing.householdId
+        }
+      }
+
+      if (existing.processingStatus === 'clarification_needed') {
+        return {
+          status: 'already_requested',
+          purchaseMessageId: existing.id,
+          householdId: existing.householdId
+        }
+      }
+
+      if (existing.processingStatus !== 'pending_confirmation') {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
+      }
+
+      const rows = await db
+        .update(schema.purchaseMessages)
+        .set({
+          processingStatus: 'clarification_needed',
+          needsReview: 1
+        })
+        .where(
+          and(
+            eq(schema.purchaseMessages.id, purchaseMessageId),
+            eq(schema.purchaseMessages.senderTelegramUserId, actorTelegramUserId),
+            eq(schema.purchaseMessages.processingStatus, 'pending_confirmation')
+          )
+        )
+        .returning({
+          id: schema.purchaseMessages.id,
+          householdId: schema.purchaseMessages.householdId
+        })
+
+      const updated = rows[0]
+      if (!updated) {
+        const reloaded = await getStoredMessage(purchaseMessageId)
+        if (!reloaded) {
+          return {
+            status: 'not_found'
+          }
+        }
+
+        if (reloaded.processingStatus === 'clarification_needed') {
+          return {
+            status: 'already_requested',
+            purchaseMessageId: reloaded.id,
+            householdId: reloaded.householdId
+          }
+        }
+
+        return {
+          status: 'not_pending',
+          householdId: reloaded.householdId
+        }
+      }
+
+      return {
+        status: 'requested',
+        purchaseMessageId: updated.id,
+        householdId: updated.householdId
+      }
     }
   }
 
@@ -1206,6 +1331,21 @@ function formatPurchaseParticipants(
   return `${t.participantsHeading}\n${lines.join('\n')}`
 }
 
+function formatPurchaseCalculationNote(
+  locale: BotLocale,
+  result: {
+    amountSource?: PurchaseInterpretationAmountSource | null
+    calculationExplanation?: string | null
+  }
+): string | null {
+  if (result.amountSource !== 'calculated') {
+    return null
+  }
+
+  const t = getBotTranslations(locale).purchase
+  return t.calculatedAmountNote(result.calculationExplanation ?? null)
+}
+
 export function buildPurchaseAcknowledgement(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale = 'en'
@@ -1219,6 +1359,7 @@ export function buildPurchaseAcknowledgement(
     case 'pending_confirmation':
       return t.proposal(
         formatPurchaseSummary(locale, result),
+        formatPurchaseCalculationNote(locale, result),
         formatPurchaseParticipants(locale, result.participants)
       )
     case 'clarification_needed':
@@ -1230,6 +1371,9 @@ export function buildPurchaseAcknowledgement(
 
 function purchaseProposalReplyMarkup(
   locale: BotLocale,
+  options: {
+    amountSource?: PurchaseInterpretationAmountSource | null
+  },
   purchaseMessageId: string,
   participants: readonly PurchaseProposalParticipant[]
 ) {
@@ -1247,9 +1391,17 @@ function purchaseProposalReplyMarkup(
       ]),
       [
         {
-          text: t.confirmButton,
+          text: options.amountSource === 'calculated' ? t.calculatedConfirmButton : t.confirmButton,
           callback_data: `${PURCHASE_CONFIRM_CALLBACK_PREFIX}${purchaseMessageId}`
         },
+        ...(options.amountSource === 'calculated'
+          ? [
+              {
+                text: t.calculatedFixAmountButton,
+                callback_data: `${PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX}${purchaseMessageId}`
+              }
+            ]
+          : []),
         {
           text: t.cancelButton,
           callback_data: `${PURCHASE_CANCEL_CALLBACK_PREFIX}${purchaseMessageId}`
@@ -1319,7 +1471,14 @@ async function handlePurchaseMessageResult(
     pendingReply,
     acknowledgement,
     result.status === 'pending_confirmation'
-      ? purchaseProposalReplyMarkup(locale, result.purchaseMessageId, result.participants)
+      ? purchaseProposalReplyMarkup(
+          locale,
+          {
+            amountSource: result.amountSource ?? null
+          },
+          result.purchaseMessageId,
+          result.participants
+        )
       : undefined
   )
 }
@@ -1353,6 +1512,7 @@ function buildPurchaseToggleMessage(
 ): string {
   return getBotTranslations(locale).purchase.proposal(
     formatPurchaseSummary(locale, result),
+    null,
     formatPurchaseParticipants(locale, result.participants)
   )
 }
@@ -1409,6 +1569,9 @@ function registerPurchaseProposalCallbacks(
       await ctx.editMessageText(buildPurchaseToggleMessage(locale, result), {
         reply_markup: purchaseProposalReplyMarkup(
           locale,
+          {
+            amountSource: result.amountSource ?? null
+          },
           result.purchaseMessageId,
           result.participants
         )
@@ -1476,6 +1639,70 @@ function registerPurchaseProposalCallbacks(
         status: result.status
       },
       'Purchase proposal confirmation handled'
+    )
+  })
+
+  bot.callbackQuery(new RegExp(`^${PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
+    const purchaseMessageId = ctx.match[1]
+    const actorTelegramUserId = ctx.from?.id?.toString()
+
+    if (!actorTelegramUserId || !purchaseMessageId) {
+      await ctx.answerCallbackQuery({
+        text: getBotTranslations('en').purchase.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    if (!repository.requestAmountCorrection) {
+      await ctx.answerCallbackQuery({
+        text: getBotTranslations('en').purchase.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    const result = await repository.requestAmountCorrection(purchaseMessageId, actorTelegramUserId)
+    const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
+    const t = getBotTranslations(locale).purchase
+
+    if (result.status === 'not_found' || result.status === 'not_pending') {
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    if (result.status === 'forbidden') {
+      await ctx.answerCallbackQuery({
+        text: t.notYourProposal,
+        show_alert: true
+      })
+      return
+    }
+
+    await ctx.answerCallbackQuery({
+      text:
+        result.status === 'requested'
+          ? t.calculatedFixAmountRequestedToast
+          : t.calculatedFixAmountAlreadyRequested
+    })
+
+    if (ctx.msg) {
+      await ctx.editMessageText(t.calculatedFixAmountPrompt, {
+        reply_markup: emptyInlineKeyboard()
+      })
+    }
+
+    logger?.info(
+      {
+        event: 'purchase.amount_correction_requested',
+        purchaseMessageId,
+        actorTelegramUserId,
+        status: result.status
+      },
+      'Purchase amount correction requested'
     )
   })
 

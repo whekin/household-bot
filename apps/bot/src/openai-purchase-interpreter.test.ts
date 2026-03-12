@@ -67,6 +67,8 @@ describe('createOpenAiPurchaseInterpreter', () => {
         amountMinor: 100000n,
         currency: 'GEL',
         itemDescription: 'армянская золотая швабра',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 93,
         parserMode: 'llm',
         clarificationQuestion: null
@@ -104,6 +106,8 @@ describe('createOpenAiPurchaseInterpreter', () => {
         amountMinor: 1000n,
         currency: 'GEL',
         itemDescription: 'сухари',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 88,
         parserMode: 'llm',
         clarificationQuestion: null
@@ -148,6 +152,8 @@ describe('createOpenAiPurchaseInterpreter', () => {
         amountMinor: 5000n,
         currency: 'GEL',
         itemDescription: 'шампунь',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 92,
         parserMode: 'llm',
         clarificationQuestion: null
@@ -192,6 +198,8 @@ describe('createOpenAiPurchaseInterpreter', () => {
         amountMinor: 4500n,
         currency: 'GEL',
         itemDescription: 'сосисоны',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 85,
         parserMode: 'llm',
         clarificationQuestion: null
@@ -201,7 +209,7 @@ describe('createOpenAiPurchaseInterpreter', () => {
     }
   })
 
-  test('corrects mis-scaled amountMinor when the source text contains a clear money amount', async () => {
+  test('keeps the llm provided amountMinor without local correction', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-4o-mini')
     expect(interpreter).toBeDefined()
 
@@ -236,9 +244,11 @@ describe('createOpenAiPurchaseInterpreter', () => {
 
       expect(result).toEqual<PurchaseInterpretation>({
         decision: 'purchase',
-        amountMinor: 35000n,
+        amountMinor: 350n,
         currency: 'GEL',
         itemDescription: 'обои, 100 рулонов',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 86,
         parserMode: 'llm',
         clarificationQuestion: null
@@ -248,7 +258,7 @@ describe('createOpenAiPurchaseInterpreter', () => {
     }
   })
 
-  test('corrects mis-scaled amountMinor for simple clarification replies', async () => {
+  test('keeps llm provided amountMinor for clarification follow-ups without local correction', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-4o-mini')
     expect(interpreter).toBeDefined()
 
@@ -283,13 +293,114 @@ describe('createOpenAiPurchaseInterpreter', () => {
 
       expect(result).toEqual<PurchaseInterpretation>({
         decision: 'purchase',
-        amountMinor: 35000n,
+        amountMinor: 350n,
         currency: 'GEL',
         itemDescription: 'Рулоны обоев',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         confidence: 89,
         parserMode: 'llm',
         clarificationQuestion: null
       })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('preserves llm computed totals for quantity times unit-price purchases', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '3000',
+                  currency: 'GEL',
+                  itemDescription: 'бутылки воды',
+                  amountSource: 'calculated',
+                  calculationExplanation: '5 × 6 лари = 30 лари',
+                  confidence: 94,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Купил 5 бутылок воды, 6 лари за бутылку', {
+        defaultCurrency: 'GEL'
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        itemDescription: 'бутылки воды',
+        amountSource: 'calculated',
+        calculationExplanation: '5 × 6 лари = 30 лари',
+        confidence: 94,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('tells the llm to total per-item pricing and accept colloquial completed purchase phrasing', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    let requestBody: unknown = null
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      requestBody = init?.body ? JSON.parse(String(init.body)) : null
+
+      return successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '3000',
+                  currency: 'GEL',
+                  itemDescription: 'бутылки воды',
+                  confidence: 94,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })
+    }) as unknown as typeof fetch
+
+    try {
+      await interpreter!('Купил 5 бутылок воды, 6 лари за бутылку', {
+        defaultCurrency: 'GEL'
+      })
+
+      const systemMessage =
+        (
+          (requestBody as { input?: Array<{ role?: string; content?: string }> | null })?.input ??
+          []
+        ).find((entry) => entry.role === 'system')?.content ?? ''
+
+      expect(systemMessage).toContain(
+        'If the user gives quantity and per-item price, compute the total spend and return that total in amountMinor.'
+      )
+      expect(systemMessage).toContain(
+        'Treat colloquial completed-buy phrasing like "взял", "сходил и взял", or "сторговался до X" as a completed purchase when the message reports a real buy fact.'
+      )
     } finally {
       globalThis.fetch = originalFetch
     }

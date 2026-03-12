@@ -220,12 +220,37 @@ describe('buildPurchaseAcknowledgement', () => {
       parsedAmountMinor: 3000n,
       parsedCurrency: 'GEL',
       parsedItemDescription: 'toilet paper',
+      amountSource: 'explicit',
+      calculationExplanation: null,
       parserConfidence: 92,
       parserMode: 'llm',
       participants: participants()
     })
 
     expect(result).toBe(`I think this shared purchase was: toilet paper - 30.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`)
+  })
+
+  test('shows a calculation note when the llm computed the total', () => {
+    const result = buildPurchaseAcknowledgement({
+      status: 'pending_confirmation',
+      purchaseMessageId: 'proposal-1b',
+      parsedAmountMinor: 3000n,
+      parsedCurrency: 'GEL',
+      parsedItemDescription: 'water bottles',
+      amountSource: 'calculated',
+      calculationExplanation: '5 x 6 lari = 30 lari',
+      parserConfidence: 94,
+      parserMode: 'llm',
+      participants: participants()
+    })
+
+    expect(result).toBe(`I think this shared purchase was: water bottles - 30.00 GEL.
+I calculated the total as 5 x 6 lari = 30 lari. Is that right?
 
 Participants:
 - Mia
@@ -241,6 +266,8 @@ Confirm or cancel below.`)
       parsedAmountMinor: 3000n,
       parsedCurrency: null,
       parsedItemDescription: 'toilet paper',
+      amountSource: 'explicit',
+      calculationExplanation: null,
       parserConfidence: 61,
       parserMode: 'llm'
     })
@@ -256,6 +283,8 @@ Confirm or cancel below.`)
       parsedAmountMinor: null,
       parsedCurrency: null,
       parsedItemDescription: 'toilet paper',
+      amountSource: null,
+      calculationExplanation: null,
       parserConfidence: 42,
       parserMode: 'llm'
     })
@@ -297,6 +326,8 @@ Confirm or cancel below.`)
         parsedAmountMinor: 3000n,
         parsedCurrency: 'GEL',
         parsedItemDescription: 'туалетная бумага',
+        amountSource: 'explicit',
+        calculationExplanation: null,
         parserConfidence: 92,
         parserMode: 'llm',
         participants: participants()
@@ -732,6 +763,212 @@ Confirm or cancel below.`,
 
     expect(saveCalls).toBe(0)
     expect(calls).toHaveLength(0)
+  })
+
+  test('treats colloquial completed purchase reports as likely purchases', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        expect(record.rawText).toBe(
+          'Короч, сходил на рынок и взял этот долбаный ковер. Сторговался до 150 лари'
+        )
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-carpet',
+          parsedAmountMinor: 15000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'ковер',
+          parserConfidence: 91,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'purchase',
+        amountMinor: 15000n,
+        currency: 'GEL',
+        itemDescription: 'ковер',
+        confidence: 91,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(
+      purchaseUpdate(
+        'Короч, сходил на рынок и взял этот долбаный ковер. Сторговался до 150 лари'
+      ) as never
+    )
+
+    expect(calls).toHaveLength(3)
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Checking that purchase...'
+      }
+    })
+    expect(calls[2]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: `I think this shared purchase was: ковер - 150.00 GEL.
+
+Participants:
+- Mia
+- Dima (excluded)
+Confirm or cancel below.`
+      }
+    })
+  })
+
+  test('uses dedicated buttons for calculated totals', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-calculated',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'water bottles',
+          amountSource: 'calculated',
+          calculationExplanation: '5 x 6 lari = 30 lari',
+          parserConfidence: 94,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'purchase',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        itemDescription: 'water bottles',
+        amountSource: 'calculated',
+        calculationExplanation: '5 x 6 lari = 30 lari',
+        confidence: 94,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Bought 5 bottles of water, 6 lari each') as never)
+
+    expect(calls[2]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Mia',
+                callback_data: 'purchase:participant:participant-1'
+              }
+            ],
+            [
+              {
+                text: '⬜ Dima',
+                callback_data: 'purchase:participant:participant-2'
+              }
+            ],
+            [
+              {
+                text: 'Looks right',
+                callback_data: 'purchase:confirm:proposal-calculated'
+              },
+              {
+                text: 'Fix amount',
+                callback_data: 'purchase:fix_amount:proposal-calculated'
+              },
+              {
+                text: 'Cancel',
+                callback_data: 'purchase:cancel:proposal-calculated'
+              }
+            ]
+          ]
+        }
+      }
+    })
   })
 
   test('stays silent for stray amount chatter in the purchase topic', async () => {
@@ -1359,6 +1596,59 @@ Confirm or cancel below.`,
         chat_id: Number(config.householdChatId),
         message_id: 77,
         text: 'Purchase confirmed: toilet paper - 30.00 GEL',
+        reply_markup: {
+          inline_keyboard: []
+        }
+      }
+    })
+  })
+
+  test('requests amount correction for calculated purchase proposals', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      },
+      async requestAmountCorrection() {
+        return {
+          status: 'requested',
+          purchaseMessageId: 'proposal-1',
+          householdId: config.householdId
+        }
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(callbackUpdate('purchase:fix_amount:proposal-1') as never)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: 'Reply with the corrected total and currency in this topic, and I will re-check the purchase.',
         reply_markup: {
           inline_keyboard: []
         }
