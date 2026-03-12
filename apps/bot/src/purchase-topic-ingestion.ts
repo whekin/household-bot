@@ -1,4 +1,10 @@
-import { instantFromEpochSeconds, instantToDate, Money, type Instant } from '@household/domain'
+import {
+  instantFromEpochSeconds,
+  instantToDate,
+  Money,
+  nowInstant,
+  type Instant
+} from '@household/domain'
 import { and, desc, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
@@ -23,7 +29,12 @@ import {
   type TopicMessageRouter,
   type TopicMessageRoutingResult
 } from './topic-message-router'
-import { historyRecordToTurn } from './topic-history'
+import {
+  historyRecordToTurn,
+  persistTopicHistoryMessage,
+  telegramMessageIdFromMessage,
+  telegramMessageSentAtFromMessage
+} from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
 
@@ -435,6 +446,10 @@ async function replyToPurchaseMessage(
         callback_data: string
       }>
     >
+  },
+  history?: {
+    repository: TopicMessageHistoryRepository | undefined
+    record: PurchaseTopicRecord
   }
 ): Promise<void> {
   const message = ctx.msg
@@ -442,7 +457,7 @@ async function replyToPurchaseMessage(
     return
   }
 
-  await ctx.reply(text, {
+  const reply = await ctx.reply(text, {
     reply_parameters: {
       message_id: message.message_id
     },
@@ -451,6 +466,20 @@ async function replyToPurchaseMessage(
           reply_markup: replyMarkup
         }
       : {})
+  })
+
+  await persistTopicHistoryMessage({
+    repository: history?.repository,
+    householdId: history?.record.householdId ?? '',
+    telegramChatId: history?.record.chatId ?? '',
+    telegramThreadId: history?.record.threadId ?? null,
+    telegramMessageId: telegramMessageIdFromMessage(reply),
+    telegramUpdateId: null,
+    senderTelegramUserId: ctx.me?.id?.toString() ?? null,
+    senderDisplayName: null,
+    isBot: true,
+    rawText: text,
+    messageSentAt: telegramMessageSentAtFromMessage(reply)
   })
 }
 
@@ -511,6 +540,10 @@ async function finalizePurchaseReply(
         callback_data: string
       }>
     >
+  },
+  history?: {
+    repository: TopicMessageHistoryRepository | undefined
+    record: PurchaseTopicRecord
   }
 ): Promise<void> {
   if (!text) {
@@ -524,7 +557,7 @@ async function finalizePurchaseReply(
   }
 
   if (!pendingReply) {
-    await replyToPurchaseMessage(ctx, text, replyMarkup)
+    await replyToPurchaseMessage(ctx, text, replyMarkup, history)
     return
   }
 
@@ -535,8 +568,22 @@ async function finalizePurchaseReply(
       text,
       replyMarkup ? { reply_markup: replyMarkup } : {}
     )
+
+    await persistTopicHistoryMessage({
+      repository: history?.repository,
+      householdId: history?.record.householdId ?? '',
+      telegramChatId: history?.record.chatId ?? '',
+      telegramThreadId: history?.record.threadId ?? null,
+      telegramMessageId: pendingReply.messageId.toString(),
+      telegramUpdateId: null,
+      senderTelegramUserId: ctx.me?.id?.toString() ?? null,
+      senderDisplayName: null,
+      isBot: true,
+      rawText: text,
+      messageSentAt: nowInstant()
+    })
   } catch {
-    await replyToPurchaseMessage(ctx, text, replyMarkup)
+    await replyToPurchaseMessage(ctx, text, replyMarkup, history)
   }
 }
 
@@ -1500,11 +1547,8 @@ async function persistIncomingTopicMessage(
   repository: TopicMessageHistoryRepository | undefined,
   record: PurchaseTopicRecord
 ) {
-  if (!repository || record.rawText.trim().length === 0) {
-    return
-  }
-
-  await repository.saveMessage({
+  await persistTopicHistoryMessage({
+    repository,
     householdId: record.householdId,
     telegramChatId: record.chatId,
     telegramThreadId: record.threadId,
@@ -1513,7 +1557,7 @@ async function persistIncomingTopicMessage(
     senderTelegramUserId: record.senderTelegramUserId,
     senderDisplayName: record.senderDisplayName ?? null,
     isBot: false,
-    rawText: record.rawText.trim(),
+    rawText: record.rawText,
     messageSentAt: record.messageSentAt
   })
 }
@@ -1612,7 +1656,8 @@ async function handlePurchaseMessageResult(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale,
   logger: Logger | undefined,
-  pendingReply: PendingPurchaseReply | null = null
+  pendingReply: PendingPurchaseReply | null = null,
+  historyRepository?: TopicMessageHistoryRepository
 ): Promise<void> {
   if (result.status !== 'duplicate') {
     logger?.info(
@@ -1644,6 +1689,12 @@ async function handlePurchaseMessageResult(
           result.purchaseMessageId,
           result.participants
         )
+      : undefined,
+    historyRepository
+      ? {
+          repository: historyRepository,
+          record
+        }
       : undefined
   )
 }
@@ -1983,7 +2034,10 @@ export function registerPurchaseTopicIngestion(
       if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
         rememberUserTurn(options.memoryStore, record)
         if (route.replyText) {
-          await replyToPurchaseMessage(ctx, route.replyText)
+          await replyToPurchaseMessage(ctx, route.replyText, undefined, {
+            repository: options.historyRepository,
+            record
+          })
           rememberAssistantTurn(options.memoryStore, record, route.replyText)
         }
         return
@@ -2012,7 +2066,15 @@ export function registerPurchaseTopicIngestion(
       if (result.status === 'ignored_not_purchase') {
         return await next()
       }
-      await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
+      await handlePurchaseMessageResult(
+        ctx,
+        record,
+        result,
+        'en',
+        options.logger,
+        pendingReply,
+        options.historyRepository
+      )
       rememberAssistantTurn(options.memoryStore, record, buildPurchaseAcknowledgement(result, 'en'))
     } catch (error) {
       options.logger?.error(
@@ -2114,7 +2176,10 @@ export function registerConfiguredPurchaseTopicIngestion(
       if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
         rememberUserTurn(options.memoryStore, record)
         if (route.replyText) {
-          await replyToPurchaseMessage(ctx, route.replyText)
+          await replyToPurchaseMessage(ctx, route.replyText, undefined, {
+            repository: options.historyRepository,
+            record
+          })
           rememberAssistantTurn(options.memoryStore, record, route.replyText)
         }
         return
@@ -2151,7 +2216,15 @@ export function registerConfiguredPurchaseTopicIngestion(
         return await next()
       }
 
-      await handlePurchaseMessageResult(ctx, record, result, locale, options.logger, pendingReply)
+      await handlePurchaseMessageResult(
+        ctx,
+        record,
+        result,
+        locale,
+        options.logger,
+        pendingReply,
+        options.historyRepository
+      )
       rememberAssistantTurn(
         options.memoryStore,
         record,

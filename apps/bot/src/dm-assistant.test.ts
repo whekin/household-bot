@@ -1736,7 +1736,7 @@ Confirm or cancel below.`,
     })
   })
 
-  test('loads persisted thread and same-day chat history for memory-style prompts', async () => {
+  test('loads persisted thread and same-day chat history including bot replies', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
     const topicMessageHistoryRepository = createTopicMessageHistoryRepository()
@@ -1800,9 +1800,12 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(topicMessageUpdate('I think we need a TV in the house') as never)
     await bot.handleUpdate(topicMessageUpdate('Bot, do you remember what we said today?') as never)
+    await bot.handleUpdate(topicMessageUpdate('Bot, do you remember what you answered?') as never)
 
     expect(recentThreadTexts).toContain('I think we need a TV in the house')
+    expect(recentThreadTexts).toContain('Yes. You were discussing a TV for the house.')
     expect(sameDayTexts).toContain('I think we need a TV in the house')
+    expect(sameDayTexts).toContain('Yes. You were discussing a TV for the house.')
     expect(calls.at(-1)).toMatchObject({
       method: 'sendMessage',
       payload: {

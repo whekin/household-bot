@@ -26,7 +26,12 @@ import {
   looksLikeDirectBotAddress,
   type TopicMessageRouter
 } from './topic-message-router'
-import { historyRecordToTurn } from './topic-history'
+import {
+  historyRecordToTurn,
+  persistTopicHistoryMessage,
+  telegramMessageIdFromMessage,
+  telegramMessageSentAtFromMessage
+} from './topic-history'
 import { stripExplicitBotMention } from './telegram-mentions'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
@@ -239,11 +244,8 @@ async function persistIncomingTopicMessage(
   repository: TopicMessageHistoryRepository | undefined,
   record: PaymentTopicRecord
 ) {
-  if (!repository || record.rawText.trim().length === 0) {
-    return
-  }
-
-  await repository.saveMessage({
+  await persistTopicHistoryMessage({
+    repository,
     householdId: record.householdId,
     telegramChatId: record.chatId,
     telegramThreadId: record.threadId,
@@ -252,7 +254,7 @@ async function persistIncomingTopicMessage(
     senderTelegramUserId: record.senderTelegramUserId,
     senderDisplayName: null,
     isBot: false,
-    rawText: record.rawText.trim(),
+    rawText: record.rawText,
     messageSentAt: record.messageSentAt
   })
 }
@@ -397,14 +399,18 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
 async function replyToPaymentMessage(
   ctx: Context,
   text: string,
-  replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }
+  replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> },
+  history?: {
+    repository: TopicMessageHistoryRepository | undefined
+    record: PaymentTopicRecord
+  }
 ): Promise<void> {
   const message = ctx.msg
   if (!message) {
     return
   }
 
-  await ctx.reply(text, {
+  const reply = await ctx.reply(text, {
     reply_parameters: {
       message_id: message.message_id
     },
@@ -413,6 +419,20 @@ async function replyToPaymentMessage(
           reply_markup: replyMarkup
         }
       : {})
+  })
+
+  await persistTopicHistoryMessage({
+    repository: history?.repository,
+    householdId: history?.record.householdId ?? '',
+    telegramChatId: history?.record.chatId ?? '',
+    telegramThreadId: history?.record.threadId ?? null,
+    telegramMessageId: telegramMessageIdFromMessage(reply),
+    telegramUpdateId: null,
+    senderTelegramUserId: ctx.me?.id?.toString() ?? null,
+    senderDisplayName: null,
+    isBot: true,
+    rawText: text,
+    messageSentAt: telegramMessageSentAtFromMessage(reply)
   })
 }
 
@@ -637,7 +657,10 @@ export function registerConfiguredPaymentTopicIngestion(
 
       if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
         if (route.replyText) {
-          await replyToPaymentMessage(ctx, route.replyText)
+          await replyToPaymentMessage(ctx, route.replyText, undefined, {
+            repository: options.historyRepository,
+            record
+          })
           appendConversation(options.memoryStore, record, record.rawText, route.replyText)
         }
         return
@@ -665,7 +688,10 @@ export function registerConfiguredPaymentTopicIngestion(
         }
 
         const helperText = formatPaymentBalanceReplyText(locale, balanceReply)
-        await replyToPaymentMessage(ctx, helperText)
+        await replyToPaymentMessage(ctx, helperText, undefined, {
+          repository: options.historyRepository,
+          record
+        })
         appendConversation(options.memoryStore, record, record.rawText, helperText)
         return
       }
@@ -709,7 +735,10 @@ export function registerConfiguredPaymentTopicIngestion(
           expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
         })
 
-        await replyToPaymentMessage(ctx, t.clarification)
+        await replyToPaymentMessage(ctx, t.clarification, undefined, {
+          repository: options.historyRepository,
+          record
+        })
         appendConversation(options.memoryStore, record, record.rawText, t.clarification)
         return
       }
@@ -717,13 +746,19 @@ export function registerConfiguredPaymentTopicIngestion(
       await promptRepository.clearPendingAction(record.chatId, record.senderTelegramUserId)
 
       if (proposal.status === 'unsupported_currency') {
-        await replyToPaymentMessage(ctx, t.unsupportedCurrency)
+        await replyToPaymentMessage(ctx, t.unsupportedCurrency, undefined, {
+          repository: options.historyRepository,
+          record
+        })
         appendConversation(options.memoryStore, record, record.rawText, t.unsupportedCurrency)
         return
       }
 
       if (proposal.status === 'no_balance') {
-        await replyToPaymentMessage(ctx, t.noBalance)
+        await replyToPaymentMessage(ctx, t.noBalance, undefined, {
+          repository: options.historyRepository,
+          record
+        })
         appendConversation(options.memoryStore, record, record.rawText, t.noBalance)
         return
       }
@@ -754,7 +789,11 @@ export function registerConfiguredPaymentTopicIngestion(
         await replyToPaymentMessage(
           ctx,
           proposalText,
-          paymentProposalReplyMarkup(locale, proposal.payload.proposalId)
+          paymentProposalReplyMarkup(locale, proposal.payload.proposalId),
+          {
+            repository: options.historyRepository,
+            record
+          }
         )
         appendConversation(options.memoryStore, record, record.rawText, proposalText)
       }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull } from 'drizzle-orm'
 
 import { instantFromDatabaseValue, instantToDate } from '@household/domain'
 import { createDbClient, schema } from '@household/db'
@@ -72,10 +72,10 @@ export function createDbTopicMessageHistoryRepository(databaseUrl: string): {
             gte(schema.topicMessages.messageSentAt, instantToDate(input.sentAtOrAfter))
           )
         )
-        .orderBy(asc(schema.topicMessages.messageSentAt), asc(schema.topicMessages.createdAt))
+        .orderBy(desc(schema.topicMessages.messageSentAt), desc(schema.topicMessages.createdAt))
         .limit(input.limit)
 
-      return rows.map((row) => ({
+      return rows.reverse().map((row) => ({
         householdId: row.householdId,
         telegramChatId: row.telegramChatId,
         telegramThreadId: row.telegramThreadId,

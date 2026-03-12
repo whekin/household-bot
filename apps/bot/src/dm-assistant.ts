@@ -40,8 +40,11 @@ import {
 } from './topic-message-router'
 import {
   historyRecordToTurn,
+  persistTopicHistoryMessage,
   shouldLoadExpandedChatHistory,
-  startOfCurrentDayInTimezone
+  startOfCurrentDayInTimezone,
+  telegramMessageIdFromMessage,
+  telegramMessageSentAtFromMessage
 } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
@@ -392,12 +395,8 @@ async function persistIncomingTopicMessage(input: {
   rawText: string
   messageSentAt: ReturnType<typeof currentMessageSentAt>
 }) {
-  const normalizedText = input.rawText.trim()
-  if (!input.repository || normalizedText.length === 0) {
-    return
-  }
-
-  await input.repository.saveMessage({
+  await persistTopicHistoryMessage({
+    repository: input.repository,
     householdId: input.householdId,
     telegramChatId: input.telegramChatId,
     telegramThreadId: input.telegramThreadId,
@@ -406,9 +405,37 @@ async function persistIncomingTopicMessage(input: {
     senderTelegramUserId: input.senderTelegramUserId,
     senderDisplayName: input.senderDisplayName,
     isBot: false,
-    rawText: normalizedText,
+    rawText: input.rawText,
     messageSentAt: input.messageSentAt
   })
+}
+
+async function replyAndPersistTopicMessage(input: {
+  ctx: Context
+  repository: TopicMessageHistoryRepository | undefined
+  householdId: string
+  telegramChatId: string
+  telegramThreadId: string | null
+  text: string
+  replyOptions?: Parameters<Context['reply']>[1]
+}) {
+  const reply = await input.ctx.reply(input.text, input.replyOptions)
+
+  await persistTopicHistoryMessage({
+    repository: input.repository,
+    householdId: input.householdId,
+    telegramChatId: input.telegramChatId,
+    telegramThreadId: input.telegramThreadId,
+    telegramMessageId: telegramMessageIdFromMessage(reply),
+    telegramUpdateId: null,
+    senderTelegramUserId: input.ctx.me?.id?.toString() ?? null,
+    senderDisplayName: null,
+    isBot: true,
+    rawText: input.text,
+    messageSentAt: telegramMessageSentAtFromMessage(reply)
+  })
+
+  return reply
 }
 
 async function routeGroupAssistantMessage(input: {
@@ -582,6 +609,8 @@ async function replyWithAssistant(input: {
   memoryStore: AssistantConversationMemoryStore
   usageTracker: AssistantUsageTracker
   logger: Logger | undefined
+  topicMessageHistoryRepository?: TopicMessageHistoryRepository
+  telegramThreadId: string | null
   recentThreadMessages: readonly {
     role: 'user' | 'assistant'
     speaker: string
@@ -598,6 +627,18 @@ async function replyWithAssistant(input: {
   const t = getBotTranslations(input.locale).assistant
 
   if (!input.assistant) {
+    if (input.topicMessageHistoryRepository) {
+      await replyAndPersistTopicMessage({
+        ctx: input.ctx,
+        repository: input.topicMessageHistoryRepository,
+        householdId: input.householdId,
+        telegramChatId: input.telegramChatId,
+        telegramThreadId: input.telegramThreadId,
+        text: t.unavailable
+      })
+      return
+    }
+
     await input.ctx.reply(t.unavailable)
     return
   }
@@ -672,6 +713,18 @@ async function replyWithAssistant(input: {
       'Assistant reply generated'
     )
 
+    if (input.topicMessageHistoryRepository) {
+      await replyAndPersistTopicMessage({
+        ctx: input.ctx,
+        repository: input.topicMessageHistoryRepository,
+        householdId: input.householdId,
+        telegramChatId: input.telegramChatId,
+        telegramThreadId: input.telegramThreadId,
+        text: reply.text
+      })
+      return
+    }
+
     await input.ctx.reply(reply.text)
   } catch (error) {
     input.logger?.error(
@@ -688,6 +741,18 @@ async function replyWithAssistant(input: {
       },
       'Assistant reply failed'
     )
+    if (input.topicMessageHistoryRepository) {
+      await replyAndPersistTopicMessage({
+        ctx: input.ctx,
+        repository: input.topicMessageHistoryRepository,
+        householdId: input.householdId,
+        telegramChatId: input.telegramChatId,
+        telegramThreadId: input.telegramThreadId,
+        text: t.unavailable
+      })
+      return
+    }
+
     await input.ctx.reply(t.unavailable)
   } finally {
     typingIndicator.stop()
@@ -1230,6 +1295,7 @@ export function registerDmAssistant(options: {
         memoryStore: options.memoryStore,
         usageTracker: options.usageTracker,
         logger: options.logger,
+        telegramThreadId: null,
         recentThreadMessages: [],
         sameDayChatMessages: []
       })
@@ -1389,7 +1455,14 @@ export function registerDmAssistant(options: {
               role: 'assistant',
               text: route.replyText
             })
-            await ctx.reply(route.replyText)
+            await replyAndPersistTopicMessage({
+              ctx,
+              repository: options.topicMessageHistoryRepository,
+              householdId: household.householdId,
+              telegramChatId,
+              telegramThreadId,
+              text: route.replyText
+            })
           }
           return
         }
@@ -1429,14 +1502,29 @@ export function registerDmAssistant(options: {
               null
             )
 
-            await ctx.reply(purchaseText, {
-              reply_markup: purchaseProposalReplyMarkup(locale, purchaseResult.purchaseMessageId)
+            await replyAndPersistTopicMessage({
+              ctx,
+              repository: options.topicMessageHistoryRepository,
+              householdId: household.householdId,
+              telegramChatId,
+              telegramThreadId,
+              text: purchaseText,
+              replyOptions: {
+                reply_markup: purchaseProposalReplyMarkup(locale, purchaseResult.purchaseMessageId)
+              }
             })
             return
           }
 
           if (purchaseResult.status === 'clarification_needed') {
-            await ctx.reply(buildPurchaseClarificationText(locale, purchaseResult))
+            await replyAndPersistTopicMessage({
+              ctx,
+              repository: options.topicMessageHistoryRepository,
+              householdId: household.householdId,
+              telegramChatId,
+              telegramThreadId,
+              text: buildPurchaseClarificationText(locale, purchaseResult)
+            })
             return
           }
         }
@@ -1451,7 +1539,14 @@ export function registerDmAssistant(options: {
       const t = getBotTranslations(locale).assistant
 
       if (!rateLimit.allowed) {
-        await ctx.reply(t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs)))
+        await replyAndPersistTopicMessage({
+          ctx,
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          telegramThreadId,
+          text: t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs))
+        })
         return
       }
 
@@ -1464,7 +1559,14 @@ export function registerDmAssistant(options: {
       })
 
       if (paymentBalanceReply) {
-        await ctx.reply(formatPaymentBalanceReplyText(locale, paymentBalanceReply))
+        await replyAndPersistTopicMessage({
+          ctx,
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          telegramThreadId,
+          text: formatPaymentBalanceReplyText(locale, paymentBalanceReply)
+        })
         return
       }
 
@@ -1488,7 +1590,14 @@ export function registerDmAssistant(options: {
           text: memberInsightReply
         })
 
-        await ctx.reply(memberInsightReply)
+        await replyAndPersistTopicMessage({
+          ctx,
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          telegramThreadId,
+          text: memberInsightReply
+        })
         return
       }
 
@@ -1508,6 +1617,12 @@ export function registerDmAssistant(options: {
         memoryStore: options.memoryStore,
         usageTracker: options.usageTracker,
         logger: options.logger,
+        telegramThreadId,
+        ...(options.topicMessageHistoryRepository
+          ? {
+              topicMessageHistoryRepository: options.topicMessageHistoryRepository
+            }
+          : {}),
         recentThreadMessages,
         sameDayChatMessages: await listExpandedChatMessages({
           repository: options.topicMessageHistoryRepository,
