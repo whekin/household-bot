@@ -9,6 +9,7 @@ import type {
 export const demoMember: NonNullable<MiniAppSession['member']> = {
   id: 'demo-member',
   householdId: 'demo-household',
+  householdName: 'Kojori House',
   displayName: 'Stas',
   status: 'active',
   isAdmin: true,
@@ -191,6 +192,7 @@ export const demoPendingMembers: readonly MiniAppPendingMember[] = [
 ]
 
 export const demoAdminSettings: MiniAppAdminSettingsPayload = {
+  householdName: 'Kojori House',
   settings: {
     householdId: 'demo-household',
     settlementCurrency: 'GEL',

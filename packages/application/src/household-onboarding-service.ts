@@ -16,6 +16,7 @@ export type HouseholdMiniAppAccess =
       member: {
         id: string
         householdId: string
+        householdName: string
         displayName: string
         status: HouseholdMemberRecord['status']
         isAdmin: boolean
@@ -68,6 +69,7 @@ export interface HouseholdOnboardingService {
         member: {
           id: string
           householdId: string
+          householdName: string
           displayName: string
           status: HouseholdMemberRecord['status']
           isAdmin: boolean
@@ -161,9 +163,19 @@ export function createHouseholdOnboardingService(options: {
             ) ?? null)
 
       if (matchingActiveMember) {
+        const household = await options.repository.getHouseholdChatByHouseholdId(
+          matchingActiveMember.householdId
+        )
+        if (!household) {
+          throw new Error('Failed to resolve household for active mini app member')
+        }
+
         return {
           status: 'active',
-          member: toMember(matchingActiveMember)
+          member: {
+            ...toMember(matchingActiveMember),
+            householdName: household.householdName
+          }
         }
       }
 
@@ -232,9 +244,19 @@ export function createHouseholdOnboardingService(options: {
       ).find((member) => member.householdId === household.householdId)
 
       if (activeMember) {
+        const householdRecord = await options.repository.getHouseholdChatByHouseholdId(
+          activeMember.householdId
+        )
+        if (!householdRecord) {
+          throw new Error('Failed to resolve household after mini app join')
+        }
+
         return {
           status: 'active',
-          member: toMember(activeMember)
+          member: {
+            ...toMember(activeMember),
+            householdName: householdRecord.householdName
+          }
         }
       }
 

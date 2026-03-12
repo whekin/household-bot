@@ -49,6 +49,7 @@ async function readApprovalPayload(request: Request): Promise<{
 
 async function readSettingsUpdatePayload(request: Request): Promise<{
   initData: string
+  householdName?: string
   settlementCurrency?: string
   paymentBalanceAdjustmentPolicy?: string
   rentAmountMajor?: string
@@ -69,6 +70,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
 
   const text = await clonedRequest.text()
   let parsed: {
+    householdName?: string
     settlementCurrency?: string
     paymentBalanceAdjustmentPolicy?: string
     rentAmountMajor?: string
@@ -99,6 +101,11 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
 
   return {
     initData: payload.initData,
+    ...(typeof parsed.householdName === 'string'
+      ? {
+          householdName: parsed.householdName
+        }
+      : {}),
     ...(typeof parsed.rentAmountMajor === 'string'
       ? {
           rentAmountMajor: parsed.rentAmountMajor
@@ -545,6 +552,7 @@ export function createMiniAppSettingsHandler(options: {
           {
             ok: true,
             authorized: true,
+            householdName: result.householdName,
             settings: serializeBillingSettings(result.settings),
             assistantConfig: serializeAssistantConfig(result.assistantConfig),
             topics: result.topics,
@@ -620,6 +628,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
         const result = await options.miniAppAdminService.updateSettings({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
+          ...(payload.householdName !== undefined
+            ? {
+                householdName: payload.householdName
+              }
+            : {}),
           ...(payload.settlementCurrency
             ? {
                 settlementCurrency: payload.settlementCurrency
@@ -675,6 +688,7 @@ export function createMiniAppUpdateSettingsHandler(options: {
           {
             ok: true,
             authorized: true,
+            householdName: result.householdName,
             settings: serializeBillingSettings(result.settings),
             assistantConfig: serializeAssistantConfig(result.assistantConfig)
           },

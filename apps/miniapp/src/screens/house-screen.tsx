@@ -28,6 +28,7 @@ type UtilityBillDraft = {
 }
 
 type BillingForm = {
+  householdName: string
   settlementCurrency: 'USD' | 'GEL'
   paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
   rentAmountMajor: string
@@ -55,6 +56,8 @@ type Props = {
   locale: 'en' | 'ru'
   readyIsAdmin: boolean
   householdDefaultLocale: 'en' | 'ru'
+  householdName: string
+  profileDisplayName: string
   dashboard: MiniAppDashboard | null
   adminSettings: MiniAppAdminSettingsPayload | null
   cycleState: MiniAppAdminCycleState | null
@@ -101,6 +104,7 @@ type Props = {
     effectiveFromPeriod: string | null
   }
   onChangeHouseholdLocale: (locale: 'en' | 'ru') => Promise<void>
+  onOpenProfileEditor: () => void
   onOpenCycleModal: () => void
   onCloseCycleModal: () => void
   onSaveCycleRent: () => Promise<void>
@@ -111,6 +115,7 @@ type Props = {
   onOpenBillingSettingsModal: () => void
   onCloseBillingSettingsModal: () => void
   onSaveBillingSettings: () => Promise<void>
+  onBillingHouseholdNameChange: (value: string) => void
   onBillingSettlementCurrencyChange: (value: 'USD' | 'GEL') => void
   onBillingAdjustmentPolicyChange: (value: 'utilities' | 'rent' | 'separate') => void
   onBillingRentAmountChange: (value: string) => void
@@ -213,15 +218,83 @@ export function HouseScreen(props: Props) {
               <strong>{props.copy.residentHouseTitle ?? ''}</strong>
             </header>
             <p>{props.copy.residentHouseBody ?? ''}</p>
+            <div class="panel-toolbar">
+              <Button variant="secondary" onClick={props.onOpenProfileEditor}>
+                <PencilIcon />
+                {props.copy.manageProfileAction ?? ''}
+              </Button>
+            </div>
           </article>
         </div>
       }
     >
       <div class="admin-layout">
         <HouseSection
+          title={props.copy.houseSectionGeneral ?? ''}
+          body={props.copy.generalSettingsBody}
+          defaultOpen
+        >
+          <section class="admin-section">
+            <div class="admin-grid">
+              <article class="balance-item">
+                <header>
+                  <strong>{props.copy.householdNameLabel ?? ''}</strong>
+                  <span>{props.householdName}</span>
+                </header>
+                <p>{props.copy.householdNameHint ?? ''}</p>
+                <div class="panel-toolbar">
+                  <Button variant="secondary" onClick={props.onOpenBillingSettingsModal}>
+                    <SettingsIcon />
+                    {props.copy.manageSettingsAction ?? ''}
+                  </Button>
+                </div>
+              </article>
+
+              <article class="balance-item">
+                <header>
+                  <strong>{props.copy.householdLanguage ?? ''}</strong>
+                  <span>{props.householdDefaultLocale.toUpperCase()}</span>
+                </header>
+                <div class="locale-switch__buttons locale-switch__buttons--inline">
+                  <button
+                    classList={{ 'is-active': props.householdDefaultLocale === 'en' }}
+                    type="button"
+                    disabled={props.savingHouseholdLocale}
+                    onClick={() => void props.onChangeHouseholdLocale('en')}
+                  >
+                    EN
+                  </button>
+                  <button
+                    classList={{ 'is-active': props.householdDefaultLocale === 'ru' }}
+                    type="button"
+                    disabled={props.savingHouseholdLocale}
+                    onClick={() => void props.onChangeHouseholdLocale('ru')}
+                  >
+                    RU
+                  </button>
+                </div>
+              </article>
+
+              <article class="balance-item">
+                <header>
+                  <strong>{props.copy.manageProfileAction ?? ''}</strong>
+                  <span>{props.profileDisplayName}</span>
+                </header>
+                <p>{props.copy.profileEditorBody ?? ''}</p>
+                <div class="panel-toolbar">
+                  <Button variant="secondary" onClick={props.onOpenProfileEditor}>
+                    <PencilIcon />
+                    {props.copy.manageProfileAction ?? ''}
+                  </Button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </HouseSection>
+
+        <HouseSection
           title={props.copy.houseSectionBilling ?? ''}
           body={props.copy.billingSettingsEditorBody}
-          defaultOpen
         >
           <section class="admin-section">
             <div class="admin-grid">
@@ -288,31 +361,6 @@ export function HouseScreen(props: Props) {
                     <SettingsIcon />
                     {props.copy.manageSettingsAction ?? ''}
                   </Button>
-                </div>
-              </article>
-
-              <article class="balance-item">
-                <header>
-                  <strong>{props.copy.householdLanguage ?? ''}</strong>
-                  <span>{props.householdDefaultLocale.toUpperCase()}</span>
-                </header>
-                <div class="locale-switch__buttons locale-switch__buttons--inline">
-                  <button
-                    classList={{ 'is-active': props.householdDefaultLocale === 'en' }}
-                    type="button"
-                    disabled={props.savingHouseholdLocale}
-                    onClick={() => void props.onChangeHouseholdLocale('en')}
-                  >
-                    EN
-                  </button>
-                  <button
-                    classList={{ 'is-active': props.householdDefaultLocale === 'ru' }}
-                    type="button"
-                    disabled={props.savingHouseholdLocale}
-                    onClick={() => void props.onChangeHouseholdLocale('ru')}
-                  >
-                    RU
-                  </button>
                 </div>
               </article>
             </div>
@@ -414,6 +462,18 @@ export function HouseScreen(props: Props) {
               }
             >
               <div class="editor-grid">
+                <Field
+                  label={props.copy.householdNameLabel ?? ''}
+                  hint={props.copy.householdNameHint ?? ''}
+                  wide
+                >
+                  <input
+                    value={props.billingForm.householdName}
+                    onInput={(event) =>
+                      props.onBillingHouseholdNameChange(event.currentTarget.value)
+                    }
+                  />
+                </Field>
                 <Field label={props.copy.settlementCurrency ?? ''}>
                   <select
                     value={props.billingForm.settlementCurrency}

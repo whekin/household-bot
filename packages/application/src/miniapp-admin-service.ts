@@ -29,6 +29,7 @@ export interface MiniAppAdminService {
   getSettings(input: { householdId: string; actorIsAdmin: boolean }): Promise<
     | {
         status: 'ok'
+        householdName: string
         settings: HouseholdBillingSettingsRecord
         assistantConfig: HouseholdAssistantConfigRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
@@ -44,6 +45,7 @@ export interface MiniAppAdminService {
   updateSettings(input: {
     householdId: string
     actorIsAdmin: boolean
+    householdName?: string
     settlementCurrency?: string
     paymentBalanceAdjustmentPolicy?: string
     rentAmountMajor?: string
@@ -58,6 +60,7 @@ export interface MiniAppAdminService {
   }): Promise<
     | {
         status: 'ok'
+        householdName: string
         settings: HouseholdBillingSettingsRecord
         assistantConfig: HouseholdAssistantConfigRecord
       }
@@ -215,6 +218,19 @@ function normalizeDisplayName(raw: string): string | null {
   return trimmed.replace(/\s+/g, ' ')
 }
 
+function normalizeHouseholdName(raw: string | undefined): string | null | undefined {
+  if (raw === undefined) {
+    return undefined
+  }
+
+  const trimmed = raw.trim()
+  if (trimmed.length < 2 || trimmed.length > 120) {
+    return null
+  }
+
+  return trimmed.replace(/\s+/g, ' ')
+}
+
 function defaultAssistantConfig(householdId: string): HouseholdAssistantConfigRecord {
   return {
     householdId,
@@ -255,6 +271,11 @@ export function createMiniAppAdminService(
         }
       }
 
+      const household = await repository.getHouseholdChatByHouseholdId(input.householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat for mini app settings')
+      }
+
       const [settings, assistantConfig, categories, members, memberAbsencePolicies, topics] =
         await Promise.all([
           repository.getHouseholdBillingSettings(input.householdId),
@@ -269,6 +290,7 @@ export function createMiniAppAdminService(
 
       return {
         status: 'ok',
+        householdName: household.householdName,
         settings,
         assistantConfig,
         categories,
@@ -303,8 +325,11 @@ export function createMiniAppAdminService(
 
       const assistantContext = normalizeAssistantText(input.assistantContext, 1200)
       const assistantTone = normalizeAssistantText(input.assistantTone, 160)
+      const householdName = normalizeHouseholdName(input.householdName)
+      const nextHouseholdName = householdName ?? undefined
 
       if (
+        (input.householdName !== undefined && householdName === null) ||
         (input.assistantContext !== undefined &&
           assistantContext === null &&
           input.assistantContext.trim().length > 0) ||
@@ -349,7 +374,7 @@ export function createMiniAppAdminService(
       const shouldUpdateAssistantConfig =
         assistantContext !== undefined || assistantTone !== undefined
 
-      const [settings, nextAssistantConfig] = await Promise.all([
+      const [settings, nextAssistantConfig, household] = await Promise.all([
         repository.updateHouseholdBillingSettings({
           householdId: input.householdId,
           ...(settlementCurrency
@@ -398,11 +423,19 @@ export function createMiniAppAdminService(
                 householdId: input.householdId,
                 assistantContext: assistantContext ?? null,
                 assistantTone: assistantTone ?? null
-              })
+              }),
+        nextHouseholdName !== undefined && repository.updateHouseholdName
+          ? repository.updateHouseholdName(input.householdId, nextHouseholdName)
+          : repository.getHouseholdChatByHouseholdId(input.householdId)
       ])
+
+      if (!household) {
+        throw new Error('Failed to resolve household chat after settings update')
+      }
 
       return {
         status: 'ok',
+        householdName: household.householdName,
         settings,
         assistantConfig: nextAssistantConfig
       }

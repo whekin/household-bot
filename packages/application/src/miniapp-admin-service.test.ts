@@ -25,7 +25,14 @@ function repository(): HouseholdConfigurationRepository {
       }
     }),
     getTelegramHouseholdChat: async () => null,
-    getHouseholdChatByHouseholdId: async () => null,
+    getHouseholdChatByHouseholdId: async () => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramChatId: '-100123',
+      telegramChatType: 'supergroup',
+      title: 'Kojori House',
+      defaultLocale: 'ru'
+    }),
     bindHouseholdTopic: async (input) => ({
       householdId: input.householdId,
       role: input.role,
@@ -268,6 +275,7 @@ describe('createMiniAppAdminService', () => {
 
     expect(result).toEqual({
       status: 'ok',
+      householdName: 'Kojori House',
       settings: {
         householdId: 'household-1',
         settlementCurrency: 'GEL',
@@ -327,6 +335,7 @@ describe('createMiniAppAdminService', () => {
 
     expect(result).toEqual({
       status: 'ok',
+      householdName: 'Kojori House',
       settings: {
         householdId: 'household-1',
         settlementCurrency: 'GEL',

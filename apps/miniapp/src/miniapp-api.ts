@@ -5,6 +5,7 @@ export interface MiniAppSession {
   member?: {
     id: string
     householdId: string
+    householdName: string
     displayName: string
     status: 'active' | 'away' | 'left'
     isAdmin: boolean
@@ -138,6 +139,7 @@ export interface MiniAppDashboard {
 }
 
 export interface MiniAppAdminSettingsPayload {
+  householdName: string
   settings: MiniAppBillingSettings
   assistantConfig: MiniAppAssistantConfig
   topics: readonly MiniAppTopicBinding[]
@@ -386,6 +388,7 @@ export async function fetchMiniAppAdminSettings(
   const payload = (await response.json()) as {
     ok: boolean
     authorized?: boolean
+    householdName?: string
     settings?: MiniAppBillingSettings
     assistantConfig?: MiniAppAssistantConfig
     topics?: MiniAppTopicBinding[]
@@ -398,6 +401,7 @@ export async function fetchMiniAppAdminSettings(
   if (
     !response.ok ||
     !payload.authorized ||
+    !payload.householdName ||
     !payload.settings ||
     !payload.assistantConfig ||
     !payload.topics ||
@@ -409,6 +413,7 @@ export async function fetchMiniAppAdminSettings(
   }
 
   return {
+    householdName: payload.householdName,
     settings: payload.settings,
     assistantConfig: payload.assistantConfig,
     topics: payload.topics,
@@ -423,6 +428,7 @@ export async function updateMiniAppBillingSettings(
   input: {
     settlementCurrency?: 'USD' | 'GEL'
     paymentBalanceAdjustmentPolicy?: 'utilities' | 'rent' | 'separate'
+    householdName?: string
     rentAmountMajor?: string
     rentCurrency: 'USD' | 'GEL'
     rentDueDay: number
@@ -434,6 +440,7 @@ export async function updateMiniAppBillingSettings(
     assistantTone?: string
   }
 ): Promise<{
+  householdName: string
   settings: MiniAppBillingSettings
   assistantConfig: MiniAppAssistantConfig
 }> {
@@ -451,16 +458,24 @@ export async function updateMiniAppBillingSettings(
   const payload = (await response.json()) as {
     ok: boolean
     authorized?: boolean
+    householdName?: string
     settings?: MiniAppBillingSettings
     assistantConfig?: MiniAppAssistantConfig
     error?: string
   }
 
-  if (!response.ok || !payload.authorized || !payload.settings || !payload.assistantConfig) {
+  if (
+    !response.ok ||
+    !payload.authorized ||
+    !payload.householdName ||
+    !payload.settings ||
+    !payload.assistantConfig
+  ) {
     throw new Error(payload.error ?? 'Failed to update billing settings')
   }
 
   return {
+    householdName: payload.householdName,
     settings: payload.settings,
     assistantConfig: payload.assistantConfig
   }

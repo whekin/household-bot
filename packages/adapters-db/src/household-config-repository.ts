@@ -1320,6 +1320,35 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       }
     },
 
+    async updateHouseholdName(householdId, householdName) {
+      const updatedHouseholds = await db
+        .update(schema.households)
+        .set({
+          name: householdName
+        })
+        .where(eq(schema.households.id, householdId))
+        .returning({
+          id: schema.households.id,
+          name: schema.households.name,
+          defaultLocale: schema.households.defaultLocale
+        })
+
+      const household = updatedHouseholds[0]
+      if (!household) {
+        throw new Error('Failed to update household name')
+      }
+
+      const chat = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!chat) {
+        throw new Error('Failed to resolve household chat after name update')
+      }
+
+      return {
+        ...chat,
+        householdName: household.name
+      }
+    },
+
     async updateMemberPreferredLocale(householdId, telegramUserId, locale) {
       const rows = await db
         .update(schema.members)

@@ -338,6 +338,7 @@ describe('createHouseholdOnboardingService', () => {
       member: {
         id: 'member-42',
         householdId: 'household-1',
+        householdName: 'Kojori House',
         displayName: 'Stan',
         status: 'active',
         preferredLocale: null,

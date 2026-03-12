@@ -100,6 +100,7 @@ export interface MiniAppSessionResult {
   member?: {
     id: string
     householdId: string
+    householdName: string
     displayName: string
     status: 'active' | 'away' | 'left'
     isAdmin: boolean

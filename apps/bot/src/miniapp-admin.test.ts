@@ -469,6 +469,7 @@ describe('createMiniAppSettingsHandler', () => {
     expect(await response.json()).toEqual({
       ok: true,
       authorized: true,
+      householdName: 'Kojori House',
       settings: {
         householdId: 'household-1',
         settlementCurrency: 'GEL',
@@ -570,6 +571,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
     expect(await response.json()).toEqual({
       ok: true,
       authorized: true,
+      householdName: 'Kojori House',
       settings: {
         householdId: 'household-1',
         settlementCurrency: 'GEL',

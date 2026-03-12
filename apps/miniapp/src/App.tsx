@@ -90,6 +90,7 @@ type SessionState =
       mode: 'live' | 'demo'
       member: {
         id: string
+        householdName: string
         displayName: string
         status: 'active' | 'away' | 'left'
         isAdmin: boolean
@@ -348,6 +349,7 @@ function App() {
   const [testingRolePreview, setTestingRolePreview] = createSignal<TestingRolePreview | null>(null)
   const [addingPayment, setAddingPayment] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal({
+    householdName: '',
     settlementCurrency: 'GEL' as 'USD' | 'GEL',
     paymentBalanceAdjustmentPolicy: 'utilities' as 'utilities' | 'rent' | 'separate',
     rentAmountMajor: '',
@@ -762,6 +764,7 @@ function App() {
           ''
       }))
       setBillingForm({
+        householdName: payload.householdName,
         settlementCurrency: payload.settings.settlementCurrency,
         paymentBalanceAdjustmentPolicy: payload.settings.paymentBalanceAdjustmentPolicy,
         rentAmountMajor: payload.settings.rentAmountMinor
@@ -883,6 +886,7 @@ function App() {
       )
     )
     setBillingForm({
+      householdName: demoAdminSettings.householdName,
       settlementCurrency: demoAdminSettings.settings.settlementCurrency,
       paymentBalanceAdjustmentPolicy: demoAdminSettings.settings.paymentBalanceAdjustmentPolicy,
       rentAmountMajor: demoAdminSettings.settings.rentAmountMinor
@@ -1200,7 +1204,7 @@ function App() {
     setSavingBillingSettings(true)
 
     try {
-      const { settings, assistantConfig } = await updateMiniAppBillingSettings(
+      const { householdName, settings, assistantConfig } = await updateMiniAppBillingSettings(
         initData,
         billingForm()
       )
@@ -1208,8 +1212,24 @@ function App() {
         current
           ? {
               ...current,
+              householdName,
               settings,
               assistantConfig
+            }
+          : current
+      )
+      setBillingForm((current) => ({
+        ...current,
+        householdName
+      }))
+      setSession((current) =>
+        current.status === 'ready'
+          ? {
+              ...current,
+              member: {
+                ...current.member,
+                householdName
+              }
             }
           : current
       )
@@ -1992,6 +2012,8 @@ function App() {
             locale={locale()}
             readyIsAdmin={effectiveIsAdmin()}
             householdDefaultLocale={readySession()?.member.householdDefaultLocale ?? 'en'}
+            householdName={readySession()?.member.householdName ?? billingForm().householdName}
+            profileDisplayName={readySession()?.member.displayName ?? displayNameDraft()}
             dashboard={dashboard()}
             adminSettings={adminSettings()}
             cycleState={cycleState()}
@@ -2030,6 +2052,7 @@ function App() {
               resolvedMemberAbsencePolicy(memberId, status)
             }
             onChangeHouseholdLocale={handleHouseholdLocaleChange}
+            onOpenProfileEditor={() => setProfileEditorOpen(true)}
             onOpenCycleModal={() => setCycleRentOpen(true)}
             onCloseCycleModal={() => setCycleRentOpen(false)}
             onSaveCycleRent={handleSaveCycleRent}
@@ -2059,6 +2082,12 @@ function App() {
               setBillingForm((current) => ({
                 ...current,
                 settlementCurrency: value
+              }))
+            }
+            onBillingHouseholdNameChange={(value) =>
+              setBillingForm((current) => ({
+                ...current,
+                householdName: value
               }))
             }
             onBillingAdjustmentPolicyChange={(value) =>
@@ -2290,7 +2319,11 @@ function App() {
 
       <TopBar
         subtitle={copy().appSubtitle}
-        title={copy().appTitle}
+        title={
+          readySession()?.member.householdName ??
+          onboardingSession()?.householdName ??
+          copy().appTitle
+        }
         languageLabel={copy().language}
         locale={locale()}
         saving={savingMemberLocale()}
@@ -2391,15 +2424,6 @@ function App() {
                 )}
               </Show>
             </div>
-            <Show when={readySession()?.mode === 'live'}>
-              <Button
-                variant="secondary"
-                class="app-context-row__action"
-                onClick={() => setProfileEditorOpen(true)}
-              >
-                {copy().manageProfileAction}
-              </Button>
-            </Show>
           </section>
 
           <section class="content-stack">{panel()}</section>

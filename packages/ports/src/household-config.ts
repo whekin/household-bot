@@ -213,6 +213,10 @@ export interface HouseholdConfigurationRepository {
     householdId: string,
     locale: SupportedLocale
   ): Promise<HouseholdTelegramChatRecord>
+  updateHouseholdName?(
+    householdId: string,
+    householdName: string
+  ): Promise<HouseholdTelegramChatRecord>
   updateMemberPreferredLocale(
     householdId: string,
     telegramUserId: string,
