@@ -1,4 +1,4 @@
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show, createMemo, type JSX } from 'solid-js'
 
 import {
   Button,
@@ -13,6 +13,7 @@ import {
   TrashIcon
 } from '../components/ui'
 import { formatCyclePeriod, formatFriendlyDate } from '../lib/dates'
+import { isValidTimezone, searchTimezones } from '../lib/timezones'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -205,8 +206,59 @@ export function HouseScreen(props: Props) {
     return parsed
   }
 
+  function parseAmountMinor(value: string): bigint | null {
+    const trimmed = value.trim()
+
+    if (!/^\d+(?:\.\d{0,2})?$/.test(trimmed)) {
+      return null
+    }
+
+    const [whole, fraction] = trimmed.split('.')
+
+    return BigInt(whole ?? '0') * 100n + BigInt(((fraction ?? '') + '00').slice(0, 2))
+  }
+
   const enabledLabel = () => props.copy.onLabel ?? 'ON'
   const disabledLabel = () => props.copy.offLabel ?? 'OFF'
+  const timezoneSuggestions = createMemo(() => searchTimezones(props.billingForm.timezone, 8))
+  const timezoneValid = createMemo(() => isValidTimezone(props.billingForm.timezone))
+  const defaultRentMinor = createMemo(() => parseAmountMinor(props.billingForm.rentAmountMajor))
+  const cycleRentMinor = createMemo(() =>
+    props.cycleState?.rentRule ? BigInt(props.cycleState.rentRule.amountMinor) : null
+  )
+  const currentCycleUsesDefaultRent = createMemo(() => {
+    if (!props.cycleState?.rentRule) {
+      return false
+    }
+
+    return (
+      defaultRentMinor() === cycleRentMinor() &&
+      props.cycleState.rentRule.currency === props.billingForm.rentCurrency
+    )
+  })
+  const currentCycleRentStatus = createMemo(() => {
+    if (!props.cycleState?.rentRule) {
+      return props.copy.currentCycleRentEmpty ?? '—'
+    }
+
+    return currentCycleUsesDefaultRent()
+      ? (props.copy.currentCycleUsesDefaultRent ?? '')
+      : (props.copy.currentCycleOverrideRent ?? '')
+  })
+  const defaultRentSummary = createMemo(() =>
+    defaultRentMinor() === null
+      ? '—'
+      : `${props.billingForm.rentAmountMajor.trim()} ${props.billingForm.rentCurrency}`
+  )
+  const currentCycleRentSummary = createMemo(() => {
+    if (!props.cycleState?.rentRule) {
+      return props.copy.currentCycleRentEmpty ?? '—'
+    }
+
+    return `${props.minorToMajorString(BigInt(props.cycleState.rentRule.amountMinor))} ${
+      props.cycleState.rentRule.currency
+    }`
+  })
 
   return (
     <Show
@@ -315,14 +367,23 @@ export function HouseScreen(props: Props) {
                       )
                     : props.copy.billingCycleOpenHint}
                 </p>
+                <div class="ledger-compact-card__meta">
+                  <span class="mini-chip">
+                    {props.copy.defaultRentAmount ?? props.copy.rentAmount ?? ''}:{' '}
+                    {defaultRentSummary()}
+                  </span>
+                  <span class="mini-chip mini-chip--muted">{currentCycleRentStatus()}</span>
+                </div>
+                <p>
+                  {props.copy.currentCycleRentLabel ?? props.copy.rentAmount ?? ''}:{' '}
+                  {currentCycleRentSummary()}
+                </p>
                 <Show when={props.dashboard}>
                   {(data) => (
                     <p>
-                      {props.copy.shareRent ?? ''}: {data().rentSourceAmountMajor}{' '}
-                      {data().rentSourceCurrency}
                       {data().rentSourceCurrency !== data().currency
-                        ? ` -> ${data().rentDisplayAmountMajor} ${data().currency}`
-                        : ''}
+                        ? `${data().rentSourceAmountMajor} ${data().rentSourceCurrency} = ${data().rentDisplayAmountMajor} ${data().currency}`
+                        : `${data().rentDisplayAmountMajor} ${data().currency}`}
                     </p>
                   )}
                 </Show>
@@ -406,13 +467,16 @@ export function HouseScreen(props: Props) {
             >
               {props.cycleState?.cycle ? (
                 <div class="editor-grid">
-                  <Field label={props.copy.rentAmount ?? ''}>
+                  <Field
+                    label={props.copy.currentCycleRentLabel ?? props.copy.rentAmount ?? ''}
+                    hint={props.copy.currentCycleRentHint ?? ''}
+                  >
                     <input
                       value={props.cycleForm.rentAmountMajor}
                       onInput={(event) => props.onCycleRentAmountChange(event.currentTarget.value)}
                     />
                   </Field>
-                  <Field label={props.copy.shareRent ?? ''}>
+                  <Field label={props.copy.currencyLabel ?? props.copy.settlementCurrency ?? ''}>
                     <select
                       value={props.cycleForm.rentCurrency}
                       onChange={(event) =>
@@ -451,7 +515,7 @@ export function HouseScreen(props: Props) {
                   </Button>
                   <Button
                     variant="primary"
-                    disabled={props.savingBillingSettings}
+                    disabled={props.savingBillingSettings || !timezoneValid()}
                     onClick={() => void props.onSaveBillingSettings()}
                   >
                     {props.savingBillingSettings
@@ -503,13 +567,16 @@ export function HouseScreen(props: Props) {
                     <option value="separate">{props.copy.paymentBalanceAdjustmentSeparate}</option>
                   </select>
                 </Field>
-                <Field label={props.copy.rentAmount ?? ''}>
+                <Field
+                  label={props.copy.defaultRentAmount ?? props.copy.rentAmount ?? ''}
+                  hint={props.copy.defaultRentHint ?? ''}
+                >
                   <input
                     value={props.billingForm.rentAmountMajor}
                     onInput={(event) => props.onBillingRentAmountChange(event.currentTarget.value)}
                   />
                 </Field>
-                <Field label={props.copy.shareRent ?? ''}>
+                <Field label={props.copy.currencyLabel ?? props.copy.settlementCurrency ?? ''}>
                   <select
                     value={props.billingForm.rentCurrency}
                     onChange={(event) =>
@@ -572,11 +639,43 @@ export function HouseScreen(props: Props) {
                     }
                   />
                 </Field>
-                <Field label={props.copy.timezone ?? ''} wide>
+                <Field
+                  label={props.copy.timezone ?? ''}
+                  hint={
+                    timezoneValid()
+                      ? (props.copy.timezoneHint ?? '')
+                      : (props.copy.timezoneInvalidHint ?? '')
+                  }
+                  wide
+                >
                   <input
+                    aria-invalid={!timezoneValid()}
+                    list="billing-timezone-options"
+                    placeholder="Asia/Tbilisi"
                     value={props.billingForm.timezone}
                     onInput={(event) => props.onBillingTimezoneChange(event.currentTarget.value)}
                   />
+                  <datalist id="billing-timezone-options">
+                    <For each={timezoneSuggestions()}>
+                      {(timezone) => <option value={timezone}>{timezone}</option>}
+                    </For>
+                  </datalist>
+                  <div class="timezone-suggestions">
+                    <For each={timezoneSuggestions()}>
+                      {(timezone) => (
+                        <button
+                          class="mini-chip mini-chip-button timezone-chip"
+                          classList={{
+                            'timezone-chip--active': props.billingForm.timezone === timezone
+                          }}
+                          type="button"
+                          onClick={() => props.onBillingTimezoneChange(timezone)}
+                        >
+                          {timezone}
+                        </button>
+                      )}
+                    </For>
+                  </div>
                 </Field>
                 <Field label={props.copy.assistantToneLabel ?? ''} wide>
                   <input

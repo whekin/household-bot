@@ -858,6 +858,11 @@ button {
   line-height: 1.2;
 }
 
+.settings-field input[aria-invalid='true'] {
+  border-color: rgb(247 115 115 / 0.45);
+  background: rgb(247 115 115 / 0.08);
+}
+
 .settings-field select {
   appearance: none;
   -webkit-appearance: none;
@@ -965,6 +970,21 @@ button {
   font: inherit;
   line-height: inherit;
   cursor: pointer;
+}
+
+.timezone-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timezone-chip {
+  border: 1px solid transparent;
+}
+
+.timezone-chip--active {
+  border-color: rgb(247 179 137 / 0.44);
+  background: rgb(247 179 137 / 0.18);
 }
 
 .testing-card {

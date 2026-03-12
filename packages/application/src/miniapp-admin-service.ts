@@ -231,6 +231,22 @@ function normalizeHouseholdName(raw: string | undefined): string | null | undefi
   return trimmed.replace(/\s+/g, ' ')
 }
 
+function normalizeTimezone(raw: string): string | null {
+  const trimmed = raw.trim()
+
+  if (trimmed.length === 0) {
+    return null
+  }
+
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: trimmed
+    }).resolvedOptions().timeZone
+  } catch {
+    return null
+  }
+}
+
 function defaultAssistantConfig(householdId: string): HouseholdAssistantConfigRecord {
   return {
     householdId,
@@ -308,12 +324,14 @@ export function createMiniAppAdminService(
         }
       }
 
+      const timezone = normalizeTimezone(input.timezone)
+
       if (
         !isValidDay(input.rentDueDay) ||
         !isValidDay(input.rentWarningDay) ||
         !isValidDay(input.utilitiesDueDay) ||
         !isValidDay(input.utilitiesReminderDay) ||
-        input.timezone.trim().length === 0 ||
+        timezone === null ||
         input.rentWarningDay > input.rentDueDay ||
         input.utilitiesReminderDay > input.utilitiesDueDay
       ) {
@@ -401,7 +419,7 @@ export function createMiniAppAdminService(
           rentWarningDay: input.rentWarningDay,
           utilitiesDueDay: input.utilitiesDueDay,
           utilitiesReminderDay: input.utilitiesReminderDay,
-          timezone: input.timezone.trim()
+          timezone
         }),
         repository.updateHouseholdAssistantConfig && shouldUpdateAssistantConfig
           ? repository.updateHouseholdAssistantConfig({

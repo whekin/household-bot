@@ -591,6 +591,64 @@ describe('createMiniAppUpdateSettingsHandler', () => {
       }
     })
   })
+
+  test('rejects invalid timezone updates for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppUpdateSettingsHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/settings/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          rentAmountMajor: '750',
+          rentCurrency: 'USD',
+          rentDueDay: 22,
+          rentWarningDay: 19,
+          utilitiesDueDay: 6,
+          utilitiesReminderDay: 5,
+          timezone: 'Moon/Base'
+        })
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Invalid billing settings'
+    })
+  })
 })
 
 describe('createMiniAppPromoteMemberHandler', () => {

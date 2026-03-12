@@ -355,6 +355,25 @@ describe('createMiniAppAdminService', () => {
     })
   })
 
+  test('rejects invalid timezones when updating billing settings', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateSettings({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      rentDueDay: 21,
+      rentWarningDay: 18,
+      utilitiesDueDay: 5,
+      utilitiesReminderDay: 4,
+      timezone: 'Moon/Base'
+    })
+
+    expect(result).toEqual({
+      status: 'rejected',
+      reason: 'invalid_settings'
+    })
+  })
+
   test('stores an away absence policy from the current local period', async () => {
     const service = createMiniAppAdminService(repository())
 
