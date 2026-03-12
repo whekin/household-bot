@@ -1109,6 +1109,7 @@ function App() {
           : current
       )
       setLocale(updated.effectiveLocale)
+      await refreshHouseholdData(initData, true, true)
     } finally {
       setSavingMemberLocale(false)
     }
@@ -1141,6 +1142,8 @@ function App() {
       if (!currentReady.member.preferredLocale) {
         setLocale(updated.effectiveLocale)
       }
+
+      await refreshHouseholdData(initData, true, true)
     } finally {
       setSavingHouseholdLocale(false)
     }
