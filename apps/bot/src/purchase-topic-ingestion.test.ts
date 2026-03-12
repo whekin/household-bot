@@ -48,7 +48,12 @@ function participants() {
   ] as const
 }
 
-function purchaseUpdate(text: string) {
+function purchaseUpdate(
+  text: string,
+  options: {
+    replyToBot?: boolean
+  } = {}
+) {
   const commandToken = text.split(' ')[0] ?? text
 
   return {
@@ -67,6 +72,25 @@ function purchaseUpdate(text: string) {
         is_bot: false,
         first_name: 'Mia'
       },
+      ...(options.replyToBot
+        ? {
+            reply_to_message: {
+              message_id: 12,
+              date: Math.floor(Date.now() / 1000),
+              chat: {
+                id: Number(config.householdChatId),
+                type: 'supergroup'
+              },
+              from: {
+                id: 999000,
+                is_bot: true,
+                first_name: 'Household Test Bot',
+                username: 'household_test_bot'
+              },
+              text: 'Which amount was that purchase?'
+            }
+          }
+        : {}),
       text,
       entities: text.startsWith('/')
         ? [
@@ -440,6 +464,94 @@ Confirm or cancel below.`,
     })
   })
 
+  test('keeps bare-amount purchase reports on the ingestion path', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        expect(record.rawText).toBe('Bought toilet paper 30')
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-amount-only',
+          clarificationQuestion: 'Which currency was this purchase in?',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: null,
+          parsedItemDescription: 'toilet paper',
+          parserConfidence: 58,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'clarification',
+        amountMinor: 3000n,
+        currency: null,
+        itemDescription: 'toilet paper',
+        confidence: 58,
+        parserMode: 'llm',
+        clarificationQuestion: 'Which currency was this purchase in?'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Bought toilet paper 30') as never)
+
+    expect(calls).toHaveLength(3)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Checking that purchase...'
+      }
+    })
+    expect(calls[2]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: 'Which currency was this purchase in?'
+      }
+    })
+  })
+
   test('sends a processing reply and edits it when an interpreter is configured', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -567,6 +679,112 @@ Confirm or cancel below.`,
         }
       }
     })
+  })
+
+  test('stays silent for planning chatter even when an interpreter is configured', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        return {
+          status: 'ignored_not_purchase',
+          purchaseMessageId: 'ignored-1'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        confidence: 12,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('We should buy toilet paper for 30 gel') as never)
+
+    expect(saveCalls).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('stays silent for stray amount chatter in the purchase topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        return {
+          status: 'ignored_not_purchase',
+          purchaseMessageId: 'ignored-2'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        confidence: 17,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('This machine costs 300 gel, scary') as never)
+
+    expect(saveCalls).toBe(0)
+    expect(calls).toHaveLength(0)
   })
 
   test('does not reply for duplicate deliveries or non-purchase chatter', async () => {
@@ -712,6 +930,215 @@ Participants:
 - Mia
 - Dima (excluded)
 Confirm or cancel below.`
+      }
+    })
+  })
+
+  test('does not send the purchase handoff for tagged non-purchase conversation', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        return {
+          status: 'ignored_not_purchase',
+          purchaseMessageId: 'ignored-3'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        confidence: 19,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('@household_test_bot please ignore me today') as never)
+
+    expect(saveCalls).toBe(1)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction',
+      payload: {
+        chat_id: Number(config.householdChatId),
+        action: 'typing',
+        message_thread_id: config.purchaseTopicId
+      }
+    })
+  })
+
+  test('continues purchase handling for replies to bot messages without a fresh mention', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        expect(record.rawText).toBe('Actually it was 32 gel')
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-2',
+          clarificationQuestion: 'Was that for toilet paper?',
+          parsedAmountMinor: 3200n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: null,
+          parserConfidence: 61,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'clarification',
+        amountMinor: 3200n,
+        currency: 'GEL',
+        itemDescription: null,
+        confidence: 61,
+        parserMode: 'llm',
+        clarificationQuestion: 'Was that for toilet paper?'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Actually it was 32 gel', { replyToBot: true }) as never)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Was that for toilet paper?'
+      }
+    })
+  })
+
+  test('continues purchase handling for active clarification context without a fresh mention', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return true
+      },
+      async save(record) {
+        expect(record.rawText).toBe('32 gel')
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-3',
+          clarificationQuestion: 'What item was that for?',
+          parsedAmountMinor: 3200n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: null,
+          parserConfidence: 58,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'clarification',
+        amountMinor: 3200n,
+        currency: 'GEL',
+        itemDescription: null,
+        confidence: 58,
+        parserMode: 'llm',
+        clarificationQuestion: 'What item was that for?'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('32 gel') as never)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'What item was that for?'
       }
     })
   })

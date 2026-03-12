@@ -20,6 +20,27 @@ const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
 const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
 const MIN_PROPOSAL_CONFIDENCE = 70
+const LIKELY_PURCHASE_VERB_PATTERN =
+  /\b(?:bought|purchased|paid|spent|ordered|picked up|grabbed|got)\b|\b(?:купил(?:а|и)?|куплено|заказал(?:а|и)?|оплатил(?:а|и)?|потратил(?:а|и)?|взял(?:а|и)?)\b/iu
+const PLANNING_PURCHASE_PATTERN =
+  /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|\b(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)\b|\b(?:купим|возьмем|возьмём|закажем|оплатим)\b/iu
+const MONEY_SIGNAL_PATTERN =
+  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|tetri|тетри|usd|\$|доллар(?:а|ов)?)\b|\b(?:for|за|на)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent|заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?)\s+\d+(?:[.,]\d{1,2})?\b/iu
+const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
+
+type PurchaseTopicEngagement =
+  | {
+      kind: 'direct'
+      showProcessingReply: boolean
+    }
+  | {
+      kind: 'clarification'
+      showProcessingReply: boolean
+    }
+  | {
+      kind: 'likely_purchase'
+      showProcessingReply: true
+    }
 
 type StoredPurchaseProcessingStatus =
   | 'pending_confirmation'
@@ -204,6 +225,61 @@ const MAX_CLARIFICATION_CONTEXT_MESSAGES = 3
 function periodFromInstant(instant: Instant, timezone: string): string {
   const localDate = instant.toZonedDateTimeISO(timezone).toPlainDate()
   return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
+}
+
+function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
+  const replyAuthor = ctx.msg?.reply_to_message?.from
+  if (!replyAuthor?.is_bot) {
+    return false
+  }
+
+  return replyAuthor.id === ctx.me.id
+}
+
+function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
+  if (PLANNING_PURCHASE_PATTERN.test(rawText)) {
+    return false
+  }
+
+  if (!LIKELY_PURCHASE_VERB_PATTERN.test(rawText)) {
+    return false
+  }
+
+  if (MONEY_SIGNAL_PATTERN.test(rawText)) {
+    return true
+  }
+
+  return Array.from(rawText.matchAll(STANDALONE_NUMBER_PATTERN)).length === 1
+}
+
+async function resolvePurchaseTopicEngagement(
+  ctx: Pick<Context, 'msg' | 'me'>,
+  record: PurchaseTopicRecord,
+  repository: Pick<PurchaseMessageIngestionRepository, 'hasClarificationContext'>
+): Promise<PurchaseTopicEngagement | null> {
+  const hasExplicitMention = stripExplicitBotMention(ctx) !== null
+  if (hasExplicitMention || isReplyToCurrentBot(ctx)) {
+    return {
+      kind: 'direct',
+      showProcessingReply: looksLikeLikelyCompletedPurchase(record.rawText)
+    }
+  }
+
+  if (await repository.hasClarificationContext(record)) {
+    return {
+      kind: 'clarification',
+      showProcessingReply: false
+    }
+  }
+
+  if (looksLikeLikelyCompletedPurchase(record.rawText)) {
+    return {
+      kind: 'likely_purchase',
+      showProcessingReply: true
+    }
+  }
+
+  return null
 }
 
 function normalizeInterpretation(
@@ -1481,14 +1557,23 @@ export function registerPurchaseTopicIngestion(
       return
     }
 
-    const typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+    let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
 
     try {
-      const pendingReply = options.interpreter
-        ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
-        : null
+      const engagement = await resolvePurchaseTopicEngagement(ctx, record, repository)
+      if (!engagement) {
+        await next()
+        return
+      }
+
+      typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+      const pendingReply =
+        options.interpreter && engagement.showProcessingReply
+          ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
+          : null
       const result = await repository.save(record, options.interpreter, 'GEL')
-      if (stripExplicitBotMention(ctx) && result.status === 'ignored_not_purchase') {
+
+      if (engagement.kind === 'direct' && result.status === 'ignored_not_purchase') {
         return await next()
       }
       await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
@@ -1549,9 +1634,16 @@ export function registerConfiguredPurchaseTopicIngestion(
       return
     }
 
-    const typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+    let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
 
     try {
+      const engagement = await resolvePurchaseTopicEngagement(ctx, record, repository)
+      if (!engagement) {
+        await next()
+        return
+      }
+
+      typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
       const [billingSettings, assistantConfig] = await Promise.all([
         householdConfigurationRepository.getHouseholdBillingSettings(record.householdId),
         resolveAssistantConfig(householdConfigurationRepository, record.householdId)
@@ -1560,9 +1652,10 @@ export function registerConfiguredPurchaseTopicIngestion(
         householdConfigurationRepository,
         record.householdId
       )
-      const pendingReply = options.interpreter
-        ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
-        : null
+      const pendingReply =
+        options.interpreter && engagement.showProcessingReply
+          ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
+          : null
       const result = await repository.save(
         record,
         options.interpreter,
@@ -1572,7 +1665,7 @@ export function registerConfiguredPurchaseTopicIngestion(
           assistantTone: assistantConfig.assistantTone
         }
       )
-      if (stripExplicitBotMention(ctx) && result.status === 'ignored_not_purchase') {
+      if (engagement.kind === 'direct' && result.status === 'ignored_not_purchase') {
         return await next()
       }
 
