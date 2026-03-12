@@ -69,6 +69,12 @@ const LIKELY_PURCHASE_PATTERN =
 const LIKELY_PAYMENT_PATTERN =
   /\b(?:paid rent|paid utilities|rent paid|utilities paid)\b|(?:^|[^\p{L}])(?:оплатил(?:а|и)?|заплатил(?:а|и)?)(?=$|[^\p{L}])/iu
 const LETTER_PATTERN = /\p{L}/u
+const DIRECT_BOT_ADDRESS_PATTERN =
+  /^\s*(?:(?:ну|эй|слышь|слушай|hey|yo)\s*,?\s*)*(?:бот|bot)(?=$|[^\p{L}])/iu
+
+export function looksLikeDirectBotAddress(text: string): boolean {
+  return DIRECT_BOT_ADDRESS_PATTERN.test(text.trim())
+}
 
 function normalizeRoute(value: string): TopicMessageRoute {
   return value === 'chat_reply' ||
@@ -151,6 +157,21 @@ export function fallbackTopicMessageRoute(
         shouldClearWorkflow: false,
         confidence: 72,
         reason: 'active_purchase_workflow'
+      }
+    }
+
+    if (isAddressed && PLANNING_PATTERN.test(normalized)) {
+      return {
+        route: 'chat_reply',
+        replyText:
+          input.locale === 'ru'
+            ? 'Похоже, ты пока прикидываешь. Когда захочешь мнение или реальную покупку записать, подключусь.'
+            : "Sounds like you're still thinking it through. If you want an opinion or a real purchase recorded, I'm in.",
+        helperKind: 'assistant',
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 66,
+        reason: 'planning_advice'
       }
     }
 
@@ -282,6 +303,9 @@ export function createOpenAiTopicMessageRouter(
                 'Do not start purchase or payment workflows for planning, hypotheticals, negotiations, tests, or obvious jokes.',
                 'Treat “stop”, “leave me alone”, “just thinking”, “not a purchase”, and similar messages as backoff or dismissal signals.',
                 'When the user directly addresses the bot with small talk, joking, or testing, prefer chat_reply with one short sentence.',
+                'In a purchase topic, if the user is discussing a possible future purchase and asks for an opinion, prefer chat_reply with a short contextual opinion instead of a workflow.',
+                'Use the recent conversation when writing replyText. Do not ignore the already-established subject.',
+                'If the user asks what you think about a price or quantity, mention the actual item/price from context when possible.',
                 'Use topic_helper only when the message is a real question or request that likely needs household knowledge or a topic-specific helper.',
                 'Use purchase_candidate only for a clear completed shared purchase.',
                 'Use purchase_followup only when there is active purchase clarification and the latest message looks like a real answer to it.',
@@ -305,6 +329,7 @@ export function createOpenAiTopicMessageRouter(
                 `Topic role: ${input.topicRole}`,
                 `Explicit mention: ${input.isExplicitMention ? 'yes' : 'no'}`,
                 `Reply to bot: ${input.isReplyToBot ? 'yes' : 'no'}`,
+                `Looks like direct address: ${looksLikeDirectBotAddress(input.messageText) ? 'yes' : 'no'}`,
                 `Active workflow: ${input.activeWorkflow ?? 'none'}`,
                 buildRecentTurns(input),
                 `Latest message:\n${input.messageText}`

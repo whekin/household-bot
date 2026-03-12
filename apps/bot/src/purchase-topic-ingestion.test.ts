@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
 import { instantFromIso } from '@household/domain'
+import type { HouseholdConfigurationRepository } from '@household/ports'
 import { createTelegramBot } from './bot'
+import { createInMemoryAssistantConversationMemoryStore } from './assistant-state'
 
 import {
   buildPurchaseAcknowledgement,
   extractPurchaseTopicCandidate,
+  registerConfiguredPurchaseTopicIngestion,
   registerPurchaseTopicIngestion,
   resolveConfiguredPurchaseTopicRecord,
   type PurchaseMessageIngestionRepository,
@@ -52,6 +55,7 @@ function purchaseUpdate(
   text: string,
   options: {
     replyToBot?: boolean
+    threadId?: number
   } = {}
 ) {
   const commandToken = text.split(' ')[0] ?? text
@@ -61,7 +65,7 @@ function purchaseUpdate(
     message: {
       message_id: 55,
       date: Math.floor(Date.now() / 1000),
-      message_thread_id: 777,
+      message_thread_id: options.threadId ?? 777,
       is_topic_message: true,
       chat: {
         id: Number(config.householdChatId),
@@ -1660,6 +1664,260 @@ Confirm or cancel below.`,
     })
   })
 
+  test('uses recent silent planning context for direct bot-address advice replies', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const memoryStore = createInMemoryAssistantConversationMemoryStore(12)
+    let sawDirectAddress = false
+    let recentTurnTexts: string[] = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      memoryStore,
+      router: async (input) => {
+        if (input.messageText.includes('думаю купить')) {
+          return {
+            route: 'silent',
+            replyText: null,
+            helperKind: null,
+            shouldStartTyping: false,
+            shouldClearWorkflow: false,
+            confidence: 90,
+            reason: 'planning'
+          }
+        }
+
+        sawDirectAddress = input.isExplicitMention
+        recentTurnTexts = input.recentTurns?.map((turn) => turn.text) ?? []
+
+        return {
+          route: 'chat_reply',
+          replyText: 'Если 5 кг стоят 20 лари, это 4 лари за кило. Я бы еще сравнил цену.',
+          helperKind: 'assistant',
+          shouldStartTyping: false,
+          shouldClearWorkflow: false,
+          confidence: 92,
+          reason: 'planning_advice'
+        }
+      }
+    })
+
+    await bot.handleUpdate(
+      purchaseUpdate('В общем, думаю купить 5 килограмм картошки за 20 лари') as never
+    )
+    await bot.handleUpdate(purchaseUpdate('Бот, что думаешь?') as never)
+
+    expect(sawDirectAddress).toBe(true)
+    expect(recentTurnTexts).toContain('В общем, думаю купить 5 килограмм картошки за 20 лари')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Если 5 кг стоят 20 лари, это 4 лари за кило. Я бы еще сравнил цену.'
+      }
+    })
+  })
+
+  test('does not treat ordinary bot nouns as direct address', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      router: async (input) => ({
+        route: input.isExplicitMention ? 'chat_reply' : 'silent',
+        replyText: input.isExplicitMention ? 'heard you' : null,
+        helperKind: input.isExplicitMention ? 'assistant' : null,
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 90,
+        reason: 'test'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Думаю купить bot vacuum за 200 лари') as never)
+
+    expect(calls).toHaveLength(0)
+  })
+
+  test('keeps silent planning context scoped to the current purchase thread', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const memoryStore = createInMemoryAssistantConversationMemoryStore(12)
+    let recentTurnTexts: string[] = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async ({
+        telegramThreadId
+      }: {
+        telegramThreadId: string
+      }) => ({
+        householdId: config.householdId,
+        telegramThreadId,
+        role: 'purchase' as const,
+        topicName: null
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'en' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        memoryStore,
+        router: async (input) => {
+          if (input.messageText.includes('картошки')) {
+            return {
+              route: 'silent',
+              replyText: null,
+              helperKind: null,
+              shouldStartTyping: false,
+              shouldClearWorkflow: false,
+              confidence: 90,
+              reason: 'planning'
+            }
+          }
+
+          recentTurnTexts = input.recentTurns?.map((turn) => turn.text) ?? []
+
+          return {
+            route: 'chat_reply',
+            replyText: 'No leaked context here.',
+            helperKind: 'assistant',
+            shouldStartTyping: false,
+            shouldClearWorkflow: false,
+            confidence: 91,
+            reason: 'thread_scoped'
+          }
+        }
+      }
+    )
+
+    await bot.handleUpdate(
+      purchaseUpdate('Думаю купить 5 килограмм картошки за 20 лари', { threadId: 777 }) as never
+    )
+    await bot.handleUpdate(purchaseUpdate('Бот, что думаешь?', { threadId: 778 }) as never)
+
+    expect(recentTurnTexts).not.toContain('Думаю купить 5 килограмм картошки за 20 лари')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'No leaked context here.'
+      }
+    })
+  })
+
   test('confirms a pending proposal and edits the bot message', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -1698,7 +1956,8 @@ Confirm or cancel below.`,
           parsedCurrency: 'GEL' as const,
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: participants()
         }
       },
       async cancel() {
@@ -1725,7 +1984,11 @@ Confirm or cancel below.`,
       payload: {
         chat_id: Number(config.householdChatId),
         message_id: 77,
-        text: 'Purchase confirmed: toilet paper - 30.00 GEL',
+        text: `Purchase confirmed: toilet paper - 30.00 GEL
+
+Participants:
+- Mia
+- Dima (excluded)`,
         reply_markup: {
           inline_keyboard: []
         }
@@ -1815,7 +2078,8 @@ Confirm or cancel below.`,
           parsedCurrency: 'GEL' as const,
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: participants()
         }
       },
       async cancel() {
@@ -1839,7 +2103,11 @@ Confirm or cancel below.`,
     expect(calls[1]).toMatchObject({
       method: 'editMessageText',
       payload: {
-        text: 'Purchase confirmed: toilet paper - 30.00 GEL'
+        text: `Purchase confirmed: toilet paper - 30.00 GEL
+
+Participants:
+- Mia
+- Dima (excluded)`
       }
     })
   })
@@ -1876,7 +2144,8 @@ Confirm or cancel below.`,
           parsedCurrency: 'GEL' as const,
           parsedItemDescription: 'toilet paper',
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: participants()
         }
       },
       async toggleParticipant() {

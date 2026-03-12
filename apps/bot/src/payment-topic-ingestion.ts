@@ -22,6 +22,7 @@ import {
 import {
   cacheTopicMessageRoute,
   getCachedTopicMessageRoute,
+  looksLikeDirectBotAddress,
   type TopicMessageRouter
 } from './topic-message-router'
 import { stripExplicitBotMention } from './telegram-mentions'
@@ -252,7 +253,7 @@ async function routePaymentTopicMessage(input: {
     locale: input.locale,
     topicRole: input.topicRole,
     messageText: input.record.rawText,
-    isExplicitMention: input.isExplicitMention,
+    isExplicitMention: input.isExplicitMention || looksLikeDirectBotAddress(input.record.rawText),
     isReplyToBot: input.isReplyToBot,
     activeWorkflow: input.activeWorkflow,
     assistantContext: input.assistantContext,

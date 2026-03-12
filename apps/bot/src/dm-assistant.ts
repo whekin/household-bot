@@ -32,7 +32,11 @@ import type {
   PurchaseTopicRecord
 } from './purchase-topic-ingestion'
 import type { TopicMessageRouter, TopicMessageRole } from './topic-message-router'
-import { fallbackTopicMessageRoute, getCachedTopicMessageRoute } from './topic-message-router'
+import {
+  fallbackTopicMessageRoute,
+  getCachedTopicMessageRoute,
+  looksLikeDirectBotAddress
+} from './topic-message-router'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
 
@@ -1129,8 +1133,11 @@ export function registerDmAssistant(options: {
     }
 
     const mention = stripExplicitBotMention(ctx)
+    const directAddressByText = looksLikeDirectBotAddress(ctx.msg.text)
     const isAddressed = Boolean(
-      (mention && mention.strippedText.length > 0) || isReplyToBotMessage(ctx)
+      (mention && mention.strippedText.length > 0) ||
+      directAddressByText ||
+      isReplyToBotMessage(ctx)
     )
 
     const telegramUserId = ctx.from?.id?.toString()
@@ -1234,7 +1241,7 @@ export function registerDmAssistant(options: {
               locale,
               topicRole,
               messageText,
-              isExplicitMention: Boolean(mention),
+              isExplicitMention: Boolean(mention) || directAddressByText,
               isReplyToBot: isReplyToBotMessage(ctx),
               assistantContext: assistantConfig.assistantContext,
               assistantTone: assistantConfig.assistantTone,

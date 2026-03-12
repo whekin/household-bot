@@ -436,6 +436,12 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
       parsedAmountMinor: bigint
       parsedCurrency: 'GEL' | 'USD'
       parsedItemDescription: string
+      participants: readonly {
+        id: string
+        memberId: string
+        displayName: string
+        included: boolean
+      }[]
       status: 'pending_confirmation' | 'confirmed' | 'cancelled'
     }
   >()
@@ -458,6 +464,14 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedAmountMinor: 3000n,
           parsedCurrency: 'GEL',
           parsedItemDescription: 'door handle',
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Mia',
+              included: true
+            }
+          ],
           status: 'pending_confirmation'
         })
 
@@ -502,6 +516,14 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedAmountMinor: 4500n,
           parsedCurrency: 'GEL',
           parsedItemDescription: 'sausages',
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Mia',
+              included: true
+            }
+          ],
           status: 'pending_confirmation'
         })
 
@@ -553,7 +575,8 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedCurrency: proposal.parsedCurrency,
           parsedItemDescription: proposal.parsedItemDescription,
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: proposal.participants
         }
       }
 
@@ -573,7 +596,8 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
         parsedCurrency: proposal.parsedCurrency,
         parsedItemDescription: proposal.parsedItemDescription,
         parserConfidence: 92,
-        parserMode: 'llm' as const
+        parserMode: 'llm' as const,
+        participants: proposal.participants
       }
     },
     async cancel(purchaseMessageId, actorTelegramUserId) {
@@ -600,7 +624,8 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
           parsedCurrency: proposal.parsedCurrency,
           parsedItemDescription: proposal.parsedItemDescription,
           parserConfidence: 92,
-          parserMode: 'llm' as const
+          parserMode: 'llm' as const,
+          participants: proposal.participants
         }
       }
 
@@ -620,7 +645,8 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
         parsedCurrency: proposal.parsedCurrency,
         parsedItemDescription: proposal.parsedItemDescription,
         parserConfidence: 92,
-        parserMode: 'llm' as const
+        parserMode: 'llm' as const,
+        participants: proposal.participants
       }
     },
     async toggleParticipant() {

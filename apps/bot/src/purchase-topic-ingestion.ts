@@ -10,7 +10,6 @@ import type {
 import { createDbClient, schema } from '@household/db'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantConversationMemoryStore } from './assistant-state'
-import { conversationMemoryKey } from './assistant-state'
 import type {
   PurchaseInterpretationAmountSource,
   PurchaseInterpretation,
@@ -19,6 +18,7 @@ import type {
 import {
   cacheTopicMessageRoute,
   getCachedTopicMessageRoute,
+  looksLikeDirectBotAddress,
   type TopicMessageRouter,
   type TopicMessageRoutingResult
 } from './topic-message-router'
@@ -135,6 +135,7 @@ export type PurchaseProposalActionResult =
       status: 'confirmed' | 'already_confirmed' | 'cancelled' | 'already_cancelled'
       purchaseMessageId: string
       householdId: string
+      participants: readonly PurchaseProposalParticipant[]
     } & PurchaseProposalFields)
   | {
       status: 'forbidden'
@@ -844,6 +845,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         status: targetStatus === 'confirmed' ? 'already_confirmed' : 'already_cancelled',
         purchaseMessageId: existing.id,
         householdId: existing.householdId,
+        participants: toProposalParticipants(await getStoredParticipants(existing.id)),
         ...toProposalFields(existing)
       }
     }
@@ -899,6 +901,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             reloaded.processingStatus === 'confirmed' ? 'already_confirmed' : 'already_cancelled',
           purchaseMessageId: reloaded.id,
           householdId: reloaded.householdId,
+          participants: toProposalParticipants(await getStoredParticipants(reloaded.id)),
           ...toProposalFields(reloaded)
         }
       }
@@ -914,6 +917,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       status: targetStatus,
       purchaseMessageId: stored.id,
       householdId: stored.householdId,
+      participants: toProposalParticipants(await getStoredParticipants(stored.id)),
       ...toProposalFields(stored)
     }
   }
@@ -1440,29 +1444,33 @@ async function resolveAssistantConfig(
 }
 
 function memoryKeyForRecord(record: PurchaseTopicRecord): string {
-  return conversationMemoryKey({
-    telegramUserId: record.senderTelegramUserId,
-    telegramChatId: record.chatId,
-    isPrivateChat: false
-  })
+  return `group:${record.chatId}:${record.senderTelegramUserId}:thread:${record.threadId}`
 }
 
-function appendConversation(
+function rememberUserTurn(
   memoryStore: AssistantConversationMemoryStore | undefined,
-  record: PurchaseTopicRecord,
-  userText: string,
-  assistantText: string
+  record: PurchaseTopicRecord
 ): void {
   if (!memoryStore) {
     return
   }
 
-  const key = memoryKeyForRecord(record)
-  memoryStore.appendTurn(key, {
+  memoryStore.appendTurn(memoryKeyForRecord(record), {
     role: 'user',
-    text: userText
+    text: record.rawText
   })
-  memoryStore.appendTurn(key, {
+}
+
+function rememberAssistantTurn(
+  memoryStore: AssistantConversationMemoryStore | undefined,
+  record: PurchaseTopicRecord,
+  assistantText: string | null
+): void {
+  if (!memoryStore || !assistantText) {
+    return
+  }
+
+  memoryStore.appendTurn(memoryKeyForRecord(record), {
     role: 'assistant',
     text: assistantText
   })
@@ -1540,7 +1548,9 @@ async function routePurchaseTopicMessage(input: {
     locale: input.locale,
     topicRole: 'purchase',
     messageText: input.record.rawText,
-    isExplicitMention: stripExplicitBotMention(input.ctx) !== null,
+    isExplicitMention:
+      stripExplicitBotMention(input.ctx) !== null ||
+      looksLikeDirectBotAddress(input.record.rawText),
     isReplyToBot: isReplyToCurrentBot(input.ctx),
     activeWorkflow: (await input.repository.hasClarificationContext(input.record))
       ? 'purchase_clarification'
@@ -1608,9 +1618,11 @@ function buildPurchaseActionMessage(
 ): string {
   const t = getBotTranslations(locale).purchase
   const summary = formatPurchaseSummary(locale, result)
+  const participants =
+    'participants' in result ? formatPurchaseParticipants(locale, result.participants) : null
 
   if (result.status === 'confirmed' || result.status === 'already_confirmed') {
-    return t.confirmed(summary)
+    return participants ? `${t.confirmed(summary)}\n\n${participants}` : t.confirmed(summary)
   }
 
   return t.cancelled(summary)
@@ -1912,6 +1924,7 @@ export function registerPurchaseTopicIngestion(
       cacheTopicMessageRoute(ctx, 'purchase', route)
 
       if (route.route === 'silent') {
+        rememberUserTurn(options.memoryStore, record)
         await next()
         return
       }
@@ -1921,9 +1934,10 @@ export function registerPurchaseTopicIngestion(
       }
 
       if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
+        rememberUserTurn(options.memoryStore, record)
         if (route.replyText) {
           await replyToPurchaseMessage(ctx, route.replyText)
-          appendConversation(options.memoryStore, record, record.rawText, route.replyText)
+          rememberAssistantTurn(options.memoryStore, record, route.replyText)
         }
         return
       }
@@ -1934,10 +1948,12 @@ export function registerPurchaseTopicIngestion(
       }
 
       if (route.route !== 'purchase_candidate' && route.route !== 'purchase_followup') {
+        rememberUserTurn(options.memoryStore, record)
         await next()
         return
       }
 
+      rememberUserTurn(options.memoryStore, record)
       typingIndicator =
         options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
       const pendingReply =
@@ -1950,6 +1966,7 @@ export function registerPurchaseTopicIngestion(
         return await next()
       }
       await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
+      rememberAssistantTurn(options.memoryStore, record, buildPurchaseAcknowledgement(result, 'en'))
     } catch (error) {
       options.logger?.error(
         {
@@ -2035,6 +2052,7 @@ export function registerConfiguredPurchaseTopicIngestion(
       cacheTopicMessageRoute(ctx, 'purchase', route)
 
       if (route.route === 'silent') {
+        rememberUserTurn(options.memoryStore, record)
         await next()
         return
       }
@@ -2044,9 +2062,10 @@ export function registerConfiguredPurchaseTopicIngestion(
       }
 
       if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
+        rememberUserTurn(options.memoryStore, record)
         if (route.replyText) {
           await replyToPurchaseMessage(ctx, route.replyText)
-          appendConversation(options.memoryStore, record, record.rawText, route.replyText)
+          rememberAssistantTurn(options.memoryStore, record, route.replyText)
         }
         return
       }
@@ -2057,10 +2076,12 @@ export function registerConfiguredPurchaseTopicIngestion(
       }
 
       if (route.route !== 'purchase_candidate' && route.route !== 'purchase_followup') {
+        rememberUserTurn(options.memoryStore, record)
         await next()
         return
       }
 
+      rememberUserTurn(options.memoryStore, record)
       typingIndicator =
         options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
       const pendingReply =
@@ -2081,6 +2102,11 @@ export function registerConfiguredPurchaseTopicIngestion(
       }
 
       await handlePurchaseMessageResult(ctx, record, result, locale, options.logger, pendingReply)
+      rememberAssistantTurn(
+        options.memoryStore,
+        record,
+        buildPurchaseAcknowledgement(result, locale)
+      )
     } catch (error) {
       options.logger?.error(
         {
