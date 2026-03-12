@@ -1807,8 +1807,12 @@ Confirm or cancel below.`,
     })
 
     await bot.handleUpdate(topicMessageUpdate('I think we need a TV in the house') as never)
-    await bot.handleUpdate(topicMessageUpdate('Bot, do you remember what we said today?') as never)
-    await bot.handleUpdate(topicMessageUpdate('Bot, do you remember what you answered?') as never)
+    await bot.handleUpdate(
+      topicMentionUpdate('@household_test_bot do you remember what we said today?') as never
+    )
+    await bot.handleUpdate(
+      topicMentionUpdate('@household_test_bot do you remember what you answered?') as never
+    )
 
     expect(recentThreadTexts).toContain('I think we need a TV in the house')
     expect(recentThreadTexts).toContain('Yes. You were discussing a TV for the house.')
@@ -1886,7 +1890,7 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(topicMessageUpdate('Я думаю о семечках') as never)
     await bot.handleUpdate(
-      topicMessageUpdate('Бот, можешь дать сводку, что происходило в чате?') as never
+      topicMentionUpdate('@household_test_bot можешь дать сводку, что происходило в чате?') as never
     )
 
     expect(assistantCalls).toBe(1)

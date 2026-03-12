@@ -415,6 +415,82 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     })
   })
 
+  test('clears a pending payment confirmation when a followup has no payment intent', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '10002',
+      telegramChatId: '-10012345',
+      action: 'payment_topic_confirmation',
+      payload: {
+        proposalId: 'proposal-1',
+        householdId: 'household-1',
+        memberId: 'member-1',
+        kind: 'rent',
+        amountMinor: '47250',
+        currency: 'GEL',
+        rawText: 'За жилье отправил',
+        senderTelegramUserId: '10002',
+        telegramChatId: '-10012345',
+        telegramMessageId: '55',
+        telegramThreadId: '888',
+        telegramUpdateId: '1001',
+        attachmentCount: 0,
+        messageSentAt: null
+      },
+      expiresAt: null
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => createPaymentConfirmationService(),
+      {
+        router: async () => ({
+          route: 'payment_followup',
+          replyText: null,
+          helperKind: 'payment',
+          shouldStartTyping: false,
+          shouldClearWorkflow: false,
+          confidence: 90,
+          reason: 'llm_followup_guess'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('Я уже сказал выше') as never)
+
+    expect(calls).toHaveLength(0)
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+  })
+
   test('confirms a pending payment proposal from a topic callback', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

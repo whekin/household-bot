@@ -3,6 +3,12 @@ import { extractOpenAiResponseText, parseJsonFromResponseText } from './openai-r
 export type PurchaseInterpretationDecision = 'purchase' | 'clarification' | 'not_purchase'
 export type PurchaseInterpretationAmountSource = 'explicit' | 'calculated'
 
+export interface PurchaseInterpreterHouseholdMember {
+  memberId: string
+  displayName: string
+  status: 'active' | 'away' | 'left'
+}
+
 export interface PurchaseInterpretation {
   decision: PurchaseInterpretationDecision
   amountMinor: bigint | null
@@ -10,6 +16,7 @@ export interface PurchaseInterpretation {
   itemDescription: string | null
   amountSource?: PurchaseInterpretationAmountSource | null
   calculationExplanation?: string | null
+  participantMemberIds?: readonly string[] | null
   confidence: number
   parserMode: 'llm'
   clarificationQuestion: string | null
@@ -26,6 +33,8 @@ export type PurchaseMessageInterpreter = (
     clarificationContext?: PurchaseClarificationContext
     householdContext?: string | null
     assistantTone?: string | null
+    householdMembers?: readonly PurchaseInterpreterHouseholdMember[]
+    senderMemberId?: string | null
   }
 ) => Promise<PurchaseInterpretation | null>
 
@@ -36,17 +45,10 @@ interface OpenAiStructuredResult {
   itemDescription: string | null
   amountSource: PurchaseInterpretationAmountSource | null
   calculationExplanation: string | null
+  participantMemberIds: string[] | null
   confidence: number
   clarificationQuestion: string | null
 }
-
-const PLANNING_ONLY_PATTERN =
-  /\b(?:want to buy|thinking about|thinking of|plan to buy|planning to buy|going to buy|might buy|tomorrow|later)\b|(?:^|[^\p{L}])(?:(?:хочу|хотим|думаю|планирую|планируем|может)\s+(?:купить|взять|заказать)|(?:подумаю|завтра|потом))(?=$|[^\p{L}])/iu
-const COMPLETED_PURCHASE_PATTERN =
-  /\b(?:bought|purchased|ordered|picked up|grabbed|got|spent|paid)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|взял(?:а|и)?|заказал(?:а|и)?|потратил(?:а|и)?|заплатил(?:а|и)?|сторговался(?:\s+до)?)(?=$|[^\p{L}])/iu
-const META_REFERENCE_PATTERN =
-  /\b(?:already said(?: above)?|said above|question above|have context|from the dialog(?:ue)?|based on the dialog(?:ue)?)\b|(?:^|[^\p{L}])(?:я\s+уже\s+сказал(?:\s+выше)?|уже\s+сказал(?:\s+выше)?|вопрос\s+выше|это\s+вопрос|контекст(?:\s+диалога)?|основываясь\s+на\s+диалоге)(?=$|[^\p{L}])/iu
-const META_REFERENCE_STRIP_PATTERN = new RegExp(META_REFERENCE_PATTERN.source, 'giu')
 
 function asOptionalBigInt(value: string | null): bigint | null {
   if (value === null || !/^[0-9]+$/.test(value)) {
@@ -80,6 +82,26 @@ function normalizeAmountSource(
 function normalizeConfidence(value: number): number {
   const scaled = value >= 0 && value <= 1 ? value * 100 : value
   return Math.max(0, Math.min(100, Math.round(scaled)))
+}
+
+function normalizeParticipantMemberIds(
+  value: readonly string[] | null | undefined,
+  householdMembers: readonly PurchaseInterpreterHouseholdMember[] | undefined
+): readonly string[] | null {
+  if (!value || value.length === 0) {
+    return null
+  }
+
+  const allowedMemberIds = householdMembers
+    ? new Set(householdMembers.map((member) => member.memberId))
+    : null
+  const normalized = value
+    .map((memberId) => memberId.trim())
+    .filter((memberId) => memberId.length > 0)
+    .filter((memberId, index, all) => all.indexOf(memberId) === index)
+    .filter((memberId) => (allowedMemberIds ? allowedMemberIds.has(memberId) : true))
+
+  return normalized.length > 0 ? normalized : null
 }
 
 function resolveMissingCurrency(input: {
@@ -125,33 +147,6 @@ export function buildPurchaseInterpretationInput(
   ].join('\n')
 }
 
-function isBareMetaReference(rawText: string): boolean {
-  const normalized = rawText.trim()
-  if (!META_REFERENCE_PATTERN.test(normalized)) {
-    return false
-  }
-
-  const stripped = normalized
-    .replace(META_REFERENCE_STRIP_PATTERN, ' ')
-    .replace(/[\s,.:;!?()[\]{}"'`-]+/gu, ' ')
-    .trim()
-
-  return stripped.length === 0
-}
-
-function shouldReturnNotPurchase(rawText: string): boolean {
-  const normalized = rawText.trim()
-  if (normalized.length === 0) {
-    return true
-  }
-
-  if (isBareMetaReference(normalized)) {
-    return true
-  }
-
-  return PLANNING_ONLY_PATTERN.test(normalized) && !COMPLETED_PURCHASE_PATTERN.test(normalized)
-}
-
 export function createOpenAiPurchaseInterpreter(
   apiKey: string | undefined,
   model: string
@@ -161,7 +156,7 @@ export function createOpenAiPurchaseInterpreter(
   }
 
   return async (rawText, options) => {
-    if (shouldReturnNotPurchase(rawText)) {
+    if (rawText.trim().length === 0) {
       return {
         decision: 'not_purchase',
         amountMinor: null,
@@ -195,12 +190,17 @@ export function createOpenAiPurchaseInterpreter(
               'Set amountSource to "explicit" when the user directly states the total amount, or "calculated" when you compute it from quantity x price or similar arithmetic.',
               'When amountSource is "calculated", also return a short calculationExplanation in the user message language, such as "5 × 6 lari = 30 lari".',
               'Ignore item quantities like rolls, kilograms, or layers unless they are clearly the money amount.',
+              'Infer intent from the message together with any provided context instead of relying on isolated keywords.',
               'Treat colloquial completed-buy phrasing like "взял", "сходил и взял", or "сторговался до X" as a completed purchase when the message reports a real buy fact.',
               'Plans, wishes, future intent, tomorrow-talk, and approximate future prices are not purchases. Return not_purchase for those.',
               'Meta replies like "I already said above", "the question is above", or "do you have context" are not purchase details. Return not_purchase unless the latest message clearly supplies the missing purchase fact.',
               'If recent messages from the same sender are provided, treat them as clarification context for the latest message.',
               'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
               'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',
+              'If a household member roster is provided and the user explicitly says who shares the purchase, return participantMemberIds as the included member IDs.',
+              'For phrases like "split with Dima", "for me and Alice", or similar, include the sender and the explicitly mentioned household members in participantMemberIds.',
+              'If the message does not clearly specify a participant subset, return participantMemberIds as null.',
+              'Away members may still be included when the user explicitly names them.',
               'Use clarification when the amount, currency, item, or overall intent is missing or uncertain.',
               'Return a short, natural clarification question in the same language as the user message when clarification is needed.',
               'The clarification should sound like a conversational household bot, not a form validator.',
@@ -217,7 +217,20 @@ export function createOpenAiPurchaseInterpreter(
           },
           {
             role: 'user',
-            content: buildPurchaseInterpretationInput(rawText, options.clarificationContext)
+            content: [
+              options.householdMembers && options.householdMembers.length > 0
+                ? [
+                    'Household members:',
+                    ...options.householdMembers.map(
+                      (member) =>
+                        `- ${member.memberId}: ${member.displayName} (status=${member.status}${member.memberId === options.senderMemberId ? ', sender=yes' : ''})`
+                    )
+                  ].join('\n')
+                : null,
+              buildPurchaseInterpretationInput(rawText, options.clarificationContext)
+            ]
+              .filter(Boolean)
+              .join('\n\n')
           }
         ],
         text: {
@@ -259,6 +272,15 @@ export function createOpenAiPurchaseInterpreter(
                 calculationExplanation: {
                   anyOf: [{ type: 'string' }, { type: 'null' }]
                 },
+                participantMemberIds: {
+                  anyOf: [
+                    {
+                      type: 'array',
+                      items: { type: 'string' }
+                    },
+                    { type: 'null' }
+                  ]
+                },
                 confidence: {
                   type: 'number',
                   minimum: 0,
@@ -275,6 +297,7 @@ export function createOpenAiPurchaseInterpreter(
                 'itemDescription',
                 'amountSource',
                 'calculationExplanation',
+                'participantMemberIds',
                 'confidence',
                 'clarificationQuestion'
               ]
@@ -318,6 +341,10 @@ export function createOpenAiPurchaseInterpreter(
     const itemDescription = normalizeOptionalText(parsedJson.itemDescription)
     const amountSource = normalizeAmountSource(parsedJson.amountSource, amountMinor)
     const calculationExplanation = normalizeOptionalText(parsedJson.calculationExplanation)
+    const participantMemberIds = normalizeParticipantMemberIds(
+      parsedJson.participantMemberIds,
+      options.householdMembers
+    )
     const currency = resolveMissingCurrency({
       decision: parsedJson.decision,
       amountMinor,
@@ -337,7 +364,7 @@ export function createOpenAiPurchaseInterpreter(
       return null
     }
 
-    return {
+    const result: PurchaseInterpretation = {
       decision,
       amountMinor,
       currency,
@@ -348,5 +375,11 @@ export function createOpenAiPurchaseInterpreter(
       parserMode: 'llm',
       clarificationQuestion: decision === 'clarification' ? clarificationQuestion : null
     }
+
+    if (participantMemberIds) {
+      result.participantMemberIds = participantMemberIds
+    }
+
+    return result
   }
 }

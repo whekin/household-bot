@@ -79,25 +79,6 @@ type ContextWithTopicMessageRouteCache = Context & {
   [topicMessageRouteCacheKey]?: TopicMessageRouteCacheEntry
 }
 
-const BACKOFF_PATTERN =
-  /\b(?:leave me alone|go away|stop|not now|back off|shut up)\b|(?:^|[^\p{L}])(?:отстань|хватит|не сейчас|замолчи|оставь(?:\s+меня)?\s+в\s+покое)(?=$|[^\p{L}])/iu
-const PLANNING_PATTERN =
-  /\b(?:want to buy|thinking about buying|thinking of buying|going to buy|plan to buy|might buy|tomorrow|later)\b|(?:^|[^\p{L}])(?:(?:хочу|думаю|планирую|может)\s+(?:купить|взять|заказать)|(?:подумаю|завтра|потом))(?=$|[^\p{L}])/iu
-const LIKELY_PURCHASE_PATTERN =
-  /\b(?:bought|ordered|picked up|spent|paid)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|взял(?:а|и)?|заказал(?:а|и)?|потратил(?:а|и)?|заплатил(?:а|и)?|сторговался(?:\s+до)?)(?=$|[^\p{L}])/iu
-const LIKELY_PAYMENT_PATTERN =
-  /\b(?:paid rent|paid utilities|rent paid|utilities paid)\b|(?:^|[^\p{L}])(?:оплатил(?:а|и)?|заплатил(?:а|и)?)(?=$|[^\p{L}])/iu
-const CONTEXT_REFERENCE_PATTERN =
-  /\b(?:already said(?: above)?|said above|question above|do you have context|from the dialog(?:ue)?|based on the dialog(?:ue)?)\b|(?:^|[^\p{L}])(?:контекст(?:\s+диалога)?|у\s+тебя\s+есть\s+контекст(?:\s+диалога)?|основываясь\s+на\s+диалоге|я\s+уже\s+сказал(?:\s+выше)?|уже\s+сказал(?:\s+выше)?|вопрос\s+выше|вопрос\s+уже\s+есть|это\s+вопрос|ответь\s+на\s+него)(?=$|[^\p{L}])/iu
-const CONTEXT_REFERENCE_STRIP_PATTERN = new RegExp(CONTEXT_REFERENCE_PATTERN.source, 'giu')
-const LETTER_PATTERN = /\p{L}/u
-const DIRECT_BOT_ADDRESS_PATTERN =
-  /^\s*(?:(?:ну|эй|слышь|слушай|hey|yo)\s*,?\s*)*(?:бот|bot)(?=$|[^\p{L}])/iu
-
-export function looksLikeDirectBotAddress(text: string): boolean {
-  return DIRECT_BOT_ADDRESS_PATTERN.test(text.trim())
-}
-
 function normalizeRoute(value: string): TopicMessageRoute {
   return value === 'chat_reply' ||
     value === 'purchase_candidate' ||
@@ -127,103 +108,12 @@ function normalizeConfidence(value: number | null | undefined): number {
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-function fallbackReply(locale: 'en' | 'ru', kind: 'backoff' | 'watching'): string {
-  if (locale === 'ru') {
-    return kind === 'backoff'
-      ? 'Окей, молчу.'
-      : 'Я тут. Если будет реальная покупка или оплата, подключусь.'
-  }
-
-  return kind === 'backoff'
-    ? "Okay, I'll back off."
-    : "I'm here. If there's a real purchase or payment, I'll jump in."
-}
-
-function isBareContextReference(text: string): boolean {
-  const normalized = text.trim()
-  if (!CONTEXT_REFERENCE_PATTERN.test(normalized)) {
-    return false
-  }
-
-  const stripped = normalized
-    .replace(CONTEXT_REFERENCE_STRIP_PATTERN, ' ')
-    .replace(/[\s,.:;!?()[\]{}"'`-]+/gu, ' ')
-    .trim()
-
-  return stripped.length === 0
-}
-
-function isPlanningMessage(text: string): boolean {
-  const normalized = text.trim()
-  return PLANNING_PATTERN.test(normalized) && !LIKELY_PURCHASE_PATTERN.test(normalized)
-}
-
-function assistantFallbackRoute(
-  input: TopicMessageRoutingInput,
-  reason: string,
-  shouldClearWorkflow: boolean
-): TopicMessageRoutingResult {
-  const shouldReply = input.isExplicitMention || input.isReplyToBot || input.activeWorkflow !== null
-
-  return shouldReply
-    ? {
-        route: 'topic_helper',
-        replyText: null,
-        helperKind: 'assistant',
-        shouldStartTyping: true,
-        shouldClearWorkflow,
-        confidence: 88,
-        reason
-      }
-    : {
-        route: 'silent',
-        replyText: null,
-        helperKind: null,
-        shouldStartTyping: false,
-        shouldClearWorkflow,
-        confidence: 88,
-        reason
-      }
-}
-
-function applyRouteGuards(
-  input: TopicMessageRoutingInput,
-  route: TopicMessageRoutingResult
-): TopicMessageRoutingResult {
-  const normalized = input.messageText.trim()
-  if (normalized.length === 0) {
-    return route
-  }
-
-  if (
-    isBareContextReference(normalized) &&
-    (route.route === 'purchase_candidate' ||
-      route.route === 'purchase_followup' ||
-      route.route === 'payment_candidate' ||
-      route.route === 'payment_followup')
-  ) {
-    return assistantFallbackRoute(input, 'context_reference', input.activeWorkflow !== null)
-  }
-
-  if (
-    input.topicRole === 'purchase' &&
-    isPlanningMessage(normalized) &&
-    (route.route === 'purchase_candidate' || route.route === 'purchase_followup')
-  ) {
-    return assistantFallbackRoute(input, 'planning_guard', input.activeWorkflow !== null)
-  }
-
-  return route
-}
-
 export function fallbackTopicMessageRoute(
   input: TopicMessageRoutingInput
 ): TopicMessageRoutingResult {
   const normalized = input.messageText.trim()
-  const isAddressed =
-    input.isExplicitMention || input.isReplyToBot || input.engagementAssessment?.engaged === true
 
-  if (normalized.length === 0 || !LETTER_PATTERN.test(normalized)) {
+  if (normalized.length === 0) {
     return {
       route: 'silent',
       replyText: null,
@@ -235,27 +125,7 @@ export function fallbackTopicMessageRoute(
     }
   }
 
-  if (BACKOFF_PATTERN.test(normalized)) {
-    return {
-      route: 'dismiss_workflow',
-      replyText: isAddressed ? fallbackReply(input.locale, 'backoff') : null,
-      helperKind: null,
-      shouldStartTyping: false,
-      shouldClearWorkflow: input.activeWorkflow !== null,
-      confidence: 94,
-      reason: 'backoff'
-    }
-  }
-
-  if (isBareContextReference(normalized)) {
-    return assistantFallbackRoute(input, 'context_reference', input.activeWorkflow !== null)
-  }
-
   if (input.topicRole === 'purchase') {
-    if (input.activeWorkflow === 'purchase_clarification' && isPlanningMessage(normalized)) {
-      return assistantFallbackRoute(input, 'planning_guard', true)
-    }
-
     if (input.activeWorkflow === 'purchase_clarification') {
       return {
         route: 'purchase_followup',
@@ -265,33 +135,6 @@ export function fallbackTopicMessageRoute(
         shouldClearWorkflow: false,
         confidence: 72,
         reason: 'active_purchase_workflow'
-      }
-    }
-
-    if (isAddressed && PLANNING_PATTERN.test(normalized)) {
-      return {
-        route: 'chat_reply',
-        replyText:
-          input.locale === 'ru'
-            ? 'Похоже, ты пока прикидываешь. Когда захочешь мнение или реальную покупку записать, подключусь.'
-            : "Sounds like you're still thinking it through. If you want an opinion or a real purchase recorded, I'm in.",
-        helperKind: 'assistant',
-        shouldStartTyping: false,
-        shouldClearWorkflow: false,
-        confidence: 66,
-        reason: 'planning_advice'
-      }
-    }
-
-    if (!PLANNING_PATTERN.test(normalized) && LIKELY_PURCHASE_PATTERN.test(normalized)) {
-      return {
-        route: 'purchase_candidate',
-        replyText: null,
-        helperKind: 'purchase',
-        shouldStartTyping: true,
-        shouldClearWorkflow: false,
-        confidence: 70,
-        reason: 'likely_purchase'
       }
     }
   }
@@ -311,18 +154,6 @@ export function fallbackTopicMessageRoute(
         reason: 'active_payment_workflow'
       }
     }
-
-    if (!PLANNING_PATTERN.test(normalized) && LIKELY_PAYMENT_PATTERN.test(normalized)) {
-      return {
-        route: 'payment_candidate',
-        replyText: null,
-        helperKind: 'payment',
-        shouldStartTyping: false,
-        shouldClearWorkflow: false,
-        confidence: 68,
-        reason: 'likely_payment'
-      }
-    }
   }
 
   if (
@@ -340,7 +171,7 @@ export function fallbackTopicMessageRoute(
     }
   }
 
-  if (isAddressed) {
+  if (input.isExplicitMention || input.isReplyToBot) {
     return {
       route: 'topic_helper',
       replyText: null,
@@ -449,10 +280,15 @@ export function createOpenAiTopicMessageRouter(
                 'You are a first-pass router for a household Telegram bot in a group chat topic.',
                 'Your job is to decide whether the bot should stay silent, send a short playful reply, continue a workflow, or invoke a heavier helper.',
                 'Prefer silence over speaking.',
+                'Decide from context whether the user is actually addressing the bot, talking about the bot, or talking to another person.',
+                'Do not treat the mere presence of words like "bot", "hey", "listen", or "stop" as proof that the user is addressing the bot.',
                 'Do not start purchase or payment workflows for planning, hypotheticals, negotiations, tests, or obvious jokes.',
                 'Treat “stop”, “leave me alone”, “just thinking”, “not a purchase”, and similar messages as backoff or dismissal signals.',
+                'For a bare summon like “bot?”, “pss bot”, or “ты тут?”, prefer a brief acknowledgment.',
                 'When the user directly addresses the bot with small talk, joking, or testing, prefer chat_reply with one short sentence.',
                 'In a purchase topic, if the user is discussing a possible future purchase and asks for an opinion, prefer chat_reply with a short contextual opinion instead of a workflow.',
+                'Do not repeatedly end casual replies with “how can I help?” unless the user is clearly asking for assistance.',
+                'For impossible or fantastical purchases and payments, stay playful and non-actionable unless the user clearly pivots back to a real household event.',
                 'Use the recent conversation when writing replyText. Do not ignore the already-established subject.',
                 'The recent thread messages are more important than the per-user memory summary.',
                 'If the user asks what you think about a price or quantity, mention the actual item/price from context when possible.',
@@ -479,7 +315,6 @@ export function createOpenAiTopicMessageRouter(
                 `Topic role: ${input.topicRole}`,
                 `Explicit mention: ${input.isExplicitMention ? 'yes' : 'no'}`,
                 `Reply to bot: ${input.isReplyToBot ? 'yes' : 'no'}`,
-                `Looks like direct address: ${looksLikeDirectBotAddress(input.messageText) ? 'yes' : 'no'}`,
                 `Active workflow: ${input.activeWorkflow ?? 'none'}`,
                 input.engagementAssessment
                   ? `Engagement assessment: engaged=${input.engagementAssessment.engaged ? 'yes' : 'no'}; reason=${input.engagementAssessment.reason}; strong_reference=${input.engagementAssessment.strongReference ? 'yes' : 'no'}; weak_session=${input.engagementAssessment.weakSessionActive ? 'yes' : 'no'}; open_bot_question=${input.engagementAssessment.hasOpenBotQuestion ? 'yes' : 'no'}`
@@ -578,7 +413,7 @@ export function createOpenAiTopicMessageRouter(
           ? parsedObject.replyText.trim()
           : null
 
-      return applyRouteGuards(input, {
+      return {
         route,
         replyText,
         helperKind:
@@ -591,7 +426,7 @@ export function createOpenAiTopicMessageRouter(
           typeof parsedObject.confidence === 'number' ? parsedObject.confidence : null
         ),
         reason: typeof parsedObject.reason === 'string' ? parsedObject.reason : null
-      })
+      }
     } catch {
       return fallbackTopicMessageRoute(input)
     } finally {

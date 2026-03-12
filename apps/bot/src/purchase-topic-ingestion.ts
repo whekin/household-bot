@@ -26,7 +26,6 @@ import type {
 import {
   cacheTopicMessageRoute,
   getCachedTopicMessageRoute,
-  looksLikeDirectBotAddress,
   type TopicMessageRouter,
   type TopicMessageRoutingResult
 } from './topic-message-router'
@@ -245,6 +244,7 @@ interface PurchasePersistenceDecision {
   parsedItemDescription: string | null
   amountSource: PurchaseInterpretationAmountSource | null
   calculationExplanation: string | null
+  participantMemberIds: readonly string[] | null
   parserConfidence: number | null
   parserMode: 'llm' | null
   clarificationQuestion: string | null
@@ -306,6 +306,7 @@ function normalizeInterpretation(
       parsedItemDescription: null,
       amountSource: null,
       calculationExplanation: null,
+      participantMemberIds: null,
       parserConfidence: null,
       parserMode: null,
       clarificationQuestion: null,
@@ -322,6 +323,7 @@ function normalizeInterpretation(
       parsedItemDescription: interpretation.itemDescription,
       amountSource: interpretation.amountSource ?? null,
       calculationExplanation: interpretation.calculationExplanation ?? null,
+      participantMemberIds: interpretation.participantMemberIds ?? null,
       parserConfidence: interpretation.confidence,
       parserMode: interpretation.parserMode,
       clarificationQuestion: null,
@@ -347,6 +349,7 @@ function normalizeInterpretation(
       parsedItemDescription: interpretation.itemDescription,
       amountSource: interpretation.amountSource ?? null,
       calculationExplanation: interpretation.calculationExplanation ?? null,
+      participantMemberIds: interpretation.participantMemberIds ?? null,
       parserConfidence: interpretation.confidence,
       parserMode: interpretation.parserMode,
       clarificationQuestion: interpretation.clarificationQuestion,
@@ -362,6 +365,7 @@ function normalizeInterpretation(
     parsedItemDescription: interpretation.itemDescription,
     amountSource: interpretation.amountSource ?? null,
     calculationExplanation: interpretation.calculationExplanation ?? null,
+    participantMemberIds: interpretation.participantMemberIds ?? null,
     parserConfidence: interpretation.confidence,
     parserMode: interpretation.parserMode,
     clarificationQuestion: null,
@@ -376,6 +380,86 @@ function needsReviewAsInt(value: boolean): number {
 
 function participantIncludedAsInt(value: boolean): number {
   return value ? 1 : 0
+}
+
+function normalizeLifecycleStatus(value: string): 'active' | 'away' | 'left' {
+  return value === 'away' || value === 'left' ? value : 'active'
+}
+
+export function resolveProposalParticipantSelection(input: {
+  members: readonly {
+    memberId: string
+    telegramUserId: string | null
+    lifecycleStatus: 'active' | 'away' | 'left'
+  }[]
+  policyByMemberId: ReadonlyMap<
+    string,
+    {
+      effectiveFromPeriod: string
+      policy: string
+    }
+  >
+  senderTelegramUserId: string
+  senderMemberId: string | null
+  explicitParticipantMemberIds: readonly string[] | null
+}): readonly { memberId: string; included: boolean }[] {
+  const eligibleMembers = input.members.filter((member) => member.lifecycleStatus !== 'left')
+  if (input.explicitParticipantMemberIds && input.explicitParticipantMemberIds.length > 0) {
+    const explicitMemberIds = new Set(input.explicitParticipantMemberIds)
+    const explicitParticipants = eligibleMembers.map((member) => ({
+      memberId: member.memberId,
+      included: explicitMemberIds.has(member.memberId)
+    }))
+
+    if (explicitParticipants.some((participant) => participant.included)) {
+      return explicitParticipants
+    }
+
+    const fallbackParticipant =
+      eligibleMembers.find((member) => member.memberId === input.senderMemberId) ??
+      eligibleMembers.find((member) => member.telegramUserId === input.senderTelegramUserId) ??
+      eligibleMembers[0]
+
+    return explicitParticipants.map(({ memberId }) => ({
+      memberId,
+      included: memberId === fallbackParticipant?.memberId
+    }))
+  }
+
+  const participants = eligibleMembers.map((member) => {
+    const policy = input.policyByMemberId.get(member.memberId)?.policy ?? 'resident'
+    const included =
+      member.lifecycleStatus === 'away'
+        ? policy === 'resident'
+        : member.lifecycleStatus === 'active'
+
+    return {
+      memberId: member.memberId,
+      telegramUserId: member.telegramUserId,
+      included
+    }
+  })
+
+  if (participants.length === 0) {
+    return []
+  }
+
+  if (participants.some((participant) => participant.included)) {
+    return participants.map(({ memberId, included }) => ({
+      memberId,
+      included
+    }))
+  }
+
+  const fallbackParticipant =
+    participants.find((participant) => participant.memberId === input.senderMemberId) ??
+    participants.find((participant) => participant.telegramUserId === input.senderTelegramUserId) ??
+    participants[0]
+
+  return participants.map(({ memberId }) => ({
+    memberId,
+    included: memberId === fallbackParticipant?.memberId
+  }))
 }
 
 function toStoredPurchaseRow(row: {
@@ -779,6 +863,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     senderTelegramUserId: string
     senderMemberId: string | null
     messageSentAt: Instant
+    explicitParticipantMemberIds: readonly string[] | null
   }): Promise<readonly { memberId: string; included: boolean }[]> {
     const [members, settingsRows, policyRows] = await Promise.all([
       db
@@ -830,44 +915,17 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       }
     }
 
-    const participants = members
-      .filter((member) => member.lifecycleStatus !== 'left')
-      .map((member) => {
-        const policy = policyByMemberId.get(member.id)?.policy ?? 'resident'
-        const included =
-          member.lifecycleStatus === 'away'
-            ? policy === 'resident'
-            : member.lifecycleStatus === 'active'
-
-        return {
-          memberId: member.id,
-          telegramUserId: member.telegramUserId,
-          included
-        }
-      })
-
-    if (participants.length === 0) {
-      return []
-    }
-
-    if (participants.some((participant) => participant.included)) {
-      return participants.map(({ memberId, included }) => ({
-        memberId,
-        included
-      }))
-    }
-
-    const fallbackParticipant =
-      participants.find((participant) => participant.memberId === input.senderMemberId) ??
-      participants.find(
-        (participant) => participant.telegramUserId === input.senderTelegramUserId
-      ) ??
-      participants[0]
-
-    return participants.map(({ memberId }) => ({
-      memberId,
-      included: memberId === fallbackParticipant?.memberId
-    }))
+    return resolveProposalParticipantSelection({
+      members: members.map((member) => ({
+        memberId: member.id,
+        telegramUserId: member.telegramUserId,
+        lifecycleStatus: normalizeLifecycleStatus(member.lifecycleStatus)
+      })),
+      policyByMemberId,
+      senderTelegramUserId: input.senderTelegramUserId,
+      senderMemberId: input.senderMemberId,
+      explicitParticipantMemberIds: input.explicitParticipantMemberIds
+    })
   }
 
   async function mutateProposalStatus(
@@ -1007,6 +1065,22 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         .limit(1)
 
       const senderMemberId = matchedMember[0]?.id ?? null
+      const householdMembers = (
+        await db
+          .select({
+            memberId: schema.members.id,
+            displayName: schema.members.displayName,
+            status: schema.members.lifecycleStatus
+          })
+          .from(schema.members)
+          .where(eq(schema.members.householdId, record.householdId))
+      )
+        .map((member) => ({
+          memberId: member.memberId,
+          displayName: member.displayName,
+          status: normalizeLifecycleStatus(member.status)
+        }))
+        .filter((member) => member.status !== 'left')
       let parserError: string | null = null
       const clarificationContext = interpreter ? await getClarificationContext(record) : undefined
 
@@ -1015,6 +1089,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             defaultCurrency: defaultCurrency ?? 'GEL',
             householdContext: options?.householdContext ?? null,
             assistantTone: options?.assistantTone ?? null,
+            householdMembers,
+            senderMemberId,
             ...(clarificationContext
               ? {
                   clarificationContext: {
@@ -1095,7 +1171,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             householdId: record.householdId,
             senderTelegramUserId: record.senderTelegramUserId,
             senderMemberId,
-            messageSentAt: record.messageSentAt
+            messageSentAt: record.messageSentAt,
+            explicitParticipantMemberIds: decision.participantMemberIds
           })
 
           if (participants.length > 0) {
@@ -1623,11 +1700,9 @@ async function routePurchaseTopicMessage(input: {
     topicRole: 'purchase',
     activeWorkflow,
     messageText: input.record.rawText,
-    explicitMention:
-      stripExplicitBotMention(input.ctx) !== null ||
-      looksLikeDirectBotAddress(input.record.rawText),
+    explicitMention: stripExplicitBotMention(input.ctx) !== null,
     replyToBot: isReplyToCurrentBot(input.ctx),
-    directBotAddress: looksLikeDirectBotAddress(input.record.rawText),
+    directBotAddress: false,
     memoryStore: input.memoryStore ?? {
       get() {
         return { summary: null, turns: [] }
@@ -1642,7 +1717,7 @@ async function routePurchaseTopicMessage(input: {
     locale: input.locale,
     topicRole: 'purchase',
     messageText: input.record.rawText,
-    isExplicitMention: conversationContext.explicitMention || conversationContext.directBotAddress,
+    isExplicitMention: conversationContext.explicitMention,
     isReplyToBot: conversationContext.replyToBot,
     activeWorkflow,
     engagementAssessment: conversationContext.engagement,
@@ -2078,6 +2153,9 @@ export function registerPurchaseTopicIngestion(
       const result = await repository.save(record, options.interpreter, 'GEL')
 
       if (result.status === 'ignored_not_purchase') {
+        if (route.route === 'purchase_followup') {
+          await repository.clearClarificationContext?.(record)
+        }
         return await next()
       }
       await handlePurchaseMessageResult(
@@ -2227,6 +2305,9 @@ export function registerConfiguredPurchaseTopicIngestion(
         }
       )
       if (result.status === 'ignored_not_purchase') {
+        if (route.route === 'purchase_followup') {
+          await repository.clearClarificationContext?.(record)
+        }
         return await next()
       }
 
