@@ -103,6 +103,7 @@ export function createMiniAppDashboardHandler(options: {
               members: dashboard.members.map((line) => ({
                 memberId: line.memberId,
                 displayName: line.displayName,
+                predictedUtilityShareMajor: line.predictedUtilityShare?.toMajorString() ?? null,
                 rentShareMajor: line.rentShare.toMajorString(),
                 utilityShareMajor: line.utilityShare.toMajorString(),
                 purchaseOffsetMajor: line.purchaseOffset.toMajorString(),

@@ -314,6 +314,7 @@ function App() {
     status: 'loading'
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
+  const [selectedBalanceMemberId, setSelectedBalanceMemberId] = createSignal<string | null>(null)
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
@@ -443,6 +444,21 @@ function App() {
     }
 
     return data.members.find((member) => member.memberId === current.member.id) ?? null
+  })
+  const inspectedBalanceMember = createMemo(() => {
+    const data = dashboard()
+    if (!data) {
+      return null
+    }
+
+    const selected = selectedBalanceMemberId()
+
+    return (
+      data.members.find((member) => member.memberId === selected) ??
+      currentMemberLine() ??
+      data.members[0] ??
+      null
+    )
   })
   const purchaseLedger = createMemo(() =>
     (dashboard()?.ledger ?? []).filter((entry) => entry.kind === 'purchase')
@@ -2024,12 +2040,15 @@ function App() {
             locale={locale()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
+            inspectedMember={inspectedBalanceMember()}
+            selectedMemberId={inspectedBalanceMember()?.memberId ?? ''}
             utilityTotalMajor={utilityTotalMajor()}
             purchaseTotalMajor={purchaseTotalMajor()}
             memberBalanceVisuals={memberBalanceVisuals()}
             purchaseChart={purchaseInvestmentChart()}
             memberBaseDueMajor={memberBaseDueMajor}
             memberRemainingClass={memberRemainingClass}
+            onSelectedMemberChange={setSelectedBalanceMemberId}
           />
         )
       case 'ledger':
@@ -2468,8 +2487,10 @@ function App() {
             locale={locale()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
-            utilityTotalMajor={utilityTotalMajor()}
-            purchaseTotalMajor={purchaseTotalMajor()}
+            onExplainBalance={() => {
+              setSelectedBalanceMemberId(currentMemberLine()?.memberId ?? null)
+              setActiveNav('balances')
+            }}
           />
         )
     }

@@ -42,6 +42,7 @@ export const demoDashboard: MiniAppDashboard = {
     {
       memberId: 'demo-member',
       displayName: 'Stas',
+      predictedUtilityShareMajor: '78.00',
       rentShareMajor: '603.75',
       utilityShareMajor: '78.00',
       purchaseOffsetMajor: '-66.00',
@@ -53,6 +54,7 @@ export const demoDashboard: MiniAppDashboard = {
     {
       memberId: 'member-chorb',
       displayName: 'Chorbanaut',
+      predictedUtilityShareMajor: '78.00',
       rentShareMajor: '603.75',
       utilityShareMajor: '78.00',
       purchaseOffsetMajor: '12.00',
@@ -64,6 +66,7 @@ export const demoDashboard: MiniAppDashboard = {
     {
       memberId: 'member-el',
       displayName: 'El',
+      predictedUtilityShareMajor: '0.00',
       rentShareMajor: '1207.50',
       utilityShareMajor: '0.00',
       purchaseOffsetMajor: '54.00',

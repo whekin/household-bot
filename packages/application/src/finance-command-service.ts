@@ -106,6 +106,7 @@ export interface FinanceDashboardMemberLine {
   status?: 'active' | 'away' | 'left'
   absencePolicy?: HouseholdMemberAbsencePolicy
   absencePolicyEffectiveFromPeriod?: string | null
+  predictedUtilityShare?: Money | null
   rentShare: Money
   utilityShare: Money
   purchaseOffset: Money
@@ -321,6 +322,16 @@ async function buildFinanceDashboard(
     dependencies.repository.listUtilityBillsForCycle(cycle.id)
   ])
   const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
+  const previousCycle = await dependencies.repository.getCycleByPeriod(period.previous().toString())
+  const previousSnapshotLines = previousCycle
+    ? await dependencies.repository.getSettlementSnapshotLines(previousCycle.id)
+    : []
+  const previousUtilityShareByMemberId = new Map(
+    previousSnapshotLines.map((line) => [
+      line.memberId,
+      Money.fromMinor(line.utilityShareMinor, cycle.currency)
+    ])
+  )
 
   const convertedRent = await convertIntoCycleCurrency(dependencies, {
     cycle,
@@ -476,6 +487,7 @@ async function buildFinanceDashboard(
     absencePolicy: resolvedAbsencePolicies.get(line.memberId.toString())?.policy ?? 'resident',
     absencePolicyEffectiveFromPeriod:
       resolvedAbsencePolicies.get(line.memberId.toString())?.effectiveFromPeriod ?? null,
+    predictedUtilityShare: previousUtilityShareByMemberId.get(line.memberId.toString()) ?? null,
     rentShare: line.rentShare,
     utilityShare: line.utilityShare,
     purchaseOffset: line.purchaseOffset,

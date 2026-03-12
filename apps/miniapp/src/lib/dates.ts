@@ -156,3 +156,17 @@ export function compareTodayToPeriodDay(
 
   return 0
 }
+
+export function daysUntilPeriodDay(period: string, day: number, timezone: string): number | null {
+  const parsed = parsePeriod(period)
+  const today = formatTodayParts(timezone)
+  if (!parsed || !today) {
+    return null
+  }
+
+  const safeDay = Math.max(1, Math.min(day, daysInMonth(parsed.year, parsed.month)))
+  const dueValue = Date.UTC(parsed.year, parsed.month - 1, safeDay)
+  const todayValue = Date.UTC(today.year, today.month - 1, today.day)
+
+  return Math.round((dueValue - todayValue) / 86_400_000)
+}

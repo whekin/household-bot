@@ -184,6 +184,7 @@ function HouseSection(props: {
       <button
         class="admin-disclosure__summary"
         type="button"
+        aria-expanded={open()}
         onClick={() => setOpen((current) => !current)}
       >
         <div class="admin-disclosure__copy">
@@ -296,42 +297,44 @@ export function HouseScreen(props: Props) {
         >
           <section class="admin-section">
             <div class="admin-grid">
-              <article class="balance-item">
+              <article class="balance-item admin-card--wide">
                 <header>
-                  <strong>{props.copy.householdNameLabel ?? ''}</strong>
-                  <span>{props.householdName}</span>
+                  <strong>
+                    {props.copy.householdSettingsTitle ?? props.copy.houseSectionGeneral ?? ''}
+                  </strong>
                 </header>
-                <p>{props.copy.householdNameHint ?? ''}</p>
+                <div class="settings-grid">
+                  <div class="settings-field">
+                    <span>{props.copy.householdNameLabel ?? ''}</span>
+                    <div class="settings-field__value">{props.householdName}</div>
+                  </div>
+                  <div class="settings-field">
+                    <span>{props.copy.householdLanguage ?? ''}</span>
+                    <div class="locale-switch__buttons locale-switch__buttons--inline">
+                      <button
+                        classList={{ 'is-active': props.householdDefaultLocale === 'en' }}
+                        type="button"
+                        disabled={props.savingHouseholdLocale}
+                        onClick={() => void props.onChangeHouseholdLocale('en')}
+                      >
+                        EN
+                      </button>
+                      <button
+                        classList={{ 'is-active': props.householdDefaultLocale === 'ru' }}
+                        type="button"
+                        disabled={props.savingHouseholdLocale}
+                        onClick={() => void props.onChangeHouseholdLocale('ru')}
+                      >
+                        RU
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <div class="panel-toolbar">
                   <Button variant="secondary" onClick={props.onOpenBillingSettingsModal}>
                     <SettingsIcon />
                     {props.copy.manageSettingsAction ?? ''}
                   </Button>
-                </div>
-              </article>
-
-              <article class="balance-item">
-                <header>
-                  <strong>{props.copy.householdLanguage ?? ''}</strong>
-                  <span>{props.householdDefaultLocale.toUpperCase()}</span>
-                </header>
-                <div class="locale-switch__buttons locale-switch__buttons--inline">
-                  <button
-                    classList={{ 'is-active': props.householdDefaultLocale === 'en' }}
-                    type="button"
-                    disabled={props.savingHouseholdLocale}
-                    onClick={() => void props.onChangeHouseholdLocale('en')}
-                  >
-                    EN
-                  </button>
-                  <button
-                    classList={{ 'is-active': props.householdDefaultLocale === 'ru' }}
-                    type="button"
-                    disabled={props.savingHouseholdLocale}
-                    onClick={() => void props.onChangeHouseholdLocale('ru')}
-                  >
-                    RU
-                  </button>
                 </div>
               </article>
 

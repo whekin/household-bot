@@ -1,8 +1,9 @@
-import { For, Show } from 'solid-js'
+import { Show } from 'solid-js'
 
 import { FinanceSummaryCards } from '../components/finance/finance-summary-cards'
 import { FinanceVisuals } from '../components/finance/finance-visuals'
 import { MemberBalanceCard } from '../components/finance/member-balance-card'
+import { Field } from '../components/ui'
 import { formatCyclePeriod } from '../lib/dates'
 import type { MiniAppDashboard } from '../miniapp-api'
 
@@ -11,6 +12,8 @@ type Props = {
   locale: 'en' | 'ru'
   dashboard: MiniAppDashboard | null
   currentMemberLine: MiniAppDashboard['members'][number] | null
+  inspectedMember: MiniAppDashboard['members'][number] | null
+  selectedMemberId: string
   utilityTotalMajor: string
   purchaseTotalMajor: string
   memberBalanceVisuals: {
@@ -39,6 +42,7 @@ type Props = {
   }
   memberBaseDueMajor: (member: MiniAppDashboard['members'][number]) => string
   memberRemainingClass: (member: MiniAppDashboard['members'][number]) => string
+  onSelectedMemberChange: (memberId: string) => void
 }
 
 export function BalancesScreen(props: Props) {
@@ -64,13 +68,110 @@ export function BalancesScreen(props: Props) {
               />
             )}
           </Show>
-          <article class="balance-item balance-item--muted">
-            <header>
-              <strong>{props.copy.balanceScreenScopeTitle ?? ''}</strong>
-              <span>{formatCyclePeriod(dashboard().period, props.locale)}</span>
+
+          <section class="balance-item balance-item--wide balance-section balance-section--secondary">
+            <header class="balance-section__header">
+              <div class="balance-section__copy">
+                <strong>{props.copy.inspectMemberTitle ?? ''}</strong>
+                <p>{props.copy.inspectMemberBody ?? ''}</p>
+              </div>
+              <Field label={props.copy.inspectMemberLabel ?? ''} class="balance-section__field">
+                <select
+                  value={props.selectedMemberId}
+                  onChange={(event) => props.onSelectedMemberChange(event.currentTarget.value)}
+                >
+                  {dashboard().members.map((member) => (
+                    <option value={member.memberId}>{member.displayName}</option>
+                  ))}
+                </select>
+              </Field>
             </header>
-            <p>{props.copy.balanceScreenScopeBody ?? ''}</p>
-          </article>
+
+            <Show when={props.inspectedMember}>
+              {(member) => (
+                <article class="balance-detail-card">
+                  <header class="balance-detail-card__header">
+                    <div class="balance-detail-card__copy">
+                      <strong>{member().displayName}</strong>
+                      <small>{formatCyclePeriod(dashboard().period, props.locale)}</small>
+                    </div>
+                    <span class={`balance-status ${props.memberRemainingClass(member())}`}>
+                      {member().remainingMajor} {dashboard().currency}
+                    </span>
+                  </header>
+
+                  <div class="balance-detail-card__rows">
+                    <article class="balance-detail-row">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.baseDue ?? ''}</span>
+                        <strong>
+                          {props.memberBaseDueMajor(member())} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                    <article class="balance-detail-row">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.shareRent ?? ''}</span>
+                        <strong>
+                          {member().rentShareMajor} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                    <article class="balance-detail-row">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.shareUtilities ?? ''}</span>
+                        <strong>
+                          {member().utilityShareMajor} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                    <article class="balance-detail-row">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.shareOffset ?? ''}</span>
+                        <strong>
+                          {member().purchaseOffsetMajor} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                    <article class="balance-detail-row">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.paidLabel ?? ''}</span>
+                        <strong>
+                          {member().paidMajor} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                    <article class="balance-detail-row balance-detail-row--accent">
+                      <div class="balance-detail-row__main">
+                        <span>{props.copy.remainingLabel ?? ''}</span>
+                        <strong>
+                          {member().remainingMajor} {dashboard().currency}
+                        </strong>
+                      </div>
+                    </article>
+                  </div>
+                </article>
+              )}
+            </Show>
+          </section>
+
+          <FinanceVisuals
+            dashboard={dashboard()}
+            memberVisuals={props.memberBalanceVisuals}
+            purchaseChart={props.purchaseChart}
+            remainingClass={props.memberRemainingClass}
+            labels={{
+              financeVisualsTitle: props.copy.financeVisualsTitle ?? '',
+              financeVisualsBody: props.copy.financeVisualsBody ?? '',
+              membersCount: props.copy.membersCount ?? '',
+              purchaseInvestmentsTitle: props.copy.purchaseInvestmentsTitle ?? '',
+              purchaseInvestmentsBody: props.copy.purchaseInvestmentsBody ?? '',
+              purchaseInvestmentsEmpty: props.copy.purchaseInvestmentsEmpty ?? '',
+              purchaseTotalLabel: props.copy.purchaseTotalLabel ?? '',
+              purchaseShareLabel: props.copy.purchaseShareLabel ?? ''
+            }}
+          />
+
           <article class="balance-item balance-item--wide balance-item--muted">
             <header>
               <strong>{props.copy.houseSnapshotTitle ?? ''}</strong>
@@ -91,70 +192,6 @@ export function BalancesScreen(props: Props) {
               />
             </div>
           </article>
-          <FinanceVisuals
-            dashboard={dashboard()}
-            memberVisuals={props.memberBalanceVisuals}
-            purchaseChart={props.purchaseChart}
-            remainingClass={props.memberRemainingClass}
-            labels={{
-              financeVisualsTitle: props.copy.financeVisualsTitle ?? '',
-              financeVisualsBody: props.copy.financeVisualsBody ?? '',
-              membersCount: props.copy.membersCount ?? '',
-              purchaseInvestmentsTitle: props.copy.purchaseInvestmentsTitle ?? '',
-              purchaseInvestmentsBody: props.copy.purchaseInvestmentsBody ?? '',
-              purchaseInvestmentsEmpty: props.copy.purchaseInvestmentsEmpty ?? '',
-              purchaseTotalLabel: props.copy.purchaseTotalLabel ?? '',
-              purchaseShareLabel: props.copy.purchaseShareLabel ?? ''
-            }}
-          />
-          <section class="balance-item balance-item--wide balance-section">
-            <header class="balance-section__header">
-              <div class="balance-section__copy">
-                <strong>{props.copy.householdBalancesTitle ?? ''}</strong>
-                <p>{props.copy.householdBalancesBody ?? ''}</p>
-              </div>
-              <span class="mini-chip mini-chip--muted">
-                {String(dashboard().members.length)} {props.copy.membersCount ?? ''}
-              </span>
-            </header>
-            <div class="household-balance-list">
-              <For each={dashboard().members}>
-                {(member) => (
-                  <article class="ledger-compact-card household-balance-list__card">
-                    <div class="ledger-compact-card__main">
-                      <header>
-                        <strong>{member.displayName}</strong>
-                        <span class={`balance-status ${props.memberRemainingClass(member)}`}>
-                          {member.remainingMajor} {dashboard().currency}
-                        </span>
-                      </header>
-                      <div class="ledger-compact-card__meta">
-                        <span class="mini-chip mini-chip--muted">
-                          {props.copy.baseDue ?? ''}: {props.memberBaseDueMajor(member)}{' '}
-                          {dashboard().currency}
-                        </span>
-                        <span class="mini-chip mini-chip--muted">
-                          {props.copy.shareRent ?? ''}: {member.rentShareMajor}{' '}
-                          {dashboard().currency}
-                        </span>
-                        <span class="mini-chip mini-chip--muted">
-                          {props.copy.shareUtilities ?? ''}: {member.utilityShareMajor}{' '}
-                          {dashboard().currency}
-                        </span>
-                        <span class="mini-chip mini-chip--muted">
-                          {props.copy.shareOffset ?? ''}: {member.purchaseOffsetMajor}{' '}
-                          {dashboard().currency}
-                        </span>
-                        <span class="mini-chip mini-chip--muted">
-                          {props.copy.paidLabel ?? ''}: {member.paidMajor} {dashboard().currency}
-                        </span>
-                      </div>
-                    </div>
-                  </article>
-                )}
-              </For>
-            </div>
-          </section>
         </div>
       )}
     </Show>

@@ -110,6 +110,7 @@ export interface MiniAppDashboard {
   members: {
     memberId: string
     displayName: string
+    predictedUtilityShareMajor: string | null
     rentShareMajor: string
     utilityShareMajor: string
     purchaseOffsetMajor: string
