@@ -10,6 +10,7 @@ import type {
 import type { Bot, Context } from 'grammy'
 
 import { resolveReplyLocale } from './bot-locale'
+import { composeAssistantReplyText } from './assistant-composer'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type {
   AssistantConversationMemoryStore,
@@ -32,6 +33,10 @@ import type {
   PurchaseProposalActionResult,
   PurchaseTopicRecord
 } from './purchase-topic-ingestion'
+import {
+  buildConversationContext,
+  type ConversationHistoryMessage
+} from './conversation-orchestrator'
 import type { TopicMessageRouter, TopicMessageRole } from './topic-message-router'
 import {
   fallbackTopicMessageRoute,
@@ -39,10 +44,7 @@ import {
   looksLikeDirectBotAddress
 } from './topic-message-router'
 import {
-  historyRecordToTurn,
   persistTopicHistoryMessage,
-  shouldLoadExpandedChatHistory,
-  startOfCurrentDayInTimezone,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
@@ -342,45 +344,18 @@ function currentMessageSentAt(ctx: Context) {
   return typeof ctx.msg?.date === 'number' ? instantFromEpochSeconds(ctx.msg.date) : null
 }
 
-async function listRecentThreadMessages(input: {
-  repository: TopicMessageHistoryRepository | undefined
-  householdId: string
-  telegramChatId: string
-  telegramThreadId: string | null
-}) {
-  if (!input.repository || !input.telegramThreadId) {
-    return []
-  }
-
-  const messages = await input.repository.listRecentThreadMessages({
-    householdId: input.householdId,
-    telegramChatId: input.telegramChatId,
-    telegramThreadId: input.telegramThreadId,
-    limit: 8
-  })
-
-  return messages.map(historyRecordToTurn)
-}
-
-async function listExpandedChatMessages(input: {
-  repository: TopicMessageHistoryRepository | undefined
-  householdId: string
-  telegramChatId: string
-  timezone: string
-  shouldLoad: boolean
-}) {
-  if (!input.repository || !input.shouldLoad) {
-    return []
-  }
-
-  const messages = await input.repository.listRecentChatMessages({
-    householdId: input.householdId,
-    telegramChatId: input.telegramChatId,
-    sentAtOrAfter: startOfCurrentDayInTimezone(input.timezone),
-    limit: 40
-  })
-
-  return messages.map(historyRecordToTurn)
+function toAssistantMessages(messages: readonly ConversationHistoryMessage[]): readonly {
+  role: 'user' | 'assistant'
+  speaker: string
+  text: string
+  threadId: string | null
+}[] {
+  return messages.map((message) => ({
+    role: message.role,
+    speaker: message.speaker,
+    text: message.text,
+    threadId: message.threadId
+  }))
 }
 
 async function persistIncomingTopicMessage(input: {
@@ -445,11 +420,24 @@ async function routeGroupAssistantMessage(input: {
   messageText: string
   isExplicitMention: boolean
   isReplyToBot: boolean
+  engagementAssessment: {
+    engaged: boolean
+    reason: string
+    strongReference: boolean
+    weakSessionActive: boolean
+    hasOpenBotQuestion: boolean
+  }
   assistantContext: string | null
   assistantTone: string | null
   memoryStore: AssistantConversationMemoryStore
   memoryKey: string
   recentThreadMessages: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
+  recentChatMessages: readonly {
     role: 'user' | 'assistant'
     speaker: string
     text: string
@@ -464,10 +452,12 @@ async function routeGroupAssistantMessage(input: {
       isExplicitMention: input.isExplicitMention,
       isReplyToBot: input.isReplyToBot,
       activeWorkflow: null,
+      engagementAssessment: input.engagementAssessment,
       assistantContext: input.assistantContext,
       assistantTone: input.assistantTone,
       recentTurns: input.memoryStore.get(input.memoryKey).turns,
-      recentThreadMessages: input.recentThreadMessages
+      recentThreadMessages: input.recentThreadMessages,
+      recentChatMessages: input.recentChatMessages
     })
   }
 
@@ -478,10 +468,12 @@ async function routeGroupAssistantMessage(input: {
     isExplicitMention: input.isExplicitMention,
     isReplyToBot: input.isReplyToBot,
     activeWorkflow: null,
+    engagementAssessment: input.engagementAssessment,
     assistantContext: input.assistantContext,
     assistantTone: input.assistantTone,
     recentTurns: input.memoryStore.get(input.memoryKey).turns,
-    recentThreadMessages: input.recentThreadMessages
+    recentThreadMessages: input.recentThreadMessages,
+    recentChatMessages: input.recentChatMessages
   })
 }
 
@@ -1320,11 +1312,10 @@ export function registerDmAssistant(options: {
 
     const mention = stripExplicitBotMention(ctx)
     const directAddressByText = looksLikeDirectBotAddress(ctx.msg.text)
-    const isAddressed = Boolean(
-      (mention && mention.strippedText.length > 0) ||
-      directAddressByText ||
-      isReplyToBotMessage(ctx)
+    const isExplicitMention = Boolean(
+      (mention && mention.strippedText.length > 0) || directAddressByText
     )
+    const isReplyToBot = isReplyToBotMessage(ctx)
 
     const telegramUserId = ctx.from?.id?.toString()
     const telegramChatId = ctx.chat?.id?.toString()
@@ -1350,11 +1341,6 @@ export function registerDmAssistant(options: {
             telegramThreadId: ctx.msg.message_thread_id.toString()
           })
         : null
-
-    if (binding && !isAddressed) {
-      await next()
-      return
-    }
 
     const member = await options.householdConfigurationRepository.getHouseholdMember(
       household.householdId,
@@ -1420,11 +1406,19 @@ export function registerDmAssistant(options: {
         topicRole === 'purchase' || topicRole === 'payments'
           ? getCachedTopicMessageRoute(ctx, topicRole)
           : null
-      const recentThreadMessages = await listRecentThreadMessages({
+      const conversationContext = await buildConversationContext({
         repository: options.topicMessageHistoryRepository,
         householdId: household.householdId,
         telegramChatId,
-        telegramThreadId
+        telegramThreadId,
+        telegramUserId,
+        topicRole,
+        activeWorkflow: null,
+        messageText,
+        explicitMention: isExplicitMention,
+        replyToBot: isReplyToBot,
+        directBotAddress: directAddressByText,
+        memoryStore: options.memoryStore
       })
       const route =
         cachedRoute ??
@@ -1434,13 +1428,19 @@ export function registerDmAssistant(options: {
               locale,
               topicRole,
               messageText,
-              isExplicitMention: Boolean(mention) || directAddressByText,
-              isReplyToBot: isReplyToBotMessage(ctx),
+              isExplicitMention,
+              isReplyToBot,
+              engagementAssessment: conversationContext.engagement,
               assistantContext: assistantConfig.assistantContext,
               assistantTone: assistantConfig.assistantTone,
               memoryStore: options.memoryStore,
               memoryKey,
-              recentThreadMessages
+              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+              recentChatMessages: toAssistantMessages(
+                conversationContext.shouldLoadExpandedContext
+                  ? conversationContext.rollingChatMessages.slice(-40)
+                  : conversationContext.recentSessionMessages
+              )
             })
           : null)
 
@@ -1477,6 +1477,16 @@ export function registerDmAssistant(options: {
       const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
         household.householdId
       )
+      let householdContextPromise: Promise<string> | null = null
+      const householdContext = () =>
+        (householdContextPromise ??= buildHouseholdContext({
+          householdId: household.householdId,
+          memberId: member.id,
+          memberDisplayName: member.displayName,
+          locale,
+          householdConfigurationRepository: options.householdConfigurationRepository,
+          financeService
+        }))
 
       if (!binding && options.purchaseRepository && options.purchaseInterpreter) {
         const purchaseRecord = createGroupPurchaseRecord(ctx, household.householdId, messageText)
@@ -1496,11 +1506,33 @@ export function registerDmAssistant(options: {
           )
 
           if (purchaseResult.status === 'pending_confirmation') {
-            const purchaseText = getBotTranslations(locale).purchase.proposal(
+            const fallbackText = getBotTranslations(locale).purchase.proposal(
               formatPurchaseSummary(locale, purchaseResult),
               null,
               null
             )
+            const purchaseText = await composeAssistantReplyText({
+              assistant: options.assistant,
+              locale,
+              topicRole: 'purchase',
+              householdContext: await householdContext(),
+              userMessage: messageText,
+              recentTurns: options.memoryStore.get(memoryKey).turns,
+              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+              recentChatMessages: toAssistantMessages(
+                conversationContext.rollingChatMessages.slice(-40)
+              ),
+              authoritativeFacts: [
+                'The purchase has not been saved yet.',
+                `Detected shared purchase: ${formatPurchaseSummary(locale, purchaseResult)}.`,
+                'Buttons shown to the user are Confirm and Cancel.'
+              ],
+              responseInstructions:
+                'Write a short natural purchase confirmation proposal. Mention that the buttons below handle the action, but do not invent any other state changes.',
+              fallbackText,
+              logger: options.logger,
+              logEvent: 'assistant.compose_purchase_reply_failed'
+            })
 
             await replyAndPersistTopicMessage({
               ctx,
@@ -1517,20 +1549,51 @@ export function registerDmAssistant(options: {
           }
 
           if (purchaseResult.status === 'clarification_needed') {
+            const fallbackText = buildPurchaseClarificationText(locale, purchaseResult)
+            const clarificationText = await composeAssistantReplyText({
+              assistant: options.assistant,
+              locale,
+              topicRole: 'purchase',
+              householdContext: await householdContext(),
+              userMessage: messageText,
+              recentTurns: options.memoryStore.get(memoryKey).turns,
+              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+              recentChatMessages: toAssistantMessages(
+                conversationContext.rollingChatMessages.slice(-40)
+              ),
+              authoritativeFacts: [
+                'The purchase has not been saved yet.',
+                purchaseResult.clarificationQuestion
+                  ? `The authoritative clarification question is: ${purchaseResult.clarificationQuestion}`
+                  : 'More details are required before saving the purchase.'
+              ],
+              responseInstructions:
+                'Write a short natural clarification reply for the purchase flow. Keep it conversational and do not invent saved state.',
+              fallbackText,
+              logger: options.logger,
+              logEvent: 'assistant.compose_purchase_clarification_failed'
+            })
             await replyAndPersistTopicMessage({
               ctx,
               repository: options.topicMessageHistoryRepository,
               householdId: household.householdId,
               telegramChatId,
               telegramThreadId,
-              text: buildPurchaseClarificationText(locale, purchaseResult)
+              text: clarificationText
             })
             return
           }
         }
       }
 
-      if (!isAddressed || messageText.length === 0) {
+      const shouldRespond =
+        messageText.length > 0 &&
+        (isExplicitMention ||
+          isReplyToBot ||
+          conversationContext.engagement.reason === 'strong_reference' ||
+          Boolean(route && route.route !== 'silent'))
+
+      if (!shouldRespond) {
         await next()
         return
       }
@@ -1558,14 +1621,37 @@ export function registerDmAssistant(options: {
         householdConfigurationRepository: options.householdConfigurationRepository
       })
 
-      if (paymentBalanceReply) {
+      const prefersConversationHistory =
+        conversationContext.shouldLoadExpandedContext ||
+        conversationContext.engagement.strongReference
+
+      if (paymentBalanceReply && !prefersConversationHistory) {
+        const fallbackText = formatPaymentBalanceReplyText(locale, paymentBalanceReply)
+        const replyText = await composeAssistantReplyText({
+          assistant: options.assistant,
+          locale,
+          topicRole,
+          householdContext: await householdContext(),
+          userMessage: messageText,
+          recentTurns: options.memoryStore.get(memoryKey).turns,
+          recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+          recentChatMessages: toAssistantMessages(
+            conversationContext.rollingChatMessages.slice(-40)
+          ),
+          authoritativeFacts: fallbackText.split('\n').filter(Boolean),
+          responseInstructions:
+            'Write a short natural finance reply using only these payment guidance facts. Do not add unrelated chat summary or extra finance advice.',
+          fallbackText,
+          logger: options.logger,
+          logEvent: 'assistant.compose_payment_balance_failed'
+        })
         await replyAndPersistTopicMessage({
           ctx,
           repository: options.topicMessageHistoryRepository,
           householdId: household.householdId,
           telegramChatId,
           telegramThreadId,
-          text: formatPaymentBalanceReplyText(locale, paymentBalanceReply)
+          text: replyText
         })
         return
       }
@@ -1580,14 +1666,32 @@ export function registerDmAssistant(options: {
         recentTurns: options.memoryStore.get(memoryKey).turns
       })
 
-      if (memberInsightReply) {
+      if (memberInsightReply && !prefersConversationHistory) {
+        const replyText = await composeAssistantReplyText({
+          assistant: options.assistant,
+          locale,
+          topicRole,
+          householdContext: await householdContext(),
+          userMessage: messageText,
+          recentTurns: options.memoryStore.get(memoryKey).turns,
+          recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+          recentChatMessages: toAssistantMessages(
+            conversationContext.rollingChatMessages.slice(-40)
+          ),
+          authoritativeFacts: [memberInsightReply],
+          responseInstructions:
+            'Rewrite these member finance facts as a short natural answer in the user language. Preserve the facts exactly.',
+          fallbackText: memberInsightReply,
+          logger: options.logger,
+          logEvent: 'assistant.compose_member_insight_failed'
+        })
         options.memoryStore.appendTurn(memoryKey, {
           role: 'user',
           text: messageText
         })
         options.memoryStore.appendTurn(memoryKey, {
           role: 'assistant',
-          text: memberInsightReply
+          text: replyText
         })
 
         await replyAndPersistTopicMessage({
@@ -1596,7 +1700,7 @@ export function registerDmAssistant(options: {
           householdId: household.householdId,
           telegramChatId,
           telegramThreadId,
-          text: memberInsightReply
+          text: replyText
         })
         return
       }
@@ -1623,14 +1727,12 @@ export function registerDmAssistant(options: {
               topicMessageHistoryRepository: options.topicMessageHistoryRepository
             }
           : {}),
-        recentThreadMessages,
-        sameDayChatMessages: await listExpandedChatMessages({
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          timezone: settings.timezone,
-          shouldLoad: shouldLoadExpandedChatHistory(messageText)
-        })
+        recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
+        sameDayChatMessages: toAssistantMessages(
+          conversationContext.shouldLoadExpandedContext
+            ? conversationContext.rollingChatMessages.slice(-40)
+            : conversationContext.recentSessionMessages
+        )
       })
     } catch (error) {
       if (dedupeClaim) {

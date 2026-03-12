@@ -12,6 +12,7 @@ import type {
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantConversationMemoryStore } from './assistant-state'
 import { conversationMemoryKey } from './assistant-state'
+import { buildConversationContext } from './conversation-orchestrator'
 import {
   formatPaymentBalanceReplyText,
   formatPaymentProposalText,
@@ -27,7 +28,6 @@ import {
   type TopicMessageRouter
 } from './topic-message-router'
 import {
-  historyRecordToTurn,
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
@@ -222,24 +222,6 @@ function appendConversation(
   })
 }
 
-async function listRecentThreadMessages(
-  repository: TopicMessageHistoryRepository | undefined,
-  record: PaymentTopicRecord
-) {
-  if (!repository) {
-    return []
-  }
-
-  const messages = await repository.listRecentThreadMessages({
-    householdId: record.householdId,
-    telegramChatId: record.chatId,
-    telegramThreadId: record.threadId,
-    limit: 8
-  })
-
-  return messages.map(historyRecordToTurn)
-}
-
 async function persistIncomingTopicMessage(
   repository: TopicMessageHistoryRepository | undefined,
   record: PaymentTopicRecord
@@ -294,19 +276,51 @@ async function routePaymentTopicMessage(input: {
         }
   }
 
-  const recentThreadMessages = await listRecentThreadMessages(input.historyRepository, input.record)
+  const conversationContext = await buildConversationContext({
+    repository: input.historyRepository,
+    householdId: input.record.householdId,
+    telegramChatId: input.record.chatId,
+    telegramThreadId: input.record.threadId,
+    telegramUserId: input.record.senderTelegramUserId,
+    topicRole: input.topicRole,
+    activeWorkflow: input.activeWorkflow,
+    messageText: input.record.rawText,
+    explicitMention: input.isExplicitMention || looksLikeDirectBotAddress(input.record.rawText),
+    replyToBot: input.isReplyToBot,
+    directBotAddress: looksLikeDirectBotAddress(input.record.rawText),
+    memoryStore: input.memoryStore ?? {
+      get() {
+        return { summary: null, turns: [] }
+      },
+      appendTurn() {
+        return { summary: null, turns: [] }
+      }
+    }
+  })
 
   return input.router({
     locale: input.locale,
     topicRole: input.topicRole,
     messageText: input.record.rawText,
-    isExplicitMention: input.isExplicitMention || looksLikeDirectBotAddress(input.record.rawText),
-    isReplyToBot: input.isReplyToBot,
+    isExplicitMention: conversationContext.explicitMention || conversationContext.directBotAddress,
+    isReplyToBot: conversationContext.replyToBot,
     activeWorkflow: input.activeWorkflow,
+    engagementAssessment: conversationContext.engagement,
     assistantContext: input.assistantContext,
     assistantTone: input.assistantTone,
     recentTurns: input.memoryStore?.get(memoryKeyForRecord(input.record)).turns ?? [],
-    recentThreadMessages
+    recentThreadMessages: conversationContext.recentThreadMessages.map((message) => ({
+      role: message.role,
+      speaker: message.speaker,
+      text: message.text,
+      threadId: message.threadId
+    })),
+    recentChatMessages: conversationContext.recentSessionMessages.map((message) => ({
+      role: message.role,
+      speaker: message.speaker,
+      text: message.text,
+      threadId: message.threadId
+    }))
   })
 }
 
@@ -667,6 +681,15 @@ export function registerConfiguredPaymentTopicIngestion(
       }
 
       if (route.route === 'topic_helper') {
+        if (
+          route.reason === 'context_reference' ||
+          route.reason === 'engaged_context' ||
+          route.reason === 'addressed'
+        ) {
+          await next()
+          return
+        }
+
         const financeService = financeServiceForHousehold(record.householdId)
         const member = await financeService.getMemberByTelegramUserId(record.senderTelegramUserId)
         if (!member) {

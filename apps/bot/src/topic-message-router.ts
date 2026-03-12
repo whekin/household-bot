@@ -25,6 +25,13 @@ export interface TopicMessageRoutingInput {
   isExplicitMention: boolean
   isReplyToBot: boolean
   activeWorkflow: TopicWorkflowState
+  engagementAssessment?: {
+    engaged: boolean
+    reason: string
+    strongReference: boolean
+    weakSessionActive: boolean
+    hasOpenBotQuestion: boolean
+  }
   assistantContext?: string | null
   assistantTone?: string | null
   recentTurns?: readonly {
@@ -32,6 +39,12 @@ export interface TopicMessageRoutingInput {
     text: string
   }[]
   recentThreadMessages?: readonly {
+    role: 'user' | 'assistant'
+    speaker: string
+    text: string
+    threadId: string | null
+  }[]
+  recentChatMessages?: readonly {
     role: 'user' | 'assistant'
     speaker: string
     text: string
@@ -207,7 +220,8 @@ export function fallbackTopicMessageRoute(
   input: TopicMessageRoutingInput
 ): TopicMessageRoutingResult {
   const normalized = input.messageText.trim()
-  const isAddressed = input.isExplicitMention || input.isReplyToBot
+  const isAddressed =
+    input.isExplicitMention || input.isReplyToBot || input.engagementAssessment?.engaged === true
 
   if (normalized.length === 0 || !LETTER_PATTERN.test(normalized)) {
     return {
@@ -311,6 +325,21 @@ export function fallbackTopicMessageRoute(
     }
   }
 
+  if (
+    input.engagementAssessment?.strongReference ||
+    input.engagementAssessment?.weakSessionActive
+  ) {
+    return {
+      route: 'topic_helper',
+      replyText: null,
+      helperKind: 'assistant',
+      shouldStartTyping: true,
+      shouldClearWorkflow: false,
+      confidence: 62,
+      reason: 'engaged_context'
+    }
+  }
+
   if (isAddressed) {
     return {
       route: 'topic_helper',
@@ -353,6 +382,21 @@ function buildRecentThreadMessages(input: TopicMessageRoutingInput): string | nu
 
   return recentMessages && recentMessages.length > 0
     ? ['Recent messages in this topic thread:', ...recentMessages].join('\n')
+    : null
+}
+
+function buildRecentChatMessages(input: TopicMessageRoutingInput): string | null {
+  const recentMessages = input.recentChatMessages
+    ?.slice(-12)
+    .map((message) =>
+      message.threadId
+        ? `[thread ${message.threadId}] ${message.speaker} (${message.role}): ${message.text.trim()}`
+        : `${message.speaker} (${message.role}): ${message.text.trim()}`
+    )
+    .filter((line) => line.length > 0)
+
+  return recentMessages && recentMessages.length > 0
+    ? ['Recent related chat messages:', ...recentMessages].join('\n')
     : null
 }
 
@@ -437,7 +481,11 @@ export function createOpenAiTopicMessageRouter(
                 `Reply to bot: ${input.isReplyToBot ? 'yes' : 'no'}`,
                 `Looks like direct address: ${looksLikeDirectBotAddress(input.messageText) ? 'yes' : 'no'}`,
                 `Active workflow: ${input.activeWorkflow ?? 'none'}`,
+                input.engagementAssessment
+                  ? `Engagement assessment: engaged=${input.engagementAssessment.engaged ? 'yes' : 'no'}; reason=${input.engagementAssessment.reason}; strong_reference=${input.engagementAssessment.strongReference ? 'yes' : 'no'}; weak_session=${input.engagementAssessment.weakSessionActive ? 'yes' : 'no'}; open_bot_question=${input.engagementAssessment.hasOpenBotQuestion ? 'yes' : 'no'}`
+                  : null,
                 buildRecentThreadMessages(input),
+                buildRecentChatMessages(input),
                 buildRecentTurns(input),
                 `Latest message:\n${input.messageText}`
               ]

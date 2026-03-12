@@ -68,10 +68,13 @@ function topicMessageUpdate(
   text: string,
   options?: {
     replyToBot?: boolean
+    fromId?: number
+    firstName?: string
+    updateId?: number
   }
 ) {
   return {
-    update_id: 3001,
+    update_id: options?.updateId ?? 3001,
     message: {
       message_id: 88,
       date: Math.floor(Date.now() / 1000),
@@ -82,9 +85,9 @@ function topicMessageUpdate(
         type: 'supergroup'
       },
       from: {
-        id: 123456,
+        id: options?.fromId ?? 123456,
         is_bot: false,
-        first_name: 'Stan',
+        first_name: options?.firstName ?? 'Stan',
         language_code: 'en'
       },
       text,
@@ -1597,9 +1600,14 @@ Confirm or cancel below.`,
     registerDmAssistant({
       bot,
       assistant: {
-        async respond() {
+        async respond(input) {
+          expect(input.authoritativeFacts).toEqual([
+            'The purchase has not been saved yet.',
+            'Detected shared purchase: door handle - 30.00 GEL.',
+            'Buttons shown to the user are Confirm and Cancel.'
+          ])
           return {
-            text: 'fallback',
+            text: 'Looks like a shared purchase: door handle - 30.00 GEL.',
             usage: {
               inputTokens: 10,
               outputTokens: 2,
@@ -1631,7 +1639,7 @@ Confirm or cancel below.`,
       payload: {
         chat_id: -100123,
         message_thread_id: 777,
-        text: expect.stringContaining('door handle - 30.00 GEL'),
+        text: 'Looks like a shared purchase: door handle - 30.00 GEL.',
         reply_markup: {
           inline_keyboard: [
             [
@@ -1812,6 +1820,225 @@ Confirm or cancel below.`,
         text: 'Yes. You were discussing a TV for the house.'
       }
     })
+  })
+
+  test('uses rolling chat history for summary questions instead of finance helper replies', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const topicMessageHistoryRepository = createTopicMessageHistoryRepository()
+    let sameDayTexts: string[] = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond(input) {
+          assistantCalls += 1
+          sameDayTexts = input.sameDayChatMessages?.map((message) => message.text) ?? []
+
+          return {
+            text: 'В чате ты говорил, что думаешь о семечках.',
+            usage: {
+              inputTokens: 24,
+              outputTokens: 10,
+              totalTokens: 34
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker(),
+      topicMessageHistoryRepository
+    })
+
+    await bot.handleUpdate(topicMessageUpdate('Я думаю о семечках') as never)
+    await bot.handleUpdate(
+      topicMessageUpdate('Бот, можешь дать сводку, что происходило в чате?') as never
+    )
+
+    expect(assistantCalls).toBe(1)
+    expect(sameDayTexts).toContain('Я думаю о семечках')
+    expect(calls.at(-1)).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'В чате ты говорил, что думаешь о семечках.'
+      }
+    })
+  })
+
+  test('responds to strong contextual follow-ups without a repeated mention', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond(input) {
+          assistantCalls += 1
+
+          return {
+            text:
+              assistantCalls === 1
+                ? 'Still standing.'
+                : `Отвечаю по контексту: ${input.userMessage}`,
+            usage: {
+              inputTokens: 15,
+              outputTokens: 8,
+              totalTokens: 23
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker(),
+      topicMessageHistoryRepository: createTopicMessageHistoryRepository()
+    })
+
+    await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
+    await bot.handleUpdate(
+      topicMessageUpdate('Вопрос выше, я уже задал, ты просто не ответил') as never
+    )
+
+    expect(assistantCalls).toBe(2)
+    expect(calls.at(-1)).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Отвечаю по контексту: Вопрос выше, я уже задал, ты просто не ответил'
+      }
+    })
+  })
+
+  test('stays silent for casual follow-ups after a recent bot reply', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+
+          return {
+            text: 'Still standing.',
+            usage: {
+              inputTokens: 15,
+              outputTokens: 8,
+              totalTokens: 23
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker(),
+      topicMessageHistoryRepository: createTopicMessageHistoryRepository()
+    })
+
+    await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
+    await bot.handleUpdate(topicMessageUpdate('ok', { updateId: 3002 }) as never)
+
+    expect(assistantCalls).toBe(1)
+    expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1)
   })
 
   test('ignores duplicate deliveries of the same DM update', async () => {

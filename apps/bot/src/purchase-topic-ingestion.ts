@@ -17,6 +17,7 @@ import type {
 import { createDbClient, schema } from '@household/db'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantConversationMemoryStore } from './assistant-state'
+import { buildConversationContext } from './conversation-orchestrator'
 import type {
   PurchaseInterpretationAmountSource,
   PurchaseInterpretation,
@@ -30,7 +31,6 @@ import {
   type TopicMessageRoutingResult
 } from './topic-message-router'
 import {
-  historyRecordToTurn,
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
@@ -1525,24 +1525,6 @@ function rememberAssistantTurn(
   })
 }
 
-async function listRecentThreadMessages(
-  repository: TopicMessageHistoryRepository | undefined,
-  record: PurchaseTopicRecord
-) {
-  if (!repository) {
-    return []
-  }
-
-  const messages = await repository.listRecentThreadMessages({
-    householdId: record.householdId,
-    telegramChatId: record.chatId,
-    telegramThreadId: record.threadId,
-    limit: 8
-  })
-
-  return messages.map(historyRecordToTurn)
-}
-
 async function persistIncomingTopicMessage(
   repository: TopicMessageHistoryRepository | undefined,
   record: PurchaseTopicRecord
@@ -1629,24 +1611,56 @@ async function routePurchaseTopicMessage(input: {
   }
 
   const key = memoryKeyForRecord(input.record)
-  const recentTurns = input.memoryStore?.get(key).turns ?? []
-  const recentThreadMessages = await listRecentThreadMessages(input.historyRepository, input.record)
+  const activeWorkflow = (await input.repository.hasClarificationContext(input.record))
+    ? 'purchase_clarification'
+    : null
+  const conversationContext = await buildConversationContext({
+    repository: input.historyRepository,
+    householdId: input.record.householdId,
+    telegramChatId: input.record.chatId,
+    telegramThreadId: input.record.threadId,
+    telegramUserId: input.record.senderTelegramUserId,
+    topicRole: 'purchase',
+    activeWorkflow,
+    messageText: input.record.rawText,
+    explicitMention:
+      stripExplicitBotMention(input.ctx) !== null ||
+      looksLikeDirectBotAddress(input.record.rawText),
+    replyToBot: isReplyToCurrentBot(input.ctx),
+    directBotAddress: looksLikeDirectBotAddress(input.record.rawText),
+    memoryStore: input.memoryStore ?? {
+      get() {
+        return { summary: null, turns: [] }
+      },
+      appendTurn() {
+        return { summary: null, turns: [] }
+      }
+    }
+  })
 
   return input.router({
     locale: input.locale,
     topicRole: 'purchase',
     messageText: input.record.rawText,
-    isExplicitMention:
-      stripExplicitBotMention(input.ctx) !== null ||
-      looksLikeDirectBotAddress(input.record.rawText),
-    isReplyToBot: isReplyToCurrentBot(input.ctx),
-    activeWorkflow: (await input.repository.hasClarificationContext(input.record))
-      ? 'purchase_clarification'
-      : null,
+    isExplicitMention: conversationContext.explicitMention || conversationContext.directBotAddress,
+    isReplyToBot: conversationContext.replyToBot,
+    activeWorkflow,
+    engagementAssessment: conversationContext.engagement,
     assistantContext: input.assistantContext ?? null,
     assistantTone: input.assistantTone ?? null,
-    recentTurns,
-    recentThreadMessages
+    recentTurns: input.memoryStore?.get(key).turns ?? [],
+    recentThreadMessages: conversationContext.recentThreadMessages.map((message) => ({
+      role: message.role,
+      speaker: message.speaker,
+      text: message.text,
+      threadId: message.threadId
+    })),
+    recentChatMessages: conversationContext.recentSessionMessages.map((message) => ({
+      role: message.role,
+      speaker: message.speaker,
+      text: message.text,
+      threadId: message.threadId
+    }))
   })
 }
 

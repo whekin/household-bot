@@ -19,6 +19,7 @@ export interface ConversationalAssistant {
     locale: 'en' | 'ru'
     topicRole: TopicMessageRole
     householdContext: string
+    authoritativeFacts?: readonly string[]
     memorySummary: string | null
     recentTurns: readonly {
       role: 'user' | 'assistant'
@@ -36,6 +37,7 @@ export interface ConversationalAssistant {
       text: string
       threadId: string | null
     }[]
+    responseInstructions?: string | null
     userMessage: string
   }): Promise<AssistantReply>
 }
@@ -87,6 +89,7 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'Be calm, concise, playful when appropriate, and quiet by default.',
   'Do not act like a form validator or aggressive parser.',
   'Do not invent balances, members, billing periods, or completed actions.',
+  'Any authoritative facts provided by the system are true and must be preserved exactly.',
   'If the user asks you to mutate household state, do not claim the action is complete unless the system explicitly says it was confirmed and saved.',
   'For unsupported writes, explain the limitation briefly and suggest the explicit command or confirmation flow.',
   'Prefer concise, practical answers.',
@@ -145,6 +148,12 @@ export function createOpenAiChatAssistant(
                   topicCapabilityNotes(input.topicRole),
                   'Bounded household context:',
                   input.householdContext,
+                  input.authoritativeFacts && input.authoritativeFacts.length > 0
+                    ? [
+                        'Authoritative facts:',
+                        ...input.authoritativeFacts.map((fact) => `- ${fact}`)
+                      ].join('\n')
+                    : null,
                   input.recentThreadMessages && input.recentThreadMessages.length > 0
                     ? [
                         'Recent topic thread messages:',
@@ -169,7 +178,10 @@ export function createOpenAiChatAssistant(
                         ...input.recentTurns.map((turn) => `${turn.role}: ${turn.text}`)
                       ].join('\n')
                     : null,
-                  input.memorySummary ? `Conversation summary:\n${input.memorySummary}` : null
+                  input.memorySummary ? `Conversation summary:\n${input.memorySummary}` : null,
+                  input.responseInstructions
+                    ? `Response instructions:\n${input.responseInstructions}`
+                    : null
                 ]
                   .filter(Boolean)
                   .join('\n\n')
