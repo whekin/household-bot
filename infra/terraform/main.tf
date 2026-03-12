@@ -90,14 +90,14 @@ module "bot_api_service" {
     {
       NODE_ENV = var.environment
     },
-    var.bot_parser_model == null ? {} : {
-      PARSER_MODEL = var.bot_parser_model
-    },
     var.bot_purchase_parser_model == null ? {} : {
       PURCHASE_PARSER_MODEL = var.bot_purchase_parser_model
     },
     var.bot_assistant_model == null ? {} : {
       ASSISTANT_MODEL = var.bot_assistant_model
+    },
+    var.bot_assistant_router_model == null ? {} : {
+      ASSISTANT_ROUTER_MODEL = var.bot_assistant_router_model
     },
     var.bot_assistant_timeout_ms == null ? {} : {
       ASSISTANT_TIMEOUT_MS = tostring(var.bot_assistant_timeout_ms)

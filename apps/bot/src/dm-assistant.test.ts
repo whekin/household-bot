@@ -16,7 +16,10 @@ import {
   createInMemoryAssistantUsageTracker,
   registerDmAssistant
 } from './dm-assistant'
-import type { PurchaseMessageIngestionRepository } from './purchase-topic-ingestion'
+import {
+  registerConfiguredPurchaseTopicIngestion,
+  type PurchaseMessageIngestionRepository
+} from './purchase-topic-ingestion'
 
 function createTestBot() {
   const bot = createTelegramBot('000000:test-token')
@@ -261,6 +264,22 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],
     upsertHouseholdMemberAbsencePolicy: async () => null
+  }
+}
+
+function createBoundHouseholdRepository(
+  role: 'purchase' | 'payments'
+): HouseholdConfigurationRepository {
+  const repository = createHouseholdRepository()
+
+  return {
+    ...repository,
+    findHouseholdTopicByTelegramContext: async () => ({
+      householdId: 'household-1',
+      role,
+      telegramThreadId: '777',
+      topicName: role === 'purchase' ? 'Purchases' : 'Payments'
+    })
   }
 }
 
@@ -1241,6 +1260,186 @@ Confirm or cancel below.`,
         text: 'Still standing.'
       }
     })
+  })
+
+  test('uses the shared router for playful addressed topic replies without calling the full assistant', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'Should not be called.',
+            usage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12
+            }
+          }
+        }
+      },
+      topicRouter: async () => ({
+        route: 'chat_reply',
+        replyText: 'Тут. Если что-то реально купили, подключусь.',
+        helperKind: null,
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 96,
+        reason: 'smalltalk'
+      }),
+      purchaseRepository: createPurchaseRepository(),
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository: createHouseholdRepository(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMentionUpdate('@household_test_bot А ты тут?') as never)
+
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Тут. Если что-то реально купили, подключусь.'
+      }
+    })
+  })
+
+  test('reuses the purchase-topic route instead of calling the shared router twice', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+    let routerCalls = 0
+    const householdConfigurationRepository = createBoundHouseholdRepository('purchase')
+    const topicRouter = async () => {
+      routerCalls += 1
+
+      return {
+        route: 'topic_helper' as const,
+        replyText: null,
+        helperKind: 'assistant' as const,
+        shouldStartTyping: true,
+        shouldClearWorkflow: false,
+        confidence: 96,
+        reason: 'question'
+      }
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository,
+      createPurchaseRepository(),
+      {
+        router: topicRouter
+      }
+    )
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'Still here.',
+            usage: {
+              inputTokens: 10,
+              outputTokens: 3,
+              totalTokens: 13
+            }
+          }
+        }
+      },
+      topicRouter,
+      purchaseRepository: createPurchaseRepository(),
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository,
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
+
+    expect(routerCalls).toBe(1)
+    expect(assistantCalls).toBe(1)
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: 'sendMessage',
+          payload: expect.objectContaining({
+            text: 'Still here.'
+          })
+        })
+      ])
+    )
   })
 
   test('stays silent for regular group chatter when the bot is not addressed', async () => {

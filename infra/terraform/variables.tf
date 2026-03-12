@@ -69,13 +69,6 @@ variable "telegram_bot_token_secret_id" {
   default     = "telegram-bot-token"
 }
 
-variable "bot_parser_model" {
-  description = "Optional PARSER_MODEL override for bot runtime"
-  type        = string
-  default     = null
-  nullable    = true
-}
-
 variable "bot_purchase_parser_model" {
   description = "Optional PURCHASE_PARSER_MODEL override for bot runtime"
   type        = string
@@ -85,6 +78,13 @@ variable "bot_purchase_parser_model" {
 
 variable "bot_assistant_model" {
   description = "Optional ASSISTANT_MODEL override for bot runtime"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "bot_assistant_router_model" {
+  description = "Optional ASSISTANT_ROUTER_MODEL override for bot runtime"
   type        = string
   default     = null
   nullable    = true

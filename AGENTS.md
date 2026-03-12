@@ -4,6 +4,14 @@
 
 Household Telegram bot + mini app monorepo for shared rent/utilities/purchase accounting.
 
+## Project phase
+
+- Current phase: `pre-1.0`
+- Optimize for clarity, cohesion, and codebase freshness over backward compatibility
+- Remove legacy fields, tables, env vars, code paths, and transitional structures by default unless the user explicitly asks to preserve them
+- When implementing new features, it is acceptable to refactor or delete nearby obsolete code so the resulting system stays small and coherent
+- Before `1.0` release, replace this policy with a compatibility-first policy for production evolution and migrations
+
 ## Core stack
 
 - Runtime/tooling: Bun
@@ -49,6 +57,7 @@ Boundary rules:
 - Run manual checks selectively for targeted validation or when hooks do not cover the relevant risk
 - After push: add a Linear comment with branch/commit and validation status
 - After merge to `main`: move the Linear ticket to `Done` unless the user says otherwise
+- Treat removal of fresh legacy code and config as normal pre-1.0 cleanup, not as a risky exception
 - Run Codex review before merge (`codex review --base origin/main`)
 
 ## Communication

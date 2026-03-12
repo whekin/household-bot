@@ -35,6 +35,7 @@ import { getBotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
+import { createOpenAiTopicMessageRouter } from './topic-message-router'
 import {
   createPurchaseMessageRepository,
   registerConfiguredPurchaseTopicIngestion
@@ -145,6 +146,11 @@ const conversationalAssistant = createOpenAiChatAssistant(
   runtime.assistantModel,
   runtime.assistantTimeoutMs
 )
+const topicMessageRouter = createOpenAiTopicMessageRouter(
+  runtime.openaiApiKey,
+  runtime.assistantRouterModel,
+  Math.min(runtime.assistantTimeoutMs, 5_000)
+)
 const anonymousFeedbackRepositoryClients = new Map<
   string,
   ReturnType<typeof createDbAnonymousFeedbackRepository>
@@ -237,6 +243,12 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     householdConfigurationRepositoryClient.repository,
     purchaseRepositoryClient.repository,
     {
+      ...(topicMessageRouter
+        ? {
+            router: topicMessageRouter,
+            memoryStore: assistantMemoryStore
+          }
+        : {}),
       ...(purchaseInterpreter
         ? {
             interpreter: purchaseInterpreter
@@ -253,6 +265,12 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     financeServiceForHousehold,
     paymentConfirmationServiceForHousehold,
     {
+      ...(topicMessageRouter
+        ? {
+            router: topicMessageRouter,
+            memoryStore: assistantMemoryStore
+          }
+        : {}),
       logger: getLogger('payment-ingestion')
     }
   )
@@ -432,6 +450,11 @@ if (
             assistant: conversationalAssistant
           }
         : {}),
+      ...(topicMessageRouter
+        ? {
+            topicRouter: topicMessageRouter
+          }
+        : {}),
       logger: getLogger('dm-assistant')
     })
   } else {
@@ -456,6 +479,11 @@ if (
       ...(conversationalAssistant
         ? {
             assistant: conversationalAssistant
+          }
+        : {}),
+      ...(topicMessageRouter
+        ? {
+            topicRouter: topicMessageRouter
           }
         : {}),
       logger: getLogger('dm-assistant')

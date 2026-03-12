@@ -1232,6 +1232,136 @@ Confirm or cancel below.`
     })
   })
 
+  test('replies playfully to addressed banter with router and skips purchase save', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      router: async () => ({
+        route: 'chat_reply',
+        replyText: 'Тут. Если что-то реально купили, подключусь.',
+        helperKind: null,
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 95,
+        reason: 'smalltalk'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('@household_test_bot А ты тут?') as never)
+
+    expect(saveCalls).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Тут. Если что-то реально купили, подключусь.'
+      }
+    })
+  })
+
+  test('clears active purchase clarification when router dismisses the workflow', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let clearCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return true
+      },
+      async clearClarificationContext() {
+        clearCalls += 1
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      router: async () => ({
+        route: 'dismiss_workflow',
+        replyText: 'Окей, молчу.',
+        helperKind: null,
+        shouldStartTyping: false,
+        shouldClearWorkflow: true,
+        confidence: 98,
+        reason: 'backoff'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Отстань') as never)
+
+    expect(clearCalls).toBe(1)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Окей, молчу.'
+      }
+    })
+  })
+
   test('continues purchase handling for replies to bot messages without a fresh mention', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []

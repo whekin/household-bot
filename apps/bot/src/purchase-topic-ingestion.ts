@@ -9,11 +9,19 @@ import type {
 
 import { createDbClient, schema } from '@household/db'
 import { getBotTranslations, type BotLocale } from './i18n'
+import type { AssistantConversationMemoryStore } from './assistant-state'
+import { conversationMemoryKey } from './assistant-state'
 import type {
   PurchaseInterpretationAmountSource,
   PurchaseInterpretation,
   PurchaseMessageInterpreter
 } from './openai-purchase-interpreter'
+import {
+  cacheTopicMessageRoute,
+  getCachedTopicMessageRoute,
+  type TopicMessageRouter,
+  type TopicMessageRoutingResult
+} from './topic-message-router'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
 
@@ -29,20 +37,6 @@ const PLANNING_PURCHASE_PATTERN =
 const MONEY_SIGNAL_PATTERN =
   /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лари|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
 const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
-
-type PurchaseTopicEngagement =
-  | {
-      kind: 'direct'
-      showProcessingReply: boolean
-    }
-  | {
-      kind: 'clarification'
-      showProcessingReply: boolean
-    }
-  | {
-      kind: 'likely_purchase'
-      showProcessingReply: true
-    }
 
 type StoredPurchaseProcessingStatus =
   | 'pending_confirmation'
@@ -202,6 +196,7 @@ export type PurchaseProposalAmountCorrectionResult =
 
 export interface PurchaseMessageIngestionRepository {
   hasClarificationContext(record: PurchaseTopicRecord): Promise<boolean>
+  clearClarificationContext?(record: PurchaseTopicRecord): Promise<void>
   save(
     record: PurchaseTopicRecord,
     interpreter?: PurchaseMessageInterpreter,
@@ -283,36 +278,6 @@ function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
   }
 
   return Array.from(rawText.matchAll(STANDALONE_NUMBER_PATTERN)).length === 1
-}
-
-async function resolvePurchaseTopicEngagement(
-  ctx: Pick<Context, 'msg' | 'me'>,
-  record: PurchaseTopicRecord,
-  repository: Pick<PurchaseMessageIngestionRepository, 'hasClarificationContext'>
-): Promise<PurchaseTopicEngagement | null> {
-  const hasExplicitMention = stripExplicitBotMention(ctx) !== null
-  if (hasExplicitMention || isReplyToCurrentBot(ctx)) {
-    return {
-      kind: 'direct',
-      showProcessingReply: looksLikeLikelyCompletedPurchase(record.rawText)
-    }
-  }
-
-  if (await repository.hasClarificationContext(record)) {
-    return {
-      kind: 'clarification',
-      showProcessingReply: false
-    }
-  }
-
-  if (looksLikeLikelyCompletedPurchase(record.rawText)) {
-    return {
-      kind: 'likely_purchase',
-      showProcessingReply: true
-    }
-  }
-
-  return null
 }
 
 function normalizeInterpretation(
@@ -514,6 +479,22 @@ async function sendPurchaseProcessingReply(
     chatId: reply.chat.id,
     messageId: reply.message_id
   }
+}
+
+function shouldShowProcessingReply(
+  ctx: Pick<Context, 'msg' | 'me'>,
+  record: PurchaseTopicRecord,
+  route: TopicMessageRoutingResult
+): boolean {
+  if (route.route !== 'purchase_candidate' || !route.shouldStartTyping) {
+    return false
+  }
+
+  if (stripExplicitBotMention(ctx) !== null || isReplyToCurrentBot(ctx)) {
+    return looksLikeLikelyCompletedPurchase(record.rawText)
+  }
+
+  return true
 }
 
 async function finalizePurchaseReply(
@@ -941,6 +922,23 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     async hasClarificationContext(record) {
       const clarificationContext = await getClarificationContext(record)
       return Boolean(clarificationContext && clarificationContext.length > 0)
+    },
+
+    async clearClarificationContext(record) {
+      await db
+        .update(schema.purchaseMessages)
+        .set({
+          processingStatus: 'ignored_not_purchase',
+          needsReview: 0
+        })
+        .where(
+          and(
+            eq(schema.purchaseMessages.householdId, record.householdId),
+            eq(schema.purchaseMessages.senderTelegramUserId, record.senderTelegramUserId),
+            eq(schema.purchaseMessages.telegramThreadId, record.threadId),
+            eq(schema.purchaseMessages.processingStatus, 'clarification_needed')
+          )
+        )
     },
 
     async save(record, interpreter, defaultCurrency, options) {
@@ -1441,6 +1439,118 @@ async function resolveAssistantConfig(
       }
 }
 
+function memoryKeyForRecord(record: PurchaseTopicRecord): string {
+  return conversationMemoryKey({
+    telegramUserId: record.senderTelegramUserId,
+    telegramChatId: record.chatId,
+    isPrivateChat: false
+  })
+}
+
+function appendConversation(
+  memoryStore: AssistantConversationMemoryStore | undefined,
+  record: PurchaseTopicRecord,
+  userText: string,
+  assistantText: string
+): void {
+  if (!memoryStore) {
+    return
+  }
+
+  const key = memoryKeyForRecord(record)
+  memoryStore.appendTurn(key, {
+    role: 'user',
+    text: userText
+  })
+  memoryStore.appendTurn(key, {
+    role: 'assistant',
+    text: assistantText
+  })
+}
+
+async function routePurchaseTopicMessage(input: {
+  ctx: Pick<Context, 'msg' | 'me'>
+  record: PurchaseTopicRecord
+  locale: BotLocale
+  repository: Pick<
+    PurchaseMessageIngestionRepository,
+    'hasClarificationContext' | 'clearClarificationContext'
+  >
+  router: TopicMessageRouter | undefined
+  memoryStore: AssistantConversationMemoryStore | undefined
+  assistantContext?: string | null
+  assistantTone?: string | null
+}): Promise<TopicMessageRoutingResult> {
+  if (!input.router) {
+    const hasExplicitMention = stripExplicitBotMention(input.ctx) !== null
+    const isReply = isReplyToCurrentBot(input.ctx)
+    const hasClarificationContext = await input.repository.hasClarificationContext(input.record)
+
+    if (hasExplicitMention || isReply) {
+      return {
+        route: 'purchase_candidate',
+        replyText: null,
+        helperKind: 'purchase',
+        shouldStartTyping: true,
+        shouldClearWorkflow: false,
+        confidence: 75,
+        reason: 'legacy_direct'
+      }
+    }
+
+    if (hasClarificationContext) {
+      return {
+        route: 'purchase_followup',
+        replyText: null,
+        helperKind: 'purchase',
+        shouldStartTyping: true,
+        shouldClearWorkflow: false,
+        confidence: 75,
+        reason: 'legacy_clarification'
+      }
+    }
+
+    if (looksLikeLikelyCompletedPurchase(input.record.rawText)) {
+      return {
+        route: 'purchase_candidate',
+        replyText: null,
+        helperKind: 'purchase',
+        shouldStartTyping: true,
+        shouldClearWorkflow: false,
+        confidence: 75,
+        reason: 'legacy_likely_purchase'
+      }
+    }
+
+    return {
+      route: 'silent',
+      replyText: null,
+      helperKind: null,
+      shouldStartTyping: false,
+      shouldClearWorkflow: false,
+      confidence: 80,
+      reason: 'legacy_silent'
+    }
+  }
+
+  const key = memoryKeyForRecord(input.record)
+  const recentTurns = input.memoryStore?.get(key).turns ?? []
+
+  return input.router({
+    locale: input.locale,
+    topicRole: 'purchase',
+    messageText: input.record.rawText,
+    isExplicitMention: stripExplicitBotMention(input.ctx) !== null,
+    isReplyToBot: isReplyToCurrentBot(input.ctx),
+    activeWorkflow: (await input.repository.hasClarificationContext(input.record))
+      ? 'purchase_clarification'
+      : null,
+    assistantContext: input.assistantContext ?? null,
+    assistantTone: input.assistantTone ?? null,
+    recentTurns
+  })
+}
+
 async function handlePurchaseMessageResult(
   ctx: Context,
   record: PurchaseTopicRecord,
@@ -1766,6 +1876,8 @@ export function registerPurchaseTopicIngestion(
   repository: PurchaseMessageIngestionRepository,
   options: {
     interpreter?: PurchaseMessageInterpreter
+    router?: TopicMessageRouter
+    memoryStore?: AssistantConversationMemoryStore
     logger?: Logger
   } = {}
 ): void {
@@ -1787,20 +1899,54 @@ export function registerPurchaseTopicIngestion(
     let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
 
     try {
-      const engagement = await resolvePurchaseTopicEngagement(ctx, record, repository)
-      if (!engagement) {
+      const route =
+        getCachedTopicMessageRoute(ctx, 'purchase') ??
+        (await routePurchaseTopicMessage({
+          ctx,
+          record,
+          locale: 'en',
+          repository,
+          router: options.router,
+          memoryStore: options.memoryStore
+        }))
+      cacheTopicMessageRoute(ctx, 'purchase', route)
+
+      if (route.route === 'silent') {
         await next()
         return
       }
 
-      typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
+      if (route.shouldClearWorkflow) {
+        await repository.clearClarificationContext?.(record)
+      }
+
+      if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
+        if (route.replyText) {
+          await replyToPurchaseMessage(ctx, route.replyText)
+          appendConversation(options.memoryStore, record, record.rawText, route.replyText)
+        }
+        return
+      }
+
+      if (route.route === 'topic_helper') {
+        await next()
+        return
+      }
+
+      if (route.route !== 'purchase_candidate' && route.route !== 'purchase_followup') {
+        await next()
+        return
+      }
+
+      typingIndicator =
+        options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
       const pendingReply =
-        options.interpreter && engagement.showProcessingReply
+        options.interpreter && shouldShowProcessingReply(ctx, record, route)
           ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
           : null
       const result = await repository.save(record, options.interpreter, 'GEL')
 
-      if (engagement.kind === 'direct' && result.status === 'ignored_not_purchase') {
+      if (result.status === 'ignored_not_purchase') {
         return await next()
       }
       await handlePurchaseMessageResult(ctx, record, result, 'en', options.logger, pendingReply)
@@ -1828,6 +1974,8 @@ export function registerConfiguredPurchaseTopicIngestion(
   repository: PurchaseMessageIngestionRepository,
   options: {
     interpreter?: PurchaseMessageInterpreter
+    router?: TopicMessageRouter
+    memoryStore?: AssistantConversationMemoryStore
     logger?: Logger
   } = {}
 ): void {
@@ -1864,13 +2012,6 @@ export function registerConfiguredPurchaseTopicIngestion(
     let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
 
     try {
-      const engagement = await resolvePurchaseTopicEngagement(ctx, record, repository)
-      if (!engagement) {
-        await next()
-        return
-      }
-
-      typingIndicator = options.interpreter ? startTypingIndicator(ctx) : null
       const [billingSettings, assistantConfig] = await Promise.all([
         householdConfigurationRepository.getHouseholdBillingSettings(record.householdId),
         resolveAssistantConfig(householdConfigurationRepository, record.householdId)
@@ -1879,8 +2020,51 @@ export function registerConfiguredPurchaseTopicIngestion(
         householdConfigurationRepository,
         record.householdId
       )
+      const route =
+        getCachedTopicMessageRoute(ctx, 'purchase') ??
+        (await routePurchaseTopicMessage({
+          ctx,
+          record,
+          locale,
+          repository,
+          router: options.router,
+          memoryStore: options.memoryStore,
+          assistantContext: assistantConfig.assistantContext,
+          assistantTone: assistantConfig.assistantTone
+        }))
+      cacheTopicMessageRoute(ctx, 'purchase', route)
+
+      if (route.route === 'silent') {
+        await next()
+        return
+      }
+
+      if (route.shouldClearWorkflow) {
+        await repository.clearClarificationContext?.(record)
+      }
+
+      if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
+        if (route.replyText) {
+          await replyToPurchaseMessage(ctx, route.replyText)
+          appendConversation(options.memoryStore, record, record.rawText, route.replyText)
+        }
+        return
+      }
+
+      if (route.route === 'topic_helper') {
+        await next()
+        return
+      }
+
+      if (route.route !== 'purchase_candidate' && route.route !== 'purchase_followup') {
+        await next()
+        return
+      }
+
+      typingIndicator =
+        options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
       const pendingReply =
-        options.interpreter && engagement.showProcessingReply
+        options.interpreter && shouldShowProcessingReply(ctx, record, route)
           ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
           : null
       const result = await repository.save(
@@ -1892,7 +2076,7 @@ export function registerConfiguredPurchaseTopicIngestion(
           assistantTone: assistantConfig.assistantTone
         }
       )
-      if (engagement.kind === 'direct' && result.status === 'ignored_not_purchase') {
+      if (result.status === 'ignored_not_purchase') {
         return await next()
       }
 

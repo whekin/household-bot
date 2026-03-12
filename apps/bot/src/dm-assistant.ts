@@ -10,7 +10,13 @@ import type { Bot, Context } from 'grammy'
 
 import { resolveReplyLocale } from './bot-locale'
 import { getBotTranslations, type BotLocale } from './i18n'
-import type { AssistantReply, ConversationalAssistant } from './openai-chat-assistant'
+import type {
+  AssistantConversationMemoryStore,
+  AssistantRateLimiter,
+  AssistantUsageTracker
+} from './assistant-state'
+import { conversationMemoryKey } from './assistant-state'
+import type { ConversationalAssistant } from './openai-chat-assistant'
 import type { PurchaseMessageInterpreter } from './openai-purchase-interpreter'
 import {
   formatPaymentBalanceReplyText,
@@ -25,8 +31,17 @@ import type {
   PurchaseProposalActionResult,
   PurchaseTopicRecord
 } from './purchase-topic-ingestion'
+import type { TopicMessageRouter, TopicMessageRole } from './topic-message-router'
+import { fallbackTopicMessageRoute, getCachedTopicMessageRoute } from './topic-message-router'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
+
+export type { AssistantConversationMemoryStore, AssistantUsageTracker } from './assistant-state'
+export {
+  createInMemoryAssistantConversationMemoryStore,
+  createInMemoryAssistantRateLimiter,
+  createInMemoryAssistantUsageTracker
+} from './assistant-state'
 
 const ASSISTANT_PAYMENT_ACTION = 'assistant_payment_confirmation' as const
 const ASSISTANT_PAYMENT_CONFIRM_CALLBACK_PREFIX = 'assistant_payment:confirm:'
@@ -35,56 +50,10 @@ const ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX = 'assistant_purchase:confirm:'
 const ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX = 'assistant_purchase:cancel:'
 const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
 const GROUP_ASSISTANT_MESSAGE_SOURCE = 'telegram-group-assistant'
-const MEMORY_SUMMARY_MAX_CHARS = 1200
 const PURCHASE_VERB_PATTERN =
   /\b(?:bought|buy|got|picked up|spent|купил(?:а|и)?|взял(?:а|и)?|выложил(?:а|и)?|отдал(?:а|и)?|потратил(?:а|и)?)\b/iu
 const PURCHASE_MONEY_PATTERN =
   /(?:\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|usd|\$|доллар(?:а|ов)?|кровн\p{L}*)|\b\d+(?:[.,]\d{1,2})\b)/iu
-
-interface AssistantConversationTurn {
-  role: 'user' | 'assistant'
-  text: string
-}
-
-interface AssistantConversationState {
-  summary: string | null
-  turns: AssistantConversationTurn[]
-}
-
-export interface AssistantConversationMemoryStore {
-  get(key: string): AssistantConversationState
-  appendTurn(key: string, turn: AssistantConversationTurn): AssistantConversationState
-}
-
-export interface AssistantRateLimitResult {
-  allowed: boolean
-  retryAfterMs: number
-}
-
-export interface AssistantRateLimiter {
-  consume(key: string): AssistantRateLimitResult
-}
-
-export interface AssistantUsageSnapshot {
-  householdId: string
-  telegramUserId: string
-  displayName: string
-  requestCount: number
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  updatedAt: string
-}
-
-export interface AssistantUsageTracker {
-  record(input: {
-    householdId: string
-    telegramUserId: string
-    displayName: string
-    usage: AssistantReply['usage']
-  }): void
-  listHouseholdUsage(householdId: string): readonly AssistantUsageSnapshot[]
-}
 
 type PurchaseActionResult = Extract<
   PurchaseProposalActionResult,
@@ -130,136 +99,6 @@ function isReplyToBotMessage(ctx: Context): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
-}
-
-function summarizeTurns(
-  summary: string | null,
-  turns: readonly AssistantConversationTurn[]
-): string {
-  const next = [summary, ...turns.map((turn) => `${turn.role}: ${turn.text}`)]
-    .filter(Boolean)
-    .join('\n')
-
-  return next.length <= MEMORY_SUMMARY_MAX_CHARS
-    ? next
-    : next.slice(next.length - MEMORY_SUMMARY_MAX_CHARS)
-}
-
-function conversationMemoryKey(input: {
-  telegramUserId: string
-  telegramChatId: string
-  isPrivateChat: boolean
-}): string {
-  return input.isPrivateChat
-    ? input.telegramUserId
-    : `group:${input.telegramChatId}:${input.telegramUserId}`
-}
-
-export function createInMemoryAssistantConversationMemoryStore(
-  maxTurns: number
-): AssistantConversationMemoryStore {
-  const memory = new Map<string, AssistantConversationState>()
-
-  return {
-    get(key) {
-      return memory.get(key) ?? { summary: null, turns: [] }
-    },
-
-    appendTurn(key, turn) {
-      const current = memory.get(key) ?? { summary: null, turns: [] }
-      const nextTurns = [...current.turns, turn]
-
-      if (nextTurns.length <= maxTurns) {
-        const nextState = {
-          summary: current.summary,
-          turns: nextTurns
-        }
-        memory.set(key, nextState)
-        return nextState
-      }
-
-      const overflowCount = nextTurns.length - maxTurns
-      const overflow = nextTurns.slice(0, overflowCount)
-      const retained = nextTurns.slice(overflowCount)
-      const nextState = {
-        summary: summarizeTurns(current.summary, overflow),
-        turns: retained
-      }
-      memory.set(key, nextState)
-      return nextState
-    }
-  }
-}
-
-export function createInMemoryAssistantRateLimiter(config: {
-  burstLimit: number
-  burstWindowMs: number
-  rollingLimit: number
-  rollingWindowMs: number
-}): AssistantRateLimiter {
-  const timestamps = new Map<string, number[]>()
-
-  return {
-    consume(key) {
-      const now = Date.now()
-      const events = (timestamps.get(key) ?? []).filter(
-        (timestamp) => now - timestamp < config.rollingWindowMs
-      )
-      const burstEvents = events.filter((timestamp) => now - timestamp < config.burstWindowMs)
-
-      if (burstEvents.length >= config.burstLimit) {
-        const oldestBurstEvent = burstEvents[0] ?? now
-        return {
-          allowed: false,
-          retryAfterMs: Math.max(1, config.burstWindowMs - (now - oldestBurstEvent))
-        }
-      }
-
-      if (events.length >= config.rollingLimit) {
-        const oldestEvent = events[0] ?? now
-        return {
-          allowed: false,
-          retryAfterMs: Math.max(1, config.rollingWindowMs - (now - oldestEvent))
-        }
-      }
-
-      events.push(now)
-      timestamps.set(key, events)
-
-      return {
-        allowed: true,
-        retryAfterMs: 0
-      }
-    }
-  }
-}
-
-export function createInMemoryAssistantUsageTracker(): AssistantUsageTracker {
-  const usage = new Map<string, AssistantUsageSnapshot>()
-
-  return {
-    record(input) {
-      const key = `${input.householdId}:${input.telegramUserId}`
-      const current = usage.get(key)
-
-      usage.set(key, {
-        householdId: input.householdId,
-        telegramUserId: input.telegramUserId,
-        displayName: input.displayName,
-        requestCount: (current?.requestCount ?? 0) + 1,
-        inputTokens: (current?.inputTokens ?? 0) + input.usage.inputTokens,
-        outputTokens: (current?.outputTokens ?? 0) + input.usage.outputTokens,
-        totalTokens: (current?.totalTokens ?? 0) + input.usage.totalTokens,
-        updatedAt: new Date().toISOString()
-      })
-    },
-
-    listHouseholdUsage(householdId) {
-      return [...usage.values()]
-        .filter((entry) => entry.householdId === householdId)
-        .sort((left, right) => right.totalTokens - left.totalTokens)
-    }
-  }
 }
 
 function formatRetryDelay(locale: BotLocale, retryAfterMs: number): string {
@@ -474,6 +313,45 @@ async function resolveAssistantConfig(
         assistantContext: null,
         assistantTone: null
       }
+}
+
+async function routeGroupAssistantMessage(input: {
+  router: TopicMessageRouter | undefined
+  locale: BotLocale
+  topicRole: TopicMessageRole
+  messageText: string
+  isExplicitMention: boolean
+  isReplyToBot: boolean
+  assistantContext: string | null
+  assistantTone: string | null
+  memoryStore: AssistantConversationMemoryStore
+  memoryKey: string
+}) {
+  if (!input.router) {
+    return fallbackTopicMessageRoute({
+      locale: input.locale,
+      topicRole: input.topicRole,
+      messageText: input.messageText,
+      isExplicitMention: input.isExplicitMention,
+      isReplyToBot: input.isReplyToBot,
+      activeWorkflow: null,
+      assistantContext: input.assistantContext,
+      assistantTone: input.assistantTone,
+      recentTurns: input.memoryStore.get(input.memoryKey).turns
+    })
+  }
+
+  return input.router({
+    locale: input.locale,
+    topicRole: input.topicRole,
+    messageText: input.messageText,
+    isExplicitMention: input.isExplicitMention,
+    isReplyToBot: input.isReplyToBot,
+    activeWorkflow: null,
+    assistantContext: input.assistantContext,
+    assistantTone: input.assistantTone,
+    recentTurns: input.memoryStore.get(input.memoryKey).turns
+  })
 }
 
 function formatAssistantLedger(
@@ -699,6 +577,7 @@ async function replyWithAssistant(input: {
 export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
+  topicRouter?: TopicMessageRouter
   purchaseRepository?: PurchaseMessageIngestionRepository
   purchaseInterpreter?: PurchaseMessageInterpreter
   householdConfigurationRepository: HouseholdConfigurationRepository
@@ -1267,25 +1146,21 @@ export function registerDmAssistant(options: {
       await next()
       return
     }
-
-    if (
-      !isAddressed &&
+    const binding =
       ctx.msg &&
       'is_topic_message' in ctx.msg &&
       ctx.msg.is_topic_message === true &&
       'message_thread_id' in ctx.msg &&
       ctx.msg.message_thread_id !== undefined
-    ) {
-      const binding =
-        await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-          telegramChatId,
-          telegramThreadId: ctx.msg.message_thread_id.toString()
-        })
+        ? await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+            telegramChatId,
+            telegramThreadId: ctx.msg.message_thread_id.toString()
+          })
+        : null
 
-      if (binding) {
-        await next()
-        return
-      }
+    if (binding && !isAddressed) {
+      await next()
+      return
     }
 
     const member = await options.householdConfigurationRepository.getHouseholdMember(
@@ -1330,22 +1205,78 @@ export function registerDmAssistant(options: {
     }
 
     try {
-      const financeService = options.financeServiceForHousehold(household.householdId)
-      const [settings, assistantConfig] = await Promise.all([
-        options.householdConfigurationRepository.getHouseholdBillingSettings(household.householdId),
-        resolveAssistantConfig(options.householdConfigurationRepository, household.householdId)
-      ])
       const memoryKey = conversationMemoryKey({
         telegramUserId,
         telegramChatId,
         isPrivateChat: false
       })
       const messageText = mention?.strippedText ?? ctx.msg.text.trim()
+      const assistantConfig = await resolveAssistantConfig(
+        options.householdConfigurationRepository,
+        household.householdId
+      )
+      const topicRole: TopicMessageRole =
+        binding?.role === 'purchase' ||
+        binding?.role === 'payments' ||
+        binding?.role === 'reminders' ||
+        binding?.role === 'feedback'
+          ? binding.role
+          : 'generic'
+      const cachedRoute =
+        topicRole === 'purchase' || topicRole === 'payments'
+          ? getCachedTopicMessageRoute(ctx, topicRole)
+          : null
+      const route =
+        cachedRoute ??
+        (options.topicRouter
+          ? await routeGroupAssistantMessage({
+              router: options.topicRouter,
+              locale,
+              topicRole,
+              messageText,
+              isExplicitMention: Boolean(mention),
+              isReplyToBot: isReplyToBotMessage(ctx),
+              assistantContext: assistantConfig.assistantContext,
+              assistantTone: assistantConfig.assistantTone,
+              memoryStore: options.memoryStore,
+              memoryKey
+            })
+          : null)
 
-      if (options.purchaseRepository && options.purchaseInterpreter) {
+      if (route) {
+        if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
+          if (route.replyText) {
+            options.memoryStore.appendTurn(memoryKey, {
+              role: 'user',
+              text: messageText
+            })
+            options.memoryStore.appendTurn(memoryKey, {
+              role: 'assistant',
+              text: route.replyText
+            })
+            await ctx.reply(route.replyText)
+          }
+          return
+        }
+
+        if (route.route === 'silent') {
+          await next()
+          return
+        }
+      }
+
+      const financeService = options.financeServiceForHousehold(household.householdId)
+      const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
+        household.householdId
+      )
+
+      if (!binding && options.purchaseRepository && options.purchaseInterpreter) {
         const purchaseRecord = createGroupPurchaseRecord(ctx, household.householdId, messageText)
 
-        if (purchaseRecord) {
+        if (
+          purchaseRecord &&
+          (!route || route.route === 'purchase_candidate' || route.route === 'topic_helper')
+        ) {
           const purchaseResult = await options.purchaseRepository.save(
             purchaseRecord,
             options.purchaseInterpreter,
@@ -1373,15 +1304,7 @@ export function registerDmAssistant(options: {
             await ctx.reply(buildPurchaseClarificationText(locale, purchaseResult))
             return
           }
-
-          if (!isAddressed) {
-            await next()
-            return
-          }
         }
-      } else if (!isAddressed) {
-        await next()
-        return
       }
 
       if (!isAddressed || messageText.length === 0) {

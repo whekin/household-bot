@@ -72,9 +72,9 @@ Recommended approach:
 - Use `terraform.tfvars` per environment (`dev.tfvars`, `prod.tfvars`)
 - Keep `project_id` separate for dev/prod when possible
 - Keep non-secret bot config in `*.tfvars`:
-  - optional `bot_parser_model`
   - optional `bot_purchase_parser_model`
   - optional `bot_assistant_model`
+  - optional `bot_assistant_router_model`
   - optional assistant runtime knobs:
     `bot_assistant_timeout_ms`,
     `bot_assistant_memory_max_turns`,

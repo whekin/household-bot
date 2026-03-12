@@ -55,7 +55,9 @@ If `create_workload_identity = true`, Terraform also grants the GitHub deploy se
 Keep bot runtime config that is not secret in your `*.tfvars` file:
 
 - `bot_mini_app_allowed_origins`
-- optional `bot_parser_model`
+- optional `bot_purchase_parser_model`
+- optional `bot_assistant_model`
+- optional `bot_assistant_router_model`
 
 Set `bot_mini_app_allowed_origins` to the exact mini app origins you expect in each environment.
 Do not rely on permissive origin reflection in production.

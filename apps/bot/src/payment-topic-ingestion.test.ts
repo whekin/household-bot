@@ -25,13 +25,13 @@ function candidate(overrides: Partial<PaymentTopicCandidate> = {}): PaymentTopic
   }
 }
 
-function paymentUpdate(text: string) {
+function paymentUpdate(text: string, threadId = 888) {
   return {
     update_id: 1001,
     message: {
       message_id: 55,
       date: Math.floor(Date.now() / 1000),
-      message_thread_id: 888,
+      message_thread_id: threadId,
       is_topic_message: true,
       chat: {
         id: -10012345,
@@ -644,6 +644,129 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
       text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.')
+    })
+  })
+
+  test('uses router for playful addressed replies in the payments topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => createPaymentConfirmationService(),
+      {
+        router: async () => ({
+          route: 'chat_reply',
+          replyText: 'Тут. Если это про оплату, разберёмся.',
+          helperKind: null,
+          shouldStartTyping: false,
+          shouldClearWorkflow: false,
+          confidence: 94,
+          reason: 'smalltalk'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot а ты тут?') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Тут. Если это про оплату, разберёмся.'
+      }
+    })
+  })
+
+  test('keeps a pending payment workflow in another thread when dismissing here', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const promptRepository = createPromptRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async () => {
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '10002',
+      telegramChatId: '-10012345',
+      action: 'payment_topic_clarification',
+      payload: {
+        threadId: '999',
+        rawText: 'За жилье отправил'
+      },
+      expiresAt: null
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => createPaymentConfirmationService(),
+      {
+        router: async () => ({
+          route: 'dismiss_workflow',
+          replyText: 'Окей, молчу.',
+          helperKind: null,
+          shouldStartTyping: false,
+          shouldClearWorkflow: true,
+          confidence: 97,
+          reason: 'backoff'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot stop', 888) as never)
+
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toMatchObject({
+      action: 'payment_topic_clarification',
+      payload: {
+        threadId: '999',
+        rawText: 'За жилье отправил'
+      }
     })
   })
 })
