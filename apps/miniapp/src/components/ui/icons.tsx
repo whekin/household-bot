@@ -66,6 +66,56 @@ export function GlobeIcon(props: IconProps) {
   )
 }
 
+export function HomeIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M5 9.5V21h14V9.5" />
+      <path d="M9 21v-6h6v6" />
+    </svg>
+  )
+}
+
+export function WalletIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
+      <path d="M4 9V7a2 2 0 0 1 2-2h10" />
+      <path d="M15 13h5" />
+      <circle cx="15" cy="13" r=".5" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function ReceiptIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M7 3h10v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5V3h1Z" />
+      <path d="M9 8h6" />
+      <path d="M9 12h6" />
+      <path d="M9 16h4" />
+    </svg>
+  )
+}
+
+export function HouseIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M4 10.5 12 4l8 6.5" />
+      <path d="M6 9.5V20h12V9.5" />
+      <path d="M9 20v-5h6v5" />
+    </svg>
+  )
+}
+
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+
 export function XIcon(props: IconProps) {
   return (
     <svg {...iconProps(props)}>

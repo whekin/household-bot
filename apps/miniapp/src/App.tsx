@@ -14,7 +14,6 @@ import {
   addMiniAppUtilityBill,
   addMiniAppPayment,
   approveMiniAppPendingMember,
-  closeMiniAppBillingCycle,
   deleteMiniAppPayment,
   deleteMiniAppPurchase,
   deleteMiniAppUtilityBill,
@@ -39,7 +38,16 @@ import {
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from './miniapp-api'
-import { Button, Field, MiniChip, Modal } from './components/ui'
+import {
+  Button,
+  Field,
+  HomeIcon,
+  HouseIcon,
+  MiniChip,
+  Modal,
+  ReceiptIcon,
+  WalletIcon
+} from './components/ui'
 import { NavigationTabs } from './components/layout/navigation-tabs'
 import { TopBar } from './components/layout/top-bar'
 import { BlockedState } from './components/session/blocked-state'
@@ -96,7 +104,6 @@ type SessionState =
     }
 
 type NavigationKey = 'home' | 'balances' | 'ledger' | 'house'
-type HouseSectionKey = 'billing' | 'utilities' | 'members' | 'topics'
 
 type UtilityBillDraft = {
   billName: string
@@ -124,7 +131,6 @@ type PaymentDraft = {
 
 type TestingRolePreview = 'admin' | 'resident'
 
-const chartPalette = ['#f7b389', '#6fd3c0', '#f06a8d', '#94a8ff', '#f3d36f', '#7dc96d'] as const
 const TESTING_ROLE_TAP_WINDOW_MS = 30 * 60 * 1000
 
 const demoSession: Extract<SessionState, { status: 'ready' }> = {
@@ -178,30 +184,6 @@ function joinDeepLink(): string | null {
 
 function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
-}
-
-function absoluteMinor(value: bigint): bigint {
-  return value < 0n ? -value : value
-}
-
-function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
-  return minorToMajorString(
-    majorStringToMinor(member.rentShareMajor) + majorStringToMinor(member.utilityShareMajor)
-  )
-}
-
-function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {
-  const remainingMinor = majorStringToMinor(member.remainingMajor)
-
-  if (remainingMinor < 0n) {
-    return 'is-credit'
-  }
-
-  if (remainingMinor === 0n) {
-    return 'is-settled'
-  }
-
-  return 'is-due'
 }
 
 function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
@@ -305,7 +287,6 @@ function App() {
     status: 'loading'
   })
   const [activeNav, setActiveNav] = createSignal<NavigationKey>('home')
-  const [activeHouseSection, setActiveHouseSection] = createSignal<HouseSectionKey>('billing')
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
@@ -335,7 +316,6 @@ function App() {
   const [savingBillingSettings, setSavingBillingSettings] = createSignal(false)
   const [savingCategorySlug, setSavingCategorySlug] = createSignal<string | null>(null)
   const [openingCycle, setOpeningCycle] = createSignal(false)
-  const [closingCycle, setClosingCycle] = createSignal(false)
   const [savingCycleRent, setSavingCycleRent] = createSignal(false)
   const [savingUtilityBill, setSavingUtilityBill] = createSignal(false)
   const [savingUtilityBillId, setSavingUtilityBillId] = createSignal<string | null>(null)
@@ -475,134 +455,6 @@ function App() {
       )
     )
   )
-  const memberBalanceVisuals = createMemo(() => {
-    const data = dashboard()
-    if (!data) {
-      return []
-    }
-
-    const totals = data.members.map((member) => {
-      const rentMinor = absoluteMinor(majorStringToMinor(member.rentShareMajor))
-      const utilityMinor = absoluteMinor(majorStringToMinor(member.utilityShareMajor))
-      const purchaseMinor = absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor))
-
-      return {
-        member,
-        totalMinor: rentMinor + utilityMinor + purchaseMinor,
-        segments: [
-          {
-            key: 'rent',
-            label: copy().shareRent,
-            amountMajor: member.rentShareMajor,
-            amountMinor: rentMinor
-          },
-          {
-            key: 'utilities',
-            label: copy().shareUtilities,
-            amountMajor: member.utilityShareMajor,
-            amountMinor: utilityMinor
-          },
-          {
-            key:
-              majorStringToMinor(member.purchaseOffsetMajor) < 0n
-                ? 'purchase-credit'
-                : 'purchase-debit',
-            label: copy().shareOffset,
-            amountMajor: member.purchaseOffsetMajor,
-            amountMinor: purchaseMinor
-          }
-        ]
-      }
-    })
-
-    const maxTotalMinor = totals.reduce(
-      (max, item) => (item.totalMinor > max ? item.totalMinor : max),
-      0n
-    )
-
-    return totals
-      .sort((left, right) => {
-        const leftRemaining = majorStringToMinor(left.member.remainingMajor)
-        const rightRemaining = majorStringToMinor(right.member.remainingMajor)
-
-        if (rightRemaining === leftRemaining) {
-          return left.member.displayName.localeCompare(right.member.displayName)
-        }
-
-        return rightRemaining > leftRemaining ? 1 : -1
-      })
-      .map((item) => ({
-        ...item,
-        barWidthPercent:
-          maxTotalMinor > 0n ? (Number(item.totalMinor) / Number(maxTotalMinor)) * 100 : 0,
-        segments: item.segments.map((segment) => ({
-          ...segment,
-          widthPercent:
-            item.totalMinor > 0n ? (Number(segment.amountMinor) / Number(item.totalMinor)) * 100 : 0
-        }))
-      }))
-  })
-  const purchaseInvestmentChart = createMemo(() => {
-    const data = dashboard()
-    if (!data) {
-      return {
-        totalMajor: '0.00',
-        slices: []
-      }
-    }
-
-    const membersById = new Map(data.members.map((member) => [member.memberId, member.displayName]))
-    const totals = new Map<string, { label: string; amountMinor: bigint }>()
-
-    for (const entry of purchaseLedger()) {
-      const key = entry.memberId ?? entry.actorDisplayName ?? entry.id
-      const label =
-        (entry.memberId ? membersById.get(entry.memberId) : null) ??
-        entry.actorDisplayName ??
-        copy().ledgerActorFallback
-      const current = totals.get(key) ?? {
-        label,
-        amountMinor: 0n
-      }
-
-      totals.set(key, {
-        label,
-        amountMinor:
-          current.amountMinor + absoluteMinor(majorStringToMinor(entry.displayAmountMajor))
-      })
-    }
-
-    const items = [...totals.entries()]
-      .map(([key, value], index) => ({
-        key,
-        label: value.label,
-        amountMinor: value.amountMinor,
-        amountMajor: minorToMajorString(value.amountMinor),
-        color: chartPalette[index % chartPalette.length]!
-      }))
-      .filter((item) => item.amountMinor > 0n)
-      .sort((left, right) => (right.amountMinor > left.amountMinor ? 1 : -1))
-
-    const totalMinor = items.reduce((sum, item) => sum + item.amountMinor, 0n)
-    const circumference = 2 * Math.PI * 42
-    let offset = 0
-
-    return {
-      totalMajor: minorToMajorString(totalMinor),
-      slices: items.map((item) => {
-        const ratio = totalMinor > 0n ? Number(item.amountMinor) / Number(totalMinor) : 0
-        const dash = ratio * circumference
-        const slice = {
-          ...item,
-          percentage: Math.round(ratio * 100),
-          dasharray: `${dash} ${Math.max(circumference - dash, 0)}`,
-          dashoffset: `${-offset}`
-        }
-        offset += dash
-        return slice
-      })
-    }
-  })
   const webApp = getTelegramWebApp()
 
   function ledgerTitle(entry: MiniAppDashboard['ledger'][number]): string {
@@ -1395,25 +1247,6 @@ function App() {
     }
   }
 
-  async function handleCloseCycle() {
-    const initData = webApp?.initData?.trim()
-    const currentReady = readySession()
-    if (!initData || currentReady?.mode !== 'live' || !currentReady.member.isAdmin) {
-      return
-    }
-
-    setClosingCycle(true)
-
-    try {
-      const state = await closeMiniAppBillingCycle(initData, cycleState()?.cycle?.period)
-      setCycleState(state)
-      setUtilityBillDrafts(cycleUtilityBillDrafts(state.utilityBills))
-      setCycleRentOpen(false)
-    } finally {
-      setClosingCycle(false)
-    }
-  }
-
   async function handleSaveCycleRent() {
     const initData = webApp?.initData?.trim()
     const currentReady = readySession()
@@ -1969,12 +1802,6 @@ function App() {
             copy={copy()}
             dashboard={dashboard()}
             currentMemberLine={currentMemberLine()}
-            utilityTotalMajor={utilityTotalMajor()}
-            purchaseTotalMajor={purchaseTotalMajor()}
-            memberBalanceVisuals={memberBalanceVisuals()}
-            purchaseChart={purchaseInvestmentChart()}
-            memberBaseDueMajor={memberBaseDueMajor}
-            memberRemainingClass={memberRemainingClass}
           />
         )
       case 'ledger':
@@ -2115,8 +1942,6 @@ function App() {
             adminSettings={adminSettings()}
             cycleState={cycleState()}
             pendingMembers={pendingMembers()}
-            activeHouseSection={activeHouseSection()}
-            onChangeHouseSection={setActiveHouseSection}
             billingForm={billingForm()}
             cycleForm={cycleForm()}
             newCategoryName={newCategoryName()}
@@ -2134,7 +1959,6 @@ function App() {
             memberAbsencePolicyDrafts={memberAbsencePolicyDrafts()}
             rentWeightDrafts={rentWeightDrafts()}
             openingCycle={openingCycle()}
-            closingCycle={closingCycle()}
             savingCycleRent={savingCycleRent()}
             savingBillingSettings={savingBillingSettings()}
             savingUtilityBill={savingUtilityBill()}
@@ -2156,7 +1980,6 @@ function App() {
             onCloseCycleModal={() => setCycleRentOpen(false)}
             onSaveCycleRent={handleSaveCycleRent}
             onOpenCycle={handleOpenCycle}
-            onCloseCycle={handleCloseCycle}
             onCycleRentAmountChange={(value) =>
               setCycleForm((current) => ({
                 ...current,
@@ -2524,20 +2347,21 @@ function App() {
             </Show>
           </section>
 
-          <NavigationTabs
-            items={
-              [
-                { key: 'home', label: copy().home },
-                { key: 'balances', label: copy().balances },
-                { key: 'ledger', label: copy().ledger },
-                { key: 'house', label: copy().house }
-              ] as const
-            }
-            active={activeNav()}
-            onChange={setActiveNav}
-          />
-
           <section class="content-stack">{panel()}</section>
+          <div class="app-bottom-nav">
+            <NavigationTabs
+              items={
+                [
+                  { key: 'home', label: copy().home, icon: <HomeIcon /> },
+                  { key: 'balances', label: copy().balances, icon: <WalletIcon /> },
+                  { key: 'ledger', label: copy().ledger, icon: <ReceiptIcon /> },
+                  { key: 'house', label: copy().house, icon: <HouseIcon /> }
+                ] as const
+              }
+              active={activeNav()}
+              onChange={setActiveNav}
+            />
+          </div>
           <Modal
             open={testingSurfaceOpen()}
             title={copy().testingSurfaceTitle ?? ''}

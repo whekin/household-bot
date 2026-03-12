@@ -1,8 +1,9 @@
-import { For, Show } from 'solid-js'
+import { For, Show, type JSX } from 'solid-js'
 
 import {
   Button,
   CalendarIcon,
+  ChevronDownIcon,
   Field,
   IconButton,
   Modal,
@@ -10,7 +11,6 @@ import {
   PlusIcon,
   SettingsIcon
 } from '../components/ui'
-import { NavigationTabs } from '../components/layout/navigation-tabs'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -18,8 +18,6 @@ import type {
   MiniAppMemberAbsencePolicy,
   MiniAppPendingMember
 } from '../miniapp-api'
-
-type HouseSectionKey = 'billing' | 'utilities' | 'members' | 'topics'
 
 type UtilityBillDraft = {
   billName: string
@@ -58,8 +56,6 @@ type Props = {
   adminSettings: MiniAppAdminSettingsPayload | null
   cycleState: MiniAppAdminCycleState | null
   pendingMembers: readonly MiniAppPendingMember[]
-  activeHouseSection: HouseSectionKey
-  onChangeHouseSection: (section: HouseSectionKey) => void
   billingForm: BillingForm
   cycleForm: CycleForm
   newCategoryName: string
@@ -81,7 +77,6 @@ type Props = {
   memberAbsencePolicyDrafts: Record<string, MiniAppMemberAbsencePolicy>
   rentWeightDrafts: Record<string, string>
   openingCycle: boolean
-  closingCycle: boolean
   savingCycleRent: boolean
   savingBillingSettings: boolean
   savingUtilityBill: boolean
@@ -107,7 +102,6 @@ type Props = {
   onCloseCycleModal: () => void
   onSaveCycleRent: () => Promise<void>
   onOpenCycle: () => Promise<void>
-  onCloseCycle: () => Promise<void>
   onCycleRentAmountChange: (value: string) => void
   onCycleRentCurrencyChange: (value: 'USD' | 'GEL') => void
   onCyclePeriodChange: (value: string) => void
@@ -168,6 +162,26 @@ type Props = {
   onPromoteMember: (memberId: string) => Promise<void>
 }
 
+function HouseSection(props: {
+  title: string
+  body?: string | undefined
+  defaultOpen?: boolean | undefined
+  children: JSX.Element
+}) {
+  return (
+    <details class="admin-disclosure" open={props.defaultOpen}>
+      <summary class="admin-disclosure__summary">
+        <div class="admin-disclosure__copy">
+          <strong>{props.title}</strong>
+          <Show when={props.body}>{(body) => <p>{body()}</p>}</Show>
+        </div>
+        <ChevronDownIcon class="admin-disclosure__icon" />
+      </summary>
+      <div class="admin-disclosure__content">{props.children}</div>
+    </details>
+  )
+}
+
 export function HouseScreen(props: Props) {
   function parseBillingDayInput(value: string): number | null {
     const trimmed = value.trim()
@@ -201,20 +215,11 @@ export function HouseScreen(props: Props) {
       }
     >
       <div class="admin-layout">
-        <NavigationTabs
-          items={
-            [
-              { key: 'billing', label: props.copy.houseSectionBilling ?? '' },
-              { key: 'utilities', label: props.copy.houseSectionUtilities ?? '' },
-              { key: 'members', label: props.copy.houseSectionMembers ?? '' },
-              { key: 'topics', label: props.copy.houseSectionTopics ?? '' }
-            ] as const
-          }
-          active={props.activeHouseSection}
-          onChange={props.onChangeHouseSection}
-        />
-
-        <Show when={props.activeHouseSection === 'billing'}>
+        <HouseSection
+          title={props.copy.houseSectionBilling ?? ''}
+          body={props.copy.billingSettingsEditorBody}
+          defaultOpen
+        >
           <section class="admin-section">
             <div class="admin-grid">
               <article class="balance-item">
@@ -250,15 +255,6 @@ export function HouseScreen(props: Props) {
                       ? (props.copy.manageCycleAction ?? '')
                       : (props.copy.openCycleAction ?? '')}
                   </Button>
-                  <Show when={props.cycleState?.cycle}>
-                    <Button
-                      variant="ghost"
-                      disabled={props.closingCycle}
-                      onClick={() => void props.onCloseCycle()}
-                    >
-                      {props.closingCycle ? props.copy.closingCycle : props.copy.closeCycleAction}
-                    </Button>
-                  </Show>
                 </div>
               </article>
 
@@ -541,9 +537,12 @@ export function HouseScreen(props: Props) {
               </div>
             </Modal>
           </section>
-        </Show>
+        </HouseSection>
 
-        <Show when={props.activeHouseSection === 'utilities'}>
+        <HouseSection
+          title={props.copy.houseSectionUtilities ?? ''}
+          body={props.copy.utilityBillsEditorBody}
+        >
           <section class="admin-section">
             <div class="admin-grid">
               <article class="balance-item">
@@ -874,9 +873,9 @@ export function HouseScreen(props: Props) {
               )}
             </Modal>
           </section>
-        </Show>
+        </HouseSection>
 
-        <Show when={props.activeHouseSection === 'members'}>
+        <HouseSection title={props.copy.houseSectionMembers ?? ''} body={props.copy.adminsBody}>
           <section class="admin-section">
             <div class="admin-grid">
               <article class="balance-item admin-card--wide">
@@ -1126,9 +1125,12 @@ export function HouseScreen(props: Props) {
               })()}
             </Modal>
           </section>
-        </Show>
+        </HouseSection>
 
-        <Show when={props.activeHouseSection === 'topics'}>
+        <HouseSection
+          title={props.copy.houseSectionTopics ?? ''}
+          body={props.copy.topicBindingsBody}
+        >
           <section class="admin-section">
             <div class="admin-grid">
               <article class="balance-item admin-card--wide">
@@ -1162,7 +1164,7 @@ export function HouseScreen(props: Props) {
               </article>
             </div>
           </section>
-        </Show>
+        </HouseSection>
       </div>
     </Show>
   )

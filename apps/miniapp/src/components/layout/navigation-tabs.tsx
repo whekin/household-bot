@@ -3,6 +3,7 @@ import type { JSX } from 'solid-js'
 type TabItem<T extends string> = {
   key: T
   label: string
+  icon?: JSX.Element
 }
 
 type Props<T extends string> = {
@@ -20,7 +21,8 @@ export function NavigationTabs<T extends string>(props: Props<T>): JSX.Element {
           type="button"
           onClick={() => props.onChange(item.key)}
         >
-          {item.label}
+          {item.icon}
+          <span>{item.label}</span>
         </button>
       ))}
     </nav>
