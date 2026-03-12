@@ -13,6 +13,7 @@ import {
   extractPurchaseTopicCandidate,
   registerConfiguredPurchaseTopicIngestion,
   registerPurchaseTopicIngestion,
+  resolveProposalParticipantSelection,
   resolveConfiguredPurchaseTopicRecord,
   type PurchaseMessageIngestionRepository,
   type PurchaseTopicCandidate
@@ -379,6 +380,94 @@ Confirm or cancel below.`)
 - Mia
 - Dima (не участвует)
 Подтвердите или отмените ниже.`)
+  })
+})
+
+describe('resolveProposalParticipantSelection', () => {
+  test('prefers explicit llm-selected participants over away-status defaults', () => {
+    const participants = resolveProposalParticipantSelection({
+      members: [
+        {
+          memberId: 'member-stas',
+          telegramUserId: '10002',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-dima',
+          telegramUserId: '10003',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-alice',
+          telegramUserId: '10004',
+          lifecycleStatus: 'away'
+        }
+      ],
+      policyByMemberId: new Map([
+        [
+          'member-alice',
+          {
+            effectiveFromPeriod: '2026-03',
+            policy: 'away_rent_only'
+          }
+        ]
+      ]),
+      senderTelegramUserId: '10002',
+      senderMemberId: 'member-stas',
+      explicitParticipantMemberIds: ['member-stas', 'member-alice']
+    })
+
+    expect(participants).toEqual([
+      {
+        memberId: 'member-stas',
+        included: true
+      },
+      {
+        memberId: 'member-dima',
+        included: false
+      },
+      {
+        memberId: 'member-alice',
+        included: true
+      }
+    ])
+  })
+
+  test('falls back to the sender when explicit members are no longer eligible', () => {
+    const participants = resolveProposalParticipantSelection({
+      members: [
+        {
+          memberId: 'member-stas',
+          telegramUserId: '10002',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-dima',
+          telegramUserId: '10003',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-alice',
+          telegramUserId: '10004',
+          lifecycleStatus: 'left'
+        }
+      ],
+      policyByMemberId: new Map(),
+      senderTelegramUserId: '10002',
+      senderMemberId: 'member-stas',
+      explicitParticipantMemberIds: ['member-alice']
+    })
+
+    expect(participants).toEqual([
+      {
+        memberId: 'member-stas',
+        included: true
+      },
+      {
+        memberId: 'member-dima',
+        included: false
+      }
+    ])
   })
 })
 
@@ -1400,6 +1489,58 @@ Confirm or cancel below.`
     })
   })
 
+  test('clears active purchase clarification when a followup is ignored as not_purchase', async () => {
+    const bot = createTestBot()
+    let clearCalls = 0
+
+    bot.api.config.use(async () => {
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return true
+      },
+      async clearClarificationContext() {
+        clearCalls += 1
+      },
+      async save() {
+        return {
+          status: 'ignored_not_purchase',
+          purchaseMessageId: 'purchase-1'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      router: async () => ({
+        route: 'purchase_followup',
+        replyText: null,
+        helperKind: 'purchase',
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 91,
+        reason: 'llm_followup_guess'
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('Я уже сказал выше') as never)
+
+    expect(clearCalls).toBe(1)
+  })
+
   test('continues purchase handling for replies to bot messages without a fresh mention', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -1765,7 +1906,7 @@ Confirm or cancel below.`,
     await bot.handleUpdate(
       purchaseUpdate('В общем, думаю купить 5 килограмм картошки за 20 лари') as never
     )
-    await bot.handleUpdate(purchaseUpdate('Бот, что думаешь?') as never)
+    await bot.handleUpdate(purchaseUpdate('@household_test_bot что думаешь?') as never)
 
     expect(sawDirectAddress).toBe(true)
     expect(recentTurnTexts).toContain('В общем, думаю купить 5 килограмм картошки за 20 лари')

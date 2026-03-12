@@ -38,11 +38,7 @@ import {
   type ConversationHistoryMessage
 } from './conversation-orchestrator'
 import type { TopicMessageRouter, TopicMessageRole } from './topic-message-router'
-import {
-  fallbackTopicMessageRoute,
-  getCachedTopicMessageRoute,
-  looksLikeDirectBotAddress
-} from './topic-message-router'
+import { fallbackTopicMessageRoute, getCachedTopicMessageRoute } from './topic-message-router'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
@@ -1311,10 +1307,7 @@ export function registerDmAssistant(options: {
     }
 
     const mention = stripExplicitBotMention(ctx)
-    const directAddressByText = looksLikeDirectBotAddress(ctx.msg.text)
-    const isExplicitMention = Boolean(
-      (mention && mention.strippedText.length > 0) || directAddressByText
-    )
+    const isExplicitMention = Boolean(mention && mention.strippedText.length > 0)
     const isReplyToBot = isReplyToBotMessage(ctx)
 
     const telegramUserId = ctx.from?.id?.toString()
@@ -1417,7 +1410,7 @@ export function registerDmAssistant(options: {
         messageText,
         explicitMention: isExplicitMention,
         replyToBot: isReplyToBot,
-        directBotAddress: directAddressByText,
+        directBotAddress: false,
         memoryStore: options.memoryStore
       })
       const route =

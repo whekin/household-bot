@@ -12,7 +12,7 @@ function successfulResponse(payload: unknown): Response {
 }
 
 describe('createOpenAiTopicMessageRouter', () => {
-  test('overrides purchase workflow routes for planning chatter', async () => {
+  test('does not override purchase routes for planning chatter', async () => {
     const router = createOpenAiTopicMessageRouter('test-key', 'gpt-5-mini', 20_000)
     expect(router).toBeDefined()
 
@@ -41,18 +41,18 @@ describe('createOpenAiTopicMessageRouter', () => {
       })
 
       expect(route).toMatchObject({
-        route: 'topic_helper',
-        helperKind: 'assistant',
+        route: 'purchase_candidate',
+        helperKind: 'purchase',
         shouldStartTyping: true,
         shouldClearWorkflow: false,
-        reason: 'planning_guard'
+        reason: 'llm_purchase_guess'
       })
     } finally {
       globalThis.fetch = originalFetch
     }
   })
 
-  test('overrides purchase followups for meta references to prior context', async () => {
+  test('does not override purchase followups for meta references', async () => {
     const router = createOpenAiTopicMessageRouter('test-key', 'gpt-5-mini', 20_000)
     expect(router).toBeDefined()
 
@@ -81,11 +81,11 @@ describe('createOpenAiTopicMessageRouter', () => {
       })
 
       expect(route).toMatchObject({
-        route: 'topic_helper',
-        helperKind: 'assistant',
-        shouldStartTyping: true,
-        shouldClearWorkflow: true,
-        reason: 'context_reference'
+        route: 'purchase_followup',
+        helperKind: 'purchase',
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        reason: 'llm_followup_guess'
       })
     } finally {
       globalThis.fetch = originalFetch

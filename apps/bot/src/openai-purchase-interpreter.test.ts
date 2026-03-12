@@ -32,7 +32,7 @@ describe('createOpenAiPurchaseInterpreter', () => {
     )
   })
 
-  test('returns not_purchase for planning chatter without calling the llm', async () => {
+  test('delegates planning chatter to the llm', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
     expect(interpreter).toBeDefined()
 
@@ -40,7 +40,27 @@ describe('createOpenAiPurchaseInterpreter', () => {
     let fetchCalls = 0
     globalThis.fetch = (async () => {
       fetchCalls += 1
-      return successfulResponse({})
+      return successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'not_purchase',
+                  amountMinor: null,
+                  currency: null,
+                  itemDescription: null,
+                  amountSource: null,
+                  calculationExplanation: null,
+                  participantMemberIds: null,
+                  confidence: 94,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })
     }) as unknown as typeof fetch
 
     try {
@@ -59,13 +79,13 @@ describe('createOpenAiPurchaseInterpreter', () => {
         parserMode: 'llm',
         clarificationQuestion: null
       })
-      expect(fetchCalls).toBe(0)
+      expect(fetchCalls).toBe(1)
     } finally {
       globalThis.fetch = originalFetch
     }
   })
 
-  test('returns not_purchase for meta references without calling the llm', async () => {
+  test('delegates bare meta references to the llm', async () => {
     const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
     expect(interpreter).toBeDefined()
 
@@ -73,7 +93,27 @@ describe('createOpenAiPurchaseInterpreter', () => {
     let fetchCalls = 0
     globalThis.fetch = (async () => {
       fetchCalls += 1
-      return successfulResponse({})
+      return successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'not_purchase',
+                  amountMinor: null,
+                  currency: null,
+                  itemDescription: null,
+                  amountSource: null,
+                  calculationExplanation: null,
+                  participantMemberIds: null,
+                  confidence: 94,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })
     }) as unknown as typeof fetch
 
     try {
@@ -92,7 +132,7 @@ describe('createOpenAiPurchaseInterpreter', () => {
         parserMode: 'llm',
         clarificationQuestion: null
       })
-      expect(fetchCalls).toBe(0)
+      expect(fetchCalls).toBe(1)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -193,6 +233,74 @@ describe('createOpenAiPurchaseInterpreter', () => {
         amountSource: 'explicit',
         calculationExplanation: null,
         confidence: 87,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('parses explicit participant member ids from the household roster', async () => {
+    const interpreter = createOpenAiPurchaseInterpreter('test-key', 'gpt-5-mini')
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      successfulResponse({
+        output: [
+          {
+            content: [
+              {
+                text: JSON.stringify({
+                  decision: 'purchase',
+                  amountMinor: '2000',
+                  currency: 'GEL',
+                  itemDescription: 'мороженое',
+                  amountSource: 'explicit',
+                  calculationExplanation: null,
+                  participantMemberIds: ['member-stas', 'member-alice', 'unknown-member'],
+                  confidence: 88,
+                  clarificationQuestion: null
+                })
+              }
+            ]
+          }
+        ]
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!('Да, еще купил мороженного себе и Алисе на 20 лари', {
+        defaultCurrency: 'GEL',
+        senderMemberId: 'member-stas',
+        householdMembers: [
+          {
+            memberId: 'member-stas',
+            displayName: 'Stas',
+            status: 'active'
+          },
+          {
+            memberId: 'member-alice',
+            displayName: 'Alice',
+            status: 'away'
+          },
+          {
+            memberId: 'member-dima',
+            displayName: 'Dima',
+            status: 'active'
+          }
+        ]
+      })
+
+      expect(result).toEqual<PurchaseInterpretation>({
+        decision: 'purchase',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        itemDescription: 'мороженое',
+        amountSource: 'explicit',
+        calculationExplanation: null,
+        participantMemberIds: ['member-stas', 'member-alice'],
+        confidence: 88,
         parserMode: 'llm',
         clarificationQuestion: null
       })

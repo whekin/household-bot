@@ -24,7 +24,6 @@ import {
 import {
   cacheTopicMessageRoute,
   getCachedTopicMessageRoute,
-  looksLikeDirectBotAddress,
   type TopicMessageRouter
 } from './topic-message-router'
 import {
@@ -285,9 +284,9 @@ async function routePaymentTopicMessage(input: {
     topicRole: input.topicRole,
     activeWorkflow: input.activeWorkflow,
     messageText: input.record.rawText,
-    explicitMention: input.isExplicitMention || looksLikeDirectBotAddress(input.record.rawText),
+    explicitMention: input.isExplicitMention,
     replyToBot: input.isReplyToBot,
-    directBotAddress: looksLikeDirectBotAddress(input.record.rawText),
+    directBotAddress: false,
     memoryStore: input.memoryStore ?? {
       get() {
         return { summary: null, turns: [] }
@@ -302,7 +301,7 @@ async function routePaymentTopicMessage(input: {
     locale: input.locale,
     topicRole: input.topicRole,
     messageText: input.record.rawText,
-    isExplicitMention: conversationContext.explicitMention || conversationContext.directBotAddress,
+    isExplicitMention: conversationContext.explicitMention,
     isReplyToBot: conversationContext.replyToBot,
     activeWorkflow: input.activeWorkflow,
     engagementAssessment: conversationContext.engagement,
@@ -742,6 +741,9 @@ export function registerConfiguredPaymentTopicIngestion(
       })
 
       if (proposal.status === 'no_intent') {
+        if (route.route === 'payment_followup') {
+          await promptRepository.clearPendingAction(record.chatId, record.senderTelegramUserId)
+        }
         await next()
         return
       }
