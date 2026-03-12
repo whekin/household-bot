@@ -294,14 +294,14 @@ export const dictionary = {
       'Ты пока не участник {household}. Отправь заявку на вступление и дождись подтверждения админа.',
     pendingTitle: 'Заявка отправлена',
     pendingBody: 'Твоя заявка в {household} ждёт подтверждения админа.',
-    openFromGroupTitle: 'Открой приложение из группового чата',
+    openFromGroupTitle: 'Открой приложение из чата дома',
     openFromGroupBody:
-      'Используй кнопку подключения из сообщения настройки household, чтобы приложение поняло, к какому дому ты хочешь присоединиться.',
-    unexpectedErrorTitle: 'Не удалось открыть household app',
+      'Используй кнопку подключения из сообщения настройки дома, чтобы приложение поняло, к какому дому ты хочешь присоединиться.',
+    unexpectedErrorTitle: 'Не удалось открыть приложение дома',
     unexpectedErrorBody:
       'Попробуй снова из Telegram. Если ошибка повторяется, попроси админа ещё раз прислать кнопку подключения.',
-    householdFallback: 'этот household',
-    joinAction: 'Вступить в household',
+    householdFallback: 'этот дом',
+    joinAction: 'Вступить в дом',
     joining: 'Отправляем заявку…',
     botLinkAction: 'Открыть чат с ботом',
     telegramOnlyTitle: 'Открой приложение из Telegram',
@@ -312,7 +312,7 @@ export const dictionary = {
     householdLanguage: 'Язык дома',
     generalSettingsBody: 'Здесь живут имя дома, язык по умолчанию и доступ к личному профилю.',
     householdNameLabel: 'Название дома',
-    householdNameHint: 'Показывается в mini app, при вступлении и в ответах бота.',
+    householdNameHint: 'Показывается в приложении, при вступлении и в ответах бота.',
     savingLanguage: 'Сохраняем…',
     onLabel: 'Вкл',
     offLabel: 'Выкл',
@@ -329,7 +329,7 @@ export const dictionary = {
     adminTag: 'Админ',
     residentTag: 'Житель',
     overviewTitle: 'Текущий цикл',
-    overviewBody: 'Ниже можно посмотреть балансы, записи леджера и доступ к household.',
+    overviewBody: 'Ниже можно посмотреть балансы, записи леджера и доступ к дому.',
     totalDue: 'Итого к оплате',
     paidLabel: 'Оплачено',
     remainingLabel: 'Осталось',
@@ -355,7 +355,7 @@ export const dictionary = {
     balanceScreenScopeTitle: 'Разбор баланса',
     balanceScreenScopeBody:
       'На этом экране только разбор твоего текущего баланса. Более старые записи остаются в леджере.',
-    householdBalancesTitle: 'Баланс household',
+    householdBalancesTitle: 'Баланс дома',
     householdBalancesBody: 'Текущий расклад по всем участникам за этот цикл.',
     financeVisualsTitle: 'Визуальный разбор баланса',
     financeVisualsBody:
@@ -385,7 +385,7 @@ export const dictionary = {
     settlementAmountLabel: 'Расчёт',
     fxEffectiveDateLabel: 'Зафиксировано',
     ledgerTitle: 'Вошедшие операции',
-    emptyDashboard: 'Пока нет готового billing cycle.',
+    emptyDashboard: 'Пока нет готового расчётного цикла.',
     latestActivityTitle: 'Последняя активность',
     latestActivityEmpty: 'Здесь появятся последние коммунальные платежи и покупки.',
     testingViewBadge: 'Тестовый вид',
@@ -428,8 +428,8 @@ export const dictionary = {
     savingPurchase: 'Сохраняем покупку…',
     editEntryAction: 'Редактировать запись',
     closeEditorAction: 'Закрыть',
-    householdSettingsTitle: 'Настройки household',
-    householdSettingsBody: 'Здесь можно менять язык household и подтверждать новых соседей.',
+    householdSettingsTitle: 'Настройки дома',
+    householdSettingsBody: 'Здесь можно менять язык дома и подтверждать новых соседей.',
     topicBindingsTitle: 'Привязанные топики',
     topicBindingsBody:
       'Проверь, какие Telegram-топики сейчас подключены для покупок, обратной связи, напоминаний и оплат.',
@@ -496,7 +496,7 @@ export const dictionary = {
     timezoneInvalidHint: 'Выбери корректную IANA-таймзону, например Asia/Tbilisi.',
     manageSettingsAction: 'Управлять настройками',
     billingSettingsEditorBody:
-      'Здесь живут значения по умолчанию для household. Новые текущие циклы стартуют отсюда.',
+      'Здесь живут значения по умолчанию для дома. Новые текущие циклы стартуют отсюда.',
     saveSettingsAction: 'Сохранить настройки',
     savingSettings: 'Сохраняем настройки…',
     utilityCategoriesTitle: 'Категории коммуналки',
@@ -542,15 +542,15 @@ export const dictionary = {
     absencePolicyEffectiveFrom: 'Действует с {period}',
     saveAbsencePolicyAction: 'Сохранить политику',
     savingAbsencePolicy: 'Сохраняем политику…',
-    memberStatusSummary: 'Твой статус в household: {status}.',
+    memberStatusSummary: 'Твой статус в доме: {status}.',
     rentWeightLabel: 'Вес аренды',
     saveRentWeightAction: 'Сохранить вес аренды',
     savingRentWeight: 'Сохраняем вес…',
     promoteAdminAction: 'Сделать админом',
     promotingAdmin: 'Повышаем…',
-    residentHouseTitle: 'Доступ к household',
+    residentHouseTitle: 'Доступ к дому',
     residentHouseBody:
-      'Настройки household и подтверждение заявок управляются админами. Свой язык можно менять переключателем выше.',
+      'Настройками дома и подтверждением заявок управляют админы. Свой язык можно менять переключателем выше.',
     pendingMembersTitle: 'Ожидающие участники',
     pendingMembersBody:
       'Подтверждай соседей здесь после того, как они отправят заявку через кнопку подключения.',
@@ -559,7 +559,7 @@ export const dictionary = {
     approvingMember: 'Подтверждаем…',
     pendingMemberHandle: '@{username}',
     balancesEmpty: 'Баланс появится здесь, когда подключим dashboard API.',
-    ledgerEmpty: 'Записи леджера появятся здесь после подключения finance view.',
-    houseEmpty: 'Детали household появятся здесь.'
+    ledgerEmpty: 'Записи леджера появятся здесь после подключения финансового представления.',
+    houseEmpty: 'Детали дома появятся здесь.'
   }
 } satisfies Record<Locale, Record<string, string>>
