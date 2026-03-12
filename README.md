@@ -11,6 +11,7 @@ This is not a toy Telegram bot repo with a thin webhook and some string parsing.
 - deterministic money-safe settlement logic with integer minor-unit math
 - a hexagonal TypeScript monorepo with explicit domain / application / ports / adapter boundaries
 - real operational concerns: idempotency, onboarding flows, localized UX, bot topic setup, reminder scheduling, Terraform-managed infrastructure
+- a layered LLM architecture: a cheap first-pass topic router (`gpt-5-nano`) decides whether to stay silent, reply lightly, continue a workflow, or invoke a heavier helper
 - a product that mixes structured command flows with LLM-assisted parsing while keeping writes deterministic
 
 ## Current Product Scope
@@ -138,6 +139,7 @@ For a fuller setup walkthrough, see the [development setup runbook](docs/runbook
 Some product choices here are intentional:
 
 - LLMs help interpret messy purchase/payment phrasing, but final writes are still explicit, structured, and confirmable.
+- The bot uses a separate first-pass AI router, defaulting to `gpt-5-nano`, to classify topic messages before invoking the fuller assistant or parser models. That keeps casual chatter, jokes, and ambiguous messages from unnecessarily hitting heavier paths, while still letting the bot respond naturally when it is directly addressed.
 - Topic-specific ingestion stays separate from the general assistant so finance actions do not degrade into vague chat behavior.
 - Telegram UX is treated as a real product surface: onboarding, confirmation buttons, topic setup, tagged replies, and localization are part of the design, not afterthoughts.
 - Infra is versioned alongside the app so deployability, alerts, and runtime configuration are reviewable in the same repo.
