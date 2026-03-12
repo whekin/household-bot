@@ -716,10 +716,12 @@ export function HouseScreen(props: Props) {
                 </header>
                 <p>{props.copy.utilityBillsEditorBody ?? ''}</p>
                 <div class="panel-toolbar">
-                  <Button variant="secondary" onClick={props.onOpenAddUtilityBill}>
+                  <IconButton
+                    label={props.copy.addUtilityBillAction ?? ''}
+                    onClick={props.onOpenAddUtilityBill}
+                  >
                     <PlusIcon />
-                    {props.copy.addUtilityBillAction ?? ''}
-                  </Button>
+                  </IconButton>
                 </div>
                 <div class="ledger-list">
                   {props.cycleState?.utilityBills.length ? (
@@ -762,10 +764,12 @@ export function HouseScreen(props: Props) {
                 </header>
                 <p>{props.copy.utilityCategoriesBody ?? ''}</p>
                 <div class="panel-toolbar">
-                  <Button variant="secondary" onClick={() => props.onOpenCategoryEditor('__new__')}>
+                  <IconButton
+                    label={props.copy.addCategoryAction ?? ''}
+                    onClick={() => props.onOpenCategoryEditor('__new__')}
+                  >
                     <PlusIcon />
-                    {props.copy.addCategoryAction ?? ''}
-                  </Button>
+                  </IconButton>
                 </div>
                 <div class="ledger-list">
                   <For each={props.adminSettings?.categories ?? []}>
@@ -874,15 +878,18 @@ export function HouseScreen(props: Props) {
                 }
                 return (
                   <div class="modal-action-row">
-                    <Button
-                      variant="danger"
+                    <IconButton
+                      label={
+                        props.deletingUtilityBillId === bill.id
+                          ? (props.copy.deletingUtilityBill ?? '')
+                          : (props.copy.deleteUtilityBillAction ?? '')
+                      }
+                      class="ui-button--danger"
+                      disabled={props.deletingUtilityBillId === bill.id}
                       onClick={() => void props.onDeleteUtilityBill(bill.id)}
                     >
                       <TrashIcon />
-                      {props.deletingUtilityBillId === bill.id
-                        ? props.copy.deletingUtilityBill
-                        : props.copy.deleteUtilityBillAction}
-                    </Button>
+                    </IconButton>
                     <div class="modal-action-row__primary">
                       <Button variant="ghost" onClick={props.onCloseUtilityBillEditor}>
                         {props.copy.closeEditorAction ?? ''}

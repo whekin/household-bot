@@ -199,12 +199,18 @@ export function LedgerScreen(props: Props) {
 
             return (
               <div class="modal-action-row">
-                <Button variant="danger" onClick={() => void props.onDeletePurchase(entry.id)}>
+                <IconButton
+                  label={
+                    props.deletingPurchaseId === entry.id
+                      ? (props.copy.deletingPurchase ?? '')
+                      : (props.copy.purchaseDeleteAction ?? '')
+                  }
+                  class="ui-button--danger"
+                  disabled={props.deletingPurchaseId === entry.id}
+                  onClick={() => void props.onDeletePurchase(entry.id)}
+                >
                   <TrashIcon />
-                  {props.deletingPurchaseId === entry.id
-                    ? props.copy.deletingPurchase
-                    : props.copy.purchaseDeleteAction}
-                </Button>
+                </IconButton>
                 <div class="modal-action-row__primary">
                   <Button variant="ghost" onClick={props.onClosePurchaseEditor}>
                     {props.copy.closeEditorAction ?? ''}
@@ -400,10 +406,12 @@ export function LedgerScreen(props: Props) {
           <Show when={props.readyIsAdmin}>
             <p>{props.copy.paymentsAdminBody ?? ''}</p>
             <div class="panel-toolbar">
-              <Button variant="secondary" onClick={props.onOpenAddPayment}>
+              <IconButton
+                label={props.copy.paymentsAddAction ?? ''}
+                onClick={props.onOpenAddPayment}
+              >
                 <PlusIcon />
-                {props.copy.paymentsAddAction ?? ''}
-              </Button>
+              </IconButton>
             </div>
           </Show>
           {props.paymentEntries.length === 0 ? (
@@ -529,12 +537,18 @@ export function LedgerScreen(props: Props) {
 
             return (
               <div class="modal-action-row">
-                <Button variant="danger" onClick={() => void props.onDeletePayment(entry.id)}>
+                <IconButton
+                  label={
+                    props.deletingPaymentId === entry.id
+                      ? (props.copy.deletingPayment ?? '')
+                      : (props.copy.paymentDeleteAction ?? '')
+                  }
+                  class="ui-button--danger"
+                  disabled={props.deletingPaymentId === entry.id}
+                  onClick={() => void props.onDeletePayment(entry.id)}
+                >
                   <TrashIcon />
-                  {props.deletingPaymentId === entry.id
-                    ? props.copy.deletingPayment
-                    : props.copy.paymentDeleteAction}
-                </Button>
+                </IconButton>
                 <div class="modal-action-row__primary">
                   <Button variant="ghost" onClick={props.onClosePaymentEditor}>
                     {props.copy.closeEditorAction ?? ''}
