@@ -1137,6 +1137,33 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.activity-card__show-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  padding: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.activity-card__show-more:hover {
+  background: var(--bg-secondary);
+}
+
+.activity-card__show-more:active {
+  background: var(--bg-tertiary);
+  transform: translateY(1px);
+}
+
 /* ── Balances Route ───────────────────────────────────── */
 
 .route--balances {

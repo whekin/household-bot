@@ -1,4 +1,11 @@
-import { createContext, createMemo, createSignal, useContext, type ParentProps } from 'solid-js'
+import {
+  createContext,
+  createMemo,
+  createSignal,
+  onCleanup,
+  useContext,
+  type ParentProps
+} from 'solid-js'
 
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
@@ -51,7 +58,14 @@ export type CycleFormState = {
   utilityAmountMajor: string
 }
 
-const chartPalette = ['#3ecf8e', '#6fd3c0', '#94a8ff', '#f06a8d', '#f3d36f', '#7dc96d'] as const
+const chartPalette = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)'
+] as const
 
 type DashboardContextValue = {
   dashboard: () => MiniAppDashboard | null
@@ -224,7 +238,7 @@ function computePurchaseInvestmentChart(
 /* ── Provider ───────────────────────────────────────── */
 
 export function DashboardProvider(props: ParentProps) {
-  const { readySession } = useSession()
+  const { readySession, registerRefreshListener } = useSession()
   const { copy } = useI18n()
 
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
@@ -274,6 +288,9 @@ export function DashboardProvider(props: ParentProps) {
   const purchaseInvestmentChart = createMemo(() =>
     computePurchaseInvestmentChart(dashboard(), purchaseLedger(), copy().ledgerActorFallback)
   )
+
+  const unregisterDashboardRefreshListener = registerRefreshListener(loadDashboardData)
+  onCleanup(unregisterDashboardRefreshListener)
 
   async function loadDashboardData(initData: string, isAdmin: boolean) {
     // In demo mode, use demo data

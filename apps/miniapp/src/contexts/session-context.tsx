@@ -62,6 +62,9 @@ type SessionContextValue = {
   handleMemberLocaleChange: (nextLocale: Locale) => Promise<void>
   handleHouseholdLocaleChange: (nextLocale: Locale) => Promise<void>
   refreshHouseholdData: (includeAdmin?: boolean, forceRefresh?: boolean) => Promise<void>
+  registerRefreshListener: (
+    listener: (initData: string, isAdmin: boolean) => Promise<void>
+  ) => () => void
 }
 
 const SessionContext = createContext<SessionContextValue>()
@@ -113,6 +116,17 @@ export function SessionProvider(
   const [joining, setJoining] = createSignal(false)
   const [displayNameDraft, setDisplayNameDraft] = createSignal('')
   const [savingOwnDisplayName, setSavingOwnDisplayName] = createSignal(false)
+
+  const refreshListeners = new Set<(initData: string, isAdmin: boolean) => Promise<void>>()
+
+  function registerRefreshListener(
+    listener: (initData: string, isAdmin: boolean) => Promise<void>
+  ) {
+    refreshListeners.add(listener)
+    return () => {
+      refreshListeners.delete(listener)
+    }
+  }
 
   const readySession = () => {
     const current = session()
@@ -310,7 +324,11 @@ export function SessionProvider(
     // Delegate actual data loading to dashboard context via onReady
     const current = readySession()
     if (current) {
-      await props.onReady?.(data, includeAdmin || current.member.isAdmin)
+      const isAdmin = includeAdmin || current.member.isAdmin
+      await Promise.all([
+        props.onReady?.(data, isAdmin),
+        ...Array.from(refreshListeners).map((l) => l(data, isAdmin))
+      ])
     }
   }
 
@@ -336,7 +354,8 @@ export function SessionProvider(
         handleSaveOwnDisplayName,
         handleMemberLocaleChange,
         handleHouseholdLocaleChange,
-        refreshHouseholdData
+        refreshHouseholdData,
+        registerRefreshListener
       }}
     >
       {props.children}

@@ -126,6 +126,8 @@ export const dictionary = {
     emptyDashboard: 'No billing cycle is ready yet.',
     latestActivityTitle: 'Latest activity',
     latestActivityEmpty: 'Recent utility and purchase entries will appear here.',
+    showMoreAction: 'Show more',
+    showLessAction: 'Show less',
     testingViewBadge: 'Testing view',
     testingSurfaceTitle: 'Hidden QA view',
     testingSurfaceBody:
@@ -427,6 +429,8 @@ export const dictionary = {
     emptyDashboard: 'Пока нет готового расчётного цикла.',
     latestActivityTitle: 'Последняя активность',
     latestActivityEmpty: 'Здесь появятся последние коммунальные платежи и покупки.',
+    showMoreAction: 'Показать ещё',
+    showLessAction: 'Свернуть',
     testingViewBadge: 'Тестовый вид',
     testingSurfaceTitle: 'Скрытый QA режим',
     testingSurfaceBody:

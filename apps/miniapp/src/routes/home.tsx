@@ -1,5 +1,5 @@
-import { Show, For } from 'solid-js'
-import { Clock } from 'lucide-solid'
+import { Show, For, createSignal } from 'solid-js'
+import { Clock, ChevronDown, ChevronUp } from 'lucide-solid'
 
 import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
@@ -13,6 +13,7 @@ export default function HomeRoute() {
   const { readySession } = useSession()
   const { copy } = useI18n()
   const { dashboard, currentMemberLine } = useDashboard()
+  const [showAllActivity, setShowAllActivity] = createSignal(false)
 
   function dueStatusBadge() {
     const data = dashboard()
@@ -138,7 +139,7 @@ export default function HomeRoute() {
                   fallback={<p class="empty-state">{copy().latestActivityEmpty}</p>}
                 >
                   <div class="activity-card__list">
-                    <For each={data().ledger.slice(0, 5)}>
+                    <For each={showAllActivity() ? data().ledger : data().ledger.slice(0, 5)}>
                       {(entry) => (
                         <div class="activity-card__item">
                           <span class="activity-card__title">{entry.title}</span>
@@ -147,6 +148,25 @@ export default function HomeRoute() {
                       )}
                     </For>
                   </div>
+                  <Show when={data().ledger.length > 5}>
+                    <button
+                      class="activity-card__show-more"
+                      onClick={() => setShowAllActivity(!showAllActivity())}
+                    >
+                      <Show
+                        when={showAllActivity()}
+                        fallback={
+                          <>
+                            <span>{copy().showMoreAction}</span>
+                            <ChevronDown size={14} />
+                          </>
+                        }
+                      >
+                        <span>{copy().showLessAction}</span>
+                        <ChevronUp size={14} />
+                      </Show>
+                    </button>
+                  </Show>
                 </Show>
               </div>
             </Card>
