@@ -520,6 +520,9 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       members.set(key, member)
       return member
     },
+    async rejectPendingHouseholdMember() {
+      return false
+    },
     async updateHouseholdDefaultLocale(householdId, locale) {
       const household = [...households.values()].find((entry) => entry.householdId === householdId)
       if (!household) {

@@ -209,6 +209,10 @@ export interface HouseholdConfigurationRepository {
     telegramUserId: string
     isAdmin?: boolean
   }): Promise<HouseholdMemberRecord | null>
+  rejectPendingHouseholdMember(input: {
+    householdId: string
+    telegramUserId: string
+  }): Promise<boolean>
   updateHouseholdDefaultLocale(
     householdId: string,
     locale: SupportedLocale

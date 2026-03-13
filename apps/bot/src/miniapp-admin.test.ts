@@ -8,6 +8,7 @@ import type {
 
 import {
   createMiniAppApproveMemberHandler,
+  createMiniAppRejectMemberHandler,
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
@@ -131,6 +132,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             isAdmin: false
           }
         : null,
+    rejectPendingHouseholdMember: async (input) => input.telegramUserId === '555777',
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       ...household,
       defaultLocale: locale
@@ -403,6 +405,60 @@ describe('createMiniAppApproveMemberHandler', () => {
         rentShareWeight: 1,
         isAdmin: false
       }
+    })
+  })
+})
+
+describe('createMiniAppRejectMemberHandler', () => {
+  test('rejects a pending member for an authenticated admin', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const repository = onboardingRepository()
+    repository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+
+    const handler = createMiniAppRejectMemberHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/reject-member', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          pendingTelegramUserId: '555777'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true
     })
   })
 })

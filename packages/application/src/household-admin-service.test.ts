@@ -132,6 +132,9 @@ function createRepositoryStub() {
       members.set(member.telegramUserId, member)
       return member
     },
+    rejectPendingHouseholdMember: async (input) => {
+      return pendingMembers.delete(input.telegramUserId)
+    },
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       ...household,
       defaultLocale: locale

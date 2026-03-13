@@ -27,7 +27,10 @@ function createRepository(): HouseholdConfigurationRepository {
   }
 
   return {
-    registerTelegramHouseholdChat: async () => ({ status: 'existing', household }),
+    registerTelegramHouseholdChat: async () => ({
+      status: 'existing',
+      household
+    }),
     getTelegramHouseholdChat: async () => household,
     getHouseholdChatByHouseholdId: async () => household,
     bindHouseholdTopic: async (input) => ({
@@ -66,6 +69,7 @@ function createRepository(): HouseholdConfigurationRepository {
     listHouseholdMembersByTelegramUserId: async () => [member],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => member,
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       ...household,
       defaultLocale: locale

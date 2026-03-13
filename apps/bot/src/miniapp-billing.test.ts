@@ -126,6 +126,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     ],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null,
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       ...household,
       defaultLocale: locale

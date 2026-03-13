@@ -1291,6 +1291,20 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       })
     },
 
+    async rejectPendingHouseholdMember(input) {
+      const rows = await db
+        .delete(schema.householdPendingMembers)
+        .where(
+          and(
+            eq(schema.householdPendingMembers.householdId, input.householdId),
+            eq(schema.householdPendingMembers.telegramUserId, input.telegramUserId)
+          )
+        )
+        .returning({ telegramUserId: schema.householdPendingMembers.telegramUserId })
+
+      return rows.length > 0
+    },
+
     async updateHouseholdDefaultLocale(householdId, locale) {
       const updatedHouseholds = await db
         .update(schema.households)

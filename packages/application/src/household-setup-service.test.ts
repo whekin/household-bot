@@ -8,6 +8,7 @@ import type {
   HouseholdTelegramChatRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
+import type { SupportedLocale } from '@household/domain'
 
 import { createHouseholdSetupService } from './household-setup-service'
 
@@ -228,7 +229,11 @@ function createRepositoryStub() {
       members.set(key, member)
       return member
     },
-    async updateHouseholdDefaultLocale(householdId, locale) {
+    async rejectPendingHouseholdMember(input) {
+      const key = `${input.householdId}:${input.telegramUserId}`
+      return pendingMembers.delete(key)
+    },
+    async updateHouseholdDefaultLocale(householdId: string, locale: SupportedLocale) {
       const household =
         [...households.values()].find((entry) => entry.householdId === householdId) ?? null
       if (!household) {

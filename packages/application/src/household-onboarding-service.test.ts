@@ -8,6 +8,7 @@ import type {
   HouseholdTelegramChatRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
+import type { SupportedLocale } from '@household/domain'
 
 import { createHouseholdOnboardingService } from './household-onboarding-service'
 
@@ -141,7 +142,10 @@ function createRepositoryStub() {
         isAdmin: input.isAdmin === true
       }
     },
-    async updateHouseholdDefaultLocale(_householdId, locale) {
+    async rejectPendingHouseholdMember(input) {
+      return pendingMembers.delete(input.telegramUserId)
+    },
+    async updateHouseholdDefaultLocale(_householdId: string, locale: SupportedLocale) {
       return {
         ...household,
         defaultLocale: locale

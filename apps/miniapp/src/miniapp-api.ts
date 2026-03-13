@@ -345,6 +345,32 @@ export async function approveMiniAppPendingMember(
   }
 }
 
+export async function rejectMiniAppPendingMember(
+  initData: string,
+  pendingTelegramUserId: string
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/reject-member`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      pendingTelegramUserId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to reject member')
+  }
+}
+
 export async function updateMiniAppLocalePreference(
   initData: string,
   locale: 'en' | 'ru',
@@ -918,6 +944,39 @@ export async function deleteMiniAppUtilityBill(
   }
 
   return payload.cycleState
+}
+
+export async function addMiniAppPurchase(
+  initData: string,
+  input: {
+    description: string
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+    split?: {
+      mode: 'equal' | 'custom_amounts'
+      participants: readonly {
+        memberId: string
+        included?: boolean
+        shareAmountMajor?: string
+      }[]
+    }
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/add`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to add purchase')
+  }
 }
 
 export async function updateMiniAppPurchase(

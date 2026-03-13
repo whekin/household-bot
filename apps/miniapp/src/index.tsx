@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/solid-query'
 import { render } from 'solid-js/web'
 
 import { miniAppQueryClient } from './app/query-client'
+import './theme.css'
 import './index.css'
 import App from './App'
 

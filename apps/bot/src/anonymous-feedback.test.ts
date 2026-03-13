@@ -201,6 +201,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     ],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null,
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       householdId: 'household-1',
       householdName: 'Kojori House',

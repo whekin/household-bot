@@ -110,6 +110,19 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'pending_not_found'
       }
   >
+  rejectPendingMember(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    pendingTelegramUserId: string
+  }): Promise<
+    | {
+        status: 'rejected_member'
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'pending_not_found'
+      }
+  >
   promoteMemberToAdmin(input: {
     householdId: string
     actorIsAdmin: boolean
@@ -533,6 +546,31 @@ export function createMiniAppAdminService(
       return {
         status: 'approved',
         member
+      }
+    },
+
+    async rejectPendingMember(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const success = await repository.rejectPendingHouseholdMember({
+        householdId: input.householdId,
+        telegramUserId: input.pendingTelegramUserId
+      })
+
+      if (!success) {
+        return {
+          status: 'rejected',
+          reason: 'pending_not_found'
+        }
+      }
+
+      return {
+        status: 'rejected_member'
       }
     },
 

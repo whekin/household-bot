@@ -123,6 +123,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       pending = null
       return member
     },
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       ...household,
       defaultLocale: locale

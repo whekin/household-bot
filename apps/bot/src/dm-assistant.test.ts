@@ -261,6 +261,7 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
     ],
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null,
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async () => household,
     updateMemberPreferredLocale: async () => null,
     updateHouseholdMemberDisplayName: async () => null,

@@ -50,6 +50,7 @@ import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-au
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import {
   createMiniAppApproveMemberHandler,
+  createMiniAppRejectMemberHandler,
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
@@ -569,6 +570,15 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppApproveMember: householdOnboardingService
     ? createMiniAppApproveMemberHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        miniAppAdminService: miniAppAdminService!,
+        logger: getLogger('miniapp-admin')
+      })
+    : undefined,
+  miniAppRejectMember: householdOnboardingService
+    ? createMiniAppRejectMemberHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

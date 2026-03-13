@@ -105,6 +105,7 @@ function createRepository(): HouseholdConfigurationRepository {
     },
     listPendingHouseholdMembers: async () => [],
     approvePendingHouseholdMember: async () => null,
+    rejectPendingHouseholdMember: async () => false,
     updateHouseholdDefaultLocale: async () => {
       throw new Error('not implemented')
     },

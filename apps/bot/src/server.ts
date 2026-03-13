@@ -32,6 +32,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppRejectMember?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppSettings?:
     | {
         path?: string
@@ -128,6 +134,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppAddPurchase?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppUpdatePurchase?:
     | {
         path?: string
@@ -201,6 +213,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppPendingMembers?.path ?? '/api/miniapp/admin/pending-members'
   const miniAppApproveMemberPath =
     options.miniAppApproveMember?.path ?? '/api/miniapp/admin/approve-member'
+  const miniAppRejectMemberPath =
+    options.miniAppRejectMember?.path ?? '/api/miniapp/admin/reject-member'
   const miniAppSettingsPath = options.miniAppSettings?.path ?? '/api/miniapp/admin/settings'
   const miniAppUpdateSettingsPath =
     options.miniAppUpdateSettings?.path ?? '/api/miniapp/admin/settings/update'
@@ -231,6 +245,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpdateUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/update'
   const miniAppDeleteUtilityBillPath =
     options.miniAppDeleteUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/delete'
+  const miniAppAddPurchasePath =
+    options.miniAppAddPurchase?.path ?? '/api/miniapp/admin/purchases/add'
   const miniAppUpdatePurchasePath =
     options.miniAppUpdatePurchase?.path ?? '/api/miniapp/admin/purchases/update'
   const miniAppDeletePurchasePath =
@@ -272,6 +288,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppApproveMember && url.pathname === miniAppApproveMemberPath) {
         return await options.miniAppApproveMember.handler(request)
+      }
+
+      if (options.miniAppRejectMember && url.pathname === miniAppRejectMemberPath) {
+        return await options.miniAppRejectMember.handler(request)
       }
 
       if (options.miniAppSettings && url.pathname === miniAppSettingsPath) {
@@ -348,6 +368,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppDeleteUtilityBill && url.pathname === miniAppDeleteUtilityBillPath) {
         return await options.miniAppDeleteUtilityBill.handler(request)
+      }
+
+      if (options.miniAppAddPurchase && url.pathname === miniAppAddPurchasePath) {
+        return await options.miniAppAddPurchase.handler(request)
       }
 
       if (options.miniAppUpdatePurchase && url.pathname === miniAppUpdatePurchasePath) {

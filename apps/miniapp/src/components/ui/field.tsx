@@ -11,10 +11,10 @@ export function Field(
   }>
 ) {
   return (
-    <label class={cn('settings-field', props.wide && 'settings-field--wide', props.class)}>
-      <span>{props.label}</span>
+    <label class={cn('ui-field', props.wide && 'ui-field--wide', props.class)}>
+      <span class="ui-field__label">{props.label}</span>
       {props.children}
-      <Show when={props.hint}>{(hint) => <small>{hint()}</small>}</Show>
+      <Show when={props.hint}>{(hint) => <small class="ui-field__hint">{hint()}</small>}</Show>
     </label>
   )
 }

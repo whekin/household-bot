@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from 'class-variance-authority'
-import type { JSX, ParentProps } from 'solid-js'
+import { Show, type JSX, type ParentProps } from 'solid-js'
+import { Loader2 } from 'lucide-solid'
 
 import { cn } from '../../lib/cn'
 
@@ -11,10 +12,16 @@ const buttonVariants = cva('ui-button', {
       danger: 'ui-button--danger',
       ghost: 'ui-button--ghost',
       icon: 'ui-button--icon'
+    },
+    size: {
+      sm: 'ui-button--sm',
+      md: '',
+      lg: 'ui-button--lg'
     }
   },
   defaultVariants: {
-    variant: 'secondary'
+    variant: 'secondary',
+    size: 'md'
   }
 })
 
@@ -22,6 +29,7 @@ type ButtonProps = ParentProps<{
   type?: 'button' | 'submit' | 'reset'
   class?: string
   disabled?: boolean
+  loading?: boolean
   onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>
 }> &
   VariantProps<typeof buttonVariants>
@@ -30,10 +38,13 @@ export function Button(props: ButtonProps) {
   return (
     <button
       type={props.type ?? 'button'}
-      class={cn(buttonVariants({ variant: props.variant }), props.class)}
-      disabled={props.disabled}
+      class={cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)}
+      disabled={props.disabled || props.loading}
       onClick={props.onClick}
     >
+      <Show when={props.loading}>
+        <Loader2 class="ui-button__spinner" size={16} />
+      </Show>
       {props.children}
     </button>
   )

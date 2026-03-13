@@ -121,6 +121,7 @@ function repository(): HouseholdConfigurationRepository {
             isAdmin: false
           }
         : null,
+    rejectPendingHouseholdMember: async (input) => input.telegramUserId === '123456',
     updateHouseholdDefaultLocale: async (_householdId, locale) => ({
       householdId: 'household-1',
       householdName: 'Kojori House',
