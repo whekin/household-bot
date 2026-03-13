@@ -9,6 +9,7 @@ import type {
 } from '@household/ports'
 
 import {
+  createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
   createMiniAppDeleteUtilityBillHandler,
@@ -212,6 +213,11 @@ function createFinanceServiceStub(): FinanceCommandService {
       amount: Money.fromMinor(10000n, 'USD'),
       currency: 'USD',
       period: '2026-03'
+    }),
+    addPurchase: async () => ({
+      purchaseId: 'test-purchase',
+      amount: Money.fromMinor(0n, 'GEL'),
+      currency: 'GEL'
     }),
     updatePayment: async () => ({
       paymentId: 'payment-1',
@@ -556,6 +562,77 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
           shareAmountMajor: '10'
         }
       ]
+    })
+  })
+})
+
+describe('createMiniAppAddPurchaseHandler', () => {
+  test('forwards purchase creation with split to the finance service', async () => {
+    const repository = onboardingRepository()
+    let capturedArgs: any = null
+
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        addPurchase: async (
+          description: string,
+          amountArg: string,
+          payerMemberId: string,
+          currencyArg?: string,
+          split?: any
+        ) => {
+          capturedArgs = { description, amountArg, payerMemberId, currencyArg, split }
+          return {
+            purchaseId: 'new-purchase-1',
+            amount: Money.fromMinor(3000n, 'GEL'),
+            currency: 'GEL' as const
+          }
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL',
+          split: {
+            mode: 'equal',
+            participants: [
+              { memberId: 'member-123456', included: true },
+              { memberId: 'member-999', included: true }
+            ]
+          }
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(capturedArgs).toEqual({
+      description: 'Pizza',
+      amountArg: '30',
+      payerMemberId: 'member-123456',
+      currencyArg: 'GEL',
+      split: {
+        mode: 'equal',
+        participants: [
+          { memberId: 'member-123456', included: true },
+          { memberId: 'member-999', included: true }
+        ]
+      }
     })
   })
 })

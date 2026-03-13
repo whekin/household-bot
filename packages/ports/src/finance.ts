@@ -172,6 +172,20 @@ export interface FinanceRepository {
     currency: CurrencyCode
     createdByMemberId: string
   }): Promise<void>
+  addParsedPurchase(input: {
+    cycleId: string
+    payerMemberId: string
+    amountMinor: bigint
+    currency: CurrencyCode
+    description: string | null
+    occurredAt: Instant
+    splitMode?: 'equal' | 'custom_amounts'
+    participants?: readonly {
+      memberId: string
+      included?: boolean
+      shareAmountMinor: bigint | null
+    }[]
+  }): Promise<FinanceParsedPurchaseRecord>
   updateParsedPurchase(input: {
     purchaseId: string
     amountMinor: bigint

@@ -8,6 +8,7 @@ import {
   nowInstant,
   type CurrencyCode
 } from '@household/domain'
+import { randomUUID } from 'node:crypto'
 
 function toCurrencyCode(raw: string): CurrencyCode {
   const normalized = raw.trim().toUpperCase()
@@ -337,6 +338,94 @@ export function createDbFinanceRepository(
         source: 'manual',
         createdByMemberId: input.createdByMemberId
       })
+    },
+
+    async addParsedPurchase(input) {
+      const purchaseId = randomUUID()
+
+      const memberRows = await db
+        .select({ displayName: schema.members.displayName })
+        .from(schema.members)
+        .where(eq(schema.members.id, input.payerMemberId))
+        .limit(1)
+
+      const member = memberRows[0]
+
+      await db.insert(schema.purchaseMessages).values({
+        id: purchaseId,
+        householdId,
+        senderMemberId: input.payerMemberId,
+        senderTelegramUserId: 'miniapp',
+        senderDisplayName: member?.displayName ?? 'Mini App',
+        telegramChatId: 'miniapp',
+        telegramMessageId: purchaseId,
+        telegramThreadId: 'miniapp',
+        telegramUpdateId: purchaseId,
+        rawText: input.description ?? '',
+        messageSentAt: instantToDate(input.occurredAt),
+        parsedItemDescription: input.description,
+        parsedAmountMinor: input.amountMinor,
+        parsedCurrency: input.currency,
+        participantSplitMode: input.splitMode ?? 'equal',
+        processingStatus: 'confirmed',
+        parserError: null,
+        needsReview: 0
+      })
+
+      if (input.participants && input.participants.length > 0) {
+        await db.insert(schema.purchaseMessageParticipants).values(
+          input.participants.map(
+            (p: { memberId: string; included?: boolean; shareAmountMinor: bigint | null }) => ({
+              purchaseMessageId: purchaseId,
+              memberId: p.memberId,
+              included: (p.included ?? true) ? 1 : 0,
+              shareAmountMinor: p.shareAmountMinor
+            })
+          )
+        )
+      }
+
+      const rows = await db
+        .select({
+          id: schema.purchaseMessages.id,
+          payerMemberId: schema.purchaseMessages.senderMemberId,
+          amountMinor: schema.purchaseMessages.parsedAmountMinor,
+          currency: schema.purchaseMessages.parsedCurrency,
+          description: schema.purchaseMessages.parsedItemDescription,
+          occurredAt: schema.purchaseMessages.messageSentAt,
+          splitMode: schema.purchaseMessages.participantSplitMode
+        })
+        .from(schema.purchaseMessages)
+        .where(eq(schema.purchaseMessages.id, purchaseId))
+
+      const row = rows[0]
+      if (!row || !row.payerMemberId || row.amountMinor == null || row.currency == null) {
+        throw new Error('Failed to create purchase')
+      }
+
+      const participantRows = await db
+        .select({
+          memberId: schema.purchaseMessageParticipants.memberId,
+          included: schema.purchaseMessageParticipants.included,
+          shareAmountMinor: schema.purchaseMessageParticipants.shareAmountMinor
+        })
+        .from(schema.purchaseMessageParticipants)
+        .where(eq(schema.purchaseMessageParticipants.purchaseMessageId, purchaseId))
+
+      return {
+        id: row.id,
+        payerMemberId: row.payerMemberId,
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        description: row.description,
+        occurredAt: row.occurredAt ? instantFromDatabaseValue(row.occurredAt) : null,
+        splitMode: row.splitMode as 'equal' | 'custom_amounts',
+        participants: participantRows.map((p) => ({
+          memberId: p.memberId,
+          included: p.included === 1,
+          shareAmountMinor: p.shareAmountMinor
+        }))
+      }
     },
 
     async updateParsedPurchase(input) {

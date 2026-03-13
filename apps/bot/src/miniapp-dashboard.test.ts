@@ -45,6 +45,21 @@ function repository(
     saveCycleExchangeRate: async (input) => input,
     addUtilityBill: async () => {},
     updateParsedPurchase: async () => null,
+    addParsedPurchase: async (input) => ({
+      id: 'purchase-new',
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      description: input.description,
+      occurredAt: input.occurredAt,
+      splitMode: input.splitMode ?? 'equal',
+      participants:
+        input.participants?.map((p) => ({
+          memberId: p.memberId,
+          included: p.included ?? true,
+          shareAmountMinor: p.shareAmountMinor ?? null
+        })) ?? []
+    }),
     deleteParsedPurchase: async () => false,
     updateUtilityBill: async () => null,
     deleteUtilityBill: async () => false,

@@ -644,6 +644,7 @@ export interface FinanceCommandService {
       mode: 'equal' | 'custom_amounts'
       participants: readonly {
         memberId: string
+        included?: boolean
         shareAmountMajor?: string
       }[]
     }
@@ -652,6 +653,24 @@ export interface FinanceCommandService {
     amount: Money
     currency: CurrencyCode
   } | null>
+  addPurchase(
+    description: string,
+    amountArg: string,
+    payerMemberId: string,
+    currencyArg?: string,
+    split?: {
+      mode: 'equal' | 'custom_amounts'
+      participants: readonly {
+        memberId: string
+        included?: boolean
+        shareAmountMajor?: string
+      }[]
+    }
+  ): Promise<{
+    purchaseId: string
+    amount: Money
+    currency: CurrencyCode
+  }>
   deletePurchase(purchaseId: string): Promise<boolean>
   addPayment(
     memberId: string,
@@ -900,6 +919,7 @@ export function createFinanceCommandService(
               splitMode: split.mode,
               participants: split.participants.map((participant) => ({
                 memberId: participant.memberId,
+                included: participant.included ?? true,
                 shareAmountMinor:
                   participant.shareAmountMajor !== undefined
                     ? Money.fromMajor(participant.shareAmountMajor, currency).amountMinor
@@ -915,6 +935,67 @@ export function createFinanceCommandService(
 
       return {
         purchaseId: updated.id,
+        amount,
+        currency
+      }
+    },
+
+    async addPurchase(description, amountArg, payerMemberId, currencyArg, split) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+      const amount = Money.fromMajor(amountArg, currency)
+
+      const openCycle = await repository.getOpenCycle()
+      if (!openCycle) {
+        throw new DomainError(DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT, 'No open billing cycle')
+      }
+
+      if (split?.mode === 'custom_amounts') {
+        if (split.participants.some((p) => p.shareAmountMajor === undefined)) {
+          throw new DomainError(
+            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+            'Purchase custom split must include explicit share amounts for every participant'
+          )
+        }
+
+        const totalMinor = split.participants.reduce(
+          (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
+          0n
+        )
+        if (totalMinor !== amount.amountMinor) {
+          throw new DomainError(
+            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+            'Purchase custom split must add up to the full amount'
+          )
+        }
+      }
+
+      const created = await repository.addParsedPurchase({
+        cycleId: openCycle.id,
+        payerMemberId,
+        amountMinor: amount.amountMinor,
+        currency,
+        description: description.trim().length > 0 ? description.trim() : null,
+        occurredAt: nowInstant(),
+        ...(split
+          ? {
+              splitMode: split.mode,
+              participants: split.participants.map((participant) => ({
+                memberId: participant.memberId,
+                included: participant.included ?? true,
+                shareAmountMinor:
+                  participant.shareAmountMajor !== undefined
+                    ? Money.fromMajor(participant.shareAmountMajor, currency).amountMinor
+                    : null
+              }))
+            }
+          : {})
+      })
+
+      return {
+        purchaseId: created.id,
         amount,
         currency
       }

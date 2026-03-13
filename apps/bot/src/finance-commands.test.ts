@@ -235,6 +235,11 @@ function createFinanceService(): FinanceCommandService {
     updatePurchase: async () => null,
     deletePurchase: async () => false,
     addPayment: async () => null,
+    addPurchase: async () => ({
+      purchaseId: 'test-purchase',
+      amount: Money.fromMinor(0n, 'GEL'),
+      currency: 'GEL'
+    }),
     updatePayment: async () => null,
     deletePayment: async () => false,
     generateDashboard: async () => createDashboard(),

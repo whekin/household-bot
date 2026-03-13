@@ -266,18 +266,19 @@ export default function LedgerRoute() {
   const [addingPayment, setAddingPayment] = createSignal(false)
 
   const addPurchaseButtonText = createMemo(() => {
-    if (addingPurchase()) return copy().purchaseSaveAction // or maybe adding...
-    if (newPurchase().splitInputMode === 'equal') return copy().purchaseSaveAction
-    if (!validatePurchaseDraft(newPurchase()).valid) return copy().purchaseBalanceAction
+    if (addingPurchase()) return copy().savingPurchase
+    if (newPurchase().splitInputMode !== 'equal' && !validatePurchaseDraft(newPurchase()).valid) {
+      return copy().purchaseBalanceAction
+    }
     return copy().purchaseSaveAction
   })
 
   const editPurchaseButtonText = createMemo(() => {
-    const draft = purchaseDraft()
     if (savingPurchase()) return copy().savingPurchase
-    if (!draft) return copy().purchaseSaveAction
-    if (draft.splitInputMode === 'equal') return copy().purchaseSaveAction
-    if (!validatePurchaseDraft(draft).valid) return copy().purchaseBalanceAction
+    const draft = purchaseDraft()
+    if (draft && draft.splitInputMode !== 'equal' && !validatePurchaseDraft(draft).valid) {
+      return copy().purchaseBalanceAction
+    }
     return copy().purchaseSaveAction
   })
 
@@ -387,8 +388,8 @@ export default function LedgerRoute() {
           participants: draft.participants.map((p) => ({
             memberId: p.memberId,
             included: p.included,
-            ...(p.shareAmountMajor && draft.splitMode === 'custom_amounts'
-              ? { shareAmountMajor: p.shareAmountMajor }
+            ...(draft.splitMode === 'custom_amounts'
+              ? { shareAmountMajor: p.shareAmountMajor || '0.00' }
               : {})
           }))
         }
@@ -433,8 +434,8 @@ export default function LedgerRoute() {
                 participants: draft.participants.map((p) => ({
                   memberId: p.memberId,
                   included: p.included,
-                  ...(p.shareAmountMajor && draft.splitMode === 'custom_amounts'
-                    ? { shareAmountMajor: p.shareAmountMajor }
+                  ...(draft.splitMode === 'custom_amounts'
+                    ? { shareAmountMajor: p.shareAmountMajor || '0.00' }
                     : {})
                 }))
               }
@@ -714,11 +715,13 @@ export default function LedgerRoute() {
               loading={addingPurchase()}
               disabled={!newPurchase().description.trim() || !newPurchase().amountMajor.trim()}
               onClick={() => {
-                if (
-                  newPurchase().splitInputMode !== 'equal' &&
-                  !validatePurchaseDraft(newPurchase()).valid
-                ) {
-                  setNewPurchase((p) => rebalancePurchaseSplit(p, null, null))
+                const draft = newPurchase()
+                if (draft.splitInputMode !== 'equal' && !validatePurchaseDraft(draft).valid) {
+                  const rebalanced = rebalancePurchaseSplit(draft, null, null)
+                  setNewPurchase(rebalanced)
+                  if (validatePurchaseDraft(rebalanced).valid) {
+                    void handleAddPurchase()
+                  }
                 } else {
                   void handleAddPurchase()
                 }
@@ -816,7 +819,11 @@ export default function LedgerRoute() {
                   draft.splitInputMode !== 'equal' &&
                   !validatePurchaseDraft(draft).valid
                 ) {
-                  setPurchaseDraft((d) => (d ? rebalancePurchaseSplit(d, null, null) : d))
+                  const rebalanced = rebalancePurchaseSplit(draft, null, null)
+                  setPurchaseDraft(rebalanced)
+                  if (validatePurchaseDraft(rebalanced).valid) {
+                    void handleSavePurchase()
+                  }
                 } else {
                   void handleSavePurchase()
                 }

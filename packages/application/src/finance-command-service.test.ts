@@ -61,6 +61,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   replacedSnapshot: SettlementSnapshotRecord | null = null
   cycleExchangeRates = new Map<string, FinanceCycleExchangeRateRecord>()
   lastUpdatedPurchaseInput: Parameters<FinanceRepository['updateParsedPurchase']>[0] | null = null
+  lastAddedPurchaseInput: Parameters<FinanceRepository['addParsedPurchase']>[0] | null = null
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
@@ -129,6 +130,24 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string
   }): Promise<void> {
     this.lastUtilityBill = input
+  }
+
+  async addParsedPurchase(input: Parameters<FinanceRepository['addParsedPurchase']>[0]) {
+    this.lastAddedPurchaseInput = input
+    return {
+      id: 'purchase-1',
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      description: input.description,
+      occurredAt: input.occurredAt,
+      splitMode: input.splitMode ?? 'equal',
+      participants: (input.participants ?? []).map((p) => ({
+        memberId: p.memberId,
+        included: p.included ?? true,
+        shareAmountMinor: p.shareAmountMinor
+      }))
+    }
   }
 
   async updateUtilityBill() {
@@ -655,10 +674,12 @@ describe('createFinanceCommandService', () => {
       participants: [
         {
           memberId: 'alice',
+          included: true,
           shareAmountMinor: 2000n
         },
         {
           memberId: 'bob',
+          included: true,
           shareAmountMinor: 1000n
         }
       ]

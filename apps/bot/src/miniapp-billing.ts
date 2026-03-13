@@ -283,6 +283,70 @@ async function readUtilityBillDeletePayload(request: Request): Promise<{
   }
 }
 
+async function readAddPurchasePayload(request: Request): Promise<{
+  initData: string
+  description: string
+  amountMajor: string
+  currency?: string
+  split?: {
+    mode: 'equal' | 'custom_amounts'
+    participants: {
+      memberId: string
+      included?: boolean
+      shareAmountMajor?: string
+    }[]
+  }
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    description?: string
+    amountMajor?: string
+    currency?: string
+    split?: {
+      mode?: string
+      participants?: {
+        memberId?: string
+        included?: boolean
+        shareAmountMajor?: string
+      }[]
+    }
+  }>(request)
+  const initData = parsed.initData?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  const description = parsed.description?.trim()
+  if (!description) {
+    throw new Error('Missing description')
+  }
+  const amountMajor = parsed.amountMajor?.trim()
+  if (!amountMajor) {
+    throw new Error('Missing amountMajor')
+  }
+
+  return {
+    initData,
+    description,
+    amountMajor,
+    ...(parsed.currency !== undefined
+      ? {
+          currency: parsed.currency
+        }
+      : {}),
+    ...(parsed.split !== undefined
+      ? {
+          split: {
+            mode: (parsed.split.mode ?? 'equal') as 'equal' | 'custom_amounts',
+            participants: (parsed.split.participants ?? []).filter(
+              (p): p is { memberId: string; included?: boolean; shareAmountMajor?: string } =>
+                p.memberId !== undefined
+            )
+          }
+        }
+      : {})
+  }
+}
+
 async function readPurchaseMutationPayload(request: Request): Promise<{
   initData: string
   purchaseId: string
@@ -847,6 +911,62 @@ export function createMiniAppDeleteUtilityBillHandler(options: {
           200,
           origin
         )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppAddPurchaseHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateAdminSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readAddPurchasePayload(request)
+        if (!payload.description || !payload.amountMajor) {
+          return miniAppJsonResponse({ ok: false, error: 'Missing purchase fields' }, 400, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        await service.addPurchase(
+          payload.description,
+          payload.amountMajor,
+          auth.member.id,
+          payload.currency,
+          payload.split
+        )
+
+        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }

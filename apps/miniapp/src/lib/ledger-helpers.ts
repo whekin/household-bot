@@ -243,7 +243,23 @@ export function rebalancePurchaseSplit(
   }
 
   // Special case: if it's 'equal' mode and we aren't handling a specific change, force equal
-  if (draft.splitInputMode === 'equal' && changedMemberId === null) {
+  // Also initialize equal split for exact/percentage modes when no specific change provided
+  if (draft.splitInputMode !== 'equal' && changedMemberId === null) {
+    const active = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+    if (active.length > 0) {
+      const count = BigInt(active.length)
+      const baseShare = totalMinor / count
+      const remainder = totalMinor % count
+      active.forEach((p, i) => {
+        const share = baseShare + (BigInt(i) < remainder ? 1n : 0n)
+        participants[p.idx] = {
+          ...participants[p.idx]!,
+          shareAmountMajor: minorToMajorString(share),
+          isAutoCalculated: true
+        }
+      })
+    }
+  } else if (draft.splitInputMode === 'equal' && changedMemberId === null) {
     const active = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
     if (active.length > 0) {
       const count = BigInt(active.length)

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { FinanceCommandService } from '@household/application'
-import { instantFromIso, nowInstant } from '@household/domain'
+import { instantFromIso, Money, nowInstant } from '@household/domain'
 import type { TelegramPendingActionRecord, TelegramPendingActionRepository } from '@household/ports'
 
 import { createTelegramBot } from './bot'
@@ -233,6 +233,11 @@ function createFinanceService(): FinanceCommandService & {
     updatePurchase: async () => null,
     deletePurchase: async () => false,
     addPayment: async () => null,
+    addPurchase: async () => ({
+      purchaseId: 'test-purchase',
+      amount: Money.fromMinor(0n, 'GEL'),
+      currency: 'GEL'
+    }),
     updatePayment: async () => null,
     deletePayment: async () => false,
     generateDashboard: async () => null,
