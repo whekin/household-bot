@@ -20,18 +20,22 @@ export type UtilityBillDraft = {
   currency: 'USD' | 'GEL'
 }
 
+export type ParticipantShare = {
+  memberId: string
+  included: boolean
+  shareAmountMajor: string
+  sharePercentage: string
+  lastUpdatedAt?: number
+  isAutoCalculated?: boolean
+}
+
 export type PurchaseDraft = {
   description: string
   amountMajor: string
   currency: 'USD' | 'GEL'
   splitMode: 'equal' | 'custom_amounts'
   splitInputMode: 'equal' | 'exact' | 'percentage'
-  participants: {
-    memberId: string
-    included: boolean
-    shareAmountMajor: string
-    sharePercentage: string
-  }[]
+  participants: ParticipantShare[]
 }
 
 export type PaymentDraft = {
@@ -162,6 +166,181 @@ export function paymentDraftForEntry(entry: MiniAppDashboard['ledger'][number]):
     amountMajor: entry.amountMajor,
     currency: entry.currency
   }
+}
+
+/**
+ * Rebalance purchase split with "least updated" logic.
+ * When a participant's share changes, the difference is absorbed by:
+ * 1. Auto-calculated participants first (not manually entered)
+ * 2. Then the manually entered participant with oldest lastUpdatedAt
+ * If adjusted participant would go negative, cascade to next eligible.
+ * Participants at 0 are automatically excluded.
+ */
+export function rebalancePurchaseSplit(
+  draft: PurchaseDraft,
+  changedMemberId: string | null,
+  newAmountMajor: string | null
+): PurchaseDraft {
+  const totalMinor = majorStringToMinor(draft.amountMajor)
+  if (totalMinor <= 0n) return draft
+
+  let participants = draft.participants.map((p) => ({ ...p }))
+
+  if (changedMemberId !== null && newAmountMajor !== null) {
+    const changedIdx = participants.findIndex((p) => p.memberId === changedMemberId)
+    if (changedIdx === -1) return draft
+
+    const newAmountMinor = majorStringToMinor(newAmountMajor)
+
+    if (newAmountMinor > totalMinor) {
+      return draft
+    }
+
+    const oldAmountMinor = majorStringToMinor(participants[changedIdx]!.shareAmountMajor || '0')
+    const delta = oldAmountMinor - newAmountMinor
+
+    participants[changedIdx] = {
+      ...participants[changedIdx]!,
+      shareAmountMajor: newAmountMajor,
+      lastUpdatedAt: Date.now(),
+      isAutoCalculated: false
+    }
+
+    if (delta === 0n) {
+      return recalculatePercentages({ ...draft, participants })
+    }
+
+    const included = participants
+      .map((p, idx) => ({ ...p, idx }))
+      .filter((p) => p.included && p.memberId !== changedMemberId)
+
+    if (included.length === 0) {
+      return recalculatePercentages({ ...draft, participants })
+    }
+
+    let remainingDelta = delta
+    const sorted = [...included].sort((a, b) => {
+      if (a.isAutoCalculated !== b.isAutoCalculated) {
+        return a.isAutoCalculated ? -1 : 1
+      }
+      const aTime = a.lastUpdatedAt ?? 0
+      const bTime = b.lastUpdatedAt ?? 0
+      return aTime - bTime
+    })
+
+    for (const p of sorted) {
+      if (remainingDelta === 0n) break
+
+      const currentMinor = majorStringToMinor(participants[p.idx]!.shareAmountMajor || '0')
+      let newValue = currentMinor - remainingDelta
+
+      if (newValue < 0n) {
+        remainingDelta = -newValue
+        newValue = 0n
+      } else {
+        remainingDelta = 0n
+      }
+
+      participants[p.idx] = {
+        ...participants[p.idx]!,
+        shareAmountMajor: minorToMajorString(newValue),
+        isAutoCalculated: true
+      }
+
+      if (newValue === 0n) {
+        participants[p.idx]!.included = false
+      }
+    }
+  } else {
+    const included = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+
+    if (included.length === 0) {
+      return { ...draft, participants }
+    }
+
+    const count = BigInt(included.length)
+    const baseShare = totalMinor / count
+    const remainder = totalMinor % count
+
+    included.forEach((p, i) => {
+      const share = baseShare + (BigInt(i) < remainder ? 1n : 0n)
+      const existing = participants[p.idx]!
+      participants[p.idx] = {
+        ...existing,
+        shareAmountMajor: minorToMajorString(share),
+        ...(existing.lastUpdatedAt !== undefined ? { lastUpdatedAt: existing.lastUpdatedAt } : {}),
+        isAutoCalculated: true
+      }
+    })
+  }
+
+  return recalculatePercentages({ ...draft, participants })
+}
+
+function recalculatePercentages(draft: PurchaseDraft): PurchaseDraft {
+  const totalMinor = majorStringToMinor(draft.amountMajor)
+  if (totalMinor <= 0n) return draft
+
+  const participants = draft.participants.map((p) => {
+    if (!p.included) {
+      return { ...p, sharePercentage: '' }
+    }
+    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    const percentage = Number((shareMinor * 10000n) / totalMinor) / 100
+    return {
+      ...p,
+      sharePercentage: percentage > 0 ? percentage.toFixed(2) : ''
+    }
+  })
+
+  return { ...draft, participants }
+}
+
+export function calculateRemainingToAllocate(draft: PurchaseDraft): bigint {
+  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const allocated = draft.participants
+    .filter((p) => p.included)
+    .reduce((sum, p) => sum + majorStringToMinor(p.shareAmountMajor || '0'), 0n)
+  return totalMinor - allocated
+}
+
+export type PurchaseDraftValidation = {
+  valid: boolean
+  error?: string
+  remainingMinor: bigint
+}
+
+export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValidation {
+  if (draft.splitInputMode === 'equal') {
+    return { valid: true, remainingMinor: 0n }
+  }
+
+  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const remaining = calculateRemainingToAllocate(draft)
+
+  const hasInvalidShare = draft.participants.some((p) => {
+    if (!p.included) return false
+    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    return shareMinor > totalMinor
+  })
+
+  if (hasInvalidShare) {
+    return {
+      valid: false,
+      error: 'Share cannot exceed total amount',
+      remainingMinor: remaining
+    }
+  }
+
+  if (remaining !== 0n) {
+    return {
+      valid: false,
+      error: remaining > 0n ? 'Total shares must equal total amount' : 'Total shares exceed amount',
+      remainingMinor: remaining
+    }
+  }
+
+  return { valid: true, remainingMinor: remaining }
 }
 
 export function defaultCyclePeriod(): string {

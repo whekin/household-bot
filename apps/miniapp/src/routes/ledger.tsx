@@ -18,9 +18,13 @@ import {
   purchaseDraftForEntry,
   paymentDraftForEntry,
   computePaymentPrefill,
+  rebalancePurchaseSplit,
+  validatePurchaseDraft,
+  calculateRemainingToAllocate,
   type PurchaseDraft,
   type PaymentDraft
 } from '../lib/ledger-helpers'
+import { minorToMajorString } from '../lib/money'
 import {
   addMiniAppPurchase,
   updateMiniAppPurchase,
@@ -361,6 +365,9 @@ export default function LedgerRoute() {
     draft: PurchaseDraft,
     updateDraft: (fn: (d: PurchaseDraft) => PurchaseDraft) => void
   ) {
+    const remaining = () => calculateRemainingToAllocate(draft)
+    const validation = () => validatePurchaseDraft(draft)
+
     return (
       <div
         class="split-configuration"
@@ -380,7 +387,8 @@ export default function LedgerRoute() {
                     updateDraft((d) => {
                       const newParticipants = [...d.participants]
                       newParticipants[idx()] = { ...participant, included: checked }
-                      return { ...d, participants: newParticipants }
+                      const updated = { ...d, participants: newParticipants }
+                      return rebalancePurchaseSplit(updated, null, null)
                     })
                   }}
                 />
@@ -392,13 +400,15 @@ export default function LedgerRoute() {
                     placeholder="0.00"
                     value={participant.shareAmountMajor}
                     onInput={(e) => {
+                      const value = e.currentTarget.value
                       updateDraft((d) => {
                         const newParticipants = [...d.participants]
                         newParticipants[idx()] = {
                           ...participant,
-                          shareAmountMajor: e.currentTarget.value
+                          shareAmountMajor: value
                         }
-                        return { ...d, participants: newParticipants }
+                        const updated = { ...d, participants: newParticipants }
+                        return rebalancePurchaseSplit(updated, participant.memberId, value)
                       })
                     }}
                   />
@@ -410,24 +420,21 @@ export default function LedgerRoute() {
                     placeholder="%"
                     value={participant.sharePercentage}
                     onInput={(e) => {
+                      const value = e.currentTarget.value
+                      const percentage = parseFloat(value) || 0
+                      const totalMajor = parseFloat(draft.amountMajor) || 0
+                      const exactAmount = (totalMajor * percentage) / 100
+                      const newAmountMajor = exactAmount > 0 ? exactAmount.toFixed(2) : ''
+
                       updateDraft((d) => {
                         const newParticipants = [...d.participants]
                         newParticipants[idx()] = {
                           ...participant,
-                          sharePercentage: e.currentTarget.value
+                          sharePercentage: value,
+                          shareAmountMajor: newAmountMajor
                         }
-
-                        // Calculate exact amount based on percentage
-                        const percentage = parseFloat(e.currentTarget.value) || 0
-                        const totalMajor = parseFloat(d.amountMajor) || 0
-                        const exactAmount = (totalMajor * percentage) / 100
-                        const nextParticipant = newParticipants[idx()]
-                        if (nextParticipant) {
-                          nextParticipant.shareAmountMajor =
-                            exactAmount > 0 ? exactAmount.toFixed(2) : ''
-                        }
-
-                        return { ...d, participants: newParticipants }
+                        const updated = { ...d, participants: newParticipants }
+                        return rebalancePurchaseSplit(updated, participant.memberId, newAmountMajor)
                       })
                     }}
                   />
@@ -436,6 +443,19 @@ export default function LedgerRoute() {
             )
           }}
         </For>
+        <Show when={draft.splitInputMode !== 'equal' && draft.participants.some((p) => p.included)}>
+          <div
+            style={{
+              'font-size': '12px',
+              'margin-top': '4px',
+              color: validation().valid ? '#22c55e' : '#ef4444'
+            }}
+          >
+            {validation().error
+              ? validation().error
+              : `Remaining: ${minorToMajorString(remaining() > 0n ? remaining() : -remaining())} ${draft.currency}`}
+          </div>
+        </Show>
       </div>
     )
   }
@@ -456,7 +476,28 @@ export default function LedgerRoute() {
             <Collapsible title={copy().purchasesTitle} body={copy().purchaseReviewBody} defaultOpen>
               <Show when={effectiveIsAdmin()}>
                 <div class="ledger-actions">
-                  <Button variant="primary" size="sm" onClick={() => setAddPurchaseOpen(true)}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      const members = dashboard()?.members ?? []
+                      const currency = (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+                      setNewPurchase({
+                        description: '',
+                        amountMajor: '',
+                        currency,
+                        splitMode: 'equal',
+                        splitInputMode: 'equal',
+                        participants: members.map((m) => ({
+                          memberId: m.memberId,
+                          included: true,
+                          shareAmountMajor: '',
+                          sharePercentage: ''
+                        }))
+                      })
+                      setAddPurchaseOpen(true)
+                    }}
+                  >
                     <Plus size={14} />
                     {copy().purchaseSaveAction}
                   </Button>
@@ -592,7 +633,12 @@ export default function LedgerRoute() {
             <Button
               variant="primary"
               loading={addingPurchase()}
-              disabled={!newPurchase().description.trim() || !newPurchase().amountMajor.trim()}
+              disabled={
+                !newPurchase().description.trim() ||
+                !newPurchase().amountMajor.trim() ||
+                (newPurchase().splitInputMode !== 'equal' &&
+                  !validatePurchaseDraft(newPurchase()).valid)
+              }
               onClick={() => void handleAddPurchase()}
             >
               {copy().purchaseSaveAction}
@@ -665,6 +711,7 @@ export default function LedgerRoute() {
             <Button
               variant="primary"
               loading={savingPurchase()}
+              disabled={purchaseDraft() ? !validatePurchaseDraft(purchaseDraft()!).valid : false}
               onClick={() => void handleSavePurchase()}
             >
               {savingPurchase() ? copy().savingPurchase : copy().purchaseSaveAction}

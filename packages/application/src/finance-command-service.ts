@@ -15,6 +15,8 @@ import type {
 import {
   BillingCycleId,
   BillingPeriod,
+  DomainError,
+  DOMAIN_ERROR_CODE,
   MemberId,
   Money,
   PurchaseEntryId,
@@ -867,6 +869,27 @@ export function createFinanceCommandService(
       )
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
+
+      if (split?.mode === 'custom_amounts') {
+        if (split.participants.some((p) => p.shareAmountMajor === undefined)) {
+          throw new DomainError(
+            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+            'Purchase custom split must include explicit share amounts for every participant'
+          )
+        }
+
+        const totalMinor = split.participants.reduce(
+          (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
+          0n
+        )
+        if (totalMinor !== amount.amountMinor) {
+          throw new DomainError(
+            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+            'Purchase custom split must add up to the full amount'
+          )
+        }
+      }
+
       const updated = await repository.updateParsedPurchase({
         purchaseId,
         amountMinor: amount.amountMinor,

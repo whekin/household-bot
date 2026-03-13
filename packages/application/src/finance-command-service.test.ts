@@ -752,4 +752,72 @@ describe('createFinanceCommandService', () => {
       }
     ])
   })
+
+  test('generateDashboard should not 500 on legacy malformed custom split purchases (mixed null/explicit shares)', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.purchases = [
+      {
+        id: 'malformed-purchase-1',
+        payerMemberId: 'alice',
+        amountMinor: 1000n, // Total is 10.00 GEL
+        currency: 'GEL',
+        description: 'Legacy purchase',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1000n // Explicitly Alice takes full 10.00 GEL
+          },
+          {
+            memberId: 'bob',
+            // Missing included: false, and shareAmountMinor is null
+            // This is the malformed data that used to cause 500
+            shareAmountMinor: null
+          }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+
+    expect(dashboard).not.toBeNull()
+    const purchase = dashboard?.ledger.find((e) => e.id === 'malformed-purchase-1')
+    expect(purchase?.purchaseSplitMode).toBe('custom_amounts')
+
+    // Bob should be treated as excluded from the settlement calculation
+    const bobLine = dashboard?.members.find((m) => m.memberId === 'bob')
+    expect(bobLine?.purchaseOffset.amountMinor).toBe(0n)
+
+    const aliceLine = dashboard?.members.find((m) => m.memberId === 'alice')
+    // Alice paid 1000n and her share is 1000n -> offset 0n
+    expect(aliceLine?.purchaseOffset.amountMinor).toBe(0n)
+  })
 })

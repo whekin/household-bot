@@ -259,19 +259,18 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
     payer.purchasePaid = payer.purchasePaid.add(purchase.amount)
 
     const participants = purchaseParticipantMembers(activeMembers, purchase)
-    const explicitShareAmounts = purchase.participants?.map(
-      (participant) => participant.shareAmount
-    )
 
-    if (explicitShareAmounts && explicitShareAmounts.some((amount) => amount !== undefined)) {
-      if (explicitShareAmounts.some((amount) => amount === undefined)) {
-        throw new DomainError(
-          DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-          `Purchase custom split must include explicit share amounts for every participant: ${purchase.purchaseId.toString()}`
-        )
-      }
+    // Identify participants with explicit share amounts (lenient read path for legacy data)
+    const explicitShares =
+      purchase.participants
+        ?.filter((p) => p.shareAmount !== undefined)
+        .map((p) => ({
+          memberId: p.memberId,
+          shareAmount: p.shareAmount!
+        })) ?? []
 
-      const shares = explicitShareAmounts as readonly Money[]
+    if (explicitShares.length > 0) {
+      const shares = explicitShares.map((p) => p.shareAmount)
       const shareTotal = sumMoney(shares, currency)
       if (!shareTotal.equals(purchase.amount)) {
         throw new DomainError(
@@ -280,15 +279,13 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
         )
       }
 
-      for (const [index, member] of participants.entries()) {
-        const state = membersById.get(member.memberId.toString())
+      for (const participant of explicitShares) {
+        const state = membersById.get(participant.memberId.toString())
         if (!state) {
           continue
         }
 
-        state.purchaseSharedCost = state.purchaseSharedCost.add(
-          shares[index] ?? Money.zero(currency)
-        )
+        state.purchaseSharedCost = state.purchaseSharedCost.add(participant.shareAmount)
       }
 
       continue
