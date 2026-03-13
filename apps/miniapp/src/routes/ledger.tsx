@@ -1,4 +1,5 @@
-import { Show, For, createSignal, createMemo } from 'solid-js'
+import { Show, For, Index, createSignal, createMemo } from 'solid-js'
+import { produce } from 'solid-js/store'
 import { Plus } from 'lucide-solid'
 
 import { useSession } from '../contexts/session-context'
@@ -20,11 +21,10 @@ import {
   computePaymentPrefill,
   rebalancePurchaseSplit,
   validatePurchaseDraft,
-  calculateRemainingToAllocate,
   type PurchaseDraft,
   type PaymentDraft
 } from '../lib/ledger-helpers'
-import { minorToMajorString } from '../lib/money'
+import { minorToMajorString, majorStringToMinor } from '../lib/money'
 import {
   addMiniAppPurchase,
   updateMiniAppPurchase,
@@ -37,6 +37,168 @@ import {
   deleteMiniAppUtilityBill,
   type MiniAppDashboard
 } from '../miniapp-api'
+
+interface ParticipantSplitInputsProps {
+  draft: PurchaseDraft
+  updateDraft: (fn: (d: PurchaseDraft) => PurchaseDraft) => void
+}
+
+function ParticipantSplitInputs(props: ParticipantSplitInputsProps) {
+  const { dashboard } = useDashboard()
+
+  const validation = () => validatePurchaseDraft(props.draft)
+
+  return (
+    <div
+      class="split-configuration"
+      style={{ display: 'flex', 'flex-direction': 'column', gap: '8px', 'margin-top': '8px' }}
+    >
+      <Index each={props.draft.participants}>
+        {(participant, idx) => {
+          const member = () =>
+            dashboard()?.members.find((m) => m.memberId === participant().memberId)
+          return (
+            <div
+              class="split-participant"
+              style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}
+            >
+              <Toggle
+                checked={participant().included}
+                onChange={(checked) => {
+                  props.updateDraft((prev) => {
+                    const participants = prev.participants.map((p, i) =>
+                      i === idx
+                        ? {
+                            ...p,
+                            included: checked,
+                            lastUpdatedAt: Date.now(),
+                            isAutoCalculated: false
+                          }
+                        : p
+                    )
+                    return rebalancePurchaseSplit({ ...prev, participants }, null, null)
+                  })
+                }}
+              />
+              <span style={{ flex: 1 }}>{member()?.displayName ?? 'Unknown'}</span>
+              <Show when={participant().included && props.draft.splitInputMode === 'exact'}>
+                <Input
+                  type="number"
+                  style={{ width: '100px' }}
+                  placeholder="0.00"
+                  value={participant().shareAmountMajor}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value
+                    props.updateDraft(
+                      produce((d: PurchaseDraft) => {
+                        if (d.participants[idx]) {
+                          d.participants[idx].shareAmountMajor = value
+                          d.participants[idx].isAutoCalculated = false
+                          d.participants[idx].lastUpdatedAt = Date.now()
+                        }
+                      })
+                    )
+                  }}
+                  onBlur={(e) => {
+                    const value = e.currentTarget.value
+                    const minor = majorStringToMinor(value)
+                    props.updateDraft((prev) => {
+                      if (minor <= 0n) {
+                        const participants = prev.participants.map((p, i) =>
+                          i === idx
+                            ? {
+                                ...p,
+                                included: false,
+                                shareAmountMajor: '0.00',
+                                sharePercentage: ''
+                              }
+                            : p
+                        )
+                        return rebalancePurchaseSplit({ ...prev, participants }, null, null)
+                      }
+                      return rebalancePurchaseSplit(prev, participant().memberId, value)
+                    })
+                  }}
+                />
+              </Show>
+              <Show when={participant().included && props.draft.splitInputMode === 'percentage'}>
+                <Input
+                  type="number"
+                  style={{ width: '80px' }}
+                  placeholder="%"
+                  value={participant().sharePercentage}
+                  onInput={(e) => {
+                    const value = e.currentTarget.value
+                    props.updateDraft(
+                      produce((d: PurchaseDraft) => {
+                        if (d.participants[idx]) {
+                          d.participants[idx].sharePercentage = value
+                          d.participants[idx].isAutoCalculated = false
+                          d.participants[idx].lastUpdatedAt = Date.now()
+                        }
+                      })
+                    )
+                  }}
+                  onBlur={(e) => {
+                    const value = e.currentTarget.value
+                    const percentage = parseFloat(value) || 0
+                    props.updateDraft((prev) => {
+                      if (percentage <= 0) {
+                        const participants = prev.participants.map((p, i) =>
+                          i === idx
+                            ? {
+                                ...p,
+                                included: false,
+                                shareAmountMajor: '0.00',
+                                sharePercentage: ''
+                              }
+                            : p
+                        )
+                        return rebalancePurchaseSplit({ ...prev, participants }, null, null)
+                      }
+                      const totalMinor = majorStringToMinor(prev.amountMajor)
+                      const shareMinor =
+                        (totalMinor * BigInt(Math.round(percentage * 100))) / 10000n
+                      const amountMajor = minorToMajorString(shareMinor)
+                      const updated = rebalancePurchaseSplit(
+                        prev,
+                        participant().memberId,
+                        amountMajor
+                      )
+                      // Preserve the typed percentage string
+                      const participants = updated.participants.map((p, i) =>
+                        i === idx ? { ...p, sharePercentage: value } : p
+                      )
+                      return { ...updated, participants }
+                    })
+                  }}
+                />
+              </Show>
+            </div>
+          )
+        }}
+      </Index>
+      <Show
+        when={
+          props.draft.splitInputMode !== 'equal' &&
+          props.draft.participants.some((p) => p.included) &&
+          !validation().valid
+        }
+      >
+        <div style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}>
+          <div
+            style={{
+              'font-size': '12px',
+              color: '#ef4444'
+            }}
+          >
+            {validation().error}
+          </div>
+        </div>
+      </Show>
+    </div>
+  )
+}
 
 export default function LedgerRoute() {
   const { initData, refreshHouseholdData } = useSession()
@@ -102,6 +264,22 @@ export default function LedgerRoute() {
     currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
   })
   const [addingPayment, setAddingPayment] = createSignal(false)
+
+  const addPurchaseButtonText = createMemo(() => {
+    if (addingPurchase()) return copy().purchaseSaveAction // or maybe adding...
+    if (newPurchase().splitInputMode === 'equal') return copy().purchaseSaveAction
+    if (!validatePurchaseDraft(newPurchase()).valid) return copy().purchaseBalanceAction
+    return copy().purchaseSaveAction
+  })
+
+  const editPurchaseButtonText = createMemo(() => {
+    const draft = purchaseDraft()
+    if (savingPurchase()) return copy().savingPurchase
+    if (!draft) return copy().purchaseSaveAction
+    if (draft.splitInputMode === 'equal') return copy().purchaseSaveAction
+    if (!validatePurchaseDraft(draft).valid) return copy().purchaseBalanceAction
+    return copy().purchaseSaveAction
+  })
 
   function openPurchaseEditor(entry: MiniAppDashboard['ledger'][number]) {
     setEditingPurchase(entry)
@@ -361,105 +539,6 @@ export default function LedgerRoute() {
     { value: 'percentage', label: 'Percentages' }
   ]
 
-  function renderParticipantSplitInputs(
-    draft: PurchaseDraft,
-    updateDraft: (fn: (d: PurchaseDraft) => PurchaseDraft) => void
-  ) {
-    const remaining = () => calculateRemainingToAllocate(draft)
-    const validation = () => validatePurchaseDraft(draft)
-
-    return (
-      <div
-        class="split-configuration"
-        style={{ display: 'flex', 'flex-direction': 'column', gap: '8px', 'margin-top': '8px' }}
-      >
-        <For each={draft.participants}>
-          {(participant, idx) => {
-            const member = dashboard()?.members.find((m) => m.memberId === participant.memberId)
-            return (
-              <div
-                class="split-participant"
-                style={{ display: 'flex', 'align-items': 'center', gap: '12px' }}
-              >
-                <Toggle
-                  checked={participant.included}
-                  onChange={(checked) => {
-                    updateDraft((d) => {
-                      const newParticipants = [...d.participants]
-                      newParticipants[idx()] = { ...participant, included: checked }
-                      const updated = { ...d, participants: newParticipants }
-                      return rebalancePurchaseSplit(updated, null, null)
-                    })
-                  }}
-                />
-                <span style={{ flex: 1 }}>{member?.displayName ?? 'Unknown'}</span>
-                <Show when={participant.included && draft.splitInputMode === 'exact'}>
-                  <Input
-                    type="number"
-                    style={{ width: '100px' }}
-                    placeholder="0.00"
-                    value={participant.shareAmountMajor}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value
-                      updateDraft((d) => {
-                        const newParticipants = [...d.participants]
-                        newParticipants[idx()] = {
-                          ...participant,
-                          shareAmountMajor: value
-                        }
-                        const updated = { ...d, participants: newParticipants }
-                        return rebalancePurchaseSplit(updated, participant.memberId, value)
-                      })
-                    }}
-                  />
-                </Show>
-                <Show when={participant.included && draft.splitInputMode === 'percentage'}>
-                  <Input
-                    type="number"
-                    style={{ width: '80px' }}
-                    placeholder="%"
-                    value={participant.sharePercentage}
-                    onInput={(e) => {
-                      const value = e.currentTarget.value
-                      const percentage = parseFloat(value) || 0
-                      const totalMajor = parseFloat(draft.amountMajor) || 0
-                      const exactAmount = (totalMajor * percentage) / 100
-                      const newAmountMajor = exactAmount > 0 ? exactAmount.toFixed(2) : ''
-
-                      updateDraft((d) => {
-                        const newParticipants = [...d.participants]
-                        newParticipants[idx()] = {
-                          ...participant,
-                          sharePercentage: value,
-                          shareAmountMajor: newAmountMajor
-                        }
-                        const updated = { ...d, participants: newParticipants }
-                        return rebalancePurchaseSplit(updated, participant.memberId, newAmountMajor)
-                      })
-                    }}
-                  />
-                </Show>
-              </div>
-            )
-          }}
-        </For>
-        <Show when={draft.splitInputMode !== 'equal' && draft.participants.some((p) => p.included)}>
-          <div
-            style={{
-              'font-size': '12px',
-              'margin-top': '4px',
-              color: validation().valid ? '#22c55e' : '#ef4444'
-            }}
-          >
-            {validation().error
-              ? validation().error
-              : `Remaining: ${minorToMajorString(remaining() > 0n ? remaining() : -remaining())} ${draft.currency}`}
-          </div>
-        </Show>
-      </div>
-    )
-  }
-
   return (
     <div class="route route--ledger">
       <Show
@@ -633,15 +712,19 @@ export default function LedgerRoute() {
             <Button
               variant="primary"
               loading={addingPurchase()}
-              disabled={
-                !newPurchase().description.trim() ||
-                !newPurchase().amountMajor.trim() ||
-                (newPurchase().splitInputMode !== 'equal' &&
-                  !validatePurchaseDraft(newPurchase()).valid)
-              }
-              onClick={() => void handleAddPurchase()}
+              disabled={!newPurchase().description.trim() || !newPurchase().amountMajor.trim()}
+              onClick={() => {
+                if (
+                  newPurchase().splitInputMode !== 'equal' &&
+                  !validatePurchaseDraft(newPurchase()).valid
+                ) {
+                  setNewPurchase((p) => rebalancePurchaseSplit(p, null, null))
+                } else {
+                  void handleAddPurchase()
+                }
+              }}
             >
-              {copy().purchaseSaveAction}
+              {addPurchaseButtonText()}
             </Button>
           </div>
         }
@@ -657,7 +740,13 @@ export default function LedgerRoute() {
             <Input
               type="number"
               value={newPurchase().amountMajor}
-              onInput={(e) => setNewPurchase((p) => ({ ...p, amountMajor: e.currentTarget.value }))}
+              onInput={(e) => {
+                const amountMajor = e.currentTarget.value
+                setNewPurchase((p) => {
+                  const updated = { ...p, amountMajor }
+                  return rebalancePurchaseSplit(updated, null, null)
+                })
+              }}
             />
           </Field>
           <Field label={copy().currencyLabel}>
@@ -680,14 +769,20 @@ export default function LedgerRoute() {
                   setNewPurchase((p) => {
                     const splitInputMode = value as 'equal' | 'exact' | 'percentage'
                     const splitMode = splitInputMode === 'equal' ? 'equal' : 'custom_amounts'
-                    return { ...p, splitInputMode, splitMode }
+                    const updated = {
+                      ...p,
+                      splitInputMode,
+                      splitMode: splitMode as 'equal' | 'custom_amounts'
+                    }
+                    return rebalancePurchaseSplit(updated, null, null)
                   })
                 }
               />
             </Field>
-            {renderParticipantSplitInputs(newPurchase(), (updater) =>
-              setNewPurchase((prev) => updater(prev))
-            )}
+            <ParticipantSplitInputs
+              draft={newPurchase()}
+              updateDraft={(updater) => setNewPurchase((prev) => updater(prev))}
+            />
           </div>
         </div>
       </Modal>
@@ -711,10 +806,23 @@ export default function LedgerRoute() {
             <Button
               variant="primary"
               loading={savingPurchase()}
-              disabled={purchaseDraft() ? !validatePurchaseDraft(purchaseDraft()!).valid : false}
-              onClick={() => void handleSavePurchase()}
+              disabled={
+                !purchaseDraft()?.description.trim() || !purchaseDraft()?.amountMajor.trim()
+              }
+              onClick={() => {
+                const draft = purchaseDraft()
+                if (
+                  draft &&
+                  draft.splitInputMode !== 'equal' &&
+                  !validatePurchaseDraft(draft).valid
+                ) {
+                  setPurchaseDraft((d) => (d ? rebalancePurchaseSplit(d, null, null) : d))
+                } else {
+                  void handleSavePurchase()
+                }
+              }}
             >
-              {savingPurchase() ? copy().savingPurchase : copy().purchaseSaveAction}
+              {editPurchaseButtonText()}
             </Button>
           </div>
         }
@@ -734,9 +842,14 @@ export default function LedgerRoute() {
                 <Input
                   type="number"
                   value={draft().amountMajor}
-                  onInput={(e) =>
-                    setPurchaseDraft((d) => (d ? { ...d, amountMajor: e.currentTarget.value } : d))
-                  }
+                  onInput={(e) => {
+                    const amountMajor = e.currentTarget.value
+                    setPurchaseDraft((d) => {
+                      if (!d) return d
+                      const updated = { ...d, amountMajor }
+                      return rebalancePurchaseSplit(updated, null, null)
+                    })
+                  }}
                 />
               </Field>
               <Field label={copy().currencyLabel}>
@@ -760,14 +873,22 @@ export default function LedgerRoute() {
                         if (!d) return d
                         const splitInputMode = value as 'equal' | 'exact' | 'percentage'
                         const splitMode = splitInputMode === 'equal' ? 'equal' : 'custom_amounts'
-                        return { ...d, splitInputMode, splitMode }
+                        const updated = {
+                          ...d,
+                          splitInputMode,
+                          splitMode: splitMode as 'equal' | 'custom_amounts'
+                        }
+                        return rebalancePurchaseSplit(updated, null, null)
                       })
                     }
                   />
                 </Field>
-                {renderParticipantSplitInputs(draft(), (updater) =>
-                  setPurchaseDraft((prev) => (prev ? updater(prev) : prev))
-                )}
+                <ParticipantSplitInputs
+                  draft={draft()}
+                  updateDraft={(updater) =>
+                    setPurchaseDraft((prev) => (prev ? updater(prev) : prev))
+                  }
+                />
               </div>
             </div>
           )}

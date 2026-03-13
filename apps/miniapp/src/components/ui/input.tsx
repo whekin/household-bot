@@ -18,6 +18,7 @@ type InputProps = {
   id?: string
   onInput?: JSX.EventHandlerUnion<HTMLInputElement, InputEvent>
   onChange?: JSX.EventHandlerUnion<HTMLInputElement, Event>
+  onBlur?: JSX.EventHandlerUnion<HTMLInputElement, FocusEvent>
 }
 
 export function Input(props: InputProps) {
@@ -38,6 +39,7 @@ export function Input(props: InputProps) {
       class={cn('ui-input', props.class)}
       onInput={props.onInput}
       onChange={props.onChange}
+      onBlur={props.onBlur}
     />
   )
 }

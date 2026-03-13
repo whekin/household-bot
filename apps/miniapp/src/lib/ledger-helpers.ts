@@ -182,63 +182,56 @@ export function rebalancePurchaseSplit(
   newAmountMajor: string | null
 ): PurchaseDraft {
   const totalMinor = majorStringToMinor(draft.amountMajor)
-  if (totalMinor <= 0n) return draft
-
   let participants = draft.participants.map((p) => ({ ...p }))
 
+  // 1. Update the changed participant if any
   if (changedMemberId !== null && newAmountMajor !== null) {
-    const changedIdx = participants.findIndex((p) => p.memberId === changedMemberId)
-    if (changedIdx === -1) return draft
-
-    const newAmountMinor = majorStringToMinor(newAmountMajor)
-
-    if (newAmountMinor > totalMinor) {
-      return draft
-    }
-
-    const oldAmountMinor = majorStringToMinor(participants[changedIdx]!.shareAmountMajor || '0')
-    const delta = oldAmountMinor - newAmountMinor
-
-    participants[changedIdx] = {
-      ...participants[changedIdx]!,
-      shareAmountMajor: newAmountMajor,
-      lastUpdatedAt: Date.now(),
-      isAutoCalculated: false
-    }
-
-    if (delta === 0n) {
-      return recalculatePercentages({ ...draft, participants })
-    }
-
-    const included = participants
-      .map((p, idx) => ({ ...p, idx }))
-      .filter((p) => p.included && p.memberId !== changedMemberId)
-
-    if (included.length === 0) {
-      return recalculatePercentages({ ...draft, participants })
-    }
-
-    let remainingDelta = delta
-    const sorted = [...included].sort((a, b) => {
-      if (a.isAutoCalculated !== b.isAutoCalculated) {
-        return a.isAutoCalculated ? -1 : 1
+    const idx = participants.findIndex((p) => p.memberId === changedMemberId)
+    if (idx !== -1) {
+      participants[idx] = {
+        ...participants[idx]!,
+        shareAmountMajor: newAmountMajor,
+        lastUpdatedAt: Date.now(),
+        isAutoCalculated: false
       }
+    }
+  }
+
+  // 2. Identify included participants to balance against
+  const included = participants
+    .map((p, idx) => ({ ...p, idx }))
+    .filter((p) => p.included && p.memberId !== changedMemberId)
+
+  // 3. Calculate current allocation and delta
+  const currentAllocated = participants
+    .filter((p) => p.included)
+    .reduce((sum, p) => sum + majorStringToMinor(p.shareAmountMajor || '0'), 0n)
+
+  let delta = currentAllocated - totalMinor
+
+  if (delta !== 0n && included.length > 0) {
+    // 4. Distribute delta among others (preferring auto-calculated)
+    const sorted = [...included].sort((a, b) => {
+      // Prefer auto-calculated for absorbing changes
+      if (a.isAutoCalculated !== b.isAutoCalculated) {
+        return a.isAutoCalculated === false ? 1 : -1
+      }
+      // Then oldest updated
       const aTime = a.lastUpdatedAt ?? 0
       const bTime = b.lastUpdatedAt ?? 0
       return aTime - bTime
     })
 
     for (const p of sorted) {
-      if (remainingDelta === 0n) break
-
+      if (delta === 0n) break
       const currentMinor = majorStringToMinor(participants[p.idx]!.shareAmountMajor || '0')
-      let newValue = currentMinor - remainingDelta
+      let newValue = currentMinor - delta
 
       if (newValue < 0n) {
-        remainingDelta = -newValue
+        delta = -newValue
         newValue = 0n
       } else {
-        remainingDelta = 0n
+        delta = 0n
       }
 
       participants[p.idx] = {
@@ -246,32 +239,25 @@ export function rebalancePurchaseSplit(
         shareAmountMajor: minorToMajorString(newValue),
         isAutoCalculated: true
       }
-
-      if (newValue === 0n) {
-        participants[p.idx]!.included = false
-      }
     }
-  } else {
-    const included = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+  }
 
-    if (included.length === 0) {
-      return { ...draft, participants }
+  // Special case: if it's 'equal' mode and we aren't handling a specific change, force equal
+  if (draft.splitInputMode === 'equal' && changedMemberId === null) {
+    const active = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+    if (active.length > 0) {
+      const count = BigInt(active.length)
+      const baseShare = totalMinor / count
+      const remainder = totalMinor % count
+      active.forEach((p, i) => {
+        const share = baseShare + (BigInt(i) < remainder ? 1n : 0n)
+        participants[p.idx] = {
+          ...participants[p.idx]!,
+          shareAmountMajor: minorToMajorString(share),
+          isAutoCalculated: true
+        }
+      })
     }
-
-    const count = BigInt(included.length)
-    const baseShare = totalMinor / count
-    const remainder = totalMinor % count
-
-    included.forEach((p, i) => {
-      const share = baseShare + (BigInt(i) < remainder ? 1n : 0n)
-      const existing = participants[p.idx]!
-      participants[p.idx] = {
-        ...existing,
-        shareAmountMajor: minorToMajorString(share),
-        ...(existing.lastUpdatedAt !== undefined ? { lastUpdatedAt: existing.lastUpdatedAt } : {}),
-        isAutoCalculated: true
-      }
-    })
   }
 
   return recalculatePercentages({ ...draft, participants })
