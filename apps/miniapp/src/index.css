@@ -633,6 +633,7 @@ a {
   border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
   transition: border-color var(--transition-fast);
+  overflow: hidden;
 }
 
 .ui-card--accent {
@@ -1402,7 +1403,8 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-sm) 0;
+  margin: 0 calc(var(--spacing-lg) * -1);
+  padding: var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border);
   background: transparent;
   border-left: 0;
@@ -1410,7 +1412,7 @@ a {
   border-top: 0;
   color: inherit;
   text-align: left;
-  width: 100%;
+  width: calc(100% + var(--spacing-lg) * 2);
   cursor: pointer;
   transition: background var(--transition-fast);
 }
@@ -1500,6 +1502,17 @@ a {
   gap: var(--spacing-md);
 }
 
+.settings-profile__row.interactive {
+  margin: 0 calc(var(--spacing-lg) * -1);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.settings-profile__row.interactive:hover {
+  background: var(--bg-input);
+}
+
 .settings-profile__row svg {
   color: var(--text-muted);
   flex-shrink: 0;
@@ -1550,6 +1563,17 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.member-row.interactive {
+  margin: 0 calc(var(--spacing-lg) * -1);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.member-row.interactive:hover {
+  background: var(--bg-input);
 }
 
 .member-row__info {

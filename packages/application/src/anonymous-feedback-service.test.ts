@@ -194,6 +194,31 @@ describe('createAnonymousFeedbackService', () => {
     })
   })
 
+  test('normalizes legacy date-like rate limit values before cooldown checks', async () => {
+    const repository = new AnonymousFeedbackRepositoryStub()
+    const service = createAnonymousFeedbackService(repository)
+
+    ;(repository.lastAcceptedAt as Instant | null | string) = '2026-03-08T09:00:00.000Z'
+    ;(repository.earliestAcceptedAtSince as Instant | null | Date) = new Date(
+      '2026-03-08T09:00:00.000Z'
+    )
+
+    const result = await service.submit({
+      telegramUserId: '123',
+      rawText: 'Please take the trash out tonight',
+      telegramChatId: 'chat-1',
+      telegramMessageId: 'message-1',
+      telegramUpdateId: 'update-1',
+      now: instantFromIso('2026-03-08T12:00:00.000Z')
+    })
+
+    expect(result).toEqual({
+      status: 'rejected',
+      reason: 'cooldown',
+      nextAllowedAt: instantFromIso('2026-03-08T15:00:00.000Z')
+    })
+  })
+
   test('marks posted and failed submissions', async () => {
     const repository = new AnonymousFeedbackRepositoryStub()
     const service = createAnonymousFeedbackService(repository)

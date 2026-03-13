@@ -2,13 +2,50 @@ import type {
   AnonymousFeedbackRejectionReason,
   AnonymousFeedbackRepository
 } from '@household/ports'
-import { nowInstant, type Instant, Temporal } from '@household/domain'
+import {
+  nowInstant,
+  instantFromDate,
+  instantFromIso,
+  type Instant,
+  Temporal
+} from '@household/domain'
 
 const MIN_MESSAGE_LENGTH = 12
 const MAX_MESSAGE_LENGTH = 500
 const COOLDOWN_HOURS = 6
 const DAILY_CAP = 3
 const BLOCKLIST = ['kill yourself', 'сука', 'тварь', 'идиот', 'idiot', 'hate you'] as const
+
+function normalizeInstant(value: unknown): Instant | null {
+  if (!value) {
+    return null
+  }
+
+  if (value instanceof Temporal.Instant) {
+    return value
+  }
+
+  if (value instanceof Date) {
+    return instantFromDate(value)
+  }
+
+  if (typeof value === 'string') {
+    return instantFromIso(value)
+  }
+
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'epochMilliseconds' in value &&
+    typeof (value as { epochMilliseconds?: unknown }).epochMilliseconds === 'number'
+  ) {
+    return Temporal.Instant.fromEpochMilliseconds(
+      (value as { epochMilliseconds: number }).epochMilliseconds
+    )
+  }
+
+  return null
+}
 
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -160,9 +197,11 @@ export function createAnonymousFeedbackService(
       const now = input.now ?? nowInstant()
       const acceptedSince = now.subtract({ hours: 24 })
       const rateLimit = await repository.getRateLimitSnapshot(member.id, acceptedSince)
+      const earliestAcceptedAtSince = normalizeInstant(rateLimit.earliestAcceptedAtSince)
+      const lastAcceptedAt = normalizeInstant(rateLimit.lastAcceptedAt)
+
       if (rateLimit.acceptedCountSince >= DAILY_CAP) {
-        const nextAllowedAt =
-          rateLimit.earliestAcceptedAtSince?.add({ hours: 24 }) ?? now.add({ hours: 24 })
+        const nextAllowedAt = earliestAcceptedAtSince?.add({ hours: 24 }) ?? now.add({ hours: 24 })
 
         return rejectSubmission(repository, {
           memberId: member.id,
@@ -175,14 +214,14 @@ export function createAnonymousFeedbackService(
         })
       }
 
-      if (rateLimit.lastAcceptedAt) {
+      if (lastAcceptedAt) {
         const cooldownBoundary = now.subtract({ hours: COOLDOWN_HOURS })
-        if (Temporal.Instant.compare(rateLimit.lastAcceptedAt, cooldownBoundary) > 0) {
+        if (Temporal.Instant.compare(lastAcceptedAt, cooldownBoundary) > 0) {
           return rejectSubmission(repository, {
             memberId: member.id,
             rawText: input.rawText,
             reason: 'cooldown',
-            nextAllowedAt: rateLimit.lastAcceptedAt.add({ hours: COOLDOWN_HOURS }),
+            nextAllowedAt: lastAcceptedAt.add({ hours: COOLDOWN_HOURS }),
             telegramChatId: input.telegramChatId,
             telegramMessageId: input.telegramMessageId,
             telegramUpdateId: input.telegramUpdateId
