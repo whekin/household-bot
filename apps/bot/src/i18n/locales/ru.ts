@@ -9,12 +9,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     cancel: 'Отменить текущий ввод',
     setup: 'Подключить эту группу как дом',
     unsetup: 'Сбросить настройку топиков для этой группы',
-    bind_chat_topic: 'Назначить текущий топик для разговоров',
-    bind_purchase_topic: 'Назначить текущий топик для покупок',
-    bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
-    bind_reminders_topic: 'Назначить текущий топик для напоминаний',
-    bind_payments_topic: 'Назначить текущий топик для оплат',
-    bind: 'Привязать текущий топик к роли дома',
+    bind: 'Привязать текущий топик к конкретной роли',
     join_link: 'Получить ссылку для приглашения новых участников',
     payment_add: 'Подтвердить оплату аренды или коммуналки',
     pending_members: 'Показать ожидающие заявки на вступление',
@@ -58,12 +53,19 @@ export const ruBotTranslations: BotTranslationCatalog = {
     joinRequestSent: (householdName) =>
       `Заявка на вступление в ${householdName} отправлена. Дождитесь подтверждения от админа дома.`,
     setupSummary: ({ householdName, created }) =>
-      `${created ? '✅' : 'ℹ️'} ${householdName} ${created ? 'готов' : 'уже подключён'}!`,
-    setupTopicsHeading: (configured, total) => `Топики: ${configured}/${total} настроено`,
+      `${created ? '✨' : 'ℹ️'} Добро пожаловать! Дом ${householdName} ${created ? 'успешно зарегистрирован' : 'уже активен'} и готов к работе.`,
+    setupTopicsHeading: (configured, total) =>
+      `Давайте настроим топики для вашего дома (${configured}/${total}):`,
     setupTopicBound: (role) => `✅ ${role}`,
     setupTopicMissing: (role) => `⚪ ${role}`,
-    setupTopicCreateButton: (role) => `+ ${role}`,
+    setupTopicCreateButton: (role) => `Настроить ${role}`,
     setupTopicBindButton: (role) => `Привязать ${role}`,
+    useBindInTopic: 'Используйте /bind внутри топика, чтобы привязать его к роли.',
+    topicAlreadyBound: (role) => `Этот топик уже привязан к роли «${role}».`,
+    bindSelectRole: 'Привязать этот топик к:',
+    topicBoundSuccess: (role, householdName) =>
+      `Топик успешно привязан как «${role}» для ${householdName}.`,
+    allRolesConfigured: 'Все роли топиков уже настроены.',
     setupTopicCreateFailed:
       'Не удалось создать этот топик. Проверьте права бота и включённые форум-топики в группе.',
     setupTopicCreateForbidden:
@@ -75,15 +77,15 @@ export const ruBotTranslations: BotTranslationCatalog = {
     setupTopicBindRoleName: (role) => {
       switch (role) {
         case 'chat':
-          return 'разговоров'
+          return 'Общение'
         case 'purchase':
-          return 'покупки'
+          return 'Покупки'
         case 'feedback':
-          return 'обратной связи'
+          return 'Фидбек'
         case 'reminders':
-          return 'напоминаний'
+          return 'Напоминания'
         case 'payments':
-          return 'оплат'
+          return 'Оплаты'
       }
     },
     setupTopicSuggestedName: (role) => {
@@ -103,23 +105,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     onlyTelegramAdminsUnsetup: 'Только админы Telegram-группы могут запускать /unsetup.',
     useUnsetupInGroup: 'Используйте /unsetup внутри группы дома.',
     unsetupComplete: (householdName) =>
-      `Состояние настройки для ${householdName} сброшено. Запустите /setup ещё раз, чтобы заново привязать топики.`,
+      `Состояние настройки для ${householdName} сброшено. Запустите /setup ещё раз, чтобы заново настроить топики.`,
     unsetupNoop: 'Для этой группы пока нечего сбрасывать. Когда будете готовы, запустите /setup.',
-    useBindChatTopicInGroup: 'Используйте /bind_chat_topic внутри топика группы дома.',
-    chatTopicSaved: (householdName, threadId) =>
-      `Топик для разговоров сохранён для ${householdName} (тред ${threadId}).`,
-    useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
-    purchaseTopicSaved: (householdName, threadId) =>
-      `Топик покупок сохранён для ${householdName} (тред ${threadId}).`,
-    useBindFeedbackTopicInGroup: 'Используйте /bind_feedback_topic внутри топика группы дома.',
-    feedbackTopicSaved: (householdName, threadId) =>
-      `Топик обратной связи сохранён для ${householdName} (тред ${threadId}).`,
-    useBindRemindersTopicInGroup: 'Используйте /bind_reminders_topic внутри топика группы дома.',
-    remindersTopicSaved: (householdName, threadId) =>
-      `Топик напоминаний сохранён для ${householdName} (тред ${threadId}).`,
-    useBindPaymentsTopicInGroup: 'Используйте /bind_payments_topic внутри топика группы дома.',
-    paymentsTopicSaved: (householdName, threadId) =>
-      `Топик оплат сохранён для ${householdName} (тред ${threadId}).`,
     usePendingMembersInGroup: 'Используйте /pending_members внутри группы дома.',
     useApproveMemberInGroup: 'Используйте /approve_member внутри группы дома.',
     approveMemberUsage: 'Использование: /approve_member <telegram_user_id>',
@@ -132,12 +119,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     useJoinLinkInGroup: 'Используйте /join_link внутри группы дома.',
     joinLinkUnavailable: 'Не удалось сгенерировать ссылку для вступления.',
     joinLinkReady: (link, householdName) =>
-      `Поделитесь этой ссылкой, чтобы пригласить участников в ${householdName}:\n\n${link}\n\nЛюбой, у кого есть эта ссылка, может подать заявку на вступление.`,
-    useBindInTopic: 'Используйте /bind внутри топика, чтобы привязать его к роли.',
-    topicAlreadyBound: (role) => `Этот топик уже привязан как ${role}.`,
-    bindSelectRole: 'Привязать этот топик как:',
-    topicBoundSuccess: (role, householdName) => `Привязан как ${role} для ${householdName}.`,
-    allRolesConfigured: 'Все роли топиков уже настроены.'
+      `Поделитесь этой ссылкой, чтобы пригласить участников в ${householdName}:\n\n${link}\n\nЛюбой, у кого есть эта ссылка, может подать заявку на вступление.`
   },
   anonymousFeedback: {
     title: 'Анонимное сообщение по дому',
@@ -149,7 +131,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     multipleHouseholds:
       'Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока выбор дома ещё не добавлен.',
     feedbackTopicMissing:
-      'Для вашего дома ещё не настроен анонимный топик. Попросите админа выполнить /bind_feedback_topic.',
+      'Для вашего дома ещё не настроен анонимный топик. Попросите админа выполнить /setup и создать топик для обратной связи.',
     duplicate: 'Это анонимное сообщение уже было обработано.',
     delivered: 'Анонимное сообщение отправлено.',
     savedButPostFailed:
@@ -329,7 +311,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
   },
   payments: {
     topicMissing:
-      'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /bind_payments_topic.',
+      'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /setup и создать топик для оплат.',
     balanceReply: (kind) =>
       kind === 'rent' ? 'Текущая сводка по аренде:' : 'Текущая сводка по коммуналке:',
     proposal: (kind, amount, currency) =>

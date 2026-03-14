@@ -9,12 +9,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     cancel: 'Cancel the current prompt',
     setup: 'Register this group as a household',
     unsetup: 'Reset topic setup for this group',
-    bind_chat_topic: 'Bind the current topic for casual conversation',
-    bind_purchase_topic: 'Bind the current topic as purchases',
-    bind_feedback_topic: 'Bind the current topic as feedback',
-    bind_reminders_topic: 'Bind the current topic as reminders',
-    bind_payments_topic: 'Bind the current topic as payments',
-    bind: 'Bind current topic to a household role',
+    bind: 'Bind current topic to a specific role',
     join_link: 'Get a shareable link for new members to join',
     payment_add: 'Record your rent or utilities payment',
     pending_members: 'List pending household join requests',
@@ -56,12 +51,19 @@ export const enBotTranslations: BotTranslationCatalog = {
     joinRequestSent: (householdName) =>
       `Join request sent for ${householdName}. Wait for a household admin to confirm you.`,
     setupSummary: ({ householdName, created }) =>
-      `${created ? '✅' : 'ℹ️'} ${householdName} is ${created ? 'ready' : 'already registered'}!`,
-    setupTopicsHeading: (configured, total) => `Topics: ${configured}/${total} configured`,
+      `${created ? '✨' : 'ℹ️'} Welcome! ${householdName} is ${created ? 'successfully registered' : 'already active'} and ready to help.`,
+    setupTopicsHeading: (configured, total) =>
+      `Let's configure your household topics to get started (${configured}/${total}):`,
     setupTopicBound: (role) => `✅ ${role}`,
     setupTopicMissing: (role) => `⚪ ${role}`,
-    setupTopicCreateButton: (role) => `+ ${role}`,
+    setupTopicCreateButton: (role) => `Setup ${role}`,
     setupTopicBindButton: (role) => `Bind ${role}`,
+    useBindInTopic: 'Run /bind inside a topic to link it to a role.',
+    topicAlreadyBound: (role) => `This topic is already linked to ${role}.`,
+    bindSelectRole: 'Link this topic to:',
+    topicBoundSuccess: (role, householdName) =>
+      `Successfully linked as ${role} for ${householdName}.`,
+    allRolesConfigured: 'All topic roles are already configured.',
     setupTopicCreateFailed:
       'I could not create that topic. Check bot admin permissions and forum settings.',
     setupTopicCreateForbidden:
@@ -73,15 +75,15 @@ export const enBotTranslations: BotTranslationCatalog = {
     setupTopicBindRoleName: (role) => {
       switch (role) {
         case 'chat':
-          return 'chat'
+          return 'Discussions'
         case 'purchase':
-          return 'purchases'
+          return 'Purchases'
         case 'feedback':
-          return 'feedback'
+          return 'Feedback'
         case 'reminders':
-          return 'reminders'
+          return 'Reminders'
         case 'payments':
-          return 'payments'
+          return 'Payments'
       }
     },
     setupTopicSuggestedName: (role) => {
@@ -101,23 +103,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     onlyTelegramAdminsUnsetup: 'Only Telegram group admins can run /unsetup.',
     useUnsetupInGroup: 'Use /unsetup inside the household group.',
     unsetupComplete: (householdName) =>
-      `Setup state reset for ${householdName}. Run /setup again to bind topics from scratch.`,
+      `Setup state reset for ${householdName}. Run /setup again to configure topics from scratch.`,
     unsetupNoop: 'Nothing to reset for this group yet. Run /setup when you are ready.',
-    useBindChatTopicInGroup: 'Use /bind_chat_topic inside the household group topic.',
-    chatTopicSaved: (householdName, threadId) =>
-      `Chat topic saved for ${householdName} (thread ${threadId}).`,
-    useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
-    purchaseTopicSaved: (householdName, threadId) =>
-      `Purchase topic saved for ${householdName} (thread ${threadId}).`,
-    useBindFeedbackTopicInGroup: 'Use /bind_feedback_topic inside the household group topic.',
-    feedbackTopicSaved: (householdName, threadId) =>
-      `Feedback topic saved for ${householdName} (thread ${threadId}).`,
-    useBindRemindersTopicInGroup: 'Use /bind_reminders_topic inside the household group topic.',
-    remindersTopicSaved: (householdName, threadId) =>
-      `Reminders topic saved for ${householdName} (thread ${threadId}).`,
-    useBindPaymentsTopicInGroup: 'Use /bind_payments_topic inside the household group topic.',
-    paymentsTopicSaved: (householdName, threadId) =>
-      `Payments topic saved for ${householdName} (thread ${threadId}).`,
     usePendingMembersInGroup: 'Use /pending_members inside the household group.',
     useApproveMemberInGroup: 'Use /approve_member inside the household group.',
     approveMemberUsage: 'Usage: /approve_member <telegram_user_id>',
@@ -130,12 +117,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     useJoinLinkInGroup: 'Use /join_link inside the household group.',
     joinLinkUnavailable: 'Could not generate join link.',
     joinLinkReady: (link, householdName) =>
-      `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`,
-    useBindInTopic: 'Use /bind inside a topic to bind it to a role.',
-    topicAlreadyBound: (role) => `This topic is already bound as ${role}.`,
-    bindSelectRole: 'Bind this topic as:',
-    topicBoundSuccess: (role, householdName) => `Bound as ${role} for ${householdName}.`,
-    allRolesConfigured: 'All topic roles are already configured.'
+      `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`
   },
   anonymousFeedback: {
     title: 'Anonymous household note',
@@ -147,7 +129,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     multipleHouseholds:
       'You belong to multiple households. Open the target household from its group until household selection is added.',
     feedbackTopicMissing:
-      'Anonymous feedback is not configured for your household yet. Ask an admin to run /bind_feedback_topic.',
+      'Anonymous feedback is not configured for your household yet. Ask an admin to run /setup and create a feedback topic.',
     duplicate: 'This anonymous feedback message was already processed.',
     delivered: 'Anonymous feedback delivered.',
     savedButPostFailed: 'Anonymous feedback was saved, but posting failed. Try again later.',
@@ -325,7 +307,7 @@ export const enBotTranslations: BotTranslationCatalog = {
   },
   payments: {
     topicMissing:
-      'Payments topic is not configured for this household yet. Ask an admin to run /bind_payments_topic.',
+      'Payments topic is not configured for this household yet. Ask an admin to run /setup and create a payments topic.',
     balanceReply: (kind) =>
       kind === 'rent' ? 'Current rent payment guidance:' : 'Current utilities payment guidance:',
     proposal: (kind, amount, currency) =>

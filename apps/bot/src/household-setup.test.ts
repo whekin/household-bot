@@ -874,13 +874,14 @@ describe('registerHouseholdSetupCommands', () => {
         chat_id: -100123456
       }
     })
-    expect(sendPayload.text).toContain('Kojori House is ready!')
-    expect(sendPayload.text).toContain('Topics: 0/5 configured')
-    expect(sendPayload.text).toContain('⚪ purchases')
-    expect(sendPayload.text).toContain('⚪ payments')
+    expect(sendPayload.text).toContain('Welcome! Kojori House is successfully registered')
+    expect(sendPayload.text).toContain("Let's configure your household topics to get started")
+    expect(sendPayload.text).toContain('(0/5)')
+    expect(sendPayload.text).toContain('⚪ Purchases')
+    expect(sendPayload.text).toContain('⚪ Payments')
     // Check that join household button exists
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('Join household')
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('+ purchases')
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Setup Purchases')
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('setup_topic:create:purchase')
   })
 
@@ -998,7 +999,7 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'purchases topic created and bound: Shared purchases.'
+        text: 'Purchases topic created and bound: Shared purchases.'
       }
     })
     expect(calls[3]).toMatchObject({
@@ -1006,7 +1007,7 @@ describe('registerHouseholdSetupCommands', () => {
       payload: {
         chat_id: -100123456,
         message_id: 91,
-        text: expect.stringContaining('✅ purchases')
+        text: expect.stringContaining('✅ Purchases')
       }
     })
 
@@ -1134,7 +1135,7 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,
-        text: 'Setup state reset for Kojori House. Run /setup again to bind topics from scratch.'
+        text: 'Setup state reset for Kojori House. Run /setup again to configure topics from scratch.'
       }
     })
     expect(await repository.listHouseholdTopicBindings('household-1')).toEqual([])

@@ -36,11 +36,6 @@ const GROUP_ADMIN_COMMAND_NAMES = [
   'setup',
   'unsetup',
   'bind',
-  'bind_chat_topic',
-  'bind_purchase_topic',
-  'bind_feedback_topic',
-  'bind_reminders_topic',
-  'bind_payments_topic',
   'join_link',
   'pending_members',
   'approve_member'

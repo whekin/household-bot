@@ -8,11 +8,6 @@ export type TelegramCommandName =
   | 'setup'
   | 'unsetup'
   | 'bind'
-  | 'bind_chat_topic'
-  | 'bind_purchase_topic'
-  | 'bind_feedback_topic'
-  | 'bind_reminders_topic'
-  | 'bind_payments_topic'
   | 'join_link'
   | 'payment_add'
   | 'pending_members'
@@ -25,11 +20,6 @@ export interface BotCommandDescriptions {
   cancel: string
   setup: string
   unsetup: string
-  bind_chat_topic: string
-  bind_purchase_topic: string
-  bind_feedback_topic: string
-  bind_reminders_topic: string
-  bind_payments_topic: string
   bind: string
   join_link: string
   payment_add: string
@@ -100,16 +90,11 @@ export interface BotTranslationCatalog {
     useUnsetupInGroup: string
     unsetupComplete: (householdName: string) => string
     unsetupNoop: string
-    useBindChatTopicInGroup: string
-    chatTopicSaved: (householdName: string, threadId: string) => string
-    useBindPurchaseTopicInGroup: string
-    purchaseTopicSaved: (householdName: string, threadId: string) => string
-    useBindFeedbackTopicInGroup: string
-    feedbackTopicSaved: (householdName: string, threadId: string) => string
-    useBindRemindersTopicInGroup: string
-    remindersTopicSaved: (householdName: string, threadId: string) => string
-    useBindPaymentsTopicInGroup: string
-    paymentsTopicSaved: (householdName: string, threadId: string) => string
+    useBindInTopic: string
+    topicAlreadyBound: (role: string) => string
+    bindSelectRole: string
+    topicBoundSuccess: (role: string, householdName: string) => string
+    allRolesConfigured: string
     usePendingMembersInGroup: string
     useApproveMemberInGroup: string
     approveMemberUsage: string
@@ -121,11 +106,6 @@ export interface BotTranslationCatalog {
     useJoinLinkInGroup: string
     joinLinkUnavailable: string
     joinLinkReady: (link: string, householdName: string) => string
-    useBindInTopic: string
-    topicAlreadyBound: (role: string) => string
-    bindSelectRole: string
-    topicBoundSuccess: (role: string, householdName: string) => string
-    allRolesConfigured: string
   }
   anonymousFeedback: {
     title: string

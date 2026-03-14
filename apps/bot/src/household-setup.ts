@@ -20,7 +20,7 @@ import { resolveReplyLocale } from './bot-locale'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
-const SETUP_BIND_TOPIC_ACTION = 'setup_topic_binding' as const
+
 const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
   'chat',
   'purchase',
@@ -37,11 +37,6 @@ function isGroupChat(ctx: Context): ctx is Context & {
   chat: NonNullable<Context['chat']> & { type: 'group' | 'supergroup'; title?: string }
 } {
   return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
-}
-
-function isTopicMessage(ctx: Context): boolean {
-  const message = ctx.msg
-  return !!message && 'is_topic_message' in message && message.is_topic_message === true
 }
 
 async function isGroupAdmin(ctx: Context): Promise<boolean> {
@@ -76,63 +71,6 @@ function unsetupRejectionMessage(
       return t.onlyTelegramAdminsUnsetup
     case 'invalid_chat_type':
       return t.useUnsetupInGroup
-  }
-}
-
-function bindRejectionMessage(
-  locale: BotLocale,
-  reason: 'not_admin' | 'household_not_found' | 'not_topic_message'
-): string {
-  const t = getBotTranslations(locale).setup
-  switch (reason) {
-    case 'not_admin':
-      return t.onlyTelegramAdminsBindTopics
-    case 'household_not_found':
-      return t.householdNotConfigured
-    case 'not_topic_message':
-      return t.useCommandInTopic
-  }
-}
-
-function bindTopicUsageMessage(
-  locale: BotLocale,
-  role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
-): string {
-  const t = getBotTranslations(locale).setup
-
-  switch (role) {
-    case 'chat':
-      return t.useBindChatTopicInGroup
-    case 'purchase':
-      return t.useBindPurchaseTopicInGroup
-    case 'feedback':
-      return t.useBindFeedbackTopicInGroup
-    case 'reminders':
-      return t.useBindRemindersTopicInGroup
-    case 'payments':
-      return t.useBindPaymentsTopicInGroup
-  }
-}
-
-function bindTopicSuccessMessage(
-  locale: BotLocale,
-  role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments',
-  householdName: string,
-  threadId: string
-): string {
-  const t = getBotTranslations(locale).setup
-
-  switch (role) {
-    case 'chat':
-      return t.chatTopicSaved(householdName, threadId)
-    case 'purchase':
-      return t.purchaseTopicSaved(householdName, threadId)
-    case 'feedback':
-      return t.feedbackTopicSaved(householdName, threadId)
-    case 'reminders':
-      return t.remindersTopicSaved(householdName, threadId)
-    case 'payments':
-      return t.paymentsTopicSaved(householdName, threadId)
   }
 }
 
@@ -473,63 +411,6 @@ export function registerHouseholdSetupCommands(options: {
     })
   }
 
-  async function handleBindTopicCommand(
-    ctx: Context,
-    role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
-  ): Promise<void> {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(bindTopicUsageMessage(locale, role))
-      return
-    }
-
-    const actorIsAdmin = await isGroupAdmin(ctx)
-    const telegramThreadId =
-      isTopicMessage(ctx) && ctx.msg && 'message_thread_id' in ctx.msg
-        ? ctx.msg.message_thread_id?.toString()
-        : undefined
-    const result = await options.householdSetupService.bindTopic({
-      actorIsAdmin,
-      telegramChatId: ctx.chat.id.toString(),
-      role,
-      ...(telegramThreadId
-        ? {
-            telegramThreadId
-          }
-        : {})
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(bindRejectionMessage(locale, result.reason))
-      return
-    }
-
-    options.logger?.info(
-      {
-        event: 'household_setup.topic_bound',
-        role: result.binding.role,
-        telegramChatId: result.household.telegramChatId,
-        telegramThreadId: result.binding.telegramThreadId,
-        householdId: result.household.householdId,
-        actorTelegramUserId: ctx.from?.id?.toString()
-      },
-      'Household topic bound'
-    )
-
-    await ctx.reply(
-      bindTopicSuccessMessage(
-        locale,
-        role,
-        result.household.householdName,
-        result.binding.telegramThreadId
-      )
-    )
-  }
-
   options.bot.command('start', async (ctx) => {
     const fallbackLocale = await resolveReplyLocale({
       ctx,
@@ -714,7 +595,7 @@ export function registerHouseholdSetupCommands(options: {
     if (result.status === 'noop') {
       await options.promptRepository?.clearPendingActionsForChat(
         telegramChatId,
-        SETUP_BIND_TOPIC_ACTION
+        'setup_topic_binding'
       )
       await ctx.reply(t.setup.unsetupNoop)
       return
@@ -722,7 +603,7 @@ export function registerHouseholdSetupCommands(options: {
 
     await options.promptRepository?.clearPendingActionsForChat(
       telegramChatId,
-      SETUP_BIND_TOPIC_ACTION
+      'setup_topic_binding'
     )
 
     options.logger?.info(
@@ -736,103 +617,6 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     await ctx.reply(t.setup.unsetupComplete(result.household.householdName))
-  })
-
-  options.bot.command('bind_chat_topic', async (ctx) => {
-    await handleBindTopicCommand(ctx, 'chat')
-  })
-
-  options.bot.command('bind_purchase_topic', async (ctx) => {
-    await handleBindTopicCommand(ctx, 'purchase')
-  })
-
-  options.bot.command('bind_feedback_topic', async (ctx) => {
-    await handleBindTopicCommand(ctx, 'feedback')
-  })
-
-  options.bot.command('bind_reminders_topic', async (ctx) => {
-    await handleBindTopicCommand(ctx, 'reminders')
-  })
-
-  options.bot.command('bind_payments_topic', async (ctx) => {
-    await handleBindTopicCommand(ctx, 'payments')
-  })
-
-  options.bot.command('bind', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useBindInTopic)
-      return
-    }
-
-    if (!options.householdConfigurationRepository) {
-      await ctx.reply(t.setup.householdNotConfigured)
-      return
-    }
-
-    const household = await options.householdConfigurationRepository.getTelegramHouseholdChat(
-      ctx.chat.id.toString()
-    )
-    if (!household) {
-      await ctx.reply(t.setup.householdNotConfigured)
-      return
-    }
-
-    if (!(await isGroupAdmin(ctx))) {
-      await ctx.reply(t.setup.onlyTelegramAdminsBindTopics)
-      return
-    }
-
-    const telegramThreadId =
-      ctx.msg && 'message_thread_id' in ctx.msg ? ctx.msg.message_thread_id?.toString() : null
-
-    // If not in a topic, show error
-    if (!telegramThreadId) {
-      await ctx.reply(t.setup.useBindInTopic)
-      return
-    }
-
-    // Check if this topic is already bound
-    const existingBinding =
-      await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-        telegramChatId: ctx.chat.id.toString(),
-        telegramThreadId
-      })
-
-    if (existingBinding) {
-      const roleLabel = setupTopicRoleLabel(locale, existingBinding.role)
-      await ctx.reply(t.setup.topicAlreadyBound(roleLabel))
-      return
-    }
-
-    // Get all existing bindings to show which roles are available
-    const bindings = await options.householdConfigurationRepository.listHouseholdTopicBindings(
-      household.householdId
-    )
-    const boundRoles = new Set(bindings.map((b) => b.role))
-    const availableRoles = HOUSEHOLD_TOPIC_ROLE_ORDER.filter((role) => !boundRoles.has(role))
-
-    if (availableRoles.length === 0) {
-      await ctx.reply(t.setup.allRolesConfigured)
-      return
-    }
-
-    // Show role selection buttons
-    await ctx.reply(t.setup.bindSelectRole, {
-      reply_markup: {
-        inline_keyboard: availableRoles.map((role) => [
-          {
-            text: setupTopicRoleLabel(locale, role),
-            callback_data: `bind_topic:${role}:${telegramThreadId}`
-          }
-        ])
-      }
-    })
   })
 
   options.bot.command('pending_members', async (ctx) => {
@@ -974,6 +758,67 @@ export function registerHouseholdSetupCommands(options: {
     })
   })
 
+  options.bot.command('bind', async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale)
+
+    if (!isGroupChat(ctx)) {
+      await ctx.reply(t.setup.useSetupInGroup)
+      return
+    }
+
+    if (!ctx.message?.message_thread_id) {
+      await ctx.reply(t.setup.useCommandInTopic)
+      return
+    }
+
+    const actorIsAdmin = await isGroupAdmin(ctx)
+    if (!actorIsAdmin) {
+      await ctx.reply(t.setup.onlyTelegramAdminsBindTopics)
+      return
+    }
+
+    const telegramChatId = ctx.chat.id.toString()
+    const household = options.householdConfigurationRepository
+      ? await options.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
+      : null
+
+    if (!household) {
+      await ctx.reply(t.setup.householdNotConfigured)
+      return
+    }
+
+    const bindings = options.householdConfigurationRepository
+      ? await options.householdConfigurationRepository.listHouseholdTopicBindings(
+          household.householdId
+        )
+      : []
+
+    const configuredRoles = new Set(bindings.map((b) => b.role))
+    const availableRoles = HOUSEHOLD_TOPIC_ROLE_ORDER.filter((role) => !configuredRoles.has(role))
+
+    if (availableRoles.length === 0) {
+      await ctx.reply(t.setup.allRolesConfigured)
+      return
+    }
+
+    const rows = availableRoles.map((role) => [
+      {
+        text: setupTopicRoleLabel(locale, role),
+        callback_data: `bind_topic:${role}:${ctx.message!.message_thread_id}`
+      }
+    ])
+
+    await ctx.reply(t.setup.bindSelectRole, {
+      reply_markup: {
+        inline_keyboard: rows
+      }
+    })
+  })
+
   options.bot.callbackQuery(
     new RegExp(`^${APPROVE_MEMBER_CALLBACK_PREFIX}(\\d+)$`),
     async (ctx) => {
@@ -1095,7 +940,10 @@ export function registerHouseholdSetupCommands(options: {
 
           if (result.status === 'rejected') {
             await ctx.answerCallbackQuery({
-              text: bindRejectionMessage(locale, result.reason),
+              text:
+                result.reason === 'not_admin'
+                  ? t.onlyTelegramAdminsBindTopics
+                  : t.householdNotConfigured,
               show_alert: true
             })
             return
@@ -1133,9 +981,8 @@ export function registerHouseholdSetupCommands(options: {
       }
     )
 
-    // Bind topic callback from /bind command
     options.bot.callbackQuery(
-      new RegExp(`^bind_topic:(chat|purchase|feedback|reminders|payments):(\\d+)$`),
+      /^bind_topic:(chat|purchase|feedback|reminders|payments):(\d+)$/,
       async (ctx) => {
         const locale = await resolveReplyLocale({
           ctx,
@@ -1151,7 +998,11 @@ export function registerHouseholdSetupCommands(options: {
           return
         }
 
+        const role = ctx.match[1] as HouseholdTopicRole
+        const telegramThreadId = ctx.match[2]!
+        const telegramChatId = ctx.chat.id.toString()
         const actorIsAdmin = await isGroupAdmin(ctx)
+
         if (!actorIsAdmin) {
           await ctx.answerCallbackQuery({
             text: t.onlyTelegramAdminsBindTopics,
@@ -1160,19 +1011,19 @@ export function registerHouseholdSetupCommands(options: {
           return
         }
 
-        const role = ctx.match[1] as HouseholdTopicRole
-        const telegramThreadId = ctx.match[2]!
-
         const result = await options.householdSetupService.bindTopic({
           actorIsAdmin,
-          telegramChatId: ctx.chat.id.toString(),
+          telegramChatId,
           telegramThreadId,
           role
         })
 
         if (result.status === 'rejected') {
           await ctx.answerCallbackQuery({
-            text: bindRejectionMessage(locale, result.reason),
+            text:
+              result.reason === 'not_admin'
+                ? t.onlyTelegramAdminsBindTopics
+                : t.householdNotConfigured,
             show_alert: true
           })
           return
@@ -1185,10 +1036,11 @@ export function registerHouseholdSetupCommands(options: {
           )
         })
 
-        // Edit the role selection message to show success
-        await ctx.editMessageText(
-          t.topicBoundSuccess(setupTopicRoleLabel(locale, role), result.household.householdName)
-        )
+        if (ctx.msg) {
+          await ctx.editMessageText(
+            t.topicBoundSuccess(setupTopicRoleLabel(locale, role), result.household.householdName)
+          )
+        }
       }
     )
   }
