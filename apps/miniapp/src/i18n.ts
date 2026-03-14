@@ -203,6 +203,7 @@ export const dictionary = {
     topicBindingsTitle: 'Topic bindings',
     topicBindingsBody:
       'Review which Telegram topics are currently connected for purchases, feedback, reminders, and payments.',
+    topicChat: 'Discussions',
     topicPurchase: 'Purchases',
     topicFeedback: 'Feedback',
     topicReminders: 'Reminders',
@@ -549,6 +550,7 @@ export const dictionary = {
     topicBindingsTitle: 'Привязанные топики',
     topicBindingsBody:
       'Проверь, какие Telegram-топики сейчас подключены для покупок, обратной связи, напоминаний и оплат.',
+    topicChat: 'Общение',
     topicPurchase: 'Покупки',
     topicFeedback: 'Обратная связь',
     topicReminders: 'Напоминания',

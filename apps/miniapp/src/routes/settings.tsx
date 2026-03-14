@@ -425,6 +425,7 @@ export default function SettingsRoute() {
                   {(topic) => {
                     const roleLabel = () => {
                       const labels: Record<string, string> = {
+                        chat: copy().topicChat,
                         purchase: copy().topicPurchase,
                         feedback: copy().topicFeedback,
                         reminders: copy().topicReminders,
