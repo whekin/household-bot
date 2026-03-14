@@ -2476,6 +2476,11 @@ export function registerConfiguredPurchaseTopicIngestion(
           engagementAssessment: conversationContext.engagement
         })
 
+        options.logger?.info(
+          { event: 'purchase.topic_processor_result', result: processorResult },
+          'Topic processor finished'
+        )
+
         // Handle processor failure - fun "bot sleeps" message only if explicitly mentioned
         if (!processorResult) {
           if (conversationContext.explicitMention) {

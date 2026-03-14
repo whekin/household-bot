@@ -390,6 +390,14 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
       })
 
       if (!response.ok) {
+        logger?.error(
+          {
+            event: 'topic_processor.api_error',
+            status: response.status,
+            text: await response.text()
+          },
+          'Topic processor API error'
+        )
         return null
       }
 
@@ -398,6 +406,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
       const parsed = parseJsonFromResponseText<OpenAiStructuredResult>(text ?? '')
 
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        logger?.error(
+          { event: 'topic_processor.parse_error', text },
+          'Topic processor failed to parse response'
+        )
         return null
       }
 
@@ -409,6 +421,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
 
       switch (route) {
         case 'silent':
+          logger?.error(
+            { event: 'topic_processor.silent', reason },
+            'Topic processor decided silent'
+          )
           return { route, reason }
 
         case 'chat_reply': {
@@ -417,6 +433,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               ? parsed.replyText.trim()
               : null
           if (!replyText) {
+            logger?.error(
+              { event: 'topic_processor.empty_chat_reply', reason },
+              'Topic processor returned empty chat reply'
+            )
             return { route: 'silent', reason: 'empty_chat_reply' }
           }
           return { route, replyText, reason }
@@ -431,6 +451,15 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               : null
 
           if (!amountMinor || !currency || !itemDescription) {
+            logger?.error(
+              {
+                event: 'topic_processor.missing_purchase_fields',
+                amountMinor: parsed.amountMinor,
+                currency: parsed.currency,
+                itemDescription: parsed.itemDescription
+              },
+              'Topic processor missing purchase fields'
+            )
             return {
               route: 'purchase_clarification',
               clarificationQuestion: 'Could you clarify the purchase details?',
@@ -476,6 +505,15 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
           const kind = parsed.kind === 'rent' || parsed.kind === 'utilities' ? parsed.kind : null
 
           if (!amountMinor || !currency || !kind) {
+            logger?.error(
+              {
+                event: 'topic_processor.missing_payment_fields',
+                amountMinor: parsed.amountMinor,
+                currency: parsed.currency,
+                kind: parsed.kind
+              },
+              'Topic processor missing payment fields'
+            )
             return {
               route: 'payment_clarification',
               clarificationQuestion: 'Could you clarify the payment details?',
@@ -505,6 +543,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
         }
 
         default:
+          logger?.error(
+            { event: 'topic_processor.unknown_route', route: parsed.route },
+            'Topic processor returned unknown route'
+          )
           return { route: 'silent', reason: 'unknown_route' }
       }
     } catch (error) {

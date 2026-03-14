@@ -635,6 +635,11 @@ export function registerConfiguredPaymentTopicIngestion(
           engagementAssessment: conversationContext.engagement
         })
 
+        options.logger?.info(
+          { event: 'payment.topic_processor_result', result: processorResult },
+          'Topic processor finished'
+        )
+
         // Handle processor failure - only if explicitly mentioned
         if (!processorResult) {
           if (conversationContext.explicitMention) {
