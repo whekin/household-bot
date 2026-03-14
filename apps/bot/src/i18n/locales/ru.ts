@@ -53,12 +53,14 @@ export const ruBotTranslations: BotTranslationCatalog = {
     joinRequestSent: (householdName) =>
       `Заявка на вступление в ${householdName} отправлена. Дождитесь подтверждения от админа дома.`,
     setupSummary: ({ householdName, created }) =>
-      `${created ? '✨' : 'ℹ️'} Добро пожаловать! Дом ${householdName} ${created ? 'успешно зарегистрирован' : 'уже активен'} и готов к работе.`,
+      `🏡 ${created ? 'Новый дом!' : 'Дом активен!'} **${householdName}** готов.\n\n` +
+      `Базовая настройка выполнена. Теперь давайте распределим общение, привязав топики к конкретным ролям.`,
     setupTopicsHeading: (configured, total) =>
-      `Давайте настроим топики для вашего дома (${configured}/${total}):`,
+      `Текущий прогресс настройки: ${configured}/${total}\n\n` +
+      `Нажмите кнопки ниже, чтобы создать топики автоматически, или перейдите в любой существующий топик и используйте /bind, чтобы привязать его вручную.`,
     setupTopicBound: (role) => `✅ ${role}`,
     setupTopicMissing: (role) => `⚪ ${role}`,
-    setupTopicCreateButton: (role) => `Настроить ${role}`,
+    setupTopicCreateButton: (role) => `Создать ${role}`,
     setupTopicBindButton: (role) => `Привязать ${role}`,
     useBindInTopic: 'Используйте /bind внутри топика, чтобы привязать его к роли.',
     topicAlreadyBound: (role) => `Этот топик уже привязан к роли «${role}».`,

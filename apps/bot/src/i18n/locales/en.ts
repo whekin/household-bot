@@ -51,12 +51,14 @@ export const enBotTranslations: BotTranslationCatalog = {
     joinRequestSent: (householdName) =>
       `Join request sent for ${householdName}. Wait for a household admin to confirm you.`,
     setupSummary: ({ householdName, created }) =>
-      `${created ? '✨' : 'ℹ️'} Welcome! ${householdName} is ${created ? 'successfully registered' : 'already active'} and ready to help.`,
+      `🏡 ${created ? 'New household!' : 'Household active!'} **${householdName}** is ready.\n\n` +
+      `I've set up the basic configuration. Now, let's organize your communication by linking topics for specific roles.`,
     setupTopicsHeading: (configured, total) =>
-      `Let's configure your household topics to get started (${configured}/${total}):`,
+      `Current setup progress: ${configured}/${total}\n\n` +
+      `Tap buttons below to create new topics automatically, or go to any existing topic and use /bind to link it manually.`,
     setupTopicBound: (role) => `✅ ${role}`,
     setupTopicMissing: (role) => `⚪ ${role}`,
-    setupTopicCreateButton: (role) => `Setup ${role}`,
+    setupTopicCreateButton: (role) => `Create ${role}`,
     setupTopicBindButton: (role) => `Bind ${role}`,
     useBindInTopic: 'Run /bind inside a topic to link it to a role.',
     topicAlreadyBound: (role) => `This topic is already linked to ${role}.`,

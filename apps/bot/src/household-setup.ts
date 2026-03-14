@@ -565,7 +565,20 @@ export function registerHouseholdSetupCommands(options: {
       household: result.household,
       created: result.status === 'created'
     })
-    await ctx.reply(reply.text, 'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {})
+    const sent = await ctx.reply(
+      reply.text,
+      'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
+    )
+
+    if (options.promptRepository) {
+      await options.promptRepository.upsertPendingAction({
+        telegramUserId: `setup_tracking:${result.household.householdId}`,
+        telegramChatId: ctx.chat.id.toString(),
+        action: 'setup_topic_binding',
+        payload: { setupMessageId: sent.message_id },
+        expiresAt: null
+      })
+    }
   })
 
   options.bot.command('unsetup', async (ctx) => {
@@ -1040,6 +1053,40 @@ export function registerHouseholdSetupCommands(options: {
           await ctx.editMessageText(
             t.topicBoundSuccess(setupTopicRoleLabel(locale, role), result.household.householdName)
           )
+        }
+
+        // Try to update the main /setup checklist if it exists
+        if (options.promptRepository) {
+          const setupTracking = await options.promptRepository.getPendingAction(
+            telegramChatId,
+            `setup_tracking:${result.household.householdId}`
+          )
+
+          if (setupTracking?.payload.setupMessageId) {
+            const setupMessageId = setupTracking.payload.setupMessageId as number
+            const refreshed = await buildSetupReplyForHousehold({
+              ctx,
+              locale,
+              household: result.household,
+              created: false
+            })
+
+            try {
+              await ctx.api.editMessageText(telegramChatId, setupMessageId, refreshed.text, {
+                reply_markup: refreshed.reply_markup
+              } as any)
+            } catch (error) {
+              // Message might be deleted or too old, ignore
+              options.logger?.debug(
+                {
+                  event: 'household_setup.update_checklist_failed',
+                  error,
+                  setupMessageId
+                },
+                'Failed to update setup checklist message'
+              )
+            }
+          }
         }
       }
     )

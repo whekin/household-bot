@@ -874,14 +874,14 @@ describe('registerHouseholdSetupCommands', () => {
         chat_id: -100123456
       }
     })
-    expect(sendPayload.text).toContain('Welcome! Kojori House is successfully registered')
-    expect(sendPayload.text).toContain("Let's configure your household topics to get started")
-    expect(sendPayload.text).toContain('(0/5)')
+    expect(sendPayload.text).toContain('New household! **Kojori House** is ready.')
+    expect(sendPayload.text).toContain('Current setup progress: 0/5')
+    expect(sendPayload.text).toContain('0/5')
     expect(sendPayload.text).toContain('⚪ Purchases')
     expect(sendPayload.text).toContain('⚪ Payments')
     // Check that join household button exists
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('Join household')
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Setup Purchases')
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Create Purchases')
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('setup_topic:create:purchase')
   })
 
