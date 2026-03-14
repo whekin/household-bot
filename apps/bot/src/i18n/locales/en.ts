@@ -14,6 +14,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
     bind_payments_topic: 'Bind the current topic as payments',
+    bind: 'Bind current topic to a household role',
     join_link: 'Get a shareable link for new members to join',
     payment_add: 'Record your rent or utilities payment',
     pending_members: 'List pending household join requests',
@@ -54,25 +55,19 @@ export const enBotTranslations: BotTranslationCatalog = {
       `You are already an active member. Open the mini app to view ${displayName}.`,
     joinRequestSent: (householdName) =>
       `Join request sent for ${householdName}. Wait for a household admin to confirm you.`,
-    setupSummary: ({ householdName, telegramChatId, created }) =>
-      [
-        `Household ${created ? 'created' : 'already registered'}: ${householdName}`,
-        `Chat ID: ${telegramChatId}`,
-        'Use the buttons below to finish topic setup. For an existing topic, tap Bind and then send any message inside that topic.',
-        'Members should open the bot chat from the button below and confirm the join request there.'
-      ].join('\n'),
-    setupTopicsHeading: 'Topic setup:',
-    setupTopicBound: (role, topic) => `- ${role}: bound to ${topic}`,
-    setupTopicMissing: (role) => `- ${role}: not configured`,
-    setupTopicCreateButton: (role) => `Create ${role} topic`,
-    setupTopicBindButton: (role) => `Bind ${role} topic`,
+    setupSummary: ({ householdName, created }) =>
+      `${created ? '✅' : 'ℹ️'} ${householdName} is ${created ? 'ready' : 'already registered'}!`,
+    setupTopicsHeading: (configured, total) => `Topics: ${configured}/${total} configured`,
+    setupTopicBound: (role) => `✅ ${role}`,
+    setupTopicMissing: (role) => `⚪ ${role}`,
+    setupTopicCreateButton: (role) => `+ ${role}`,
+    setupTopicBindButton: (role) => `Bind ${role}`,
     setupTopicCreateFailed:
       'I could not create that topic. Check bot admin permissions and forum settings.',
     setupTopicCreateForbidden:
       'I need permission to manage topics in this group before I can create one automatically.',
     setupTopicCreated: (role, topicName) => `${role} topic created and bound: ${topicName}.`,
-    setupTopicBindPending: (role) =>
-      `Binding mode is on for ${role}. Open the target topic and send any message there within 10 minutes.`,
+    setupTopicBindPending: '',
     setupTopicBindCancelled: 'Topic binding mode cleared.',
     setupTopicBindNotAvailable: 'That topic-binding action is no longer available.',
     setupTopicBindRoleName: (role) => {
@@ -135,7 +130,12 @@ export const enBotTranslations: BotTranslationCatalog = {
     useJoinLinkInGroup: 'Use /join_link inside the household group.',
     joinLinkUnavailable: 'Could not generate join link.',
     joinLinkReady: (link, householdName) =>
-      `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`
+      `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`,
+    useBindInTopic: 'Use /bind inside a topic to bind it to a role.',
+    topicAlreadyBound: (role) => `This topic is already bound as ${role}.`,
+    bindSelectRole: 'Bind this topic as:',
+    topicBoundSuccess: (role, householdName) => `Bound as ${role} for ${householdName}.`,
+    allRolesConfigured: 'All topic roles are already configured.'
   },
   anonymousFeedback: {
     title: 'Anonymous household note',

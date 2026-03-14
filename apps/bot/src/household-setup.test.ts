@@ -160,30 +160,6 @@ function groupCallbackUpdate(data: string) {
   }
 }
 
-function topicMessageUpdate(text: string, threadId: number) {
-  return {
-    update_id: 3003,
-    message: {
-      message_id: 92,
-      date: Math.floor(Date.now() / 1000),
-      is_topic_message: true,
-      message_thread_id: threadId,
-      chat: {
-        id: -100123456,
-        type: 'supergroup',
-        title: 'Kojori House'
-      },
-      from: {
-        id: 123456,
-        is_bot: false,
-        first_name: 'Stan',
-        language_code: 'en'
-      },
-      text
-    }
-  }
-}
-
 function createPromptRepository(): TelegramPendingActionRepository {
   const store = new Map<string, TelegramPendingActionRecord>()
 
@@ -898,29 +874,14 @@ describe('registerHouseholdSetupCommands', () => {
         chat_id: -100123456
       }
     })
-    expect(sendPayload.text).toContain('Household created: Kojori House')
-    expect(sendPayload.text).toContain('- purchases: not configured')
-    expect(sendPayload.text).toContain('- payments: not configured')
-    expect(sendPayload.reply_markup).toMatchObject({
-      inline_keyboard: expect.arrayContaining([
-        [
-          {
-            text: 'Join household',
-            url: 'https://t.me/household_test_bot?start=join_join-token'
-          }
-        ],
-        [
-          {
-            text: 'Create purchases topic',
-            callback_data: 'setup_topic:create:purchase'
-          },
-          {
-            text: 'Bind purchases topic',
-            callback_data: 'setup_topic:bind:purchase'
-          }
-        ]
-      ])
-    })
+    expect(sendPayload.text).toContain('Kojori House is ready!')
+    expect(sendPayload.text).toContain('Topics: 0/5 configured')
+    expect(sendPayload.text).toContain('⚪ purchases')
+    expect(sendPayload.text).toContain('⚪ payments')
+    // Check that join household button exists
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Join household')
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('+ purchases')
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('setup_topic:create:purchase')
   })
 
   test('creates and binds a missing setup topic from callback', async () => {
@@ -1045,150 +1006,13 @@ describe('registerHouseholdSetupCommands', () => {
       payload: {
         chat_id: -100123456,
         message_id: 91,
-        text: expect.stringContaining('- purchases: bound to Shared purchases')
+        text: expect.stringContaining('✅ purchases')
       }
     })
 
     expect(await repository.getHouseholdTopicBinding('household-1', 'purchase')).toMatchObject({
       telegramThreadId: '77',
       topicName: 'Shared purchases'
-    })
-  })
-
-  test('arms manual setup topic binding and consumes the next topic message', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const repository = createHouseholdConfigurationRepository()
-    const promptRepository = createPromptRepository()
-    const householdOnboardingService: HouseholdOnboardingService = {
-      async ensureHouseholdJoinToken() {
-        return {
-          householdId: 'household-1',
-          householdName: 'Kojori House',
-          token: 'join-token'
-        }
-      },
-      async getMiniAppAccess() {
-        return {
-          status: 'open_from_group'
-        }
-      },
-      async joinHousehold() {
-        return {
-          status: 'pending',
-          household: {
-            id: 'household-1',
-            name: 'Kojori House',
-            defaultLocale: 'en'
-          }
-        }
-      }
-    }
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-
-      if (method === 'getChatMember') {
-        return {
-          ok: true,
-          result: {
-            status: 'administrator',
-            user: {
-              id: 123456,
-              is_bot: false,
-              first_name: 'Stan'
-            }
-          }
-        } as never
-      }
-
-      if (method === 'sendMessage') {
-        return {
-          ok: true,
-          result: {
-            message_id: calls.length,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: -100123456,
-              type: 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      return {
-        ok: true,
-        result: true
-      } as never
-    })
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService: createHouseholdSetupService(repository),
-      householdOnboardingService,
-      householdAdminService: createHouseholdAdminService(),
-      householdConfigurationRepository: repository,
-      promptRepository
-    })
-
-    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
-    calls.length = 0
-
-    await bot.handleUpdate(groupCallbackUpdate('setup_topic:bind:payments') as never)
-
-    expect(calls[1]).toMatchObject({
-      method: 'answerCallbackQuery',
-      payload: {
-        callback_query_id: 'callback-1',
-        text: 'Binding mode is on for payments. Open the target topic and send any message there within 10 minutes.'
-      }
-    })
-    expect(await promptRepository.getPendingAction('-100123456', '123456')).toMatchObject({
-      action: 'setup_topic_binding',
-      payload: {
-        role: 'payments',
-        setupMessageId: 91
-      }
-    })
-
-    calls.length = 0
-    await bot.handleUpdate(topicMessageUpdate('hello from payments', 444) as never)
-
-    expect(calls).toHaveLength(3)
-    expect(calls[1]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
-        chat_id: -100123456,
-        message_id: 91,
-        text: expect.stringContaining('- payments: bound to thread 444')
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -100123456,
-        message_thread_id: 444,
-        text: 'Payments topic saved for Kojori House (thread 444).'
-      }
-    })
-    expect(await promptRepository.getPendingAction('-100123456', '123456')).toBeNull()
-    expect(await repository.getHouseholdTopicBinding('household-1', 'payments')).toMatchObject({
-      telegramThreadId: '444'
     })
   })
 

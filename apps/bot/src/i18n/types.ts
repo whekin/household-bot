@@ -7,6 +7,7 @@ export type TelegramCommandName =
   | 'cancel'
   | 'setup'
   | 'unsetup'
+  | 'bind'
   | 'bind_chat_topic'
   | 'bind_purchase_topic'
   | 'bind_feedback_topic'
@@ -29,6 +30,7 @@ export interface BotCommandDescriptions {
   bind_feedback_topic: string
   bind_reminders_topic: string
   bind_payments_topic: string
+  bind: string
   join_link: string
   payment_add: string
   pending_members: string
@@ -76,20 +78,16 @@ export interface BotTranslationCatalog {
     joinLinkInvalidOrExpired: string
     alreadyActiveMember: (displayName: string) => string
     joinRequestSent: (householdName: string) => string
-    setupSummary: (params: {
-      householdName: string
-      telegramChatId: string
-      created: boolean
-    }) => string
-    setupTopicsHeading: string
-    setupTopicBound: (role: string, topic: string) => string
+    setupSummary: (params: { householdName: string; created: boolean }) => string
+    setupTopicsHeading: (configured: number, total: number) => string
+    setupTopicBound: (role: string) => string
     setupTopicMissing: (role: string) => string
     setupTopicCreateButton: (role: string) => string
     setupTopicBindButton: (role: string) => string
     setupTopicCreateFailed: string
     setupTopicCreateForbidden: string
     setupTopicCreated: (role: string, topicName: string) => string
-    setupTopicBindPending: (role: string) => string
+    setupTopicBindPending: string
     setupTopicBindCancelled: string
     setupTopicBindNotAvailable: string
     setupTopicBindRoleName: (
@@ -123,6 +121,11 @@ export interface BotTranslationCatalog {
     useJoinLinkInGroup: string
     joinLinkUnavailable: string
     joinLinkReady: (link: string, householdName: string) => string
+    useBindInTopic: string
+    topicAlreadyBound: (role: string) => string
+    bindSelectRole: string
+    topicBoundSuccess: (role: string, householdName: string) => string
+    allRolesConfigured: string
   }
   anonymousFeedback: {
     title: string

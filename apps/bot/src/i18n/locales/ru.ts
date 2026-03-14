@@ -14,6 +14,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
     bind_payments_topic: 'Назначить текущий топик для оплат',
+    bind: 'Привязать текущий топик к роли дома',
     join_link: 'Получить ссылку для приглашения новых участников',
     payment_add: 'Подтвердить оплату аренды или коммуналки',
     pending_members: 'Показать ожидающие заявки на вступление',
@@ -56,25 +57,19 @@ export const ruBotTranslations: BotTranslationCatalog = {
       `Вы уже активный участник. Откройте мини-приложение, чтобы увидеть профиль ${displayName}.`,
     joinRequestSent: (householdName) =>
       `Заявка на вступление в ${householdName} отправлена. Дождитесь подтверждения от админа дома.`,
-    setupSummary: ({ householdName, telegramChatId, created }) =>
-      [
-        `${created ? 'Дом создан' : 'Дом уже подключён'}: ${householdName}`,
-        `ID чата: ${telegramChatId}`,
-        'Используйте кнопки ниже, чтобы завершить настройку топиков. Для уже существующего топика нажмите «Привязать», затем отправьте любое сообщение внутри этого топика.',
-        'Участники должны открыть чат с ботом по кнопке ниже и подтвердить заявку на вступление.'
-      ].join('\n'),
-    setupTopicsHeading: 'Настройка топиков:',
-    setupTopicBound: (role, topic) => `- ${role}: привязан к ${topic}`,
-    setupTopicMissing: (role) => `- ${role}: не настроен`,
-    setupTopicCreateButton: (role) => `Создать топик для ${role}`,
-    setupTopicBindButton: (role) => `Привязать топик для ${role}`,
+    setupSummary: ({ householdName, created }) =>
+      `${created ? '✅' : 'ℹ️'} ${householdName} ${created ? 'готов' : 'уже подключён'}!`,
+    setupTopicsHeading: (configured, total) => `Топики: ${configured}/${total} настроено`,
+    setupTopicBound: (role) => `✅ ${role}`,
+    setupTopicMissing: (role) => `⚪ ${role}`,
+    setupTopicCreateButton: (role) => `+ ${role}`,
+    setupTopicBindButton: (role) => `Привязать ${role}`,
     setupTopicCreateFailed:
       'Не удалось создать этот топик. Проверьте права бота и включённые форум-топики в группе.',
     setupTopicCreateForbidden:
       'Мне нужны права на управление топиками в этой группе, чтобы создать его автоматически.',
     setupTopicCreated: (role, topicName) => `Топик ${role} создан и привязан: ${topicName}.`,
-    setupTopicBindPending: (role) =>
-      `Режим привязки включён для ${role}. Откройте нужный топик и отправьте там любое сообщение в течение 10 минут.`,
+    setupTopicBindPending: '',
     setupTopicBindCancelled: 'Режим привязки топика очищен.',
     setupTopicBindNotAvailable: 'Это действие привязки топика уже недоступно.',
     setupTopicBindRoleName: (role) => {
@@ -137,7 +132,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     useJoinLinkInGroup: 'Используйте /join_link внутри группы дома.',
     joinLinkUnavailable: 'Не удалось сгенерировать ссылку для вступления.',
     joinLinkReady: (link, householdName) =>
-      `Поделитесь этой ссылкой, чтобы пригласить участников в ${householdName}:\n\n${link}\n\nЛюбой, у кого есть эта ссылка, может подать заявку на вступление.`
+      `Поделитесь этой ссылкой, чтобы пригласить участников в ${householdName}:\n\n${link}\n\nЛюбой, у кого есть эта ссылка, может подать заявку на вступление.`,
+    useBindInTopic: 'Используйте /bind внутри топика, чтобы привязать его к роли.',
+    topicAlreadyBound: (role) => `Этот топик уже привязан как ${role}.`,
+    bindSelectRole: 'Привязать этот топик как:',
+    topicBoundSuccess: (role, householdName) => `Привязан как ${role} для ${householdName}.`,
+    allRolesConfigured: 'Все роли топиков уже настроены.'
   },
   anonymousFeedback: {
     title: 'Анонимное сообщение по дому',
