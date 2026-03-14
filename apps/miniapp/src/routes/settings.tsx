@@ -20,7 +20,9 @@ import {
   updateMiniAppMemberStatus,
   promoteMiniAppMember,
   approveMiniAppPendingMember,
-  rejectMiniAppPendingMember
+  rejectMiniAppPendingMember,
+  upsertMiniAppUtilityCategory,
+  type MiniAppUtilityCategory
 } from '../miniapp-api'
 import { minorToMajorString } from '../lib/money'
 
@@ -47,6 +49,16 @@ export default function SettingsRoute() {
 
   // ── Profile settings ─────────────────────────────
   const [profileEditorOpen, setProfileEditorOpen] = createSignal(false)
+
+  // ── Utility categories ───────────────────────────
+  const [categoryEditorOpen, setCategoryEditorOpen] = createSignal(false)
+  const [editingCategorySlug, setEditingCategorySlug] = createSignal<string | null>(null)
+  const [savingCategory, setSavingCategory] = createSignal(false)
+  const [categoryForm, setCategoryForm] = createSignal({
+    name: '',
+    sortOrder: 0,
+    isActive: true
+  })
 
   // ── Billing settings form ────────────────────────
   const [billingEditorOpen, setBillingEditorOpen] = createSignal(false)
@@ -139,6 +151,60 @@ export default function SettingsRoute() {
       setBillingEditorOpen(false)
     } finally {
       setSavingSettings(false)
+    }
+  }
+
+  // ── Utility Category Editing ─────────────────────
+  function openAddCategory() {
+    setEditingCategorySlug(null)
+    setCategoryForm({
+      name: '',
+      sortOrder: adminSettings()?.categories.length ?? 0,
+      isActive: true
+    })
+    setCategoryEditorOpen(true)
+  }
+
+  function openEditCategory(category: MiniAppUtilityCategory) {
+    setEditingCategorySlug(category.slug)
+    setCategoryForm({
+      name: category.name,
+      sortOrder: category.sortOrder,
+      isActive: category.isActive
+    })
+    setCategoryEditorOpen(true)
+  }
+
+  async function handleSaveCategory() {
+    const data = initData()
+    if (!data) return
+
+    setSavingCategory(true)
+    try {
+      const form = categoryForm()
+      const slug = editingCategorySlug()
+      const category = await upsertMiniAppUtilityCategory(data, {
+        ...(slug ? { slug } : {}),
+        name: form.name,
+        sortOrder: form.sortOrder,
+        isActive: form.isActive
+      })
+
+      // Update local state
+      setAdminSettings((prev) => {
+        if (!prev) return prev
+        const existing = prev.categories.find((c) => c.slug === category.slug)
+        if (existing) {
+          return {
+            ...prev,
+            categories: prev.categories.map((c) => (c.slug === category.slug ? category : c))
+          }
+        }
+        return { ...prev, categories: [...prev.categories, category] }
+      })
+      setCategoryEditorOpen(false)
+    } finally {
+      setSavingCategory(false)
     }
   }
 
@@ -443,6 +509,40 @@ export default function SettingsRoute() {
                     )
                   }}
                 </For>
+              </div>
+            )}
+          </Show>
+        </Collapsible>
+
+        {/* Utility Categories */}
+        <Collapsible title={copy().utilityCategoriesTitle} body={copy().utilityCategoriesBody}>
+          <Show
+            when={adminSettings()?.categories}
+            fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
+          >
+            {(categories) => (
+              <div class="categories-list">
+                <For each={categories()}>
+                  {(category) => (
+                    <Card>
+                      <div
+                        class="category-row interactive"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => openEditCategory(category)}
+                      >
+                        <div class="category-row__info">
+                          <strong>{category.name}</strong>
+                          <Badge variant={category.isActive ? 'accent' : 'muted'}>
+                            {category.isActive ? copy().onLabel : copy().offLabel}
+                          </Badge>
+                        </div>
+                      </div>
+                    </Card>
+                  )}
+                </For>
+                <Button variant="secondary" size="sm" onClick={() => openAddCategory()}>
+                  {copy().addCategoryAction}
+                </Button>
               </div>
             )}
           </Show>
@@ -858,6 +958,50 @@ export default function SettingsRoute() {
             <Input
               value={displayNameDraft()}
               onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
+            />
+          </Field>
+        </div>
+      </Modal>
+
+      {/* ── Category Editor Modal ────────────── */}
+      <Modal
+        open={categoryEditorOpen()}
+        title={editingCategorySlug() ? copy().editCategoryAction : copy().addCategoryAction}
+        description={editingCategorySlug() ? copy().categoryEditorBody : copy().categoryCreateBody}
+        closeLabel={copy().closeEditorAction}
+        onClose={() => setCategoryEditorOpen(false)}
+        footer={
+          <div class="modal-action-row">
+            <Button variant="ghost" onClick={() => setCategoryEditorOpen(false)}>
+              {copy().closeEditorAction}
+            </Button>
+            <Button
+              variant="primary"
+              loading={savingCategory()}
+              disabled={categoryForm().name.trim().length < 1}
+              onClick={() => void handleSaveCategory()}
+            >
+              {savingCategory() ? copy().savingCategory : copy().saveCategoryAction}
+            </Button>
+          </div>
+        }
+      >
+        <div class="editor-grid">
+          <Field label={copy().utilityCategoryName} wide>
+            <Input
+              value={categoryForm().name}
+              onInput={(e) => setCategoryForm((f) => ({ ...f, name: e.currentTarget.value }))}
+            />
+          </Field>
+          <Field label={copy().utilityCategoryActive}>
+            <Select
+              value={categoryForm().isActive ? 'true' : 'false'}
+              ariaLabel={copy().utilityCategoryActive}
+              options={[
+                { value: 'true', label: copy().onLabel },
+                { value: 'false', label: copy().offLabel }
+              ]}
+              onChange={(value) => setCategoryForm((f) => ({ ...f, isActive: value === 'true' }))}
             />
           </Field>
         </div>
