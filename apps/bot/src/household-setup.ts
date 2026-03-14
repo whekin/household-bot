@@ -149,6 +149,7 @@ function setupKeyboard(input: {
   bindings: readonly HouseholdTopicBindingRecord[]
   miniAppUrl: string | undefined
   botUsername: string | undefined
+  isPrivate: boolean
 }) {
   const t = getBotTranslations(input.locale).setup
   const kt = getBotTranslations(input.locale).keyboard
@@ -199,14 +200,23 @@ function setupKeyboard(input: {
   // Add dashboard button
   const webAppUrl = buildOpenMiniAppUrl(input.miniAppUrl, input.botUsername)
   if (webAppUrl) {
-    rows.push([
-      {
-        text: kt.dashboardButton,
-        web_app: {
-          url: webAppUrl
+    if (input.isPrivate) {
+      rows.push([
+        {
+          text: kt.dashboardButton,
+          web_app: {
+            url: webAppUrl
+          }
         }
-      }
-    ])
+      ])
+    } else if (input.botUsername) {
+      rows.push([
+        {
+          text: kt.dashboardButton,
+          url: `https://t.me/${input.botUsername}/app`
+        }
+      ])
+    }
   }
 
   return rows.length > 0
@@ -256,6 +266,7 @@ function setupReply(input: {
   bindings: readonly HouseholdTopicBindingRecord[]
   miniAppUrl: string | undefined
   botUsername: string | undefined
+  isPrivate: boolean
 }) {
   const t = getBotTranslations(input.locale).setup
   return {
@@ -274,7 +285,8 @@ function setupReply(input: {
       joinDeepLink: input.joinDeepLink,
       bindings: input.bindings,
       miniAppUrl: input.miniAppUrl,
-      botUsername: input.botUsername
+      botUsername: input.botUsername,
+      isPrivate: input.isPrivate
     })
   }
 }
@@ -324,53 +336,89 @@ function miniAppReplyMarkup(
   locale: BotLocale,
   miniAppUrl: string | undefined,
   botUsername: string | undefined,
-  joinToken: string
+  joinToken: string,
+  isPrivate: boolean
 ) {
   const webAppUrl = buildJoinMiniAppUrl(miniAppUrl, botUsername, joinToken)
   if (!webAppUrl) {
     return {}
   }
 
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          {
-            text: getBotTranslations(locale).setup.openMiniAppButton,
-            web_app: {
-              url: webAppUrl
+  if (isPrivate) {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: getBotTranslations(locale).setup.openMiniAppButton,
+              web_app: {
+                url: webAppUrl
+              }
             }
-          }
+          ]
         ]
-      ]
+      }
     }
   }
+
+  return botUsername
+    ? {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: getBotTranslations(locale).setup.openMiniAppButton,
+                url: `https://t.me/${botUsername}/app?startapp=join_${joinToken}`
+              }
+            ]
+          ]
+        }
+      }
+    : {}
 }
 
 function openMiniAppReplyMarkup(
   locale: BotLocale,
   miniAppUrl: string | undefined,
-  botUsername: string | undefined
+  botUsername: string | undefined,
+  isPrivate: boolean
 ) {
   const webAppUrl = buildOpenMiniAppUrl(miniAppUrl, botUsername)
   if (!webAppUrl) {
     return {}
   }
 
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          {
-            text: getBotTranslations(locale).setup.openMiniAppButton,
-            web_app: {
-              url: webAppUrl
+  if (isPrivate) {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: getBotTranslations(locale).setup.openMiniAppButton,
+              web_app: {
+                url: webAppUrl
+              }
             }
-          }
+          ]
         ]
-      ]
+      }
     }
   }
+
+  return botUsername
+    ? {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: getBotTranslations(locale).setup.openMiniAppButton,
+                url: `https://t.me/${botUsername}/app`
+              }
+            ]
+          ]
+        }
+      }
+    : {}
 }
 
 export function registerHouseholdSetupCommands(options: {
@@ -435,7 +483,8 @@ export function registerHouseholdSetupCommands(options: {
       joinDeepLink,
       bindings,
       miniAppUrl: input.miniAppUrl,
-      botUsername: input.botUsername
+      botUsername: input.botUsername,
+      isPrivate: input.ctx.chat?.type === 'private'
     })
   }
 
@@ -467,7 +516,7 @@ export function registerHouseholdSetupCommands(options: {
 
         await ctx.reply(
           t.setup.openMiniAppFromPrivateChat,
-          openMiniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username)
+          openMiniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, true)
         )
         return
       }
@@ -525,14 +574,14 @@ export function registerHouseholdSetupCommands(options: {
     if (result.status === 'active') {
       await ctx.reply(
         t.setup.alreadyActiveMember(result.member.displayName),
-        miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken)
+        miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
       )
       return
     }
 
     await ctx.reply(
       t.setup.joinRequestSent(result.household.name),
-      miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken)
+      miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
     )
   })
 
@@ -1139,7 +1188,12 @@ export function registerHouseholdSetupCommands(options: {
 
     await ctx.reply(
       t.setup.openMiniAppFromPrivateChat,
-      openMiniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username)
+      openMiniAppReplyMarkup(
+        locale,
+        options.miniAppUrl,
+        ctx.me.username,
+        ctx.chat?.type === 'private'
+      )
     )
   })
 
