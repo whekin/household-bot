@@ -60,6 +60,40 @@ Boundary rules:
 - Treat removal of fresh legacy code and config as normal pre-1.0 cleanup, not as a risky exception
 - Run Codex review before merge (`codex review --base origin/main`)
 
+## Commit conventions
+
+Follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+
+```
+<type>(<scope>): <description>
+```
+
+Common types:
+
+- `feat` - new feature
+- `fix` - bug fix
+- `docs` - documentation only
+- `style` - code style (formatting, semicolons, etc.)
+- `refactor` - code change that neither fixes a bug nor adds a feature
+- `test` - adding or fixing tests
+- `chore` - build process, dependencies, etc.
+
+Scopes (typical):
+
+- `miniapp` - mini app UI/components
+- `bot` - Telegram bot
+- `domain` - domain logic
+- `application` - use cases
+- `db` - database schema/migrations
+
+Examples:
+
+```
+feat(miniapp): add utility categories management in settings
+fix(bot): handle null thread id in topic processor
+docs: update deployment runbook
+```
+
 ## Communication
 
 - Always respond to the user in English unless they explicitly ask for another language.
