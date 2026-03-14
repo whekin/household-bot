@@ -1,5 +1,5 @@
 import { Show, For, createSignal } from 'solid-js'
-import { ArrowLeft, Globe, User } from 'lucide-solid'
+import { ArrowLeft, Globe, Plus, User } from 'lucide-solid'
 import { useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
@@ -366,6 +366,42 @@ export default function SettingsRoute() {
           </Card>
         </Collapsible>
 
+        {/* Utility Categories */}
+        <Collapsible title={copy().utilityCategoriesTitle} body={copy().utilityCategoriesBody}>
+          <div class="editable-list-actions">
+            <Button variant="primary" size="sm" onClick={() => openAddCategory()}>
+              <Plus size={14} />
+              {copy().addCategoryAction}
+            </Button>
+          </div>
+          <Show
+            when={adminSettings()?.categories}
+            fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
+          >
+            {(categories) => (
+              <Show
+                when={categories().length > 0}
+                fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
+              >
+                <div class="editable-list">
+                  <For each={categories()}>
+                    {(category) => (
+                      <button class="editable-list-row" onClick={() => openEditCategory(category)}>
+                        <div class="editable-list-row__main">
+                          <span class="editable-list-row__title">{category.name}</span>
+                        </div>
+                        <Badge variant={category.isActive ? 'accent' : 'muted'}>
+                          {category.isActive ? copy().onLabel : copy().offLabel}
+                        </Badge>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            )}
+          </Show>
+        </Collapsible>
+
         {/* Billing cycle */}
         <Collapsible title={copy().billingCycleTitle}>
           <Card>
@@ -395,45 +431,43 @@ export default function SettingsRoute() {
             when={pendingMembers().length > 0}
             fallback={<p class="empty-state">{copy().pendingMembersEmpty}</p>}
           >
-            <div class="pending-list">
+            <div class="editable-list">
               <For each={pendingMembers()}>
                 {(member) => (
-                  <Card>
-                    <div class="pending-member-row">
-                      <div>
-                        <strong>{member.displayName}</strong>
-                        <Show when={member.username}>
-                          {(username) => (
-                            <span class="pending-member-row__handle">@{username()}</span>
-                          )}
-                        </Show>
-                      </div>
-                      <div class="pending-member-actions">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={rejectingId() === member.telegramUserId}
-                          disabled={approvingId() === member.telegramUserId}
-                          onClick={() => void handleReject(member.telegramUserId)}
-                        >
-                          {rejectingId() === member.telegramUserId
-                            ? copy().rejectingMember
-                            : copy().rejectMemberAction}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          loading={approvingId() === member.telegramUserId}
-                          disabled={rejectingId() === member.telegramUserId}
-                          onClick={() => void handleApprove(member.telegramUserId)}
-                        >
-                          {approvingId() === member.telegramUserId
-                            ? copy().approvingMember
-                            : copy().approveMemberAction}
-                        </Button>
-                      </div>
+                  <div class="editable-list-row">
+                    <div class="editable-list-row__main">
+                      <span class="editable-list-row__title">{member.displayName}</span>
+                      <Show when={member.username}>
+                        {(username) => (
+                          <span class="editable-list-row__subtitle">@{username()}</span>
+                        )}
+                      </Show>
                     </div>
-                  </Card>
+                    <div class="editable-list-row__meta">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={rejectingId() === member.telegramUserId}
+                        disabled={approvingId() === member.telegramUserId}
+                        onClick={() => void handleReject(member.telegramUserId)}
+                      >
+                        {rejectingId() === member.telegramUserId
+                          ? copy().rejectingMember
+                          : copy().rejectMemberAction}
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={approvingId() === member.telegramUserId}
+                        disabled={rejectingId() === member.telegramUserId}
+                        onClick={() => void handleApprove(member.telegramUserId)}
+                      >
+                        {approvingId() === member.telegramUserId
+                          ? copy().approvingMember
+                          : copy().approveMemberAction}
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </For>
             </div>
@@ -444,37 +478,29 @@ export default function SettingsRoute() {
         <Collapsible title={copy().houseSectionMembers} body={copy().membersBody}>
           <Show when={adminSettings()?.members}>
             {(members) => (
-              <div class="members-list">
+              <div class="editable-list">
                 <For each={members()}>
                   {(member) => (
-                    <Card>
-                      <div
-                        class="member-row interactive"
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => openEditMember(member)}
-                      >
-                        <div class="member-row__info">
-                          <strong>{member.displayName}</strong>
-                          <div class="member-row__badges">
-                            <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
-                              {member.isAdmin ? copy().adminTag : copy().residentTag}
-                            </Badge>
-                            <Badge variant="muted">
-                              {member.status === 'active'
-                                ? copy().memberStatusActive
-                                : member.status === 'away'
-                                  ? copy().memberStatusAway
-                                  : copy().memberStatusLeft}
-                            </Badge>
-                          </div>
-                        </div>
-                        <div class="member-row__weight">
-                          <span>
-                            {copy().rentWeightLabel}: {member.rentShareWeight}
-                          </span>
-                        </div>
+                    <button class="editable-list-row" onClick={() => openEditMember(member)}>
+                      <div class="editable-list-row__main">
+                        <span class="editable-list-row__title">{member.displayName}</span>
+                        <span class="editable-list-row__subtitle">
+                          {copy().rentWeightLabel}: {member.rentShareWeight}
+                        </span>
                       </div>
-                    </Card>
+                      <div class="editable-list-row__meta">
+                        <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
+                          {member.isAdmin ? copy().adminTag : copy().residentTag}
+                        </Badge>
+                        <Badge variant="muted">
+                          {member.status === 'active'
+                            ? copy().memberStatusActive
+                            : member.status === 'away'
+                              ? copy().memberStatusAway
+                              : copy().memberStatusLeft}
+                        </Badge>
+                      </div>
+                    </button>
                   )}
                 </For>
               </div>
@@ -486,7 +512,7 @@ export default function SettingsRoute() {
         <Collapsible title={copy().houseSectionTopics} body={copy().topicBindingsBody}>
           <Show when={adminSettings()?.topics}>
             {(topics) => (
-              <div class="topics-list">
+              <div class="editable-list">
                 <For each={topics()}>
                   {(topic) => {
                     const roleLabel = () => {
@@ -500,49 +526,19 @@ export default function SettingsRoute() {
                       return labels[topic.role] ?? topic.role
                     }
                     return (
-                      <div class="topic-row">
-                        <span>{roleLabel()}</span>
-                        <Badge variant={topic.telegramThreadId ? 'accent' : 'muted'}>
-                          {topic.telegramThreadId ? copy().topicBound : copy().topicUnbound}
-                        </Badge>
+                      <div class="editable-list-row">
+                        <div class="editable-list-row__main">
+                          <span class="editable-list-row__title">{roleLabel()}</span>
+                        </div>
+                        <div class="editable-list-row__meta">
+                          <Badge variant={topic.telegramThreadId ? 'accent' : 'muted'}>
+                            {topic.telegramThreadId ? copy().topicBound : copy().topicUnbound}
+                          </Badge>
+                        </div>
                       </div>
                     )
                   }}
                 </For>
-              </div>
-            )}
-          </Show>
-        </Collapsible>
-
-        {/* Utility Categories */}
-        <Collapsible title={copy().utilityCategoriesTitle} body={copy().utilityCategoriesBody}>
-          <Show
-            when={adminSettings()?.categories}
-            fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
-          >
-            {(categories) => (
-              <div class="categories-list">
-                <For each={categories()}>
-                  {(category) => (
-                    <Card>
-                      <div
-                        class="category-row interactive"
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => openEditCategory(category)}
-                      >
-                        <div class="category-row__info">
-                          <strong>{category.name}</strong>
-                          <Badge variant={category.isActive ? 'accent' : 'muted'}>
-                            {category.isActive ? copy().onLabel : copy().offLabel}
-                          </Badge>
-                        </div>
-                      </div>
-                    </Card>
-                  )}
-                </For>
-                <Button variant="secondary" size="sm" onClick={() => openAddCategory()}>
-                  {copy().addCategoryAction}
-                </Button>
               </div>
             )}
           </Show>

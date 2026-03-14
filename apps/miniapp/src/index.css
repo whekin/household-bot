@@ -1455,18 +1455,20 @@ a {
   gap: var(--spacing-md);
 }
 
-.ledger-actions {
+/* ── Editable List (used in Ledger, Settings, etc.) ───── */
+
+.editable-list-actions {
   display: flex;
   justify-content: flex-end;
   padding-bottom: var(--spacing-sm);
 }
 
-.ledger-list {
+.editable-list {
   display: flex;
   flex-direction: column;
 }
 
-.ledger-entry {
+.editable-list-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1484,48 +1486,48 @@ a {
   transition: background var(--transition-fast);
 }
 
-.ledger-entry:hover:not(:disabled) {
+.editable-list-row:hover:not(:disabled) {
   background: var(--bg-input);
 }
 
-.ledger-entry:disabled {
+.editable-list-row:disabled {
   cursor: default;
 }
 
-.ledger-entry:last-child {
+.editable-list-row:last-child {
   border-bottom: 0;
 }
 
-.ledger-entry__main {
+.editable-list-row__main {
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
 
-.ledger-entry__title {
+.editable-list-row__title {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-primary);
 }
 
-.ledger-entry__actor {
+.editable-list-row__subtitle {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
-.ledger-entry__amounts {
+.editable-list-row__meta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 1px;
 }
 
-.ledger-entry__amounts strong {
+.editable-list-row__meta strong {
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
-.ledger-entry__secondary {
+.editable-list-row__secondary {
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -1617,85 +1619,7 @@ a {
   color: var(--text-muted);
 }
 
-/* ── Members ──────────────────────────────────────────── */
-
-.members-list,
-.pending-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.member-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.member-row.interactive {
-  margin: 0 calc(var(--spacing-lg) * -1);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.member-row.interactive:hover {
-  background: var(--bg-input);
-}
-
-.member-row__info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.member-row__info strong {
-  font-size: var(--text-sm);
-}
-
-.member-row__badges {
-  display: flex;
-  gap: var(--spacing-xs);
-}
-
-.member-row__weight {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.pending-member-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.pending-member-row__handle {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  display: block;
-}
-
-.pending-member-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-/* ── Topics ───────────────────────────────────────────── */
-
-.topics-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.topic-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-xs) 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
+/* ── Settings Route ───────────────────────────────────── */
 
 /* ── Testing Card ─────────────────────────────────────── */
 

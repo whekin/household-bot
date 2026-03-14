@@ -571,7 +571,7 @@ export default function LedgerRoute() {
                 defaultOpen
               >
                 <Show when={effectiveIsAdmin()}>
-                  <div class="ledger-actions">
+                  <div class="editable-list-actions">
                     <Button
                       variant="primary"
                       size="sm"
@@ -603,23 +603,25 @@ export default function LedgerRoute() {
                   when={purchaseLedger().length > 0}
                   fallback={<p class="empty-state">{copy().purchasesEmpty}</p>}
                 >
-                  <div class="ledger-list">
+                  <div class="editable-list">
                     <For each={purchaseLedger()}>
                       {(entry) => (
                         <button
-                          class="ledger-entry"
+                          class="editable-list-row"
                           onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
                           disabled={!effectiveIsAdmin()}
                         >
-                          <div class="ledger-entry__main">
-                            <span class="ledger-entry__title">{entry.title}</span>
-                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                          <div class="editable-list-row__main">
+                            <span class="editable-list-row__title">{entry.title}</span>
+                            <span class="editable-list-row__subtitle">
+                              {entry.actorDisplayName}
+                            </span>
                           </div>
-                          <div class="ledger-entry__amounts">
+                          <div class="editable-list-row__meta">
                             <strong>{ledgerPrimaryAmount(entry)}</strong>
                             <Show when={ledgerSecondaryAmount(entry)}>
                               {(secondary) => (
-                                <span class="ledger-entry__secondary">{secondary()}</span>
+                                <span class="editable-list-row__secondary">{secondary()}</span>
                               )}
                             </Show>
                           </div>
@@ -633,7 +635,7 @@ export default function LedgerRoute() {
               {/* ── Utility bills ──────────────────────── */}
               <Collapsible title={copy().utilityLedgerTitle}>
                 <Show when={effectiveIsAdmin()}>
-                  <div class="ledger-actions">
+                  <div class="editable-list-actions">
                     <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
                       <Plus size={14} />
                       {copy().addUtilityBillAction}
@@ -644,19 +646,21 @@ export default function LedgerRoute() {
                   when={utilityLedger().length > 0}
                   fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
                 >
-                  <div class="ledger-list">
+                  <div class="editable-list">
                     <For each={utilityLedger()}>
                       {(entry) => (
                         <button
-                          class="ledger-entry"
+                          class="editable-list-row"
                           onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
                           disabled={!effectiveIsAdmin()}
                         >
-                          <div class="ledger-entry__main">
-                            <span class="ledger-entry__title">{entry.title}</span>
-                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                          <div class="editable-list-row__main">
+                            <span class="editable-list-row__title">{entry.title}</span>
+                            <span class="editable-list-row__subtitle">
+                              {entry.actorDisplayName}
+                            </span>
                           </div>
-                          <div class="ledger-entry__amounts">
+                          <div class="editable-list-row__meta">
                             <strong>{ledgerPrimaryAmount(entry)}</strong>
                           </div>
                         </button>
@@ -674,7 +678,7 @@ export default function LedgerRoute() {
                   : {})}
               >
                 <Show when={effectiveIsAdmin()}>
-                  <div class="ledger-actions">
+                  <div class="editable-list-actions">
                     <Button variant="primary" size="sm" onClick={() => setAddPaymentOpen(true)}>
                       <Plus size={14} />
                       {copy().paymentsAddAction}
@@ -685,23 +689,25 @@ export default function LedgerRoute() {
                   when={paymentLedger().length > 0}
                   fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
                 >
-                  <div class="ledger-list">
+                  <div class="editable-list">
                     <For each={paymentLedger()}>
                       {(entry) => (
                         <button
-                          class="ledger-entry"
+                          class="editable-list-row"
                           onClick={() => effectiveIsAdmin() && openPaymentEditor(entry)}
                           disabled={!effectiveIsAdmin()}
                         >
-                          <div class="ledger-entry__main">
-                            <span class="ledger-entry__title">
+                          <div class="editable-list-row__main">
+                            <span class="editable-list-row__title">
                               {entry.paymentKind === 'rent'
                                 ? copy().paymentLedgerRent
                                 : copy().paymentLedgerUtilities}
                             </span>
-                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                            <span class="editable-list-row__subtitle">
+                              {entry.actorDisplayName}
+                            </span>
                           </div>
-                          <div class="ledger-entry__amounts">
+                          <div class="editable-list-row__meta">
                             <strong>{ledgerPrimaryAmount(entry)}</strong>
                           </div>
                         </button>
