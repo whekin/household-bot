@@ -2476,18 +2476,22 @@ export function registerConfiguredPurchaseTopicIngestion(
           engagementAssessment: conversationContext.engagement
         })
 
-        // Handle processor failure - fun "bot sleeps" message
+        // Handle processor failure - fun "bot sleeps" message only if explicitly mentioned
         if (!processorResult) {
-          const { botSleepsMessage } = await import('./topic-processor')
-          await replyToPurchaseMessage(
-            ctx,
-            botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
-            undefined,
-            {
-              repository: options.historyRepository,
-              record
-            }
-          )
+          if (conversationContext.explicitMention) {
+            const { botSleepsMessage } = await import('./topic-processor')
+            await replyToPurchaseMessage(
+              ctx,
+              botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
+              undefined,
+              {
+                repository: options.historyRepository,
+                record
+              }
+            )
+          } else {
+            await next()
+          }
           return
         }
 
@@ -2586,17 +2590,21 @@ export function registerConfiguredPurchaseTopicIngestion(
         }
       }
 
-      // No topic processor available - bot sleeps
-      const { botSleepsMessage } = await import('./topic-processor')
-      await replyToPurchaseMessage(
-        ctx,
-        botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
-        undefined,
-        {
-          repository: options.historyRepository,
-          record
-        }
-      )
+      // No topic processor available
+      if (conversationContext.explicitMention) {
+        const { botSleepsMessage } = await import('./topic-processor')
+        await replyToPurchaseMessage(
+          ctx,
+          botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
+          undefined,
+          {
+            repository: options.historyRepository,
+            record
+          }
+        )
+      } else {
+        await next()
+      }
     } catch (error) {
       options.logger?.error(
         {

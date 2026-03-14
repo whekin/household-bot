@@ -635,18 +635,22 @@ export function registerConfiguredPaymentTopicIngestion(
           engagementAssessment: conversationContext.engagement
         })
 
-        // Handle processor failure
+        // Handle processor failure - only if explicitly mentioned
         if (!processorResult) {
-          const { botSleepsMessage } = await import('./topic-processor')
-          await replyToPaymentMessage(
-            ctx,
-            botSleepsMessage(locale === 'ru' ? 'ru' : 'en'),
-            undefined,
-            {
-              repository: options.historyRepository,
-              record
-            }
-          )
+          if (conversationContext.explicitMention) {
+            const { botSleepsMessage } = await import('./topic-processor')
+            await replyToPaymentMessage(
+              ctx,
+              botSleepsMessage(locale === 'ru' ? 'ru' : 'en'),
+              undefined,
+              {
+                repository: options.historyRepository,
+                record
+              }
+            )
+          } else {
+            await next()
+          }
           return
         }
 
@@ -856,12 +860,21 @@ export function registerConfiguredPaymentTopicIngestion(
         }
       }
 
-      // No topic processor available - bot sleeps
-      const { botSleepsMessage } = await import('./topic-processor')
-      await replyToPaymentMessage(ctx, botSleepsMessage(locale === 'ru' ? 'ru' : 'en'), undefined, {
-        repository: options.historyRepository,
-        record
-      })
+      // No topic processor available
+      if (stripExplicitBotMention(ctx) !== null) {
+        const { botSleepsMessage } = await import('./topic-processor')
+        await replyToPaymentMessage(
+          ctx,
+          botSleepsMessage(locale === 'ru' ? 'ru' : 'en'),
+          undefined,
+          {
+            repository: options.historyRepository,
+            record
+          }
+        )
+      } else {
+        await next()
+      }
     } catch (error) {
       options.logger?.error(
         {
