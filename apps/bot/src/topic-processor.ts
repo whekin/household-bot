@@ -382,7 +382,20 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
                     anyOf: [{ type: 'string' }, { type: 'null' }]
                   }
                 },
-                required: ['route', 'confidence', 'reason']
+                required: [
+                  'route',
+                  'replyText',
+                  'clarificationQuestion',
+                  'amountMinor',
+                  'currency',
+                  'itemDescription',
+                  'amountSource',
+                  'calculationExplanation',
+                  'participantMemberIds',
+                  'kind',
+                  'confidence',
+                  'reason'
+                ]
               }
             }
           }
