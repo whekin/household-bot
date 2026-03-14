@@ -7,6 +7,7 @@ import type {
   HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
+  HouseholdRentPaymentDestination,
   HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
@@ -23,6 +24,40 @@ function parseCurrency(raw: string): CurrencyCode {
   }
 
   return normalized
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeRentPaymentDestinations(
+  value: unknown
+): readonly HouseholdRentPaymentDestination[] | null {
+  if (value === null) return null
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid rent payment destinations')
+  }
+
+  return value
+    .map((entry): HouseholdRentPaymentDestination | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const record = entry as Record<string, unknown>
+      const label = normalizeOptionalString(record.label)
+      const account = normalizeOptionalString(record.account)
+      if (!label || !account) return null
+
+      return {
+        label,
+        recipientName: normalizeOptionalString(record.recipientName),
+        bankName: normalizeOptionalString(record.bankName),
+        account,
+        note: normalizeOptionalString(record.note),
+        link: normalizeOptionalString(record.link)
+      }
+    })
+    .filter((entry): entry is HouseholdRentPaymentDestination => Boolean(entry))
 }
 
 export interface MiniAppAdminService {
@@ -55,6 +90,7 @@ export interface MiniAppAdminService {
     utilitiesDueDay: number
     utilitiesReminderDay: number
     timezone: string
+    rentPaymentDestinations?: unknown
     assistantContext?: string
     assistantTone?: string
   }): Promise<
@@ -402,6 +438,18 @@ export function createMiniAppAdminService(
         rentCurrency = parseCurrency(input.rentCurrency ?? 'USD')
       }
 
+      let rentPaymentDestinations: readonly HouseholdRentPaymentDestination[] | null | undefined
+      if (input.rentPaymentDestinations !== undefined) {
+        try {
+          rentPaymentDestinations = normalizeRentPaymentDestinations(input.rentPaymentDestinations)
+        } catch {
+          return {
+            status: 'rejected',
+            reason: 'invalid_settings'
+          }
+        }
+      }
+
       const shouldUpdateAssistantConfig =
         assistantContext !== undefined || assistantTone !== undefined
 
@@ -432,7 +480,12 @@ export function createMiniAppAdminService(
           rentWarningDay: input.rentWarningDay,
           utilitiesDueDay: input.utilitiesDueDay,
           utilitiesReminderDay: input.utilitiesReminderDay,
-          timezone
+          timezone,
+          ...(rentPaymentDestinations !== undefined
+            ? {
+                rentPaymentDestinations
+              }
+            : {})
         }),
         repository.updateHouseholdAssistantConfig && shouldUpdateAssistantConfig
           ? repository.updateHouseholdAssistantConfig({

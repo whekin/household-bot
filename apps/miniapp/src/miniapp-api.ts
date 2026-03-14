@@ -69,6 +69,16 @@ export interface MiniAppBillingSettings {
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  rentPaymentDestinations: readonly MiniAppRentPaymentDestination[] | null
+}
+
+export interface MiniAppRentPaymentDestination {
+  label: string
+  recipientName: string | null
+  bankName: string | null
+  account: string
+  note: string | null
+  link: string | null
 }
 
 export interface MiniAppAssistantConfig {
@@ -96,9 +106,12 @@ export interface MiniAppDashboard {
   period: string
   currency: 'USD' | 'GEL'
   timezone: string
+  rentWarningDay: number
   rentDueDay: number
+  utilitiesReminderDay: number
   utilitiesDueDay: number
   paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
+  rentPaymentDestinations: readonly MiniAppRentPaymentDestination[] | null
   totalDueMajor: string
   totalPaidMajor: string
   totalRemainingMajor: string
@@ -466,6 +479,7 @@ export async function updateMiniAppBillingSettings(
     utilitiesDueDay: number
     utilitiesReminderDay: number
     timezone: string
+    rentPaymentDestinations?: readonly MiniAppRentPaymentDestination[] | null
     assistantContext?: string
     assistantTone?: string
   }
@@ -881,6 +895,36 @@ export async function addMiniAppUtilityBill(
   }
 
   return payload.cycleState
+}
+
+export async function submitMiniAppUtilityBill(
+  initData: string,
+  input: {
+    billName: string
+    amountMajor: string
+    currency: 'USD' | 'GEL'
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/utility-bills/add`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to submit utility bill')
+  }
 }
 
 export async function updateMiniAppUtilityBill(

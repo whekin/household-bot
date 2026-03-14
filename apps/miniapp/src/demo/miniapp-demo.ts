@@ -27,9 +27,21 @@ export const demoDashboard: MiniAppDashboard = {
   period: '2026-03',
   currency: 'GEL',
   timezone: 'Asia/Tbilisi',
+  rentWarningDay: 17,
   rentDueDay: 20,
+  utilitiesReminderDay: 3,
   utilitiesDueDay: 4,
   paymentBalanceAdjustmentPolicy: 'utilities',
+  rentPaymentDestinations: [
+    {
+      label: 'TBC card',
+      recipientName: 'Landlord',
+      bankName: 'TBC Bank',
+      account: '1234 5678 9012 3456',
+      note: null,
+      link: null
+    }
+  ],
   totalDueMajor: '2410.00',
   totalPaidMajor: '650.00',
   totalRemainingMajor: '1760.00',
@@ -209,7 +221,8 @@ export const demoAdminSettings: MiniAppAdminSettingsPayload = {
     rentWarningDay: 17,
     utilitiesDueDay: 4,
     utilitiesReminderDay: 3,
-    timezone: 'Asia/Tbilisi'
+    timezone: 'Asia/Tbilisi',
+    rentPaymentDestinations: demoDashboard.rentPaymentDestinations
   },
   assistantConfig: {
     householdId: 'demo-household',

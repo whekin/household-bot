@@ -174,7 +174,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
-      timezone: 'Asia/Tbilisi'
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations: null
     }),
     updateHouseholdBillingSettings: async (input) => ({
       householdId: input.householdId,
@@ -185,7 +186,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       rentWarningDay: input.rentWarningDay ?? 17,
       utilitiesDueDay: input.utilitiesDueDay ?? 4,
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
-      timezone: input.timezone ?? 'Asia/Tbilisi'
+      timezone: input.timezone ?? 'Asia/Tbilisi',
+      rentPaymentDestinations: input.rentPaymentDestinations ?? null
     }),
     getHouseholdAssistantConfig: async (householdId) => ({
       householdId,
@@ -536,7 +538,8 @@ describe('createMiniAppSettingsHandler', () => {
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
         timezone: 'Asia/Tbilisi',
-        paymentBalanceAdjustmentPolicy: 'utilities'
+        paymentBalanceAdjustmentPolicy: 'utilities',
+        rentPaymentDestinations: null
       },
       assistantConfig: {
         householdId: 'household-1',
@@ -638,7 +641,8 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         utilitiesDueDay: 6,
         utilitiesReminderDay: 5,
         timezone: 'Asia/Tbilisi',
-        paymentBalanceAdjustmentPolicy: 'utilities'
+        paymentBalanceAdjustmentPolicy: 'utilities',
+        rentPaymentDestinations: null
       },
       assistantConfig: {
         householdId: 'household-1',

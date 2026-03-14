@@ -1,6 +1,7 @@
 import type { FinanceCommandService, HouseholdOnboardingService } from '@household/application'
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
+import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 
 import {
@@ -63,6 +64,39 @@ async function authenticateAdminSession(
 
   if (!session.member.isAdmin) {
     return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+  }
+
+  return {
+    member: session.member
+  }
+}
+
+async function authenticateMemberSession(
+  request: Request,
+  sessionService: ReturnType<typeof createMiniAppSessionService>,
+  origin: string | undefined
+): Promise<
+  | Response
+  | {
+      member: NonNullable<MiniAppSessionResult['member']>
+    }
+> {
+  const payload = await readMiniAppRequestPayload(request)
+  if (!payload.initData) {
+    return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
+  }
+
+  const session = await sessionService.authenticate(payload)
+  if (!session) {
+    return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
+  }
+
+  if (!session.authorized || !session.member || session.member.status !== 'active') {
+    return miniAppJsonResponse(
+      { ok: false, error: 'Access limited to active household members' },
+      403,
+      origin
+    )
   }
 
   return {
@@ -778,6 +812,201 @@ export function createMiniAppAddUtilityBillHandler(options: {
             ok: true,
             authorized: true,
             cycleState: serializeCycleState(cycleState)
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppSubmitUtilityBillHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityBillPayload(request)
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const result = await service.addUtilityBill(
+          payload.billName,
+          payload.amountMajor,
+          auth.member.id,
+          payload.currency
+        )
+
+        if (!result) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'No billing cycle available' },
+            404,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppSubmitPaymentHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  async function notifyPaymentRecorded(input: {
+    householdId: string
+    memberName: string
+    kind: 'rent' | 'utilities'
+    amountMajor: string
+    currency: string
+    period: string
+  }) {
+    const [chat, topic] = await Promise.all([
+      options.householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
+      options.householdConfigurationRepository.getHouseholdTopicBinding(
+        input.householdId,
+        'reminders'
+      )
+    ])
+
+    if (!chat || !topic) {
+      return
+    }
+
+    const threadId = Number.parseInt(topic.telegramThreadId, 10)
+    if (!Number.isFinite(threadId)) {
+      return
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${options.botToken}/sendMessage`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        chat_id: chat.telegramChatId,
+        message_thread_id: threadId,
+        text: `${input.memberName} recorded a ${input.kind} payment: ${input.amountMajor} ${input.currency} (${input.period})`
+      })
+    })
+
+    if (!response.ok && options.logger) {
+      options.logger.warn(
+        {
+          event: 'miniapp.payment_notification_failed',
+          householdId: input.householdId,
+          status: response.status
+        },
+        'Failed to notify payment topic'
+      )
+    }
+  }
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readPaymentMutationPayload(request)
+        if (!payload.kind || !payload.amountMajor) {
+          return miniAppJsonResponse({ ok: false, error: 'Missing payment fields' }, 400, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const payment = await service.addPayment(
+          auth.member.id,
+          payload.kind,
+          payload.amountMajor,
+          payload.currency
+        )
+
+        if (!payment) {
+          return miniAppJsonResponse({ ok: false, error: 'Failed to record payment' }, 500, origin)
+        }
+
+        await notifyPaymentRecorded({
+          householdId: auth.member.householdId,
+          memberName: auth.member.displayName,
+          kind: payload.kind,
+          amountMajor: payment.amount.toMajorString(),
+          currency: payment.currency,
+          period: payment.period
+        })
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true
           },
           200,
           origin

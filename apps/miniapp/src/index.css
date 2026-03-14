@@ -1033,6 +1033,46 @@ a {
   font-weight: 600;
 }
 
+.copyable-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.copyable-detail:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.copyable-detail svg {
+  opacity: 0.65;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    color 120ms ease;
+}
+
+.copyable-detail:hover svg {
+  opacity: 0.9;
+}
+
+.copyable-detail.is-copied svg {
+  opacity: 1;
+  color: var(--status-credit);
+  transform: scale(1.1);
+}
+
+.copyable-detail.is-copied {
+  background: rgba(34, 197, 94, 0.12);
+}
+
 .balance-card__remaining {
   padding-top: var(--spacing-sm);
   margin-top: var(--spacing-sm);
@@ -1695,4 +1735,56 @@ a {
 
 .balance-item--accent {
   border-color: var(--accent-border);
+}
+
+/* ── Toast Notifications ─────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  background: var(--text-primary);
+  color: var(--bg-root);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  z-index: var(--z-toast);
+  animation: toast-slide-up 200ms ease-out;
+  max-width: calc(100vw - 48px);
+  text-align: center;
+}
+
+.toast--success {
+  background: var(--status-credit);
+  color: #fff;
+}
+
+.toast--info {
+  background: var(--text-primary);
+  color: var(--bg-root);
+}
+
+.toast--error {
+  background: var(--status-danger);
+  color: #fff;
+}
+
+.toast__message {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes toast-slide-up {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }

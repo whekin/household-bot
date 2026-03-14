@@ -9,11 +9,22 @@ import { NavigationTabs } from './navigation-tabs'
 import { Badge } from '../ui/badge'
 import { Button, IconButton } from '../ui/button'
 import { Modal } from '../ui/dialog'
+import { Field } from '../ui/field'
+import { Input } from '../ui/input'
 
 export function AppShell(props: ParentProps) {
   const { readySession } = useSession()
   const { copy, locale, setLocale } = useI18n()
-  const { effectiveIsAdmin, testingRolePreview, setTestingRolePreview } = useDashboard()
+  const {
+    dashboard,
+    effectiveIsAdmin,
+    testingRolePreview,
+    setTestingRolePreview,
+    testingPeriodOverride,
+    setTestingPeriodOverride,
+    testingTodayOverride,
+    setTestingTodayOverride
+  } = useDashboard()
   const navigate = useNavigate()
 
   const [testingSurfaceOpen, setTestingSurfaceOpen] = createSignal(false)
@@ -156,6 +167,43 @@ export function AppShell(props: ParentProps) {
             <Button variant="secondary" onClick={() => setTestingRolePreview('resident')}>
               {copy().testingPreviewResidentAction ?? ''}
             </Button>
+          </div>
+          <article class="testing-card__section">
+            <span>{copy().testingPeriodCurrentLabel ?? ''}</span>
+            <strong>{dashboard()?.period ?? '—'}</strong>
+          </article>
+          <div class="testing-card__actions" style={{ 'flex-direction': 'column', gap: '12px' }}>
+            <Field label={copy().testingPeriodOverrideLabel ?? ''} wide>
+              <Input
+                placeholder={copy().testingPeriodOverridePlaceholder ?? ''}
+                value={testingPeriodOverride() ?? ''}
+                onInput={(e) => {
+                  const next = e.currentTarget.value.trim()
+                  setTestingPeriodOverride(next.length > 0 ? next : null)
+                }}
+              />
+            </Field>
+            <Field label={copy().testingTodayOverrideLabel ?? ''} wide>
+              <Input
+                placeholder={copy().testingTodayOverridePlaceholder ?? ''}
+                value={testingTodayOverride() ?? ''}
+                onInput={(e) => {
+                  const next = e.currentTarget.value.trim()
+                  setTestingTodayOverride(next.length > 0 ? next : null)
+                }}
+              />
+            </Field>
+            <div class="modal-action-row">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setTestingPeriodOverride(null)
+                  setTestingTodayOverride(null)
+                }}
+              >
+                {copy().testingClearOverridesAction ?? ''}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>

@@ -173,7 +173,8 @@ function createRepositoryStub() {
         rentWarningDay: 17,
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
-        timezone: 'Asia/Tbilisi'
+        timezone: 'Asia/Tbilisi',
+        rentPaymentDestinations: null
       }
     },
     async updateHouseholdBillingSettings(input) {
@@ -186,7 +187,8 @@ function createRepositoryStub() {
         rentWarningDay: input.rentWarningDay ?? 17,
         utilitiesDueDay: input.utilitiesDueDay ?? 4,
         utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
-        timezone: input.timezone ?? 'Asia/Tbilisi'
+        timezone: input.timezone ?? 'Asia/Tbilisi',
+        rentPaymentDestinations: input.rentPaymentDestinations ?? null
       }
     },
     async listHouseholdUtilityCategories() {

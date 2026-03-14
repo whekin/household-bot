@@ -20,6 +20,7 @@ export {
   type HouseholdMemberAbsencePolicy,
   type HouseholdMemberAbsencePolicyRecord,
   type HouseholdAssistantConfigRecord,
+  type HouseholdRentPaymentDestination,
   type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdConfigurationRepository,
   type HouseholdBillingSettingsRecord,

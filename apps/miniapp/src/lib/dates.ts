@@ -1,5 +1,7 @@
 import type { Locale } from '../i18n'
 
+export type CalendarDateParts = { year: number; month: number; day: number }
+
 function localeTag(locale: Locale): string {
   return locale === 'ru' ? 'ru-RU' : 'en-US'
 }
@@ -51,7 +53,40 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
-function formatTodayParts(timezone: string): { year: number; month: number; day: number } | null {
+export function parseCalendarDate(value: string): CalendarDateParts | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  const year = Number.parseInt(match[1] ?? '', 10)
+  const month = Number.parseInt(match[2] ?? '', 10)
+  const day = Number.parseInt(match[3] ?? '', 10)
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null
+  }
+
+  return { year, month, day }
+}
+
+export function nextCyclePeriod(period: string): string | null {
+  const parsed = parsePeriod(period)
+  if (!parsed) return null
+
+  const month = parsed.month === 12 ? 1 : parsed.month + 1
+  const year = parsed.month === 12 ? parsed.year + 1 : parsed.year
+  const monthLabel = String(month).padStart(2, '0')
+
+  return `${year}-${monthLabel}`
+}
+
+function formatTodayParts(timezone: string): CalendarDateParts | null {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -134,10 +169,11 @@ export function formatPeriodDay(period: string, day: number, locale: Locale): st
 export function compareTodayToPeriodDay(
   period: string,
   day: number,
-  timezone: string
+  timezone: string,
+  todayOverride?: CalendarDateParts | null
 ): -1 | 0 | 1 | null {
   const parsed = parsePeriod(period)
-  const today = formatTodayParts(timezone)
+  const today = todayOverride ?? formatTodayParts(timezone)
   if (!parsed || !today) {
     return null
   }
@@ -157,9 +193,14 @@ export function compareTodayToPeriodDay(
   return 0
 }
 
-export function daysUntilPeriodDay(period: string, day: number, timezone: string): number | null {
+export function daysUntilPeriodDay(
+  period: string,
+  day: number,
+  timezone: string,
+  todayOverride?: CalendarDateParts | null
+): number | null {
   const parsed = parsePeriod(period)
-  const today = formatTodayParts(timezone)
+  const today = todayOverride ?? formatTodayParts(timezone)
   if (!parsed || !today) {
     return null
   }

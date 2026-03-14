@@ -261,7 +261,8 @@ const householdConfigurationRepository: Pick<
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
-      timezone: 'Asia/Tbilisi'
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations: null
     }
   },
   async listHouseholdMembers(householdId) {

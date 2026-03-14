@@ -2021,7 +2021,8 @@ Confirm or cancel below.`,
         utilitiesDueDay: 12,
         utilitiesReminderDay: 10,
         timezone: 'Asia/Tbilisi',
-        settlementCurrency: 'GEL' as const
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
       }),
       getHouseholdChatByHouseholdId: async () => ({
         householdId: config.householdId,

@@ -59,6 +59,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  rentPaymentDestinations?: unknown
   assistantContext?: string
   assistantTone?: string
 }> {
@@ -80,6 +81,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     utilitiesDueDay?: number
     utilitiesReminderDay?: number
     timezone?: string
+    rentPaymentDestinations?: unknown
     assistantContext?: string
     assistantTone?: string
   }
@@ -134,6 +136,11 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     ...(typeof parsed.assistantTone === 'string'
       ? {
           assistantTone: parsed.assistantTone
+        }
+      : {}),
+    ...(parsed.rentPaymentDestinations !== undefined
+      ? {
+          rentPaymentDestinations: parsed.rentPaymentDestinations
         }
       : {}),
     rentDueDay: parsed.rentDueDay,
@@ -369,7 +376,8 @@ function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
     rentWarningDay: settings.rentWarningDay,
     utilitiesDueDay: settings.utilitiesDueDay,
     utilitiesReminderDay: settings.utilitiesReminderDay,
-    timezone: settings.timezone
+    timezone: settings.timezone,
+    rentPaymentDestinations: settings.rentPaymentDestinations ?? null
   }
 }
 
@@ -658,6 +666,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
           utilitiesDueDay: payload.utilitiesDueDay,
           utilitiesReminderDay: payload.utilitiesReminderDay,
           timezone: payload.timezone,
+          ...(payload.rentPaymentDestinations !== undefined
+            ? {
+                rentPaymentDestinations: payload.rentPaymentDestinations
+              }
+            : {}),
           ...(payload.assistantContext !== undefined
             ? {
                 assistantContext: payload.assistantContext

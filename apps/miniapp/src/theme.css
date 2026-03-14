@@ -87,4 +87,10 @@
   --status-settled: #c2c2c2;
   --status-due: #ffb866;
   --status-overdue: #ff7676;
+  --status-danger: #ff7676;
+
+  /* ── Z-index scale ─────────────────────────────────── */
+  --z-toast: 9999;
+  --z-modal: 9000;
+  --z-dropdown: 1000;
 }

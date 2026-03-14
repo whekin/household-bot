@@ -73,6 +73,7 @@ import {
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
   createMiniAppRentUpdateHandler,
+  createMiniAppSubmitUtilityBillHandler,
   createMiniAppUpdatePaymentHandler,
   createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
@@ -707,6 +708,15 @@ const server = createBotWebhookServer({
     : undefined,
   miniAppAddUtilityBill: householdOnboardingService
     ? createMiniAppAddUtilityBillHandler({
+        allowedOrigins: runtime.miniAppAllowedOrigins,
+        botToken: runtime.telegramBotToken,
+        onboardingService: householdOnboardingService,
+        financeServiceForHousehold,
+        logger: getLogger('miniapp-billing')
+      })
+    : undefined,
+  miniAppSubmitUtilityBill: householdOnboardingService
+    ? createMiniAppSubmitUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
         onboardingService: householdOnboardingService,

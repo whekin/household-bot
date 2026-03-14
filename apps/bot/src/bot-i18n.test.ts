@@ -100,7 +100,8 @@ function createRepository(isAdmin = false): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
-      timezone: 'Asia/Tbilisi'
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations: null
     }),
     updateHouseholdBillingSettings: async () => {
       throw new Error('not implemented')

@@ -92,7 +92,8 @@ function createRepository(): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
-      timezone: 'Asia/Tbilisi'
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations: null
     }),
     updateHouseholdBillingSettings: async (input) => ({
       householdId: input.householdId,
@@ -103,7 +104,8 @@ function createRepository(): HouseholdConfigurationRepository {
       rentWarningDay: input.rentWarningDay ?? 17,
       utilitiesDueDay: input.utilitiesDueDay ?? 4,
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
-      timezone: input.timezone ?? 'Asia/Tbilisi'
+      timezone: input.timezone ?? 'Asia/Tbilisi',
+      rentPaymentDestinations: input.rentPaymentDestinations ?? null
     }),
     listHouseholdUtilityCategories: async () => [],
     upsertHouseholdUtilityCategory: async (input) => ({

@@ -65,9 +65,33 @@ export default function SettingsRoute() {
     utilitiesDueDay: adminSettings()?.settings.utilitiesDueDay ?? 4,
     utilitiesReminderDay: adminSettings()?.settings.utilitiesReminderDay ?? 3,
     timezone: adminSettings()?.settings.timezone ?? 'Asia/Tbilisi',
+    rentPaymentDestinations: [...(adminSettings()?.settings.rentPaymentDestinations ?? [])],
     assistantContext: adminSettings()?.assistantConfig?.assistantContext ?? '',
     assistantTone: adminSettings()?.assistantConfig?.assistantTone ?? ''
   })
+
+  function openBillingEditor() {
+    const settings = adminSettings()
+    if (settings) {
+      setBillingForm({
+        householdName: settings.householdName ?? '',
+        settlementCurrency: settings.settings.settlementCurrency ?? 'GEL',
+        paymentBalanceAdjustmentPolicy:
+          settings.settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
+        rentAmountMajor: minorToMajorString(BigInt(settings.settings.rentAmountMinor ?? '0')),
+        rentCurrency: settings.settings.rentCurrency ?? 'USD',
+        rentDueDay: settings.settings.rentDueDay ?? 20,
+        rentWarningDay: settings.settings.rentWarningDay ?? 17,
+        utilitiesDueDay: settings.settings.utilitiesDueDay ?? 4,
+        utilitiesReminderDay: settings.settings.utilitiesReminderDay ?? 3,
+        timezone: settings.settings.timezone ?? 'Asia/Tbilisi',
+        rentPaymentDestinations: [...(settings.settings.rentPaymentDestinations ?? [])],
+        assistantContext: settings.assistantConfig?.assistantContext ?? '',
+        assistantTone: settings.assistantConfig?.assistantTone ?? ''
+      })
+    }
+    setBillingEditorOpen(true)
+  }
 
   // ── Pending members ──────────────────────────────
   const [approvingId, setApprovingId] = createSignal<string | null>(null)
@@ -267,7 +291,7 @@ export default function SettingsRoute() {
                     <span>{copy().timezone}</span>
                     <Badge variant="muted">{settings().settings.timezone}</Badge>
                   </div>
-                  <Button variant="secondary" onClick={() => setBillingEditorOpen(true)}>
+                  <Button variant="secondary" onClick={openBillingEditor}>
                     {copy().manageSettingsAction}
                   </Button>
                 </div>
@@ -477,11 +501,235 @@ export default function SettingsRoute() {
               }
             />
           </Field>
+          <Field label={copy().rentCurrencyLabel}>
+            <Select
+              value={billingForm().rentCurrency}
+              ariaLabel={copy().rentCurrencyLabel}
+              options={[
+                { value: 'USD', label: 'USD' },
+                { value: 'GEL', label: 'GEL' }
+              ]}
+              onChange={(value) =>
+                setBillingForm((f) => ({ ...f, rentCurrency: value as 'USD' | 'GEL' }))
+              }
+            />
+          </Field>
+          <Field label={copy().paymentBalanceAdjustmentPolicy}>
+            <Select
+              value={billingForm().paymentBalanceAdjustmentPolicy}
+              ariaLabel={copy().paymentBalanceAdjustmentPolicy}
+              options={[
+                { value: 'utilities', label: copy().paymentBalanceAdjustmentUtilities },
+                { value: 'rent', label: copy().paymentBalanceAdjustmentRent },
+                { value: 'separate', label: copy().paymentBalanceAdjustmentSeparate }
+              ]}
+              onChange={(value) =>
+                setBillingForm((f) => ({
+                  ...f,
+                  paymentBalanceAdjustmentPolicy: value as 'utilities' | 'rent' | 'separate'
+                }))
+              }
+            />
+          </Field>
+          <Field label={copy().rentWarningDay}>
+            <Input
+              type="number"
+              value={String(billingForm().rentWarningDay)}
+              onInput={(e) =>
+                setBillingForm((f) => ({
+                  ...f,
+                  rentWarningDay: Number(e.currentTarget.value) || 0
+                }))
+              }
+            />
+          </Field>
+          <Field label={copy().rentDueDay}>
+            <Input
+              type="number"
+              value={String(billingForm().rentDueDay)}
+              onInput={(e) =>
+                setBillingForm((f) => ({ ...f, rentDueDay: Number(e.currentTarget.value) || 0 }))
+              }
+            />
+          </Field>
+          <Field label={copy().utilitiesReminderDay}>
+            <Input
+              type="number"
+              value={String(billingForm().utilitiesReminderDay)}
+              onInput={(e) =>
+                setBillingForm((f) => ({
+                  ...f,
+                  utilitiesReminderDay: Number(e.currentTarget.value) || 0
+                }))
+              }
+            />
+          </Field>
+          <Field label={copy().utilitiesDueDay}>
+            <Input
+              type="number"
+              value={String(billingForm().utilitiesDueDay)}
+              onInput={(e) =>
+                setBillingForm((f) => ({
+                  ...f,
+                  utilitiesDueDay: Number(e.currentTarget.value) || 0
+                }))
+              }
+            />
+          </Field>
           <Field label={copy().timezone} hint={copy().timezoneHint}>
             <Input
               value={billingForm().timezone}
               onInput={(e) => setBillingForm((f) => ({ ...f, timezone: e.currentTarget.value }))}
             />
+          </Field>
+          <Field label={copy().rentPaymentDestinationsTitle} wide>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <Show
+                when={billingForm().rentPaymentDestinations.length > 0}
+                fallback={<p class="empty-state">{copy().rentPaymentDestinationsEmpty}</p>}
+              >
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  <For each={billingForm().rentPaymentDestinations}>
+                    {(destination, index) => (
+                      <Card muted wide>
+                        <div class="editor-grid">
+                          <Field label={copy().rentPaymentDestinationLabel} wide>
+                            <Input
+                              value={destination.label}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    label: e.currentTarget.value
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPaymentDestinationRecipient} wide>
+                            <Input
+                              value={destination.recipientName ?? ''}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    recipientName: e.currentTarget.value || null
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPaymentDestinationBank} wide>
+                            <Input
+                              value={destination.bankName ?? ''}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    bankName: e.currentTarget.value || null
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPaymentDestinationAccount} wide>
+                            <Input
+                              value={destination.account}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    account: e.currentTarget.value
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPaymentDestinationLink} wide>
+                            <Input
+                              value={destination.link ?? ''}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    link: e.currentTarget.value || null
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPaymentDestinationNote} wide>
+                            <Textarea
+                              value={destination.note ?? ''}
+                              onInput={(e) =>
+                                setBillingForm((f) => {
+                                  const next = [...f.rentPaymentDestinations]
+                                  next[index()] = {
+                                    ...next[index()]!,
+                                    note: e.currentTarget.value || null
+                                  }
+                                  return { ...f, rentPaymentDestinations: next }
+                                })
+                              }
+                            />
+                          </Field>
+                          <div style={{ display: 'flex', 'justify-content': 'flex-end' }}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setBillingForm((f) => ({
+                                  ...f,
+                                  rentPaymentDestinations: f.rentPaymentDestinations.filter(
+                                    (_, idx) => idx !== index()
+                                  )
+                                }))
+                              }
+                            >
+                              {copy().rentPaymentDestinationRemoveAction}
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    setBillingForm((f) => ({
+                      ...f,
+                      rentPaymentDestinations: [
+                        ...f.rentPaymentDestinations,
+                        {
+                          label: '',
+                          recipientName: null,
+                          bankName: null,
+                          account: '',
+                          note: null,
+                          link: null
+                        }
+                      ]
+                    }))
+                  }
+                >
+                  {copy().rentPaymentDestinationAddAction}
+                </Button>
+              </div>
+            </div>
           </Field>
           <Field label={copy().assistantToneLabel} hint={copy().assistantTonePlaceholder}>
             <Input

@@ -237,7 +237,8 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
-      timezone: 'Asia/Tbilisi'
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations: null
     }),
     updateHouseholdBillingSettings: async () => {
       throw new Error('not used')
@@ -342,9 +343,12 @@ function createFinanceService(): FinanceCommandService {
       period: '2026-03',
       currency: 'GEL',
       timezone: 'Asia/Tbilisi',
+      rentWarningDay: 17,
       rentDueDay: 20,
+      utilitiesReminderDay: 3,
       utilitiesDueDay: 4,
       paymentBalanceAdjustmentPolicy: 'utilities',
+      rentPaymentDestinations: null,
       totalDue: Money.fromMajor('1000.00', 'GEL'),
       totalPaid: Money.fromMajor('500.00', 'GEL'),
       totalRemaining: Money.fromMajor('500.00', 'GEL'),

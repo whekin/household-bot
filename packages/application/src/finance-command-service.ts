@@ -10,7 +10,8 @@ import type {
   HouseholdConfigurationRepository,
   HouseholdMemberAbsencePolicy,
   HouseholdMemberAbsencePolicyRecord,
-  HouseholdMemberRecord
+  HouseholdMemberRecord,
+  HouseholdRentPaymentDestination
 } from '@household/ports'
 import {
   BillingCycleId,
@@ -144,9 +145,12 @@ export interface FinanceDashboard {
   period: string
   currency: CurrencyCode
   timezone: string
+  rentWarningDay: number
   rentDueDay: number
+  utilitiesReminderDay: number
   utilitiesDueDay: number
   paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
+  rentPaymentDestinations: readonly HouseholdRentPaymentDestination[] | null
   totalDue: Money
   totalPaid: Money
   totalRemaining: Money
@@ -577,9 +581,12 @@ async function buildFinanceDashboard(
     period: cycle.period,
     currency: cycle.currency,
     timezone: settings.timezone,
+    rentWarningDay: settings.rentWarningDay,
     rentDueDay: settings.rentDueDay,
+    utilitiesReminderDay: settings.utilitiesReminderDay,
     utilitiesDueDay: settings.utilitiesDueDay,
     paymentBalanceAdjustmentPolicy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
+    rentPaymentDestinations: settings.rentPaymentDestinations ?? null,
     totalDue: settlement.totalDue,
     totalPaid: paymentRecords.reduce(
       (sum, payment) => sum.add(Money.fromMinor(payment.amountMinor, payment.currency)),

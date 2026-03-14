@@ -22,6 +22,7 @@ import {
   type HouseholdMemberRecord,
   type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdPendingMemberRecord,
+  type HouseholdRentPaymentDestination,
   type HouseholdTelegramChatRecord,
   type HouseholdTopicBindingRecord,
   type HouseholdTopicRole,
@@ -218,6 +219,38 @@ function toCurrencyCode(raw: string): CurrencyCode {
   return normalized
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function parseRentPaymentDestinations(
+  value: unknown
+): readonly HouseholdRentPaymentDestination[] | null {
+  if (value === null || value === undefined) return null
+  if (!Array.isArray(value)) return null
+
+  return value
+    .map((entry): HouseholdRentPaymentDestination | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const record = entry as Record<string, unknown>
+      const label = normalizeOptionalString(record.label) ?? ''
+      const account = normalizeOptionalString(record.account) ?? ''
+      if (!label || !account) return null
+
+      return {
+        label,
+        recipientName: normalizeOptionalString(record.recipientName),
+        bankName: normalizeOptionalString(record.bankName),
+        account,
+        note: normalizeOptionalString(record.note),
+        link: normalizeOptionalString(record.link)
+      }
+    })
+    .filter((entry): entry is HouseholdRentPaymentDestination => Boolean(entry))
+}
+
 function toHouseholdBillingSettingsRecord(row: {
   householdId: string
   settlementCurrency: string
@@ -229,6 +262,7 @@ function toHouseholdBillingSettingsRecord(row: {
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  rentPaymentDestinations: unknown
 }): HouseholdBillingSettingsRecord {
   return {
     householdId: row.householdId,
@@ -242,7 +276,8 @@ function toHouseholdBillingSettingsRecord(row: {
     rentWarningDay: row.rentWarningDay,
     utilitiesDueDay: row.utilitiesDueDay,
     utilitiesReminderDay: row.utilitiesReminderDay,
-    timezone: row.timezone
+    timezone: row.timezone,
+    rentPaymentDestinations: parseRentPaymentDestinations(row.rentPaymentDestinations)
   }
 }
 
@@ -956,7 +991,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           rentWarningDay: schema.householdBillingSettings.rentWarningDay,
           utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
           utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
-          timezone: schema.householdBillingSettings.timezone
+          timezone: schema.householdBillingSettings.timezone,
+          rentPaymentDestinations: schema.householdBillingSettings.rentPaymentDestinations
         })
         .from(schema.householdBillingSettings)
         .where(eq(schema.householdBillingSettings.householdId, householdId))
@@ -1040,6 +1076,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
                 timezone: input.timezone
               }
             : {}),
+          ...(input.rentPaymentDestinations !== undefined
+            ? {
+                rentPaymentDestinations: input.rentPaymentDestinations
+              }
+            : {}),
           updatedAt: instantToDate(nowInstant())
         })
         .where(eq(schema.householdBillingSettings.householdId, input.householdId))
@@ -1054,7 +1095,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           rentWarningDay: schema.householdBillingSettings.rentWarningDay,
           utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
           utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
-          timezone: schema.householdBillingSettings.timezone
+          timezone: schema.householdBillingSettings.timezone,
+          rentPaymentDestinations: schema.householdBillingSettings.rentPaymentDestinations
         })
 
       const row = rows[0]

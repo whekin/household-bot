@@ -73,6 +73,15 @@ export interface HouseholdMemberAbsencePolicyRecord {
   policy: HouseholdMemberAbsencePolicy
 }
 
+export interface HouseholdRentPaymentDestination {
+  label: string
+  recipientName: string | null
+  bankName: string | null
+  account: string
+  note: string | null
+  link: string | null
+}
+
 export interface HouseholdBillingSettingsRecord {
   householdId: string
   settlementCurrency: CurrencyCode
@@ -84,6 +93,7 @@ export interface HouseholdBillingSettingsRecord {
   utilitiesDueDay: number
   utilitiesReminderDay: number
   timezone: string
+  rentPaymentDestinations: readonly HouseholdRentPaymentDestination[] | null
 }
 
 export interface HouseholdAssistantConfigRecord {
@@ -184,6 +194,7 @@ export interface HouseholdConfigurationRepository {
     utilitiesDueDay?: number
     utilitiesReminderDay?: number
     timezone?: string
+    rentPaymentDestinations?: readonly HouseholdRentPaymentDestination[] | null
   }): Promise<HouseholdBillingSettingsRecord>
   updateHouseholdAssistantConfig?(input: {
     householdId: string

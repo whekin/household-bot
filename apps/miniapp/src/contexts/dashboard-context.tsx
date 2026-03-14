@@ -103,6 +103,10 @@ type DashboardContextValue = {
   purchaseInvestmentChart: () => ReturnType<typeof computePurchaseInvestmentChart>
   testingRolePreview: () => TestingRolePreview | null
   setTestingRolePreview: (value: TestingRolePreview | null) => void
+  testingPeriodOverride: () => string | null
+  setTestingPeriodOverride: (value: string | null) => void
+  testingTodayOverride: () => string | null
+  setTestingTodayOverride: (value: string | null) => void
   loadDashboardData: (initData: string, isAdmin: boolean) => Promise<void>
   applyDemoState: () => void
 }
@@ -246,6 +250,8 @@ export function DashboardProvider(props: ParentProps) {
   const [cycleState, setCycleState] = createSignal<MiniAppAdminCycleState | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [testingRolePreview, setTestingRolePreview] = createSignal<TestingRolePreview | null>(null)
+  const [testingPeriodOverride, setTestingPeriodOverride] = createSignal<string | null>(null)
+  const [testingTodayOverride, setTestingTodayOverride] = createSignal<string | null>(null)
 
   const effectiveIsAdmin = createMemo(() => {
     const current = readySession()
@@ -356,6 +362,10 @@ export function DashboardProvider(props: ParentProps) {
         purchaseInvestmentChart,
         testingRolePreview,
         setTestingRolePreview,
+        testingPeriodOverride,
+        setTestingPeriodOverride,
+        testingTodayOverride,
+        setTestingTodayOverride,
         loadDashboardData,
         applyDemoState
       }}

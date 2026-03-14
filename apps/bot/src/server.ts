@@ -122,6 +122,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppSubmitUtilityBill?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppUpdateUtilityBill?:
     | {
         path?: string
@@ -153,6 +159,12 @@ export interface BotWebhookServerOptions {
       }
     | undefined
   miniAppAddPayment?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppSubmitPayment?:
     | {
         path?: string
         handler: (request: Request) => Promise<Response>
@@ -241,6 +253,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppRentUpdatePath = options.miniAppRentUpdate?.path ?? '/api/miniapp/admin/rent/update'
   const miniAppAddUtilityBillPath =
     options.miniAppAddUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/add'
+  const miniAppSubmitUtilityBillPath =
+    options.miniAppSubmitUtilityBill?.path ?? '/api/miniapp/utility-bills/add'
   const miniAppUpdateUtilityBillPath =
     options.miniAppUpdateUtilityBill?.path ?? '/api/miniapp/admin/utility-bills/update'
   const miniAppDeleteUtilityBillPath =
@@ -252,6 +266,7 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppDeletePurchasePath =
     options.miniAppDeletePurchase?.path ?? '/api/miniapp/admin/purchases/delete'
   const miniAppAddPaymentPath = options.miniAppAddPayment?.path ?? '/api/miniapp/admin/payments/add'
+  const miniAppSubmitPaymentPath = options.miniAppSubmitPayment?.path ?? '/api/miniapp/payments/add'
   const miniAppUpdatePaymentPath =
     options.miniAppUpdatePayment?.path ?? '/api/miniapp/admin/payments/update'
   const miniAppDeletePaymentPath =
@@ -362,6 +377,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
         return await options.miniAppAddUtilityBill.handler(request)
       }
 
+      if (options.miniAppSubmitUtilityBill && url.pathname === miniAppSubmitUtilityBillPath) {
+        return await options.miniAppSubmitUtilityBill.handler(request)
+      }
+
       if (options.miniAppUpdateUtilityBill && url.pathname === miniAppUpdateUtilityBillPath) {
         return await options.miniAppUpdateUtilityBill.handler(request)
       }
@@ -384,6 +403,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppAddPayment && url.pathname === miniAppAddPaymentPath) {
         return await options.miniAppAddPayment.handler(request)
+      }
+
+      if (options.miniAppSubmitPayment && url.pathname === miniAppSubmitPaymentPath) {
+        return await options.miniAppSubmitPayment.handler(request)
       }
 
       if (options.miniAppUpdatePayment && url.pathname === miniAppUpdatePaymentPath) {
