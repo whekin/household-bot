@@ -36,7 +36,8 @@ import { getBotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
-import { createOpenAiTopicMessageRouter } from './topic-message-router'
+import { createTopicProcessor } from './topic-processor'
+import { HouseholdContextCache } from './household-context-cache'
 import {
   createPurchaseMessageRepository,
   registerConfiguredPurchaseTopicIngestion
@@ -153,11 +154,12 @@ const conversationalAssistant = createOpenAiChatAssistant(
   runtime.assistantModel,
   runtime.assistantTimeoutMs
 )
-const topicMessageRouter = createOpenAiTopicMessageRouter(
+const topicProcessor = createTopicProcessor(
   runtime.openaiApiKey,
-  runtime.assistantRouterModel,
-  Math.min(runtime.assistantTimeoutMs, 5_000)
+  runtime.topicProcessorModel,
+  runtime.topicProcessorTimeoutMs
 )
+const householdContextCache = new HouseholdContextCache()
 const anonymousFeedbackRepositoryClients = new Map<
   string,
   ReturnType<typeof createDbAnonymousFeedbackRepository>
@@ -254,9 +256,10 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     householdConfigurationRepositoryClient.repository,
     purchaseRepositoryClient.repository,
     {
-      ...(topicMessageRouter
+      ...(topicProcessor
         ? {
-            router: topicMessageRouter,
+            topicProcessor,
+            contextCache: householdContextCache,
             memoryStore: assistantMemoryStore,
             ...(topicMessageHistoryRepositoryClient
               ? {
@@ -281,9 +284,10 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     financeServiceForHousehold,
     paymentConfirmationServiceForHousehold,
     {
-      ...(topicMessageRouter
+      ...(topicProcessor
         ? {
-            router: topicMessageRouter,
+            topicProcessor,
+            contextCache: householdContextCache,
             memoryStore: assistantMemoryStore,
             ...(topicMessageHistoryRepositoryClient
               ? {
@@ -476,11 +480,6 @@ if (
             assistant: conversationalAssistant
           }
         : {}),
-      ...(topicMessageRouter
-        ? {
-            topicRouter: topicMessageRouter
-          }
-        : {}),
       logger: getLogger('dm-assistant')
     })
   } else {
@@ -510,11 +509,6 @@ if (
       ...(conversationalAssistant
         ? {
             assistant: conversationalAssistant
-          }
-        : {}),
-      ...(topicMessageRouter
-        ? {
-            topicRouter: topicMessageRouter
           }
         : {}),
       logger: getLogger('dm-assistant')

@@ -17,7 +17,8 @@ export interface BotRuntimeConfig {
   openaiApiKey?: string
   purchaseParserModel: string
   assistantModel: string
-  assistantRouterModel: string
+  topicProcessorModel: string
+  topicProcessorTimeoutMs: number
   assistantTimeoutMs: number
   assistantMemoryMaxTurns: number
   assistantRateLimitBurst: number
@@ -129,7 +130,12 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     reminderJobsEnabled,
     purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-4o-mini',
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-4o-mini',
-    assistantRouterModel: env.ASSISTANT_ROUTER_MODEL?.trim() || 'gpt-5-nano',
+    topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4o-mini',
+    topicProcessorTimeoutMs: parsePositiveInteger(
+      env.TOPIC_PROCESSOR_TIMEOUT_MS,
+      10_000,
+      'TOPIC_PROCESSOR_TIMEOUT_MS'
+    ),
     assistantTimeoutMs: parsePositiveInteger(
       env.ASSISTANT_TIMEOUT_MS,
       20_000,

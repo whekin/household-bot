@@ -512,6 +512,9 @@ describe('registerPurchaseTopicIngestion', () => {
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -605,6 +608,9 @@ Confirm or cancel below.`,
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -669,6 +675,9 @@ Confirm or cancel below.`,
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -756,6 +765,9 @@ Confirm or cancel below.`,
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -866,6 +878,9 @@ Confirm or cancel below.`,
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -941,6 +956,9 @@ Confirm or cancel below.`,
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1037,6 +1055,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1125,6 +1146,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1182,6 +1206,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1223,6 +1250,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1270,6 +1300,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1324,6 +1357,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1391,6 +1427,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1457,6 +1496,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1515,6 +1557,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1580,6 +1625,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1655,6 +1703,9 @@ Confirm or cancel below.`
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1711,6 +1762,9 @@ Confirm or cancel below.`
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1814,6 +1868,9 @@ Confirm or cancel below.`,
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1864,6 +1921,9 @@ Confirm or cancel below.`,
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -1942,6 +2002,9 @@ Confirm or cancel below.`,
       async confirm() {
         throw new Error('not used')
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -1991,6 +2054,9 @@ Confirm or cancel below.`,
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -2051,17 +2117,9 @@ Confirm or cancel below.`,
       repository,
       {
         historyRepository,
-        router: async (input) => {
+        topicProcessor: async (input) => {
           if (input.messageText.includes('картошки')) {
-            return {
-              route: 'silent',
-              replyText: null,
-              helperKind: null,
-              shouldStartTyping: false,
-              shouldClearWorkflow: false,
-              confidence: 90,
-              reason: 'planning'
-            }
+            return { route: 'silent', reason: 'planning' }
           }
 
           recentTurnTexts = input.recentThreadMessages?.map((turn) => turn.text) ?? []
@@ -2069,10 +2127,6 @@ Confirm or cancel below.`,
           return {
             route: 'chat_reply',
             replyText: 'No leaked context here.',
-            helperKind: 'assistant',
-            shouldStartTyping: false,
-            shouldClearWorkflow: false,
-            confidence: 91,
             reason: 'thread_scoped'
           }
         }
@@ -2136,6 +2190,9 @@ Confirm or cancel below.`,
           participants: participants()
         }
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -2194,6 +2251,9 @@ Participants:
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         throw new Error('not used')
@@ -2258,6 +2318,9 @@ Participants:
           participants: participants()
         }
       },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
       async cancel() {
         throw new Error('not used')
       },
@@ -2310,6 +2373,9 @@ Participants:
       },
       async confirm() {
         throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
       },
       async cancel() {
         return {

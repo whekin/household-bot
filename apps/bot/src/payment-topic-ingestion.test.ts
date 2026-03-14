@@ -10,6 +10,7 @@ import {
   resolveConfiguredPaymentTopicRecord,
   type PaymentTopicCandidate
 } from './payment-topic-ingestion'
+import type { TopicProcessor } from './topic-processor'
 
 function candidate(overrides: Partial<PaymentTopicCandidate> = {}): PaymentTopicCandidate {
   return {
@@ -231,6 +232,39 @@ function createPaymentConfirmationService(): PaymentConfirmationService & {
   }
 }
 
+// Mock topic processor that mimics LLM responses for testing
+function createMockPaymentTopicProcessor(
+  route: 'payment' | 'silent' | 'topic_helper' | 'payment_clarification' | 'chat_reply' = 'payment'
+): TopicProcessor {
+  return async () => {
+    if (route === 'silent') {
+      return { route: 'silent', reason: 'test' }
+    }
+    if (route === 'topic_helper') {
+      return { route: 'topic_helper', reason: 'test' }
+    }
+    if (route === 'chat_reply') {
+      return { route: 'chat_reply', replyText: 'Hello!', reason: 'test' }
+    }
+    if (route === 'payment_clarification') {
+      return {
+        route: 'payment_clarification',
+        clarificationQuestion: 'What kind of payment?',
+        reason: 'test'
+      }
+    }
+    // Default to payment route
+    return {
+      route: 'payment',
+      kind: 'rent',
+      amountMinor: '47250',
+      currency: 'GEL',
+      confidence: 95,
+      reason: 'test'
+    }
+  }
+}
+
 describe('resolveConfiguredPaymentTopicRecord', () => {
   test('returns record when the topic role is payments', () => {
     const record = resolveConfiguredPaymentTopicRecord(candidate(), {
@@ -332,7 +366,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor() }
     )
 
     await bot.handleUpdate(paymentUpdate('за жилье закинул') as never)
@@ -403,12 +438,36 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     const paymentConfirmationService = createPaymentConfirmationService()
 
+    // Smart mock that returns clarification for vague messages, payment for clear ones
+    const smartTopicProcessor: TopicProcessor = async (input) => {
+      const text = input.messageText.toLowerCase()
+      // Vague messages like "готово" (done) need clarification
+      if (text === 'готово' || text === 'done') {
+        return {
+          route: 'payment_clarification',
+          clarificationQuestion:
+            'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
+          reason: 'test'
+        }
+      }
+      // Messages with rent keywords can proceed as payment
+      return {
+        route: 'payment',
+        kind: 'rent',
+        amountMinor: '47250',
+        currency: 'GEL',
+        confidence: 95,
+        reason: 'test'
+      }
+    }
+
     registerConfiguredPaymentTopicIngestion(
       bot,
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: smartTopicProcessor }
     )
 
     await bot.handleUpdate(paymentUpdate('готово') as never)
@@ -481,14 +540,10 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       () => createFinanceService(),
       () => createPaymentConfirmationService(),
       {
-        router: async () => ({
-          route: 'payment_followup',
+        topicProcessor: async () => ({
+          route: 'dismiss_workflow',
           replyText: null,
-          helperKind: 'payment',
-          shouldStartTyping: false,
-          shouldClearWorkflow: false,
-          confidence: 90,
-          reason: 'llm_followup_guess'
+          reason: 'test'
         })
       }
     )
@@ -534,7 +589,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor() }
     )
 
     await bot.handleUpdate(paymentUpdate('за жилье закинул') as never)
@@ -605,7 +661,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor('silent') }
     )
 
     await bot.handleUpdate(paymentUpdate('Так так)') as never)
@@ -637,7 +694,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor() }
     )
 
     await bot.handleUpdate(paymentUpdate('/unsetup') as never)
@@ -678,7 +736,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor('topic_helper') }
     )
 
     await bot.handleUpdate(paymentUpdate('@household_test_bot как жизнь?') as never)
@@ -720,7 +779,8 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       createHouseholdRepository() as never,
       promptRepository,
       () => createFinanceService(),
-      () => paymentConfirmationService
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor() }
     )
 
     await bot.handleUpdate(paymentUpdate('@household_test_bot за жилье закинул') as never)
@@ -765,13 +825,9 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       () => createFinanceService(),
       () => createPaymentConfirmationService(),
       {
-        router: async () => ({
+        topicProcessor: async () => ({
           route: 'chat_reply',
           replyText: 'Тут. Если это про оплату, разберёмся.',
-          helperKind: null,
-          shouldStartTyping: false,
-          shouldClearWorkflow: false,
-          confidence: 94,
           reason: 'smalltalk'
         })
       }
@@ -831,13 +887,9 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       () => createFinanceService(),
       () => createPaymentConfirmationService(),
       {
-        router: async () => ({
+        topicProcessor: async () => ({
           route: 'dismiss_workflow',
           replyText: 'Окей, молчу.',
-          helperKind: null,
-          shouldStartTyping: false,
-          shouldClearWorkflow: true,
-          confidence: 97,
           reason: 'backoff'
         })
       }

@@ -469,6 +469,9 @@ function createPurchaseRepository(): PurchaseMessageIngestionRepository {
     async hasClarificationContext(record) {
       return clarificationKeys.has(key(record))
     },
+    async saveWithInterpretation() {
+      throw new Error('not implemented')
+    },
     async save(record) {
       const threadKey = key(record)
 
@@ -1414,25 +1417,12 @@ Confirm or cancel below.`,
     })
   })
 
-  test('reuses the purchase-topic route instead of calling the shared router twice', async () => {
+  test('uses topic processor for classification and assistant for response', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
     let assistantCalls = 0
-    let routerCalls = 0
+    let processorCalls = 0
     const householdConfigurationRepository = createBoundHouseholdRepository('purchase')
-    const topicRouter = async () => {
-      routerCalls += 1
-
-      return {
-        route: 'topic_helper' as const,
-        replyText: null,
-        helperKind: 'assistant' as const,
-        shouldStartTyping: true,
-        shouldClearWorkflow: false,
-        confidence: 96,
-        reason: 'question'
-      }
-    }
 
     bot.api.config.use(async (_prev, method, payload) => {
       calls.push({ method, payload })
@@ -1463,7 +1453,10 @@ Confirm or cancel below.`,
       householdConfigurationRepository,
       createPurchaseRepository(),
       {
-        router: topicRouter
+        topicProcessor: async () => {
+          processorCalls += 1
+          return { route: 'topic_helper', reason: 'test' }
+        }
       }
     )
 
@@ -1482,7 +1475,6 @@ Confirm or cancel below.`,
           }
         }
       },
-      topicRouter,
       purchaseRepository: createPurchaseRepository(),
       purchaseInterpreter: async () => null,
       householdConfigurationRepository,
@@ -1500,7 +1492,7 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
 
-    expect(routerCalls).toBe(1)
+    expect(processorCalls).toBe(1)
     expect(assistantCalls).toBe(1)
     expect(calls).toEqual(
       expect.arrayContaining([
