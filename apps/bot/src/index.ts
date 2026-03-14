@@ -157,7 +157,8 @@ const conversationalAssistant = createOpenAiChatAssistant(
 const topicProcessor = createTopicProcessor(
   runtime.openaiApiKey,
   runtime.topicProcessorModel,
-  runtime.topicProcessorTimeoutMs
+  runtime.topicProcessorTimeoutMs,
+  getLogger('topic-processor')
 )
 const householdContextCache = new HouseholdContextCache()
 const anonymousFeedbackRepositoryClients = new Map<

@@ -245,7 +245,8 @@ function buildRecentMessagesSection(input: TopicProcessorInput): string | null {
 export function createTopicProcessor(
   apiKey: string | undefined,
   model: string,
-  timeoutMs: number
+  timeoutMs: number,
+  logger?: { error: (obj: unknown, msg?: string) => void }
 ): TopicProcessor | undefined {
   if (!apiKey) {
     return undefined
@@ -506,7 +507,8 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
         default:
           return { route: 'silent', reason: 'unknown_route' }
       }
-    } catch {
+    } catch (error) {
+      logger?.error({ event: 'topic_processor.failed', error }, 'Topic processor failed')
       return null
     } finally {
       clearTimeout(timeout)
