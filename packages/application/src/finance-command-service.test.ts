@@ -842,4 +842,34 @@ describe('createFinanceCommandService', () => {
     // Alice paid 1000n and her share is 1000n -> offset 0n
     expect(aliceLine?.purchaseOffset.amountMinor).toBe(0n)
   })
+
+  test('generateDashboard succeeds even if rent rule is missing', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+
+    // Simulate missing rent rule
+    repository.rentRule = null
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+
+    expect(dashboard).not.toBeNull()
+    expect(dashboard?.period).toBe('2026-03')
+    expect(dashboard?.rentSourceAmount.amountMinor).toBe(0n)
+    expect(dashboard?.rentDisplayAmount.amountMinor).toBe(0n)
+    expect(dashboard?.totalDue.amountMinor).toBe(0n)
+  })
 })

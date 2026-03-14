@@ -312,9 +312,8 @@ async function buildFinanceDashboard(
     throw new Error('No household members configured')
   }
 
-  if (!rentRule) {
-    throw new Error('No rent rule configured for this cycle period')
-  }
+  const rentAmountMinor = rentRule?.amountMinor ?? 0n
+  const rentCurrency = rentRule?.currency ?? cycle.currency
 
   const period = BillingPeriod.fromString(cycle.period)
   const { start, end } = monthRange(period)
@@ -344,7 +343,7 @@ async function buildFinanceDashboard(
     period,
     lockDay: settings.rentWarningDay,
     timezone: settings.timezone,
-    amount: Money.fromMinor(rentRule.amountMinor, rentRule.currency)
+    amount: Money.fromMinor(rentAmountMinor, rentCurrency)
   })
 
   const convertedUtilityBills = await Promise.all(

@@ -608,4 +608,73 @@ describe('createMiniAppDashboardHandler', () => {
       error: 'Invalid JSON body'
     })
   })
+
+  test('returns a dashboard even if rent rule is missing', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const householdRepository = onboardingRepository()
+    const financeRepository = repository({
+      id: 'member-1',
+      telegramUserId: '123456',
+      displayName: 'Stan',
+      rentShareWeight: 1,
+      isAdmin: true
+    })
+
+    // Simulate missing rent rule
+    financeRepository.getRentRuleForPeriod = async () => null
+
+    const financeService = createFinanceCommandService({
+      householdId: 'household-1',
+      repository: financeRepository,
+      householdConfigurationRepository: householdRepository,
+      exchangeRateProvider
+    })
+
+    householdRepository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+
+    const dashboard = createMiniAppDashboardHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      financeServiceForHousehold: () => financeService,
+      onboardingService: createHouseholdOnboardingService({
+        repository: householdRepository
+      })
+    })
+
+    const response = await dashboard.handler(
+      new Request('http://localhost/api/miniapp/dashboard', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          })
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    const data = (await response.json()) as any
+    expect(data.ok).toBe(true)
+    expect(data.dashboard.rentSourceAmountMajor).toBe('0.00')
+    expect(data.dashboard.rentDisplayAmountMajor).toBe('0.00')
+  })
 })
