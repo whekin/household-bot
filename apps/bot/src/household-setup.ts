@@ -945,16 +945,22 @@ export function registerHouseholdSetupCommands(options: {
       })
 
       if (result.status === 'rejected') {
-        await ctx.answerCallbackQuery({
-          text: adminRejectionMessage(locale, result.reason),
-          show_alert: true
-        })
+        await ctx
+          .answerCallbackQuery({
+            text: adminRejectionMessage(locale, result.reason),
+            show_alert: true
+          })
+          .catch(() => {})
         return
       }
 
-      await ctx.answerCallbackQuery({
-        text: t.setup.approvedMemberToast(result.member.displayName)
-      })
+      try {
+        await ctx.answerCallbackQuery({
+          text: t.setup.approvedMemberToast(result.member.displayName)
+        })
+      } catch {
+        // Ignore stale query
+      }
 
       if (ctx.msg) {
         const refreshed = await options.householdAdminService.listPendingMembers({
@@ -963,13 +969,17 @@ export function registerHouseholdSetupCommands(options: {
         })
 
         if (refreshed.status === 'ok') {
-          if (refreshed.members.length === 0) {
-            await ctx.editMessageText(t.setup.pendingMembersEmpty(refreshed.householdName))
-          } else {
-            const reply = pendingMembersReply(locale, refreshed)
-            await ctx.editMessageText(reply.text, {
-              reply_markup: reply.reply_markup
-            })
+          try {
+            if (refreshed.members.length === 0) {
+              await ctx.editMessageText(t.setup.pendingMembersEmpty(refreshed.householdName))
+            } else {
+              const reply = pendingMembersReply(locale, refreshed)
+              await ctx.editMessageText(reply.text, {
+                reply_markup: reply.reply_markup
+              })
+            }
+          } catch {
+            // Ignore message edit errors
           }
         }
       }
@@ -989,10 +999,12 @@ export function registerHouseholdSetupCommands(options: {
         const t = getBotTranslations(locale).setup
 
         if (!isGroupChat(ctx)) {
-          await ctx.answerCallbackQuery({
-            text: t.useButtonInGroup,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: t.useButtonInGroup,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
@@ -1004,18 +1016,22 @@ export function registerHouseholdSetupCommands(options: {
           : null
 
         if (!actorIsAdmin) {
-          await ctx.answerCallbackQuery({
-            text: t.onlyTelegramAdminsBindTopics,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: t.onlyTelegramAdminsBindTopics,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
         if (!household) {
-          await ctx.answerCallbackQuery({
-            text: t.householdNotConfigured,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: t.householdNotConfigured,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
@@ -1031,13 +1047,15 @@ export function registerHouseholdSetupCommands(options: {
           })
 
           if (result.status === 'rejected') {
-            await ctx.answerCallbackQuery({
-              text:
-                result.reason === 'not_admin'
-                  ? t.onlyTelegramAdminsBindTopics
-                  : t.householdNotConfigured,
-              show_alert: true
-            })
+            await ctx
+              .answerCallbackQuery({
+                text:
+                  result.reason === 'not_admin'
+                    ? t.onlyTelegramAdminsBindTopics
+                    : t.householdNotConfigured,
+                show_alert: true
+              })
+              .catch(() => {})
             return
           }
 
@@ -1050,15 +1068,23 @@ export function registerHouseholdSetupCommands(options: {
             botUsername: ctx.me.username
           })
 
-          await ctx.answerCallbackQuery({
-            text: t.setupTopicCreated(setupTopicRoleLabel(locale, role), topicName)
-          })
+          try {
+            await ctx.answerCallbackQuery({
+              text: t.setupTopicCreated(setupTopicRoleLabel(locale, role), topicName)
+            })
+          } catch {
+            // Ignore stale query
+          }
 
           if (ctx.msg) {
-            await ctx.editMessageText(
-              reply.text,
-              'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
-            )
+            try {
+              await ctx.editMessageText(
+                reply.text,
+                'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
+              )
+            } catch {
+              // Ignore message edit errors
+            }
           }
         } catch (error) {
           const message =
@@ -1067,10 +1093,12 @@ export function registerHouseholdSetupCommands(options: {
               ? t.setupTopicCreateForbidden
               : t.setupTopicCreateFailed
 
-          await ctx.answerCallbackQuery({
-            text: message,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: message,
+              show_alert: true
+            })
+            .catch(() => {})
         }
       }
     )
@@ -1085,10 +1113,12 @@ export function registerHouseholdSetupCommands(options: {
         const t = getBotTranslations(locale).setup
 
         if (!isGroupChat(ctx)) {
-          await ctx.answerCallbackQuery({
-            text: t.useButtonInGroup,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: t.useButtonInGroup,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
@@ -1098,10 +1128,12 @@ export function registerHouseholdSetupCommands(options: {
         const actorIsAdmin = await isGroupAdmin(ctx)
 
         if (!actorIsAdmin) {
-          await ctx.answerCallbackQuery({
-            text: t.onlyTelegramAdminsBindTopics,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text: t.onlyTelegramAdminsBindTopics,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
@@ -1113,27 +1145,37 @@ export function registerHouseholdSetupCommands(options: {
         })
 
         if (result.status === 'rejected') {
-          await ctx.answerCallbackQuery({
-            text:
-              result.reason === 'not_admin'
-                ? t.onlyTelegramAdminsBindTopics
-                : t.householdNotConfigured,
-            show_alert: true
-          })
+          await ctx
+            .answerCallbackQuery({
+              text:
+                result.reason === 'not_admin'
+                  ? t.onlyTelegramAdminsBindTopics
+                  : t.householdNotConfigured,
+              show_alert: true
+            })
+            .catch(() => {})
           return
         }
 
-        await ctx.answerCallbackQuery({
-          text: t.topicBoundSuccess(
-            setupTopicRoleLabel(locale, role),
-            result.household.householdName
-          )
-        })
+        try {
+          await ctx.answerCallbackQuery({
+            text: t.topicBoundSuccess(
+              setupTopicRoleLabel(locale, role),
+              result.household.householdName
+            )
+          })
+        } catch {
+          // Ignore stale query
+        }
 
         if (ctx.msg) {
-          await ctx.editMessageText(
-            t.topicBoundSuccess(setupTopicRoleLabel(locale, role), result.household.householdName)
-          )
+          try {
+            await ctx.editMessageText(
+              t.topicBoundSuccess(setupTopicRoleLabel(locale, role), result.household.householdName)
+            )
+          } catch {
+            // Ignore message edit errors
+          }
         }
 
         // Try to update the main /setup checklist if it exists
