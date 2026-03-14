@@ -9,6 +9,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     cancel: 'Отменить текущий ввод',
     setup: 'Подключить эту группу как дом',
     unsetup: 'Сбросить настройку топиков для этой группы',
+    bind_chat_topic: 'Назначить текущий топик для разговоров',
     bind_purchase_topic: 'Назначить текущий топик для покупок',
     bind_feedback_topic: 'Назначить текущий топик для анонимных сообщений',
     bind_reminders_topic: 'Назначить текущий топик для напоминаний',
@@ -78,6 +79,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     setupTopicBindNotAvailable: 'Это действие привязки топика уже недоступно.',
     setupTopicBindRoleName: (role) => {
       switch (role) {
+        case 'chat':
+          return 'разговоров'
         case 'purchase':
           return 'покупки'
         case 'feedback':
@@ -90,6 +93,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     },
     setupTopicSuggestedName: (role) => {
       switch (role) {
+        case 'chat':
+          return 'Разговоры'
         case 'purchase':
           return 'Общие покупки'
         case 'feedback':
@@ -105,6 +110,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     unsetupComplete: (householdName) =>
       `Состояние настройки для ${householdName} сброшено. Запустите /setup ещё раз, чтобы заново привязать топики.`,
     unsetupNoop: 'Для этой группы пока нечего сбрасывать. Когда будете готовы, запустите /setup.',
+    useBindChatTopicInGroup: 'Используйте /bind_chat_topic внутри топика группы дома.',
+    chatTopicSaved: (householdName, threadId) =>
+      `Топик для разговоров сохранён для ${householdName} (тред ${threadId}).`,
     useBindPurchaseTopicInGroup: 'Используйте /bind_purchase_topic внутри топика группы дома.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Топик покупок сохранён для ${householdName} (тред ${threadId}).`,

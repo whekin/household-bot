@@ -1,7 +1,13 @@
 import type { CurrencyCode, SupportedLocale } from '@household/domain'
 import type { ReminderTarget } from './reminders'
 
-export const HOUSEHOLD_TOPIC_ROLES = ['purchase', 'feedback', 'reminders', 'payments'] as const
+export const HOUSEHOLD_TOPIC_ROLES = [
+  'chat',
+  'purchase',
+  'feedback',
+  'reminders',
+  'payments'
+] as const
 export const HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES = ['active', 'away', 'left'] as const
 export const HOUSEHOLD_MEMBER_ABSENCE_POLICIES = [
   'resident',

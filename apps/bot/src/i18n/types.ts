@@ -7,6 +7,7 @@ export type TelegramCommandName =
   | 'cancel'
   | 'setup'
   | 'unsetup'
+  | 'bind_chat_topic'
   | 'bind_purchase_topic'
   | 'bind_feedback_topic'
   | 'bind_reminders_topic'
@@ -23,6 +24,7 @@ export interface BotCommandDescriptions {
   cancel: string
   setup: string
   unsetup: string
+  bind_chat_topic: string
   bind_purchase_topic: string
   bind_feedback_topic: string
   bind_reminders_topic: string
@@ -90,12 +92,18 @@ export interface BotTranslationCatalog {
     setupTopicBindPending: (role: string) => string
     setupTopicBindCancelled: string
     setupTopicBindNotAvailable: string
-    setupTopicBindRoleName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
-    setupTopicSuggestedName: (role: 'purchase' | 'feedback' | 'reminders' | 'payments') => string
+    setupTopicBindRoleName: (
+      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
+    ) => string
+    setupTopicSuggestedName: (
+      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
+    ) => string
     onlyTelegramAdminsUnsetup: string
     useUnsetupInGroup: string
     unsetupComplete: (householdName: string) => string
     unsetupNoop: string
+    useBindChatTopicInGroup: string
+    chatTopicSaved: (householdName: string, threadId: string) => string
     useBindPurchaseTopicInGroup: string
     purchaseTopicSaved: (householdName: string, threadId: string) => string
     useBindFeedbackTopicInGroup: string

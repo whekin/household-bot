@@ -28,6 +28,7 @@ const GROUP_INVITE_TTL_MS = 3 * 24 * 60 * 60 * 1000
 const SETUP_BIND_TOPIC_ACTION = 'setup_topic_binding' as const
 const SETUP_BIND_TOPIC_TTL_MS = 10 * 60 * 1000
 const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
+  'chat',
   'purchase',
   'feedback',
   'reminders',
@@ -106,11 +107,13 @@ function bindRejectionMessage(
 
 function bindTopicUsageMessage(
   locale: BotLocale,
-  role: 'purchase' | 'feedback' | 'reminders' | 'payments'
+  role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
 ): string {
   const t = getBotTranslations(locale).setup
 
   switch (role) {
+    case 'chat':
+      return t.useBindChatTopicInGroup
     case 'purchase':
       return t.useBindPurchaseTopicInGroup
     case 'feedback':
@@ -124,13 +127,15 @@ function bindTopicUsageMessage(
 
 function bindTopicSuccessMessage(
   locale: BotLocale,
-  role: 'purchase' | 'feedback' | 'reminders' | 'payments',
+  role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments',
   householdName: string,
   threadId: string
 ): string {
   const t = getBotTranslations(locale).setup
 
   switch (role) {
+    case 'chat':
+      return t.chatTopicSaved(householdName, threadId)
     case 'purchase':
       return t.purchaseTopicSaved(householdName, threadId)
     case 'feedback':
@@ -358,7 +363,11 @@ function setupReply(input: {
 
 function isHouseholdTopicRole(value: string): value is HouseholdTopicRole {
   return (
-    value === 'purchase' || value === 'feedback' || value === 'reminders' || value === 'payments'
+    value === 'chat' ||
+    value === 'purchase' ||
+    value === 'feedback' ||
+    value === 'reminders' ||
+    value === 'payments'
   )
 }
 
@@ -647,7 +656,7 @@ export function registerHouseholdSetupCommands(options: {
 
   async function handleBindTopicCommand(
     ctx: Context,
-    role: 'purchase' | 'feedback' | 'reminders' | 'payments'
+    role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
   ): Promise<void> {
     const locale = await resolveReplyLocale({
       ctx,
@@ -1127,6 +1136,10 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     await ctx.reply(t.setup.unsetupComplete(result.household.householdName))
+  })
+
+  options.bot.command('bind_chat_topic', async (ctx) => {
+    await handleBindTopicCommand(ctx, 'chat')
   })
 
   options.bot.command('bind_purchase_topic', async (ctx) => {

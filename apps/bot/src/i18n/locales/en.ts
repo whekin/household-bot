@@ -9,6 +9,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     cancel: 'Cancel the current prompt',
     setup: 'Register this group as a household',
     unsetup: 'Reset topic setup for this group',
+    bind_chat_topic: 'Bind the current topic for casual conversation',
     bind_purchase_topic: 'Bind the current topic as purchases',
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
@@ -76,6 +77,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     setupTopicBindNotAvailable: 'That topic-binding action is no longer available.',
     setupTopicBindRoleName: (role) => {
       switch (role) {
+        case 'chat':
+          return 'chat'
         case 'purchase':
           return 'purchases'
         case 'feedback':
@@ -88,6 +91,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     },
     setupTopicSuggestedName: (role) => {
       switch (role) {
+        case 'chat':
+          return 'Chat'
         case 'purchase':
           return 'Shared purchases'
         case 'feedback':
@@ -103,6 +108,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     unsetupComplete: (householdName) =>
       `Setup state reset for ${householdName}. Run /setup again to bind topics from scratch.`,
     unsetupNoop: 'Nothing to reset for this group yet. Run /setup when you are ready.',
+    useBindChatTopicInGroup: 'Use /bind_chat_topic inside the household group topic.',
+    chatTopicSaved: (householdName, threadId) =>
+      `Chat topic saved for ${householdName} (thread ${threadId}).`,
     useBindPurchaseTopicInGroup: 'Use /bind_purchase_topic inside the household group topic.',
     purchaseTopicSaved: (householdName, threadId) =>
       `Purchase topic saved for ${householdName} (thread ${threadId}).`,
