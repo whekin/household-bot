@@ -72,6 +72,7 @@ type DashboardContextValue = {
   setDashboard: (
     value: MiniAppDashboard | null | ((prev: MiniAppDashboard | null) => MiniAppDashboard | null)
   ) => void
+  loading: () => boolean
   adminSettings: () => MiniAppAdminSettingsPayload | null
   setAdminSettings: (
     value:
@@ -246,6 +247,7 @@ export function DashboardProvider(props: ParentProps) {
   const { copy } = useI18n()
 
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
+  const [loading, setLoading] = createSignal(true)
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
   const [cycleState, setCycleState] = createSignal<MiniAppAdminCycleState | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
@@ -299,9 +301,11 @@ export function DashboardProvider(props: ParentProps) {
   onCleanup(unregisterDashboardRefreshListener)
 
   async function loadDashboardData(initData: string, isAdmin: boolean) {
-    // In demo mode, use demo data
+    setLoading(true)
+
     if (!initData) {
       applyDemoState()
+      setLoading(false)
       return
     }
 
@@ -331,6 +335,8 @@ export function DashboardProvider(props: ParentProps) {
         }
       }
     }
+
+    setLoading(false)
   }
 
   function applyDemoState() {
@@ -345,6 +351,7 @@ export function DashboardProvider(props: ParentProps) {
       value={{
         dashboard,
         setDashboard,
+        loading,
         adminSettings,
         setAdminSettings,
         cycleState,

@@ -1,4 +1,4 @@
-import { Show, For, Index, createSignal, createMemo } from 'solid-js'
+import { Show, For, Index, createSignal, createMemo, Switch, Match } from 'solid-js'
 import { produce } from 'solid-js/store'
 import { Plus } from 'lucide-solid'
 
@@ -13,6 +13,7 @@ import { Select } from '../components/ui/select'
 import { Field } from '../components/ui/field'
 import { Collapsible } from '../components/ui/collapsible'
 import { Toggle } from '../components/ui/toggle'
+import { Skeleton } from '../components/ui/skeleton'
 import {
   ledgerPrimaryAmount,
   ledgerSecondaryAmount,
@@ -203,7 +204,7 @@ function ParticipantSplitInputs(props: ParticipantSplitInputsProps) {
 export default function LedgerRoute() {
   const { initData, refreshHouseholdData } = useSession()
   const { copy } = useI18n()
-  const { dashboard, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
+  const { dashboard, loading, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
     useDashboard()
 
   // ── Purchase editor ──────────────────────────────
@@ -542,161 +543,177 @@ export default function LedgerRoute() {
 
   return (
     <div class="route route--ledger">
-      <Show
-        when={dashboard()}
-        fallback={
+      <Switch>
+        <Match when={loading()}>
+          <Card>
+            <Skeleton style={{ width: '100%', height: '24px', 'margin-bottom': '12px' }} />
+            <Skeleton style={{ width: '80%', height: '48px' }} />
+          </Card>
+          <Card>
+            <Skeleton style={{ width: '100%', height: '24px', 'margin-bottom': '12px' }} />
+            <Skeleton style={{ width: '80%', height: '48px' }} />
+          </Card>
+        </Match>
+
+        <Match when={!dashboard()}>
           <Card>
             <p class="empty-state">{copy().ledgerEmpty}</p>
           </Card>
-        }
-      >
-        {(_data) => (
-          <>
-            {/* ── Purchases ──────────────────────────── */}
-            <Collapsible title={copy().purchasesTitle} body={copy().purchaseReviewBody} defaultOpen>
-              <Show when={effectiveIsAdmin()}>
-                <div class="ledger-actions">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => {
-                      const members = dashboard()?.members ?? []
-                      const currency = (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-                      setNewPurchase({
-                        description: '',
-                        amountMajor: '',
-                        currency,
-                        splitMode: 'equal',
-                        splitInputMode: 'equal',
-                        participants: members.map((m) => ({
-                          memberId: m.memberId,
-                          included: true,
-                          shareAmountMajor: '',
-                          sharePercentage: ''
-                        }))
-                      })
-                      setAddPurchaseOpen(true)
-                    }}
-                  >
-                    <Plus size={14} />
-                    {copy().purchaseSaveAction}
-                  </Button>
-                </div>
-              </Show>
-              <Show
-                when={purchaseLedger().length > 0}
-                fallback={<p class="empty-state">{copy().purchasesEmpty}</p>}
-              >
-                <div class="ledger-list">
-                  <For each={purchaseLedger()}>
-                    {(entry) => (
-                      <button
-                        class="ledger-entry"
-                        onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
-                        disabled={!effectiveIsAdmin()}
-                      >
-                        <div class="ledger-entry__main">
-                          <span class="ledger-entry__title">{entry.title}</span>
-                          <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
-                        </div>
-                        <div class="ledger-entry__amounts">
-                          <strong>{ledgerPrimaryAmount(entry)}</strong>
-                          <Show when={ledgerSecondaryAmount(entry)}>
-                            {(secondary) => (
-                              <span class="ledger-entry__secondary">{secondary()}</span>
-                            )}
-                          </Show>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </Collapsible>
+        </Match>
 
-            {/* ── Utility bills ──────────────────────── */}
-            <Collapsible title={copy().utilityLedgerTitle}>
-              <Show when={effectiveIsAdmin()}>
-                <div class="ledger-actions">
-                  <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
-                    <Plus size={14} />
-                    {copy().addUtilityBillAction}
-                  </Button>
-                </div>
-              </Show>
-              <Show
-                when={utilityLedger().length > 0}
-                fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
+        <Match when={dashboard()}>
+          {(_data) => (
+            <>
+              {/* ── Purchases ──────────────────────────── */}
+              <Collapsible
+                title={copy().purchasesTitle}
+                body={copy().purchaseReviewBody}
+                defaultOpen
               >
-                <div class="ledger-list">
-                  <For each={utilityLedger()}>
-                    {(entry) => (
-                      <button
-                        class="ledger-entry"
-                        onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
-                        disabled={!effectiveIsAdmin()}
-                      >
-                        <div class="ledger-entry__main">
-                          <span class="ledger-entry__title">{entry.title}</span>
-                          <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
-                        </div>
-                        <div class="ledger-entry__amounts">
-                          <strong>{ledgerPrimaryAmount(entry)}</strong>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </Collapsible>
+                <Show when={effectiveIsAdmin()}>
+                  <div class="ledger-actions">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        const members = dashboard()?.members ?? []
+                        const currency = (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+                        setNewPurchase({
+                          description: '',
+                          amountMajor: '',
+                          currency,
+                          splitMode: 'equal',
+                          splitInputMode: 'equal',
+                          participants: members.map((m) => ({
+                            memberId: m.memberId,
+                            included: true,
+                            shareAmountMajor: '',
+                            sharePercentage: ''
+                          }))
+                        })
+                        setAddPurchaseOpen(true)
+                      }}
+                    >
+                      <Plus size={14} />
+                      {copy().purchaseSaveAction}
+                    </Button>
+                  </div>
+                </Show>
+                <Show
+                  when={purchaseLedger().length > 0}
+                  fallback={<p class="empty-state">{copy().purchasesEmpty}</p>}
+                >
+                  <div class="ledger-list">
+                    <For each={purchaseLedger()}>
+                      {(entry) => (
+                        <button
+                          class="ledger-entry"
+                          onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
+                          disabled={!effectiveIsAdmin()}
+                        >
+                          <div class="ledger-entry__main">
+                            <span class="ledger-entry__title">{entry.title}</span>
+                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                          </div>
+                          <div class="ledger-entry__amounts">
+                            <strong>{ledgerPrimaryAmount(entry)}</strong>
+                            <Show when={ledgerSecondaryAmount(entry)}>
+                              {(secondary) => (
+                                <span class="ledger-entry__secondary">{secondary()}</span>
+                              )}
+                            </Show>
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Collapsible>
 
-            {/* ── Payments ───────────────────────────── */}
-            <Collapsible
-              title={copy().paymentsTitle}
-              {...(effectiveIsAdmin() && copy().paymentsAdminBody
-                ? { body: copy().paymentsAdminBody }
-                : {})}
-            >
-              <Show when={effectiveIsAdmin()}>
-                <div class="ledger-actions">
-                  <Button variant="primary" size="sm" onClick={() => setAddPaymentOpen(true)}>
-                    <Plus size={14} />
-                    {copy().paymentsAddAction}
-                  </Button>
-                </div>
-              </Show>
-              <Show
-                when={paymentLedger().length > 0}
-                fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
+              {/* ── Utility bills ──────────────────────── */}
+              <Collapsible title={copy().utilityLedgerTitle}>
+                <Show when={effectiveIsAdmin()}>
+                  <div class="ledger-actions">
+                    <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
+                      <Plus size={14} />
+                      {copy().addUtilityBillAction}
+                    </Button>
+                  </div>
+                </Show>
+                <Show
+                  when={utilityLedger().length > 0}
+                  fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
+                >
+                  <div class="ledger-list">
+                    <For each={utilityLedger()}>
+                      {(entry) => (
+                        <button
+                          class="ledger-entry"
+                          onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
+                          disabled={!effectiveIsAdmin()}
+                        >
+                          <div class="ledger-entry__main">
+                            <span class="ledger-entry__title">{entry.title}</span>
+                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                          </div>
+                          <div class="ledger-entry__amounts">
+                            <strong>{ledgerPrimaryAmount(entry)}</strong>
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Collapsible>
+
+              {/* ── Payments ───────────────────────────── */}
+              <Collapsible
+                title={copy().paymentsTitle}
+                {...(effectiveIsAdmin() && copy().paymentsAdminBody
+                  ? { body: copy().paymentsAdminBody }
+                  : {})}
               >
-                <div class="ledger-list">
-                  <For each={paymentLedger()}>
-                    {(entry) => (
-                      <button
-                        class="ledger-entry"
-                        onClick={() => effectiveIsAdmin() && openPaymentEditor(entry)}
-                        disabled={!effectiveIsAdmin()}
-                      >
-                        <div class="ledger-entry__main">
-                          <span class="ledger-entry__title">
-                            {entry.paymentKind === 'rent'
-                              ? copy().paymentLedgerRent
-                              : copy().paymentLedgerUtilities}
-                          </span>
-                          <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
-                        </div>
-                        <div class="ledger-entry__amounts">
-                          <strong>{ledgerPrimaryAmount(entry)}</strong>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </Collapsible>
-          </>
-        )}
-      </Show>
+                <Show when={effectiveIsAdmin()}>
+                  <div class="ledger-actions">
+                    <Button variant="primary" size="sm" onClick={() => setAddPaymentOpen(true)}>
+                      <Plus size={14} />
+                      {copy().paymentsAddAction}
+                    </Button>
+                  </div>
+                </Show>
+                <Show
+                  when={paymentLedger().length > 0}
+                  fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
+                >
+                  <div class="ledger-list">
+                    <For each={paymentLedger()}>
+                      {(entry) => (
+                        <button
+                          class="ledger-entry"
+                          onClick={() => effectiveIsAdmin() && openPaymentEditor(entry)}
+                          disabled={!effectiveIsAdmin()}
+                        >
+                          <div class="ledger-entry__main">
+                            <span class="ledger-entry__title">
+                              {entry.paymentKind === 'rent'
+                                ? copy().paymentLedgerRent
+                                : copy().paymentLedgerUtilities}
+                            </span>
+                            <span class="ledger-entry__actor">{entry.actorDisplayName}</span>
+                          </div>
+                          <div class="ledger-entry__amounts">
+                            <strong>{ledgerPrimaryAmount(entry)}</strong>
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Collapsible>
+            </>
+          )}
+        </Match>
+      </Switch>
 
       {/* ──────── Add Purchase Modal (Bug #4 fix) ──── */}
       <Modal
