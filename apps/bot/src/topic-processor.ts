@@ -246,13 +246,27 @@ export function createTopicProcessor(
   apiKey: string | undefined,
   model: string,
   timeoutMs: number,
-  logger?: { error: (obj: unknown, msg?: string) => void }
+  logger?: {
+    error: (obj: unknown, msg?: string) => void
+    info: (obj: unknown, msg?: string) => void
+    warn: (obj: unknown, msg?: string) => void
+  }
 ): TopicProcessor | undefined {
   if (!apiKey) {
     return undefined
   }
 
   return async (input) => {
+    logger?.info(
+      {
+        event: 'topic_processor.start',
+        topicRole: input.topicRole,
+        messageText: input.messageText,
+        explicitMention: input.isExplicitMention
+      },
+      'Topic processor starting'
+    )
+
     const abortController = new AbortController()
     const timeout = setTimeout(() => abortController.abort(), timeoutMs)
 
@@ -434,7 +448,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
 
       switch (route) {
         case 'silent':
-          logger?.error(
+          logger?.info(
             { event: 'topic_processor.silent', reason },
             'Topic processor decided silent'
           )
@@ -446,7 +460,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               ? parsed.replyText.trim()
               : null
           if (!replyText) {
-            logger?.error(
+            logger?.info(
               { event: 'topic_processor.empty_chat_reply', reason },
               'Topic processor returned empty chat reply'
             )
@@ -464,7 +478,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               : null
 
           if (!amountMinor || !currency || !itemDescription) {
-            logger?.error(
+            logger?.warn(
               {
                 event: 'topic_processor.missing_purchase_fields',
                 amountMinor: parsed.amountMinor,
@@ -518,7 +532,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
           const kind = parsed.kind === 'rent' || parsed.kind === 'utilities' ? parsed.kind : null
 
           if (!amountMinor || !currency || !kind) {
-            logger?.error(
+            logger?.warn(
               {
                 event: 'topic_processor.missing_payment_fields',
                 amountMinor: parsed.amountMinor,
@@ -556,7 +570,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
         }
 
         default:
-          logger?.error(
+          logger?.warn(
             { event: 'topic_processor.unknown_route', route: parsed.route },
             'Topic processor returned unknown route'
           )
