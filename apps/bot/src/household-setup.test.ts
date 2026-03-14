@@ -133,52 +133,6 @@ function groupCommandUpdate(text: string) {
   }
 }
 
-function groupReplyCommandUpdate(text: string, repliedUser: { id: number; firstName: string }) {
-  const commandToken = text.split(' ')[0] ?? text
-
-  return {
-    update_id: 3004,
-    message: {
-      message_id: 82,
-      date: Math.floor(Date.now() / 1000),
-      chat: {
-        id: -100123456,
-        type: 'supergroup',
-        title: 'Kojori House'
-      },
-      from: {
-        id: 123456,
-        is_bot: false,
-        first_name: 'Stan',
-        language_code: 'en'
-      },
-      reply_to_message: {
-        message_id: 80,
-        date: Math.floor(Date.now() / 1000),
-        chat: {
-          id: -100123456,
-          type: 'supergroup',
-          title: 'Kojori House'
-        },
-        from: {
-          id: repliedUser.id,
-          is_bot: false,
-          first_name: repliedUser.firstName
-        },
-        text: 'hello'
-      },
-      text,
-      entities: [
-        {
-          offset: 0,
-          length: commandToken.length,
-          type: 'bot_command'
-        }
-      ]
-    }
-  }
-}
-
 function groupCallbackUpdate(data: string) {
   return {
     update_id: 3002,
@@ -969,394 +923,6 @@ describe('registerHouseholdSetupCommands', () => {
     })
   })
 
-  test('creates a targeted in-group invite from a replied user message', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const repository = createHouseholdConfigurationRepository()
-    const promptRepository = createPromptRepository()
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-
-      if (method === 'getChatMember') {
-        return {
-          ok: true,
-          result: {
-            status: 'administrator',
-            user: {
-              id: 123456,
-              is_bot: false,
-              first_name: 'Stan'
-            }
-          }
-        } as never
-      }
-
-      if (method === 'sendMessage') {
-        return {
-          ok: true,
-          result: {
-            message_id: 410,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: -100123456,
-              type: 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      return {
-        ok: true,
-        result: true
-      } as never
-    })
-
-    const householdOnboardingService: HouseholdOnboardingService = {
-      async ensureHouseholdJoinToken() {
-        return {
-          householdId: 'household-1',
-          householdName: 'Kojori House',
-          token: 'join-token'
-        }
-      },
-      async getMiniAppAccess() {
-        return {
-          status: 'open_from_group'
-        }
-      },
-      async joinHousehold() {
-        return {
-          status: 'pending',
-          household: {
-            id: 'household-1',
-            name: 'Kojori House',
-            defaultLocale: 'en'
-          }
-        }
-      }
-    }
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService: createHouseholdSetupService(repository),
-      householdOnboardingService,
-      householdAdminService: createHouseholdAdminService(),
-      householdConfigurationRepository: repository,
-      promptRepository
-    })
-
-    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
-    calls.length = 0
-
-    await bot.handleUpdate(
-      groupReplyCommandUpdate('/invite', { id: 654321, firstName: 'Chorbanaut' }) as never
-    )
-
-    expect(calls[1]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -100123456,
-        text: 'Invitation prepared for Chorbanaut. Tap below to join Kojori House.',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: 'Join household',
-                url: 'https://t.me/household_test_bot?start=invite_-100123456_654321'
-              }
-            ]
-          ]
-        }
-      }
-    })
-
-    expect(await promptRepository.getPendingAction('invite:-100123456', '654321')).toMatchObject({
-      action: 'household_group_invite',
-      payload: {
-        joinToken: 'join-token',
-        householdId: 'household-1',
-        householdName: 'Kojori House',
-        targetDisplayName: 'Chorbanaut',
-        inviteMessageId: 410
-      }
-    })
-  })
-
-  test('rejects household invite links for the wrong Telegram user', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-      return {
-        ok: true,
-        result: {
-          message_id: 1,
-          date: Math.floor(Date.now() / 1000),
-          chat: {
-            id: 111111,
-            type: 'private'
-          },
-          text: (payload as { text?: string }).text ?? 'ok'
-        }
-      } as never
-    })
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService: createRejectedHouseholdSetupService(),
-      householdOnboardingService: {
-        async ensureHouseholdJoinToken() {
-          return {
-            householdId: 'household-1',
-            householdName: 'Kojori House',
-            token: 'join-token'
-          }
-        },
-        async getMiniAppAccess() {
-          return {
-            status: 'open_from_group'
-          }
-        },
-        async joinHousehold() {
-          return {
-            status: 'invalid_token'
-          }
-        }
-      },
-      householdAdminService: createHouseholdAdminService(),
-      promptRepository: createPromptRepository()
-    })
-
-    await bot.handleUpdate(
-      startUpdate('/start invite_-100123456_654321', {
-        userId: 111111,
-        firstName: 'Wrong user'
-      }) as never
-    )
-
-    expect(calls[0]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: 111111,
-        text: 'This invite is for a different Telegram user.'
-      }
-    })
-  })
-
-  test('consumes a targeted invite for the invited user and updates the group message', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const repository = createHouseholdConfigurationRepository()
-    const promptRepository = createPromptRepository()
-    const joinCalls: string[] = []
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    const householdOnboardingService: HouseholdOnboardingService = {
-      async ensureHouseholdJoinToken() {
-        return {
-          householdId: 'household-1',
-          householdName: 'Kojori House',
-          token: 'join-token'
-        }
-      },
-      async getMiniAppAccess(input) {
-        if (joinCalls.includes(input.identity.telegramUserId)) {
-          return {
-            status: 'pending',
-            household: {
-              id: 'household-1',
-              name: 'Kojori House',
-              defaultLocale: 'en'
-            }
-          }
-        }
-
-        return {
-          status: 'open_from_group'
-        }
-      },
-      async joinHousehold(input) {
-        joinCalls.push(input.identity.telegramUserId)
-        return {
-          status: 'pending',
-          household: {
-            id: 'household-1',
-            name: 'Kojori House',
-            defaultLocale: 'en'
-          }
-        }
-      }
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-
-      if (method === 'getChatMember') {
-        return {
-          ok: true,
-          result: {
-            status: 'administrator',
-            user: {
-              id: 123456,
-              is_bot: false,
-              first_name: 'Stan'
-            }
-          }
-        } as never
-      }
-
-      if (method === 'sendMessage') {
-        const chatId = (payload as { chat_id?: number }).chat_id ?? 0
-        return {
-          ok: true,
-          result: {
-            message_id: chatId === -100123456 ? 411 : 1,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: chatId,
-              type: chatId > 0 ? 'private' : 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      if (method === 'editMessageText') {
-        return {
-          ok: true,
-          result: {
-            message_id: (payload as { message_id?: number }).message_id ?? 411,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: (payload as { chat_id?: number }).chat_id ?? -100123456,
-              type: 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      return {
-        ok: true,
-        result: true
-      } as never
-    })
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService: createHouseholdSetupService(repository),
-      householdOnboardingService,
-      householdAdminService: createHouseholdAdminService(),
-      householdConfigurationRepository: repository,
-      promptRepository
-    })
-
-    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
-    calls.length = 0
-    await bot.handleUpdate(
-      groupReplyCommandUpdate('/invite', { id: 654321, firstName: 'Chorbanaut' }) as never
-    )
-
-    calls.length = 0
-    await bot.handleUpdate(
-      startUpdate('/start invite_-100123456_654321', {
-        userId: 654321,
-        firstName: 'Chorbanaut'
-      }) as never
-    )
-
-    expect(calls[0]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
-        chat_id: -100123456,
-        message_id: 411,
-        text: 'Chorbanaut sent a join request for Kojori House.'
-      }
-    })
-    expect(calls[1]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: 654321,
-        text: 'Join request sent for Kojori House. Wait for a household admin to confirm you.'
-      }
-    })
-
-    expect(await promptRepository.getPendingAction('invite:-100123456', '654321')).toMatchObject({
-      action: 'household_group_invite',
-      payload: {
-        completed: true
-      }
-    })
-
-    calls.length = 0
-    await bot.handleUpdate(
-      startUpdate('/start invite_-100123456_654321', {
-        userId: 654321,
-        firstName: 'Chorbanaut'
-      }) as never
-    )
-
-    expect(calls[0]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
-        chat_id: -100123456,
-        message_id: 411,
-        text: 'Chorbanaut sent a join request for Kojori House.'
-      }
-    })
-    expect(calls[1]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: 654321,
-        text: 'Join request sent for Kojori House. Wait for a household admin to confirm you.'
-      }
-    })
-  })
-
   test('creates and binds a missing setup topic from callback', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -1850,6 +1416,121 @@ describe('registerHouseholdSetupCommands', () => {
       payload: {
         chat_id: -100123456,
         text: 'Nothing to reset for this group yet. Run /setup when you are ready.'
+      }
+    })
+  })
+
+  test('generates a join link with /join_link command', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: true
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'getChatMember') {
+        return {
+          ok: true,
+          result: {
+            status: 'administrator',
+            user: {
+              id: 123456,
+              is_bot: false,
+              first_name: 'Stan'
+            }
+          }
+        } as never
+      }
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: 500,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123456,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const householdOnboardingService: HouseholdOnboardingService = {
+      async ensureHouseholdJoinToken() {
+        return {
+          householdId: 'household-1',
+          householdName: 'Kojori House',
+          token: 'test-join-token'
+        }
+      },
+      async getMiniAppAccess() {
+        return {
+          status: 'open_from_group'
+        }
+      },
+      async joinHousehold() {
+        return {
+          status: 'pending',
+          household: {
+            id: 'household-1',
+            name: 'Kojori House',
+            defaultLocale: 'en'
+          }
+        }
+      }
+    }
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createHouseholdSetupService(repository),
+      householdOnboardingService,
+      householdAdminService: createHouseholdAdminService(),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
+    calls.length = 0
+
+    await bot.handleUpdate(groupCommandUpdate('/join_link') as never)
+
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123456,
+        text: 'Join link for Kojori House:\nhttps://t.me/household_test_bot?start=join_test-join-token\n\nAnyone with this link can join the household. Share it carefully.',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Join household',
+                url: 'https://t.me/household_test_bot?start=join_test-join-token'
+              }
+            ]
+          ]
+        }
       }
     })
   })

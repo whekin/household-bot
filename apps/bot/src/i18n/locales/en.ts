@@ -14,7 +14,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     bind_feedback_topic: 'Bind the current topic as feedback',
     bind_reminders_topic: 'Bind the current topic as reminders',
     bind_payments_topic: 'Bind the current topic as payments',
-    invite: 'Invite the replied user into this household',
+    join_link: 'Get a shareable link for new members to join',
     payment_add: 'Record your rent or utilities payment',
     pending_members: 'List pending household join requests',
     approve_member: 'Approve a pending household member'
@@ -126,28 +126,16 @@ export const enBotTranslations: BotTranslationCatalog = {
     usePendingMembersInGroup: 'Use /pending_members inside the household group.',
     useApproveMemberInGroup: 'Use /approve_member inside the household group.',
     approveMemberUsage: 'Usage: /approve_member <telegram_user_id>',
-    useInviteInGroup: 'Use /invite as a reply inside the household group.',
     onlyInviteAdmins: 'Only Telegram group admins or household admins can invite members.',
-    inviteUsage: 'Reply to a real user message with /invite.',
-    inviteTargetInvalid: 'I can only prepare invites for real group members.',
-    inviteAlreadyMember: (displayName, householdName) =>
-      `${displayName} is already an active member of ${householdName}.`,
-    inviteAlreadyPending: (displayName, householdName) =>
-      `${displayName} already has a pending join request for ${householdName}.`,
-    invitePrepared: (displayName, householdName) =>
-      `Invitation prepared for ${displayName}. Tap below to join ${householdName}.`,
-    invitePreparedToast: (displayName) => `Invite prepared for ${displayName}.`,
-    inviteJoinWrongUser: 'This invite is for a different Telegram user.',
-    inviteJoinExpired: 'This invite is no longer available.',
-    inviteJoinCompleted: (displayName, householdName) =>
-      `${displayName} completed the join flow for ${householdName}.`,
-    inviteJoinRequestSent: (displayName, householdName) =>
-      `${displayName} sent a join request for ${householdName}.`,
     approvedMember: (displayName, householdName) =>
       `Approved ${displayName} as an active member of ${householdName}.`,
     useButtonInGroup: 'Use this button in the household group.',
     unableToIdentifySelectedMember: 'Unable to identify the selected member.',
-    approvedMemberToast: (displayName) => `Approved ${displayName}.`
+    approvedMemberToast: (displayName) => `Approved ${displayName}.`,
+    useJoinLinkInGroup: 'Use /join_link inside the household group.',
+    joinLinkUnavailable: 'Could not generate join link.',
+    joinLinkReady: (link, householdName) =>
+      `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`
   },
   anonymousFeedback: {
     title: 'Anonymous household note',

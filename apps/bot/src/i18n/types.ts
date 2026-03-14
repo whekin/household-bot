@@ -12,7 +12,7 @@ export type TelegramCommandName =
   | 'bind_feedback_topic'
   | 'bind_reminders_topic'
   | 'bind_payments_topic'
-  | 'invite'
+  | 'join_link'
   | 'payment_add'
   | 'pending_members'
   | 'approve_member'
@@ -29,7 +29,7 @@ export interface BotCommandDescriptions {
   bind_feedback_topic: string
   bind_reminders_topic: string
   bind_payments_topic: string
-  invite: string
+  join_link: string
   payment_add: string
   pending_members: string
   approve_member: string
@@ -115,22 +115,14 @@ export interface BotTranslationCatalog {
     usePendingMembersInGroup: string
     useApproveMemberInGroup: string
     approveMemberUsage: string
-    useInviteInGroup: string
     onlyInviteAdmins: string
-    inviteUsage: string
-    inviteTargetInvalid: string
-    inviteAlreadyMember: (displayName: string, householdName: string) => string
-    inviteAlreadyPending: (displayName: string, householdName: string) => string
-    invitePrepared: (displayName: string, householdName: string) => string
-    invitePreparedToast: (displayName: string) => string
-    inviteJoinWrongUser: string
-    inviteJoinExpired: string
-    inviteJoinCompleted: (displayName: string, householdName: string) => string
-    inviteJoinRequestSent: (displayName: string, householdName: string) => string
     approvedMember: (displayName: string, householdName: string) => string
     useButtonInGroup: string
     unableToIdentifySelectedMember: string
     approvedMemberToast: (displayName: string) => string
+    useJoinLinkInGroup: string
+    joinLinkUnavailable: string
+    joinLinkReady: (link: string, householdName: string) => string
   }
   anonymousFeedback: {
     title: string
