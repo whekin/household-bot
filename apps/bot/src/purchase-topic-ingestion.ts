@@ -15,7 +15,7 @@ import type {
 } from '@household/ports'
 
 import { createDbClient, schema } from '@household/db'
-import { getBotTranslations, type BotLocale } from './i18n'
+import { getBotTranslations, botLocaleFromContext, type BotLocale } from './i18n'
 import type { AssistantConversationMemoryStore } from './assistant-state'
 import { buildConversationContext } from './conversation-orchestrator'
 import type {
@@ -2298,9 +2298,10 @@ export function registerPurchaseTopicIngestion(
       rememberUserTurn(options.memoryStore, record)
       typingIndicator =
         options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
+      const locale = botLocaleFromContext(ctx)
       const pendingReply =
         options.interpreter && shouldShowProcessingReply(ctx, record, route)
-          ? await sendPurchaseProcessingReply(ctx, getBotTranslations('en').purchase.processing)
+          ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
           : null
       const result = await repository.save(record, options.interpreter, 'GEL')
 

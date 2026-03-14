@@ -1,6 +1,7 @@
 import { extractOpenAiResponseText, parseJsonFromResponseText } from './openai-responses'
 import type { TopicWorkflowState } from './topic-message-router'
 import type { EngagementAssessment } from './conversation-orchestrator'
+import { getBotTranslations } from './i18n'
 
 export type TopicProcessorRoute =
   | 'silent'
@@ -27,8 +28,8 @@ export interface TopicProcessorPurchaseResult {
 export interface TopicProcessorPaymentResult {
   route: 'payment'
   kind: 'rent' | 'utilities'
-  amountMinor: string
-  currency: 'GEL' | 'USD'
+  amountMinor: string | null
+  currency: 'GEL' | 'USD' | null
   confidence: number
   reason: string
 }
@@ -327,6 +328,10 @@ For bare summons ("бот?", "bot", "@kojori_bot"), use topic_helper to let the 
 For small talk or jokes directed at the bot, use chat_reply with a short playful response.
 For questions that need household knowledge, use topic_helper.
 
+=== LANGUAGE ===
+- Always use the user's locale (locale=${input.locale}) for clarificationQuestion and replyText.
+- If locale=ru, respond in Russian. If locale=en, respond in English.
+
 === WORKFLOWS ===
 If there is an active clarification workflow and the user's message answers it, combine with context.
 If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
@@ -487,9 +492,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               },
               'Topic processor missing purchase fields'
             )
+            const t = getBotTranslations(input.locale).purchase
             return {
               route: 'purchase_clarification',
-              clarificationQuestion: 'Could you clarify the purchase details?',
+              clarificationQuestion: t.clarificationLowConfidence,
               reason: 'missing_required_fields'
             }
           }
@@ -518,11 +524,16 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
 
         case 'purchase_clarification':
         case 'payment_clarification': {
+          const t = getBotTranslations(input.locale)
+          const defaultQuestion =
+            route === 'purchase_clarification'
+              ? t.purchase.clarificationLowConfidence
+              : t.assistant.paymentClarification
           const clarificationQuestion =
             typeof parsed.clarificationQuestion === 'string' &&
             parsed.clarificationQuestion.trim().length > 0
               ? parsed.clarificationQuestion.trim()
-              : 'Could you clarify?'
+              : defaultQuestion
           return { route, clarificationQuestion, reason }
         }
 
@@ -531,7 +542,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
           const currency = normalizeCurrency(parsed.currency ?? null)
           const kind = parsed.kind === 'rent' || parsed.kind === 'utilities' ? parsed.kind : null
 
-          if (!amountMinor || !currency || !kind) {
+          if (!kind) {
             logger?.warn(
               {
                 event: 'topic_processor.missing_payment_fields',
@@ -541,9 +552,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
               },
               'Topic processor missing payment fields'
             )
+            const t = getBotTranslations(input.locale).assistant
             return {
               route: 'payment_clarification',
-              clarificationQuestion: 'Could you clarify the payment details?',
+              clarificationQuestion: t.paymentClarification,
               reason: 'missing_required_fields'
             }
           }
@@ -551,7 +563,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
           return {
             route,
             kind,
-            amountMinor: amountMinor.toString(),
+            amountMinor: amountMinor?.toString() ?? null,
             currency,
             confidence,
             reason

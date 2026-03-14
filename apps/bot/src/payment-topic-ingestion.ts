@@ -769,12 +769,21 @@ export function registerConfiguredPaymentTopicIngestion(
             }
 
             // Create payment proposal using the parsed data from topic processor
-            const amountMajor = Money.fromMinor(
-              BigInt(processorResult.amountMinor),
-              processorResult.currency
-            ).toMajorString()
+            const amountMajor =
+              processorResult.amountMinor && processorResult.currency
+                ? Money.fromMinor(
+                    BigInt(processorResult.amountMinor),
+                    processorResult.currency
+                  ).toMajorString()
+                : null
+
+            const synthesizedText =
+              amountMajor && processorResult.currency
+                ? `paid ${processorResult.kind} ${amountMajor} ${processorResult.currency}`
+                : `paid ${processorResult.kind}`
+
             const proposal = await maybeCreatePaymentProposal({
-              rawText: `paid ${processorResult.kind} ${amountMajor} ${processorResult.currency}`,
+              rawText: synthesizedText,
               householdId: record.householdId,
               memberId: member.id,
               financeService,
