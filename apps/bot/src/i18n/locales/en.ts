@@ -13,7 +13,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     join_link: 'Get a shareable link for new members to join',
     payment_add: 'Record your rent or utilities payment',
     pending_members: 'List pending household join requests',
-    approve_member: 'Approve a pending household member'
+    approve_member: 'Approve a pending household member',
+    app: 'Open the Kojori mini app',
+    keyboard: 'Toggle persistent dashboard button'
   },
   help: {
     intro: 'Household bot is live.',
@@ -120,6 +122,11 @@ export const enBotTranslations: BotTranslationCatalog = {
     joinLinkUnavailable: 'Could not generate join link.',
     joinLinkReady: (link, householdName) =>
       `Join link for ${householdName}:\n${link}\n\nAnyone with this link can join the household. Share it carefully.`
+  },
+  keyboard: {
+    dashboardButton: '🏡 Dashboard',
+    enabled: 'Persistent dashboard button enabled.',
+    disabled: 'Persistent dashboard button disabled.'
   },
   anonymousFeedback: {
     title: 'Anonymous household note',
@@ -236,7 +243,7 @@ export const enBotTranslations: BotTranslationCatalog = {
   reminders: {
     utilities: (period) => `Utilities reminder for ${period}`,
     rentWarning: (period) => `Rent reminder for ${period}: payment is coming up soon.`,
-    rentDue: (period) => `Rent due reminder for ${period}: please settle payment today.`,
+    rentDue: (period) => `Rent is due for period ${period}. Request sent to the reminders topic.`,
     guidedEntryButton: 'Guided entry',
     copyTemplateButton: 'Copy template',
     openDashboardButton: 'Open dashboard',

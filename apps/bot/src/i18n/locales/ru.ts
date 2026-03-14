@@ -13,7 +13,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     join_link: 'Получить ссылку для приглашения новых участников',
     payment_add: 'Подтвердить оплату аренды или коммуналки',
     pending_members: 'Показать ожидающие заявки на вступление',
-    approve_member: 'Подтвердить участника дома'
+    approve_member: 'Подтвердить участника дома',
+    app: 'Открыть мини-приложение Kojori',
+    keyboard: 'Вкл/выкл кнопку дашборда'
   },
   help: {
     intro: 'Бот для дома подключен.',
@@ -122,6 +124,11 @@ export const ruBotTranslations: BotTranslationCatalog = {
     joinLinkUnavailable: 'Не удалось сгенерировать ссылку для вступления.',
     joinLinkReady: (link, householdName) =>
       `Поделитесь этой ссылкой, чтобы пригласить участников в ${householdName}:\n\n${link}\n\nЛюбой, у кого есть эта ссылка, может подать заявку на вступление.`
+  },
+  keyboard: {
+    dashboardButton: '🏡 Дашборд',
+    enabled: 'Кнопка дашборда включена.',
+    disabled: 'Кнопка дашборда выключена.'
   },
   anonymousFeedback: {
     title: 'Анонимное сообщение по дому',

@@ -125,11 +125,35 @@ export function createReminderJobsHandler(options: {
         }
       case 'rent-warning':
         return {
-          text: t.rentWarning(period)
+          text: t.rentWarning(period),
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                {
+                  text: t.openDashboardButton,
+                  url: options.botUsername
+                    ? `https://t.me/${options.botUsername}?start=dashboard`
+                    : '#'
+                }
+              ]
+            ]
+          }
         }
       case 'rent-due':
         return {
-          text: t.rentDue(period)
+          text: t.rentDue(period),
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                {
+                  text: t.openDashboardButton,
+                  url: options.botUsername
+                    ? `https://t.me/${options.botUsername}?start=dashboard`
+                    : '#'
+                }
+              ]
+            ]
+          }
         }
     }
   }

@@ -147,8 +147,11 @@ function setupKeyboard(input: {
   locale: BotLocale
   joinDeepLink: string | null
   bindings: readonly HouseholdTopicBindingRecord[]
+  miniAppUrl: string | undefined
+  botUsername: string | undefined
 }) {
   const t = getBotTranslations(input.locale).setup
+  const kt = getBotTranslations(input.locale).keyboard
   const configuredRoles = new Set(input.bindings.map((binding) => binding.role))
   const rows: Array<
     Array<
@@ -159,6 +162,10 @@ function setupKeyboard(input: {
       | {
           text: string
           callback_data: string
+        }
+      | {
+          text: string
+          web_app: { url: string }
         }
     >
   > = []
@@ -185,6 +192,19 @@ function setupKeyboard(input: {
       {
         text: t.joinHouseholdButton,
         url: input.joinDeepLink
+      }
+    ])
+  }
+
+  // Add dashboard button
+  const webAppUrl = buildOpenMiniAppUrl(input.miniAppUrl, input.botUsername)
+  if (webAppUrl) {
+    rows.push([
+      {
+        text: kt.dashboardButton,
+        web_app: {
+          url: webAppUrl
+        }
       }
     ])
   }
@@ -234,6 +254,8 @@ function setupReply(input: {
   created: boolean
   joinDeepLink: string | null
   bindings: readonly HouseholdTopicBindingRecord[]
+  miniAppUrl: string | undefined
+  botUsername: string | undefined
 }) {
   const t = getBotTranslations(input.locale).setup
   return {
@@ -250,7 +272,9 @@ function setupReply(input: {
     ...setupKeyboard({
       locale: input.locale,
       joinDeepLink: input.joinDeepLink,
-      bindings: input.bindings
+      bindings: input.bindings,
+      miniAppUrl: input.miniAppUrl,
+      botUsername: input.botUsername
     })
   }
 }
@@ -382,6 +406,8 @@ export function registerHouseholdSetupCommands(options: {
     locale: BotLocale
     household: HouseholdTelegramChatRecord
     created: boolean
+    miniAppUrl: string | undefined
+    botUsername: string | undefined
   }) {
     const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
       householdId: input.household.householdId,
@@ -407,7 +433,9 @@ export function registerHouseholdSetupCommands(options: {
       household: input.household,
       created: input.created,
       joinDeepLink,
-      bindings
+      bindings,
+      miniAppUrl: input.miniAppUrl,
+      botUsername: input.botUsername
     })
   }
 
@@ -563,7 +591,9 @@ export function registerHouseholdSetupCommands(options: {
       ctx,
       locale,
       household: result.household,
-      created: result.status === 'created'
+      created: result.status === 'created',
+      miniAppUrl: options.miniAppUrl,
+      botUsername: ctx.me.username
     })
     const sent = await ctx.reply(
       reply.text,
@@ -966,7 +996,9 @@ export function registerHouseholdSetupCommands(options: {
             ctx,
             locale,
             household: result.household,
-            created: false
+            created: false,
+            miniAppUrl: options.miniAppUrl,
+            botUsername: ctx.me.username
           })
 
           await ctx.answerCallbackQuery({
@@ -1068,7 +1100,9 @@ export function registerHouseholdSetupCommands(options: {
               ctx,
               locale,
               household: result.household,
-              created: false
+              created: false,
+              miniAppUrl: options.miniAppUrl,
+              botUsername: ctx.me.username
             })
 
             try {
@@ -1091,6 +1125,50 @@ export function registerHouseholdSetupCommands(options: {
       }
     )
   }
+  options.bot.command(['app', 'dashboard'], async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale)
+
+    if (!options.miniAppUrl) {
+      await ctx.reply(t.setup.openMiniAppUnavailable)
+      return
+    }
+
+    await ctx.reply(
+      t.setup.openMiniAppFromPrivateChat,
+      openMiniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username)
+    )
+  })
+
+  options.bot.command('keyboard', async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale)
+
+    if (!options.miniAppUrl) {
+      await ctx.reply(t.setup.openMiniAppUnavailable)
+      return
+    }
+
+    const webAppUrl = buildOpenMiniAppUrl(options.miniAppUrl, ctx.me.username)
+    if (!webAppUrl) {
+      await ctx.reply(t.setup.openMiniAppUnavailable)
+      return
+    }
+
+    await ctx.reply(t.keyboard.enabled, {
+      reply_markup: {
+        keyboard: [[{ text: t.keyboard.dashboardButton, web_app: { url: webAppUrl } }]],
+        resize_keyboard: true,
+        is_persistent: true
+      }
+    })
+  })
 }
 
 function localeFromAccess(access: HouseholdMiniAppAccess, fallback: BotLocale): BotLocale {

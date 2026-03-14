@@ -67,6 +67,8 @@ function isGroupChat(ctx: Context): boolean {
 export function createFinanceCommandsService(options: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  miniAppUrl?: string
+  botUsername?: string
 }): {
   register: (bot: Bot) => void
 } {
@@ -253,7 +255,28 @@ export function createFinanceCommandsService(options: {
           resolved.householdId
         )
 
-        await ctx.reply(formatHouseholdStatus(locale, dashboard, settings.rentDueDay))
+        const webAppUrl =
+          options.miniAppUrl && ctx.me.username
+            ? `${options.miniAppUrl}${options.miniAppUrl.includes('?') ? '&' : '?'}bot=${ctx.me.username}`
+            : options.miniAppUrl
+
+        await ctx.reply(
+          formatHouseholdStatus(locale, dashboard, settings.rentDueDay),
+          webAppUrl
+            ? {
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: getBotTranslations(locale).setup.openMiniAppButton,
+                        web_app: { url: webAppUrl }
+                      }
+                    ]
+                  ]
+                }
+              }
+            : {}
+        )
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

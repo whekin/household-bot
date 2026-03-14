@@ -12,6 +12,8 @@ export type TelegramCommandName =
   | 'payment_add'
   | 'pending_members'
   | 'approve_member'
+  | 'app'
+  | 'keyboard'
 
 export interface BotCommandDescriptions {
   help: string
@@ -25,6 +27,8 @@ export interface BotCommandDescriptions {
   payment_add: string
   pending_members: string
   approve_member: string
+  app: string
+  keyboard: string
 }
 
 export interface PendingMemberSummary {
@@ -106,6 +110,11 @@ export interface BotTranslationCatalog {
     useJoinLinkInGroup: string
     joinLinkUnavailable: string
     joinLinkReady: (link: string, householdName: string) => string
+  }
+  keyboard: {
+    dashboardButton: string
+    enabled: string
+    disabled: string
   }
   anonymousFeedback: {
     title: string
