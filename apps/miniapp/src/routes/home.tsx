@@ -819,10 +819,6 @@ export default function HomeRoute() {
                                 {purchaseTotalMajor()} {data().currency}
                               </strong>
                             </div>
-                            <div class="balance-card__row">
-                              <span>{copy().homeMembersCountLabel}</span>
-                              <strong>{data().members.length}</strong>
-                            </div>
                           </div>
                         </div>
                       </Card>
