@@ -41,21 +41,17 @@ jobs:
       github_environment: ${{ steps.detect.outputs.github_environment }}
       db_schema: ${{ steps.detect.outputs.db_schema }}
       service_suffix: ${{ steps.detect.outputs.service_suffix }}
-      bot_secret_id: ${{ steps.detect.outputs.bot_secret_id }}
-      db_secret_name: ${{ steps.detect.outputs.db_secret_name }}
       ref: ${{ steps.detect.outputs.ref }}
 
     steps:
       - name: Determine target environment
         id: detect
         run: |
-          # Determine environment from input (manual) or branch (auto)
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             target_env="${{ inputs.environment }}"
             ref="${{ inputs.ref }}"
           else
-            # Auto-detect from branch
-            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            if [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
               target_env="prod"
             else
               target_env="dev"
@@ -63,28 +59,21 @@ jobs:
             ref="${{ github.event.workflow_run.head_sha }}"
           fi
 
-          # Set derived values
           if [[ "$target_env" == "prod" ]]; then
             github_environment="Production"
             db_schema="public"
             service_suffix="prod"
-            bot_secret_id="telegram-bot-token"
-            db_secret_name="DATABASE_URL"
           else
             github_environment="Development"
             db_schema="test"
             service_suffix="dev"
-            bot_secret_id="telegram-bot-token-test"
-            db_secret_name="DATABASE_URL_TEST"
           fi
 
-          echo "target_env=$target_env" >> "$GITHUB_OUTPUT"
+          echo "target_env=$target_env"         >> "$GITHUB_OUTPUT"
           echo "github_environment=$github_environment" >> "$GITHUB_OUTPUT"
-          echo "db_schema=$db_schema" >> "$GITHUB_OUTPUT"
+          echo "db_schema=$db_schema"           >> "$GITHUB_OUTPUT"
           echo "service_suffix=$service_suffix" >> "$GITHUB_OUTPUT"
-          echo "bot_secret_id=$bot_secret_id" >> "$GITHUB_OUTPUT"
-          echo "db_secret_name=$db_secret_name" >> "$GITHUB_OUTPUT"
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref"                       >> "$GITHUB_OUTPUT"
 
           echo "Target environment: $target_env"
           echo "GitHub Environment: $github_environment"
@@ -106,10 +95,10 @@ jobs:
       - name: Evaluate trigger and required secrets
         id: check
         env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          DATABASE_URL: ${{ secrets[needs.detect-environment.outputs.db_secret_name] }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           eligible_event=false
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -118,9 +107,9 @@ jobs:
             eligible_event=true
           fi
 
-          secrets_ok=false
+          vars_ok=false
           if [[ -n "$GCP_PROJECT_ID" && -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" && -n "$GCP_SERVICE_ACCOUNT" ]]; then
-            secrets_ok=true
+            vars_ok=true
           fi
 
           db_secret_ok=false
@@ -129,8 +118,8 @@ jobs:
           fi
 
           echo "eligible_event=$eligible_event" >> "$GITHUB_OUTPUT"
-          echo "secrets_ok=$secrets_ok" >> "$GITHUB_OUTPUT"
-          echo "db_secret_ok=$db_secret_ok" >> "$GITHUB_OUTPUT"
+          echo "secrets_ok=$vars_ok"            >> "$GITHUB_OUTPUT"
+          echo "db_secret_ok=$db_secret_ok"     >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy Cloud Run
@@ -144,7 +133,7 @@ jobs:
       ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
       SERVICE_SUFFIX: ${{ needs.detect-environment.outputs.service_suffix }}
       DB_SCHEMA: ${{ needs.detect-environment.outputs.db_schema }}
-      BOT_SECRET_ID: ${{ needs.detect-environment.outputs.bot_secret_id }}
+      BOT_SECRET_ID: ${{ vars.TELEGRAM_BOT_TOKEN_SECRET_ID }}
 
     steps:
       - name: Checkout deployment ref
@@ -163,17 +152,32 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets[needs.detect-environment.outputs.db_secret_name] }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DB_SCHEMA: ${{ needs.detect-environment.outputs.db_schema }}
         run: bun run db:migrate
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve image tags
+        id: images
+        run: |
+          # For workflow_run, use the SHA from the triggering commit (which CI already built & pushed).
+          # For workflow_dispatch, the user-supplied ref may be a branch or tag name — resolve to SHA.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            deploy_sha=$(git rev-parse HEAD)
+          else
+            deploy_sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
+          echo "bot_image=${repo}/bot:${deploy_sha}"       >> "$GITHUB_OUTPUT"
+          echo "mini_image=${repo}/miniapp:${deploy_sha}"  >> "$GITHUB_OUTPUT"
 
       - name: Load Telegram bot token for command sync
         id: telegram-token
@@ -181,7 +185,7 @@ jobs:
           set +e
           token="$(gcloud secrets versions access latest \
             --secret "${BOT_SECRET_ID}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" 2>/dev/null)"
+            --project "${{ vars.GCP_PROJECT_ID }}" 2>/dev/null)"
           status=$?
           set -e
 
@@ -198,35 +202,12 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Configure Artifact Registry auth
-        run: |
-          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
-
-      - name: Resolve image tags
-        id: images
-        run: |
-          bot_image="${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}/bot:${GITHUB_SHA}"
-          mini_image="${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}/miniapp:${GITHUB_SHA}"
-
-          echo "bot_image=$bot_image" >> "$GITHUB_OUTPUT"
-          echo "mini_image=$mini_image" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push bot image
-        run: |
-          docker build -f apps/bot/Dockerfile -t "${{ steps.images.outputs.bot_image }}" .
-          docker push "${{ steps.images.outputs.bot_image }}"
-
-      - name: Build and push mini app image
-        run: |
-          docker build -f apps/miniapp/Dockerfile -t "${{ steps.images.outputs.mini_image }}" .
-          docker push "${{ steps.images.outputs.mini_image }}"
-
       - name: Deploy bot service
         run: |
           gcloud run deploy "household-${SERVICE_SUFFIX}-bot-api" \
             --image "${{ steps.images.outputs.bot_image }}" \
             --region "${GCP_REGION}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
             --set-env-vars "DB_SCHEMA=${DB_SCHEMA}" \
             --allow-unauthenticated \
             --quiet
@@ -236,7 +217,7 @@ jobs:
           gcloud run deploy "household-${SERVICE_SUFFIX}-mini-app" \
             --image "${{ steps.images.outputs.mini_image }}" \
             --region "${GCP_REGION}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
             --quiet
 
@@ -253,7 +234,7 @@ jobs:
         run: |
           SERVICE_URL=$(gcloud run services describe "household-${SERVICE_SUFFIX}-bot-api" \
             --region "${GCP_REGION}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
             --format 'value(status.url)')
 
           export TELEGRAM_WEBHOOK_URL="$SERVICE_URL/webhook/telegram"
