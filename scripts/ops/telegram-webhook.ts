@@ -51,14 +51,20 @@ async function run(): Promise<void> {
       return
     }
     case 'set': {
-      const params = new URLSearchParams({
-        url: requireEnv('TELEGRAM_WEBHOOK_URL')
-      })
-
+      const webhookUrl = requireEnv('TELEGRAM_WEBHOOK_URL')
       const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET?.trim()
-      if (secretToken) {
-        params.set('secret_token', secretToken)
+
+      if (!secretToken) {
+        console.error(
+          'WARNING: TELEGRAM_WEBHOOK_SECRET not set - webhook will be set without secret token'
+        )
+        throw new Error('TELEGRAM_WEBHOOK_SECRET is required for secure webhook setup')
       }
+
+      const params = new URLSearchParams({
+        url: webhookUrl,
+        secret_token: secretToken
+      })
 
       const maxConnections = process.env.TELEGRAM_MAX_CONNECTIONS?.trim()
       if (maxConnections) {
@@ -70,6 +76,7 @@ async function run(): Promise<void> {
         params.set('drop_pending_updates', dropPendingUpdates)
       }
 
+      console.log(`Setting webhook to: ${webhookUrl}`)
       const result = await telegramRequest(botToken, 'setWebhook', params)
       console.log(JSON.stringify({ ok: true, result }, null, 2))
       return

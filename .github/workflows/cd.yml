@@ -227,10 +227,37 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: bun run ops:telegram:commands set
 
+      - name: Load webhook secret
+        id: webhook-secret
+        run: |
+          set +e
+          secret_name="telegram-webhook-secret"
+          if [[ "${SERVICE_SUFFIX}" == "dev" ]]; then
+            secret_name="telegram-webhook-secret-test"
+          fi
+          secret="$(gcloud secrets versions access latest \
+            --secret "${secret_name}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" 2>/dev/null)"
+          status=$?
+          set -e
+
+          if [[ $status -eq 0 && -n "$secret" ]]; then
+            echo "::add-mask::$secret"
+            {
+              echo "available=true"
+              echo "secret<<EOF"
+              echo "$secret"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set Telegram Webhook
-        if: ${{ steps.telegram-token.outputs.available == 'true' }}
+        if: ${{ steps.telegram-token.outputs.available == 'true' && steps.webhook-secret.outputs.available == 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ steps.webhook-secret.outputs.secret }}
         run: |
           SERVICE_URL=$(gcloud run services describe "household-${SERVICE_SUFFIX}-bot-api" \
             --region "${GCP_REGION}" \
@@ -238,4 +265,13 @@ jobs:
             --format 'value(status.url)')
 
           export TELEGRAM_WEBHOOK_URL="$SERVICE_URL/webhook/telegram"
+          echo "Setting webhook to: $TELEGRAM_WEBHOOK_URL"
           bun run ops:telegram:webhook set
+
+      - name: Verify Telegram Webhook
+        if: ${{ steps.telegram-token.outputs.available == 'true' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
+        run: |
+          echo "Checking webhook status..."
+          bun run ops:telegram:webhook info | jq -r '.url, .last_error_message' || true
