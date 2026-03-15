@@ -19,6 +19,14 @@ resource "google_artifact_registry_repository" "containers" {
 
   labels = local.common_labels
 
+  lifecycle {
+    ignore_changes = [
+      labels,
+      effective_labels,
+      terraform_labels,
+    ]
+  }
+
   depends_on = [google_project_service.enabled]
 }
 
@@ -41,7 +49,7 @@ resource "google_service_account" "scheduler_invoker" {
 }
 
 resource "google_secret_manager_secret" "runtime" {
-  for_each = local.runtime_secret_ids
+  for_each = var.manage_runtime_secrets ? local.runtime_secret_ids : toset([])
 
   project   = var.project_id
   secret_id = each.value
@@ -56,10 +64,10 @@ resource "google_secret_manager_secret" "runtime" {
 }
 
 resource "google_secret_manager_secret_iam_member" "bot_runtime_access" {
-  for_each = google_secret_manager_secret.runtime
+  for_each = local.runtime_secret_ids
 
   project   = var.project_id
-  secret_id = each.value.secret_id
+  secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.bot_runtime.email}"
 }
@@ -96,8 +104,11 @@ module "bot_api_service" {
     var.bot_assistant_model == null ? {} : {
       ASSISTANT_MODEL = var.bot_assistant_model
     },
-    var.bot_assistant_router_model == null ? {} : {
-      ASSISTANT_ROUTER_MODEL = var.bot_assistant_router_model
+    var.bot_topic_processor_model == null ? {} : {
+      TOPIC_PROCESSOR_MODEL = var.bot_topic_processor_model
+    },
+    var.bot_topic_processor_timeout_ms == null ? {} : {
+      TOPIC_PROCESSOR_TIMEOUT_MS = tostring(var.bot_topic_processor_timeout_ms)
     },
     var.bot_assistant_timeout_ms == null ? {} : {
       ASSISTANT_TIMEOUT_MS = tostring(var.bot_assistant_timeout_ms)
@@ -222,7 +233,7 @@ resource "google_service_account" "github_deployer" {
   count = var.create_workload_identity ? 1 : 0
 
   project      = var.project_id
-  account_id   = var.github_deploy_service_account_id
+  account_id   = "${var.environment}-${var.github_deploy_service_account_id}"
   display_name = "${local.name_prefix} GitHub deployer"
 }
 

@@ -8,6 +8,7 @@ on:
       - completed
     branches:
       - main
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -15,13 +16,15 @@ permissions:
   id-token: write
 
 concurrency:
-  group: cd-main
+  group: cd-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   check-secrets:
     name: Check deploy prerequisites
     runs-on: ubuntu-latest
+    # Select GitHub Environment based on branch
+    environment: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
     outputs:
       eligible_event: ${{ steps.check.outputs.eligible_event }}
       secrets_ok: ${{ steps.check.outputs.secrets_ok }}
@@ -63,11 +66,16 @@ jobs:
     needs: check-secrets
     timeout-minutes: 30
     if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok == 'true' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
     env:
       GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
-      CLOUD_RUN_SERVICE_BOT: ${{ vars.CLOUD_RUN_SERVICE_BOT || 'household-dev-bot-api' }}
-      CLOUD_RUN_SERVICE_MINI: ${{ vars.CLOUD_RUN_SERVICE_MINI || 'household-dev-mini-app' }}
+      # Dynamic Service Names based on environment
+      # Branch 'main' -> Environment 'prod' -> household-prod-*
+      # Branch 'dev'  -> Environment 'dev'  -> household-dev-*
+      CLOUD_RUN_SERVICE_BOT: ${{ github.ref == 'refs/heads/main' && 'household-prod-bot-api' || 'household-dev-bot-api' }}
+      CLOUD_RUN_SERVICE_MINI: ${{ github.ref == 'refs/heads/main' && 'household-prod-mini-app' || 'household-dev-mini-app' }}
+      TELEGRAM_BOT_TOKEN_SECRET_ID: ${{ github.ref == 'refs/heads/main' && 'telegram-bot-token' || 'telegram-bot-token-test' }}
 
     steps:
       - name: Checkout deployment ref
@@ -99,8 +107,6 @@ jobs:
 
       - name: Load Telegram bot token for command sync
         id: telegram-token
-        env:
-          TELEGRAM_BOT_TOKEN_SECRET_ID: ${{ vars.TELEGRAM_BOT_TOKEN_SECRET_ID || 'telegram-bot-token' }}
         run: |
           set +e
           token="$(gcloud secrets versions access latest \
@@ -169,34 +175,15 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: bun run ops:telegram:commands set
 
-      - name: Telegram command sync skipped
-        if: ${{ steps.telegram-token.outputs.available != 'true' }}
+      - name: Set Telegram Webhook
+        if: ${{ steps.telegram-token.outputs.available == 'true' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: |
-          echo "Telegram command sync skipped."
-          echo "Grant the CD service account access to the bot token secret or set TELEGRAM_BOT_TOKEN_SECRET_ID."
+          SERVICE_URL=$(gcloud run services describe "${CLOUD_RUN_SERVICE_BOT}" \
+            --region "${GCP_REGION}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --format 'value(status.url)')
 
-  deploy-skipped:
-    name: Deploy skipped (missing config)
-    runs-on: ubuntu-latest
-    needs: check-secrets
-    if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'false' }}
-
-    steps:
-      - name: Print configuration hint
-        run: |
-          echo "CD skipped: configure required GitHub secrets."
-          echo "Required: GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT, DATABASE_URL"
-          echo "Optional repo/service vars: GCP_REGION, ARTIFACT_REPOSITORY, CLOUD_RUN_SERVICE_BOT, CLOUD_RUN_SERVICE_MINI"
-
-  deploy-blocked-db:
-    name: Deploy blocked (missing DATABASE_URL)
-    runs-on: ubuntu-latest
-    needs: check-secrets
-    if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok != 'true' }}
-
-    steps:
-      - name: Fail fast on missing DATABASE_URL
-        run: |
-          echo "CD blocked: DATABASE_URL GitHub secret is required."
-          echo "This workflow now refuses to deploy without running migrations against the target database."
-          exit 1
+          export TELEGRAM_WEBHOOK_URL="$SERVICE_URL/webhook/telegram"
+          bun run ops:telegram:webhook set

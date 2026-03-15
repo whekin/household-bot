@@ -83,9 +83,16 @@ variable "bot_assistant_model" {
   nullable    = true
 }
 
-variable "bot_assistant_router_model" {
-  description = "Optional ASSISTANT_ROUTER_MODEL override for bot runtime"
+variable "bot_topic_processor_model" {
+  description = "Optional TOPIC_PROCESSOR_MODEL override for bot runtime"
   type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "bot_topic_processor_timeout_ms" {
+  description = "Optional TOPIC_PROCESSOR_TIMEOUT_MS override for bot runtime"
+  type        = number
   default     = null
   nullable    = true
 }
@@ -215,6 +222,12 @@ variable "labels" {
   description = "Additional labels"
   type        = map(string)
   default     = {}
+}
+
+variable "manage_runtime_secrets" {
+  description = "Whether Terraform should manage the creation of runtime secrets (disable if secrets are created manually)"
+  type        = bool
+  default     = true
 }
 
 variable "create_workload_identity" {
