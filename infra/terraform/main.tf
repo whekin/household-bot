@@ -96,7 +96,8 @@ module "bot_api_service" {
 
   env = merge(
     {
-      NODE_ENV = var.environment
+      NODE_ENV  = var.environment
+      DB_SCHEMA = var.db_schema
     },
     var.bot_purchase_parser_model == null ? {} : {
       PURCHASE_PARSER_MODEL = var.bot_purchase_parser_model

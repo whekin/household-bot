@@ -100,6 +100,7 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_SCHEMA: ${{ github.ref == 'refs/heads/main' && 'public' || 'test' }}
         run: bun run db:migrate
 
       - name: Setup gcloud

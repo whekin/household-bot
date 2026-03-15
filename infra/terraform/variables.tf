@@ -259,3 +259,9 @@ variable "github_deploy_service_account_id" {
   type        = string
   default     = "github-deployer"
 }
+
+variable "db_schema" {
+  description = "Database schema name for the application"
+  type        = string
+  default     = "public"
+}

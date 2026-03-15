@@ -3,9 +3,8 @@ import { $ } from 'bun'
 const PROJECT_ID = 'gen-lang-client-0200379851'
 
 async function secretExists(name: string): Promise<boolean> {
-  const result =
-    (await $`gcloud secrets describe ${name} --project=${PROJECT_ID}`.quiet().exitCode) === 0
-  return result
+  const result = await $`gcloud secrets describe ${name} --project=${PROJECT_ID}`.quiet().nothrow()
+  return result.exitCode === 0
 }
 
 async function createSecret(name: string, value: string) {
