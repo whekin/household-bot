@@ -10,21 +10,93 @@ on:
       - main
       - dev
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      ref:
+        description: 'Git ref to deploy (branch, tag, or SHA)'
+        required: true
+        default: 'dev'
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: cd-${{ github.ref_name }}
+  group: cd-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  detect-environment:
+    name: Detect environment
+    runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ steps.detect.outputs.target_env }}
+      github_environment: ${{ steps.detect.outputs.github_environment }}
+      db_schema: ${{ steps.detect.outputs.db_schema }}
+      service_suffix: ${{ steps.detect.outputs.service_suffix }}
+      bot_secret_id: ${{ steps.detect.outputs.bot_secret_id }}
+      db_secret_name: ${{ steps.detect.outputs.db_secret_name }}
+      ref: ${{ steps.detect.outputs.ref }}
+
+    steps:
+      - name: Determine target environment
+        id: detect
+        run: |
+          # Determine environment from input (manual) or branch (auto)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            target_env="${{ inputs.environment }}"
+            ref="${{ inputs.ref }}"
+          else
+            # Auto-detect from branch
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              target_env="prod"
+            else
+              target_env="dev"
+            fi
+            ref="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          # Set derived values
+          if [[ "$target_env" == "prod" ]]; then
+            github_environment="Production"
+            db_schema="public"
+            service_suffix="prod"
+            bot_secret_id="telegram-bot-token"
+            db_secret_name="DATABASE_URL"
+          else
+            github_environment="Development"
+            db_schema="test"
+            service_suffix="dev"
+            bot_secret_id="telegram-bot-token-test"
+            db_secret_name="DATABASE_URL_TEST"
+          fi
+
+          echo "target_env=$target_env" >> "$GITHUB_OUTPUT"
+          echo "github_environment=$github_environment" >> "$GITHUB_OUTPUT"
+          echo "db_schema=$db_schema" >> "$GITHUB_OUTPUT"
+          echo "service_suffix=$service_suffix" >> "$GITHUB_OUTPUT"
+          echo "bot_secret_id=$bot_secret_id" >> "$GITHUB_OUTPUT"
+          echo "db_secret_name=$db_secret_name" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+          echo "Target environment: $target_env"
+          echo "GitHub Environment: $github_environment"
+          echo "DB Schema: $db_schema"
+          echo "Service Suffix: $service_suffix"
+          echo "Deploy ref: $ref"
+
   check-secrets:
     name: Check deploy prerequisites
     runs-on: ubuntu-latest
-    # Select GitHub Environment based on branch
-    environment: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
+    needs: detect-environment
+    environment: ${{ needs.detect-environment.outputs.github_environment }}
     outputs:
       eligible_event: ${{ steps.check.outputs.eligible_event }}
       secrets_ok: ${{ steps.check.outputs.secrets_ok }}
@@ -37,7 +109,7 @@ jobs:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets[needs.detect-environment.outputs.db_secret_name] }}
         run: |
           eligible_event=false
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -63,25 +135,22 @@ jobs:
   deploy:
     name: Deploy Cloud Run
     runs-on: ubuntu-latest
-    needs: check-secrets
+    needs: [detect-environment, check-secrets]
     timeout-minutes: 30
     if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok == 'true' }}
-    environment: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
+    environment: ${{ needs.detect-environment.outputs.github_environment }}
     env:
       GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
-      # Dynamic Service Names based on environment
-      # Branch 'main' -> Environment 'prod' -> household-prod-*
-      # Branch 'dev'  -> Environment 'dev'  -> household-dev-*
-      CLOUD_RUN_SERVICE_BOT: ${{ github.ref == 'refs/heads/main' && 'household-prod-bot-api' || 'household-dev-bot-api' }}
-      CLOUD_RUN_SERVICE_MINI: ${{ github.ref == 'refs/heads/main' && 'household-prod-mini-app' || 'household-dev-mini-app' }}
-      TELEGRAM_BOT_TOKEN_SECRET_ID: ${{ github.ref == 'refs/heads/main' && 'telegram-bot-token' || 'telegram-bot-token-test' }}
+      SERVICE_SUFFIX: ${{ needs.detect-environment.outputs.service_suffix }}
+      DB_SCHEMA: ${{ needs.detect-environment.outputs.db_schema }}
+      BOT_SECRET_ID: ${{ needs.detect-environment.outputs.bot_secret_id }}
 
     steps:
       - name: Checkout deployment ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ needs.detect-environment.outputs.ref }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -99,8 +168,8 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DB_SCHEMA: ${{ github.ref == 'refs/heads/main' && 'public' || 'test' }}
+          DATABASE_URL: ${{ secrets[needs.detect-environment.outputs.db_secret_name] }}
+          DB_SCHEMA: ${{ needs.detect-environment.outputs.db_schema }}
         run: bun run db:migrate
 
       - name: Setup gcloud
@@ -111,7 +180,7 @@ jobs:
         run: |
           set +e
           token="$(gcloud secrets versions access latest \
-            --secret "${TELEGRAM_BOT_TOKEN_SECRET_ID}" \
+            --secret "${BOT_SECRET_ID}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" 2>/dev/null)"
           status=$?
           set -e
@@ -154,17 +223,17 @@ jobs:
 
       - name: Deploy bot service
         run: |
-          gcloud run deploy "${CLOUD_RUN_SERVICE_BOT}" \
+          gcloud run deploy "household-${SERVICE_SUFFIX}-bot-api" \
             --image "${{ steps.images.outputs.bot_image }}" \
             --region "${GCP_REGION}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --set-env-vars "DB_SCHEMA=${{ github.ref == 'refs/heads/main' && 'public' || 'test' }}" \
+            --set-env-vars "DB_SCHEMA=${DB_SCHEMA}" \
             --allow-unauthenticated \
             --quiet
 
       - name: Deploy mini app service
         run: |
-          gcloud run deploy "${CLOUD_RUN_SERVICE_MINI}" \
+          gcloud run deploy "household-${SERVICE_SUFFIX}-mini-app" \
             --image "${{ steps.images.outputs.mini_image }}" \
             --region "${GCP_REGION}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
@@ -182,7 +251,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: |
-          SERVICE_URL=$(gcloud run services describe "${CLOUD_RUN_SERVICE_BOT}" \
+          SERVICE_URL=$(gcloud run services describe "household-${SERVICE_SUFFIX}-bot-api" \
             --region "${GCP_REGION}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --format 'value(status.url)')
