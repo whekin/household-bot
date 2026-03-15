@@ -9,13 +9,22 @@ export interface DbClientOptions {
 export function createDbClient(databaseUrl: string, options: DbClientOptions = {}) {
   const dbSchema = process.env.DB_SCHEMA || 'public'
 
-  const queryClient = postgres(databaseUrl, {
+  // Parse and clean the URL to set search_path properly
+  const url = new URL(databaseUrl)
+
+  // Remove schema and options params to avoid conflicts
+  url.searchParams.delete('schema')
+  url.searchParams.delete('options')
+
+  // Set search_path via options parameter (required for PgBouncer compatibility)
+  url.searchParams.set('options', `-c search_path=${dbSchema}`)
+
+  const cleanUrl = url.toString()
+
+  const queryClient = postgres(cleanUrl, {
     max: options.max ?? 5,
     prepare: options.prepare ?? false,
     onnotice: () => {},
-    connection: {
-      search_path: dbSchema
-    },
     transform: {
       ...postgres.camel,
       undefined: null
