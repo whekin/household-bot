@@ -19,6 +19,22 @@ resource "google_artifact_registry_repository" "containers" {
 
   labels = local.common_labels
 
+  cleanup_policies {
+    id     = "keep-last-10"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-stale"
+    action = "DELETE"
+    condition {
+      older_than = "1209600s" # 14 days
+    }
+  }
+
   lifecycle {
     ignore_changes = [
       labels,

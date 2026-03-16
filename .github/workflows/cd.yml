@@ -178,9 +178,26 @@ jobs:
           repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
           echo "bot_image=${repo}/bot:${deploy_sha}"       >> "$GITHUB_OUTPUT"
           echo "mini_image=${repo}/miniapp:${deploy_sha}"  >> "$GITHUB_OUTPUT"
+          echo "deploy_sha=${deploy_sha}"                  >> "$GITHUB_OUTPUT"
+
+      - name: Check for newer commits
+        id: check-newer
+        if: github.event_name == 'workflow_run'
+        run: |
+          git fetch origin "${{ github.event.workflow_run.head_branch }}"
+          latest_sha=$(git rev-parse "origin/${{ github.event.workflow_run.head_branch }}")
+          deploy_sha="${{ steps.images.outputs.deploy_sha }}"
+          
+          if [[ "$latest_sha" != "$deploy_sha" ]]; then
+             echo "::notice::Newer commit ($latest_sha) found on branch. Skipping deployment of $deploy_sha to avoid race conditions."
+             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+             echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Load Telegram bot token for command sync
         id: telegram-token
+        if: steps.check-newer.outputs.skip != 'true'
         run: |
           set +e
           token="$(gcloud secrets versions access latest \
@@ -203,6 +220,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Deploy bot service
+        if: steps.check-newer.outputs.skip != 'true'
         run: |
           gcloud run deploy "household-${SERVICE_SUFFIX}-bot-api" \
             --image "${{ steps.images.outputs.bot_image }}" \
@@ -212,7 +230,17 @@ jobs:
             --allow-unauthenticated \
             --quiet
 
+      - name: Route traffic to latest bot revision
+        if: steps.check-newer.outputs.skip != 'true'
+        run: |
+          gcloud run services update-traffic "household-${SERVICE_SUFFIX}-bot-api" \
+            --region "${GCP_REGION}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --to-latest \
+            --quiet
+
       - name: Deploy mini app service
+        if: steps.check-newer.outputs.skip != 'true'
         run: |
           gcloud run deploy "household-${SERVICE_SUFFIX}-mini-app" \
             --image "${{ steps.images.outputs.mini_image }}" \
@@ -221,14 +249,24 @@ jobs:
             --allow-unauthenticated \
             --quiet
 
+      - name: Route traffic to latest mini app revision
+        if: steps.check-newer.outputs.skip != 'true'
+        run: |
+          gcloud run services update-traffic "household-${SERVICE_SUFFIX}-mini-app" \
+            --region "${GCP_REGION}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --to-latest \
+            --quiet
+
       - name: Sync Telegram commands
-        if: ${{ steps.telegram-token.outputs.available == 'true' }}
+        if: ${{ steps.telegram-token.outputs.available == 'true' && steps.check-newer.outputs.skip != 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: bun run ops:telegram:commands set
 
       - name: Load webhook secret
         id: webhook-secret
+        if: steps.check-newer.outputs.skip != 'true'
         run: |
           secret_name="telegram-webhook-secret"
           if [[ "${SERVICE_SUFFIX}" == "dev" ]]; then
@@ -244,7 +282,7 @@ jobs:
           echo "secret=${secret}" >> "$GITHUB_OUTPUT"
 
       - name: Set Telegram Webhook
-        if: ${{ !cancelled() && steps.telegram-token.outputs.available == 'true' }}
+        if: ${{ !cancelled() && steps.telegram-token.outputs.available == 'true' && steps.check-newer.outputs.skip != 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
           TELEGRAM_WEBHOOK_SECRET: ${{ steps.webhook-secret.outputs.secret }}
@@ -264,7 +302,7 @@ jobs:
           bun run ops:telegram:webhook set
 
       - name: Verify Telegram Webhook
-        if: ${{ steps.telegram-token.outputs.available == 'true' }}
+        if: ${{ steps.telegram-token.outputs.available == 'true' && steps.check-newer.outputs.skip != 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
         run: |
