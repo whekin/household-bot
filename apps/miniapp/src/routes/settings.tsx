@@ -907,7 +907,7 @@ export default function SettingsRoute() {
             />
           </Field>
           <Show when={!editMemberForm().isAdmin}>
-            <Field label="Admin Access">
+            <Field label={copy().promoteAdminLabel}>
               <Button
                 variant="secondary"
                 onClick={() => setEditMemberForm((f) => ({ ...f, isAdmin: true }))}

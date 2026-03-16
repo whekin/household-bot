@@ -817,10 +817,10 @@ export default function LedgerRoute() {
             />
           </Field>
           <div style={{ 'grid-column': '1 / -1' }}>
-            <Field label="Split By">
+            <Field label={copy().purchaseSplitTitle}>
               <Select
                 value={newPurchase().splitInputMode}
-                ariaLabel="Split By"
+                ariaLabel={copy().purchaseSplitTitle}
                 options={splitModeOptions()}
                 onChange={(value) =>
                   setNewPurchase((p) => {
@@ -944,10 +944,10 @@ export default function LedgerRoute() {
                 />
               </Field>
               <div style={{ 'grid-column': '1 / -1' }}>
-                <Field label="Split By">
+                <Field label={copy().purchaseSplitTitle}>
                   <Select
                     value={draft().splitInputMode}
-                    ariaLabel="Split By"
+                    ariaLabel={copy().purchaseSplitTitle}
                     options={splitModeOptions()}
                     onChange={(value) =>
                       setPurchaseDraft((d) => {

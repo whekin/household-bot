@@ -339,6 +339,7 @@ export const dictionary = {
     saveRentWeightAction: 'Save rent weight',
     savingRentWeight: 'Saving weight…',
     promoteAdminAction: 'Promote to admin',
+    promoteAdminLabel: 'Admin access',
     promotingAdmin: 'Promoting…',
     residentHouseTitle: 'Household access',
     residentHouseBody:
@@ -696,6 +697,7 @@ export const dictionary = {
     saveRentWeightAction: 'Сохранить вес аренды',
     savingRentWeight: 'Сохраняем вес…',
     promoteAdminAction: 'Сделать админом',
+    promoteAdminLabel: 'Доступ админа',
     promotingAdmin: 'Повышаем…',
     residentHouseTitle: 'Доступ к дому',
     residentHouseBody:
