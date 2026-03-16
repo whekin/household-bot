@@ -1289,6 +1289,50 @@ a {
   color: var(--status-due);
 }
 
+.text-credit {
+  color: var(--status-credit);
+}
+
+.text-debit {
+  color: var(--status-due);
+}
+
+/* ── Balance Summary ─────────────────────────────────────── */
+
+.balance-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.balance-summary__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.balance-summary__label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.balance-summary__value {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-summary__sub {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
 /* ── Balance Visuals ──────────────────────────────────── */
 
 .balance-visuals {

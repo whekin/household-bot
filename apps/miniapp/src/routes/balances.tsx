@@ -5,11 +5,18 @@ import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
-import { memberRemainingClass } from '../lib/ledger-helpers'
+import { memberRemainingClass, memberCreditClass } from '../lib/ledger-helpers'
 
 export default function BalancesRoute() {
   const { copy } = useI18n()
-  const { dashboard, loading, memberBalanceVisuals, purchaseInvestmentChart } = useDashboard()
+  const {
+    dashboard,
+    loading,
+    memberBalanceVisuals,
+    purchaseInvestmentChart,
+    memberPurchaseBalanceVisuals,
+    memberUtilityBalanceVisuals
+  } = useDashboard()
 
   return (
     <div class="route route--balances">
@@ -39,7 +46,52 @@ export default function BalancesRoute() {
         <Match when={dashboard()}>
           {(data) => (
             <>
-              {/* ── Household balances ─────────────────── */}
+              {/* ── Balance summary ─────────────────────────── */}
+              <Card>
+                <div class="balance-summary">
+                  <div class="balance-summary__col">
+                    <span class="balance-summary__label">{copy().balancesTitle}</span>
+                    <span class="balance-summary__value">
+                      {data()
+                        .members.reduce(
+                          (sum, m) => sum + Number(m.netDueMajor.replace(/[^0-9.-]/g, '')),
+                          0
+                        )
+                        .toFixed(2)}{' '}
+                      {data().currency}
+                    </span>
+                    <span class="balance-summary__sub">{copy().balancesSubtitle}</span>
+                  </div>
+                  <div class="balance-summary__col">
+                    <span class="balance-summary__label">{copy().purchasesBalanceTitle}</span>
+                    <span class="balance-summary__value">
+                      {data()
+                        .members.reduce(
+                          (sum, m) => sum + Number(m.purchaseOffsetMajor.replace(/[^0-9.-]/g, '')),
+                          0
+                        )
+                        .toFixed(2)}{' '}
+                      {data().currency}
+                    </span>
+                    <span class="balance-summary__sub">{copy().purchasesBalanceBody}</span>
+                  </div>
+                  <div class="balance-summary__col">
+                    <span class="balance-summary__label">{copy().utilitiesBalanceTitle}</span>
+                    <span class="balance-summary__value">
+                      {data()
+                        .members.reduce(
+                          (sum, m) => sum + Number(m.utilityShareMajor.replace(/[^0-9.-]/g, '')),
+                          0
+                        )
+                        .toFixed(2)}{' '}
+                      {data().currency}
+                    </span>
+                    <span class="balance-summary__sub">{copy().utilitiesBalanceBody}</span>
+                  </div>
+                </div>
+              </Card>
+
+              {/* ── Household balances ──────────────────────── */}
               <Card>
                 <div class="section-header">
                   <strong>{copy().householdBalancesTitle}</strong>
@@ -64,7 +116,53 @@ export default function BalancesRoute() {
                 </div>
               </Card>
 
-              {/* ── Balance breakdown bars ──────────────── */}
+              {/* ── Purchases balance ────────────────────────── */}
+              <Card>
+                <div class="section-header">
+                  <strong>{copy().purchasesBalanceTitle}</strong>
+                  <p>{copy().purchasesBalanceBody}</p>
+                </div>
+                <div class="member-balance-list">
+                  <For each={memberPurchaseBalanceVisuals()}>
+                    {(item) => (
+                      <div class={`member-balance-row ${memberCreditClass(item.member)}`}>
+                        <span class="member-balance-row__name">{item.member.displayName}</span>
+                        <div class="member-balance-row__amounts">
+                          <span
+                            class={`member-balance-row__due ${item.isCredit ? 'text-credit' : 'text-debit'}`}
+                          >
+                            {item.amountMajor} {data().currency}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Card>
+
+              {/* ── Utilities balance ────────────────────────── */}
+              <Card>
+                <div class="section-header">
+                  <strong>{copy().utilitiesBalanceTitle}</strong>
+                  <p>{copy().utilitiesBalanceBody}</p>
+                </div>
+                <div class="member-balance-list">
+                  <For each={memberUtilityBalanceVisuals()}>
+                    {(item) => (
+                      <div class="member-balance-row">
+                        <span class="member-balance-row__name">{item.member.displayName}</span>
+                        <div class="member-balance-row__amounts">
+                          <span class="member-balance-row__due">
+                            {item.amountMajor} {data().currency}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Card>
+
+              {/* ── Balance breakdown bars ───────────────────── */}
               <Card>
                 <div class="section-header">
                   <BarChart3 size={16} />
@@ -110,7 +208,7 @@ export default function BalancesRoute() {
                 </div>
               </Card>
 
-              {/* ── Purchase investment donut ───────────── */}
+              {/* ── Purchase investment donut ────────────────── */}
               <Card>
                 <div class="section-header">
                   <strong>{copy().purchaseInvestmentsTitle}</strong>

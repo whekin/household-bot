@@ -102,6 +102,8 @@ type DashboardContextValue = {
   purchaseTotalMajor: () => string
   memberBalanceVisuals: () => ReturnType<typeof computeMemberBalanceVisuals>
   purchaseInvestmentChart: () => ReturnType<typeof computePurchaseInvestmentChart>
+  memberPurchaseBalanceVisuals: () => MemberBalanceItem[]
+  memberUtilityBalanceVisuals: () => MemberBalanceItem[]
   testingRolePreview: () => TestingRolePreview | null
   setTestingRolePreview: (value: TestingRolePreview | null) => void
   testingPeriodOverride: () => string | null
@@ -240,6 +242,49 @@ function computePurchaseInvestmentChart(
   }
 }
 
+interface MemberBalanceItem {
+  member: MiniAppDashboard['members'][number]
+  amountMajor: string
+  amountMinor: bigint
+  isCredit: boolean
+}
+
+function computeMemberPurchaseBalanceVisuals(data: MiniAppDashboard | null): MemberBalanceItem[] {
+  if (!data) return []
+
+  return data.members
+    .map((member) => ({
+      member,
+      amountMajor: member.purchaseOffsetMajor,
+      amountMinor: absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor)),
+      isCredit: majorStringToMinor(member.purchaseOffsetMajor) < 0n
+    }))
+    .sort((left, right) => {
+      if (right.amountMinor === left.amountMinor) {
+        return left.member.displayName.localeCompare(right.member.displayName)
+      }
+      return right.amountMinor > left.amountMinor ? 1 : -1
+    })
+}
+
+function computeMemberUtilityBalanceVisuals(data: MiniAppDashboard | null): MemberBalanceItem[] {
+  if (!data) return []
+
+  return data.members
+    .map((member) => ({
+      member,
+      amountMajor: member.utilityShareMajor,
+      amountMinor: absoluteMinor(majorStringToMinor(member.utilityShareMajor)),
+      isCredit: false
+    }))
+    .sort((left, right) => {
+      if (right.amountMinor === left.amountMinor) {
+        return left.member.displayName.localeCompare(right.member.displayName)
+      }
+      return right.amountMinor > left.amountMinor ? 1 : -1
+    })
+}
+
 /* ── Provider ───────────────────────────────────────── */
 
 export function DashboardProvider(props: ParentProps) {
@@ -295,6 +340,14 @@ export function DashboardProvider(props: ParentProps) {
 
   const purchaseInvestmentChart = createMemo(() =>
     computePurchaseInvestmentChart(dashboard(), purchaseLedger(), copy().ledgerActorFallback)
+  )
+
+  const memberPurchaseBalanceVisuals = createMemo(() =>
+    computeMemberPurchaseBalanceVisuals(dashboard())
+  )
+
+  const memberUtilityBalanceVisuals = createMemo(() =>
+    computeMemberUtilityBalanceVisuals(dashboard())
   )
 
   const unregisterDashboardRefreshListener = registerRefreshListener(loadDashboardData)
@@ -367,6 +420,8 @@ export function DashboardProvider(props: ParentProps) {
         purchaseTotalMajor,
         memberBalanceVisuals,
         purchaseInvestmentChart,
+        memberPurchaseBalanceVisuals,
+        memberUtilityBalanceVisuals,
         testingRolePreview,
         setTestingRolePreview,
         testingPeriodOverride,

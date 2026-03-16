@@ -72,6 +72,20 @@ export function memberRemainingClass(member: MiniAppDashboard['members'][number]
   return 'is-due'
 }
 
+export function memberCreditClass(member: MiniAppDashboard['members'][number]): string {
+  const purchaseOffsetMinor = majorStringToMinor(member.purchaseOffsetMajor)
+
+  if (purchaseOffsetMinor < 0n) {
+    return 'is-credit'
+  }
+
+  if (purchaseOffsetMinor === 0n) {
+    return 'is-settled'
+  }
+
+  return 'is-due'
+}
+
 export function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
   return `${entry.displayAmountMajor} ${entry.displayCurrency}`
 }
