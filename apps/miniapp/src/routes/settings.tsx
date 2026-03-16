@@ -1,4 +1,4 @@
-import { Show, For, createSignal } from 'solid-js'
+import { Show, For, Index, createSignal } from 'solid-js'
 import { ArrowLeft, Globe, Plus, User } from 'lucide-solid'
 import { useNavigate } from '@solidjs/router'
 
@@ -686,18 +686,18 @@ export default function SettingsRoute() {
                 fallback={<p class="empty-state">{copy().rentPaymentDestinationsEmpty}</p>}
               >
                 <div style={{ display: 'grid', gap: '12px' }}>
-                  <For each={billingForm().rentPaymentDestinations}>
+                  <Index each={billingForm().rentPaymentDestinations}>
                     {(destination, index) => (
                       <Card muted wide>
                         <div class="editor-grid">
                           <Field label={copy().rentPaymentDestinationLabel} wide>
                             <Input
-                              value={destination.label}
+                              value={destination().label}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     label: e.currentTarget.value
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -707,12 +707,12 @@ export default function SettingsRoute() {
                           </Field>
                           <Field label={copy().rentPaymentDestinationRecipient} wide>
                             <Input
-                              value={destination.recipientName ?? ''}
+                              value={destination().recipientName ?? ''}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     recipientName: e.currentTarget.value || null
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -722,12 +722,12 @@ export default function SettingsRoute() {
                           </Field>
                           <Field label={copy().rentPaymentDestinationBank} wide>
                             <Input
-                              value={destination.bankName ?? ''}
+                              value={destination().bankName ?? ''}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     bankName: e.currentTarget.value || null
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -737,12 +737,12 @@ export default function SettingsRoute() {
                           </Field>
                           <Field label={copy().rentPaymentDestinationAccount} wide>
                             <Input
-                              value={destination.account}
+                              value={destination().account}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     account: e.currentTarget.value
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -752,12 +752,12 @@ export default function SettingsRoute() {
                           </Field>
                           <Field label={copy().rentPaymentDestinationLink} wide>
                             <Input
-                              value={destination.link ?? ''}
+                              value={destination().link ?? ''}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     link: e.currentTarget.value || null
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -767,12 +767,12 @@ export default function SettingsRoute() {
                           </Field>
                           <Field label={copy().rentPaymentDestinationNote} wide>
                             <Textarea
-                              value={destination.note ?? ''}
+                              value={destination().note ?? ''}
                               onInput={(e) =>
                                 setBillingForm((f) => {
                                   const next = [...f.rentPaymentDestinations]
-                                  next[index()] = {
-                                    ...next[index()]!,
+                                  next[index] = {
+                                    ...next[index]!,
                                     note: e.currentTarget.value || null
                                   }
                                   return { ...f, rentPaymentDestinations: next }
@@ -788,7 +788,7 @@ export default function SettingsRoute() {
                                 setBillingForm((f) => ({
                                   ...f,
                                   rentPaymentDestinations: f.rentPaymentDestinations.filter(
-                                    (_, idx) => idx !== index()
+                                    (_, idx) => idx !== index
                                   )
                                 }))
                               }
@@ -799,7 +799,7 @@ export default function SettingsRoute() {
                         </div>
                       </Card>
                     )}
-                  </For>
+                  </Index>
                 </div>
               </Show>
               <div>
