@@ -115,6 +115,7 @@ jobs:
           push: false
           tags: household-${{ matrix.service }}:ci
           platforms: linux/amd64
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -168,6 +169,7 @@ jobs:
           push: true
           tags: ${{ steps.image.outputs.name }}
           platforms: linux/amd64
+          provenance: false
           cache-from: type=registry,ref=${{ steps.image.outputs.cache_ref }}
           cache-to: type=registry,ref=${{ steps.image.outputs.cache_ref }},mode=max
 
