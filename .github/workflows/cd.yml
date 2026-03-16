@@ -187,7 +187,7 @@ jobs:
           git fetch origin "${{ github.event.workflow_run.head_branch }}"
           latest_sha=$(git rev-parse "origin/${{ github.event.workflow_run.head_branch }}")
           deploy_sha="${{ steps.images.outputs.deploy_sha }}"
-          
+
           if [[ "$latest_sha" != "$deploy_sha" ]]; then
              echo "::notice::Newer commit ($latest_sha) found on branch. Skipping deployment of $deploy_sha to avoid race conditions."
              echo "skip=true" >> "$GITHUB_OUTPUT"

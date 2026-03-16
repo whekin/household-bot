@@ -160,6 +160,7 @@ jobs:
           repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
           echo "name=${repo}/${{ matrix.service }}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "cache_ref=${repo}/${{ matrix.service }}:cache" >> "$GITHUB_OUTPUT"
+          echo "latest=${repo}/${{ matrix.service }}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -167,7 +168,9 @@ jobs:
           context: .
           file: apps/${{ matrix.service }}/Dockerfile
           push: true
-          tags: ${{ steps.image.outputs.name }}
+          tags: |
+            ${{ steps.image.outputs.name }}
+            ${{ steps.image.outputs.latest }}
           platforms: linux/amd64
           provenance: false
           cache-from: type=registry,ref=${{ steps.image.outputs.cache_ref }}

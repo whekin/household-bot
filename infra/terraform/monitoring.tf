@@ -51,7 +51,7 @@ resource "google_logging_project_bucket_config" "default" {
   project        = var.project_id
   location       = "global"
   bucket_id      = "_Default"
-  retention_days = 3
+  retention_days = 1
 }
 
 resource "google_monitoring_notification_channel" "email" {
@@ -68,26 +68,28 @@ resource "google_monitoring_notification_channel" "email" {
   depends_on = [google_project_service.enabled]
 }
 
-resource "google_logging_metric" "bot_error_events" {
-  for_each = local.bot_error_metrics
-
-  project     = var.project_id
-  name        = each.value.metric_name
-  description = "Counts `${each.value.event}` log events for ${module.bot_api_service.name}."
-  filter      = <<-EOT
-resource.type="cloud_run_revision"
-resource.labels.service_name="${module.bot_api_service.name}"
-jsonPayload.event="${each.value.event}"
-  EOT
-
-  metric_descriptor {
-    metric_kind = "DELTA"
-    value_type  = "INT64"
-    unit        = "1"
-  }
-
-  depends_on = [google_project_service.enabled]
-}
+# DEV-187: Commented out to save ~$0.47/month on Cloud Monitoring costs
+# TODO: Re-enable if alerting on specific bot error events becomes necessary
+# resource "google_logging_metric" "bot_error_events" {
+#   for_each = local.bot_error_metrics
+#
+#   project     = var.project_id
+#   name        = each.value.metric_name
+#   description = "Counts `${each.value.event}` log events for ${module.bot_api_service.name}."
+#   filter      = <<-EOT
+# resource.type="cloud_run_revision"
+# resource.labels.service_name="${module.bot_api_service.name}"
+# jsonPayload.event="${each.value.event}"
+#   EOT
+#
+#   metric_descriptor {
+#     metric_kind = "DELTA"
+#     value_type  = "INT64"
+#     unit        = "1"
+#   }
+#
+#   depends_on = [google_project_service.enabled]
+# }
 
 resource "google_monitoring_alert_policy" "bot_api_5xx" {
   project      = var.project_id
@@ -138,50 +140,52 @@ metric.labels.response_code_class="5xx"
   depends_on = [google_project_service.enabled]
 }
 
-resource "google_monitoring_alert_policy" "bot_error_events" {
-  for_each = local.bot_error_metrics
-
-  project      = var.project_id
-  display_name = each.value.display_name
-  combiner     = "OR"
-
-  notification_channels = [
-    for channel in google_monitoring_notification_channel.email : channel.name
-  ]
-
-  documentation {
-    content   = "Structured bot failure event `${each.value.event}` was logged by `${module.bot_api_service.name}` in `${var.environment}`."
-    mime_type = "text/markdown"
-  }
-
-  conditions {
-    display_name = each.value.display_name
-
-    condition_threshold {
-      filter = <<-EOT
-resource.type="cloud_run_revision"
-resource.labels.service_name="${module.bot_api_service.name}"
-metric.type="logging.googleapis.com/user/${google_logging_metric.bot_error_events[each.key].name}"
-      EOT
-
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
-
-      aggregations {
-        alignment_period   = "300s"
-        per_series_aligner = "ALIGN_RATE"
-      }
-
-      trigger {
-        count = 1
-      }
-    }
-  }
-
-  alert_strategy {
-    auto_close = "1800s"
-  }
-
-  depends_on = [google_logging_metric.bot_error_events]
-}
+# DEV-187: Commented out to save ~$0.47/month on Cloud Monitoring costs
+# TODO: Re-enable if alerting on specific bot error events becomes necessary
+# resource "google_monitoring_alert_policy" "bot_error_events" {
+#   for_each = local.bot_error_metrics
+#
+#   project      = var.project_id
+#   display_name = each.value.display_name
+#   combiner     = "OR"
+#
+#   notification_channels = [
+#     for channel in google_monitoring_notification_channel.email : channel.name
+#   ]
+#
+#   documentation {
+#     content   = "Structured bot failure event `${each.value.event}` was logged by `${module.bot_api_service.name}` in `${var.environment}`."
+#     mime_type = "text/markdown"
+#   }
+#
+#   conditions {
+#     display_name = each.value.display_name
+#
+#     condition_threshold {
+#       filter = <<-EOT
+# resource.type="cloud_run_revision"
+# resource.labels.service_name="${module.bot_api_service.name}"
+# metric.type="logging.googleapis.com/user/${google_logging_metric.bot_error_events[each.key].name}"
+#       EOT
+#
+#       comparison      = "COMPARISON_GT"
+#       threshold_value = 0
+#       duration        = "0s"
+#
+#       aggregations {
+#         alignment_period   = "300s"
+#         per_series_aligner = "ALIGN_RATE"
+#       }
+#
+#       trigger {
+#         count = 1
+#       }
+#     }
+#   }
+#
+#   alert_strategy {
+#     auto_close = "1800s"
+#   }
+#
+#   depends_on = [google_logging_metric.bot_error_events]
+# }
