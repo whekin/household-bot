@@ -15,6 +15,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     pending_members: 'Показать ожидающие заявки на вступление',
     approve_member: 'Подтвердить участника дома',
     app: 'Открыть мини-приложение Kojori',
+    dashboard: 'Открыть дашборд дома',
     keyboard: 'Вкл/выкл кнопку дашборда'
   },
   help: {

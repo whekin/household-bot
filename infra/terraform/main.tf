@@ -166,6 +166,9 @@ module "bot_api_service" {
     length(var.bot_mini_app_allowed_origins) == 0 ? {} : {
       MINI_APP_ALLOWED_ORIGINS = join(",", var.bot_mini_app_allowed_origins)
     },
+    var.bot_mini_app_url == null ? {} : {
+      MINI_APP_URL = var.bot_mini_app_url
+    },
     {
       SCHEDULER_OIDC_ALLOWED_EMAILS = google_service_account.scheduler_invoker.email
     }

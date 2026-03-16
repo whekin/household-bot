@@ -25,6 +25,7 @@ export interface BotRuntimeConfig {
   assistantRateLimitBurstWindowMs: number
   assistantRateLimitRolling: number
   assistantRateLimitRollingWindowMs: number
+  miniAppUrl?: string
 }
 
 function parsePort(raw: string | undefined): number {
@@ -103,6 +104,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
+  const miniAppUrl = parseOptionalValue(env.MINI_APP_URL)
 
   const purchaseTopicIngestionEnabled = databaseUrl !== undefined
 
@@ -173,6 +175,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   }
   if (schedulerSharedSecret !== undefined) {
     runtime.schedulerSharedSecret = schedulerSharedSecret
+  }
+  if (miniAppUrl !== undefined) {
+    runtime.miniAppUrl = miniAppUrl
   }
   const openaiApiKey = parseOptionalValue(env.OPENAI_API_KEY)
   if (openaiApiKey !== undefined) {

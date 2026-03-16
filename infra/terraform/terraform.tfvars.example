@@ -20,6 +20,7 @@ bot_assistant_rate_limit_burst = 5
 bot_assistant_rate_limit_burst_window_ms = 60000
 bot_assistant_rate_limit_rolling = 50
 bot_assistant_rate_limit_rolling_window_ms = 86400000
+bot_mini_app_url = "https://household-dev-mini-app-abc123-ew.a.run.app"
 bot_mini_app_allowed_origins = [
   "https://household-dev-mini-app-abc123-ew.a.run.app"
 ]

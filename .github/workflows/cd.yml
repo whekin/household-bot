@@ -234,14 +234,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Deploy bot service
+        id: bot-api
         run: |
           gcloud run deploy "household-${SERVICE_SUFFIX}-bot-api" \
             --image "${{ steps.images.outputs.bot_image }}" \
             --region "${GCP_REGION}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
-            --set-env-vars "DB_SCHEMA=${DB_SCHEMA}" \
+            --set-env-vars "DB_SCHEMA=${DB_SCHEMA},MINI_APP_URL=${{ vars.MINI_APP_URL }}" \
             --allow-unauthenticated \
             --quiet
+
+          echo "url=$(gcloud run services describe "household-${SERVICE_SUFFIX}-bot-api" --region "${GCP_REGION}" --project "${{ vars.GCP_PROJECT_ID }}" --format 'value(status.url)')" >> "$GITHUB_OUTPUT"
 
       - name: Route traffic to latest bot revision
         run: |
@@ -257,6 +260,7 @@ jobs:
             --image "${{ steps.images.outputs.mini_image }}" \
             --region "${GCP_REGION}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
+            --set-env-vars "BOT_API_URL=${{ steps.bot-api.outputs.url }}" \
             --allow-unauthenticated \
             --quiet
 

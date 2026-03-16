@@ -313,7 +313,13 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
 if (runtime.financeCommandsEnabled) {
   const financeCommands = createFinanceCommandsService({
     householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
-    financeServiceForHousehold
+    financeServiceForHousehold,
+    ...(runtime.miniAppUrl
+      ? {
+          miniAppUrl: runtime.miniAppUrl,
+          botUsername: bot.botInfo?.username
+        }
+      : {})
   })
 
   financeCommands.register(bot)
@@ -343,9 +349,9 @@ if (householdConfigurationRepositoryClient) {
           promptRepository: telegramPendingActionRepositoryClient.repository
         }
       : {}),
-    ...(runtime.miniAppAllowedOrigins[0]
+    ...(runtime.miniAppUrl
       ? {
-          miniAppUrl: runtime.miniAppAllowedOrigins[0]
+          miniAppUrl: runtime.miniAppUrl
         }
       : {}),
     logger: getLogger('household-setup')
@@ -399,9 +405,9 @@ const reminderJobs = runtime.reminderJobsEnabled
           })
         },
         reminderService,
-        ...(runtime.miniAppAllowedOrigins[0]
+        ...(runtime.miniAppUrl
           ? {
-              miniAppUrl: runtime.miniAppAllowedOrigins[0]
+              miniAppUrl: runtime.miniAppUrl
             }
           : {}),
         ...(bot.botInfo?.username

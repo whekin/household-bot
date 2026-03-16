@@ -15,6 +15,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     pending_members: 'List pending household join requests',
     approve_member: 'Approve a pending household member',
     app: 'Open the Kojori mini app',
+    dashboard: 'Open the household dashboard',
     keyboard: 'Toggle persistent dashboard button'
   },
   help: {

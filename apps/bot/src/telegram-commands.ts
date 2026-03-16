@@ -24,7 +24,9 @@ const DEFAULT_COMMAND_NAMES = [
 const PRIVATE_CHAT_COMMAND_NAMES = [
   ...DEFAULT_COMMAND_NAMES,
   'anon',
-  'cancel'
+  'cancel',
+  'app',
+  'dashboard'
 ] as const satisfies readonly TelegramCommandName[]
 const GROUP_CHAT_COMMAND_NAMES = DEFAULT_COMMAND_NAMES
 const GROUP_MEMBER_COMMAND_NAMES = [

@@ -13,6 +13,7 @@ export type TelegramCommandName =
   | 'pending_members'
   | 'approve_member'
   | 'app'
+  | 'dashboard'
   | 'keyboard'
 
 export interface BotCommandDescriptions {
@@ -28,6 +29,7 @@ export interface BotCommandDescriptions {
   pending_members: string
   approve_member: string
   app: string
+  dashboard: string
   keyboard: string
 }
 
