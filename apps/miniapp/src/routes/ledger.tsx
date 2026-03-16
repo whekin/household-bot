@@ -549,8 +549,8 @@ export default function LedgerRoute() {
 
   const splitModeOptions = () => [
     { value: 'equal', label: copy().purchaseSplitEqual },
-    { value: 'exact', label: 'Exact amounts' },
-    { value: 'percentage', label: 'Percentages' }
+    { value: 'exact', label: copy().purchaseSplitExact },
+    { value: 'percentage', label: copy().purchaseSplitPercentage }
   ]
 
   return (
