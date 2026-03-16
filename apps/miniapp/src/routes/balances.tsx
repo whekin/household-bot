@@ -15,7 +15,9 @@ export default function BalancesRoute() {
     memberBalanceVisuals,
     purchaseInvestmentChart,
     memberPurchaseBalanceVisuals,
-    memberUtilityBalanceVisuals
+    memberUtilityBalanceVisuals,
+    utilityTotalMajor,
+    purchaseTotalMajor
   } = useDashboard()
 
   return (
@@ -52,39 +54,21 @@ export default function BalancesRoute() {
                   <div class="balance-summary__col">
                     <span class="balance-summary__label">{copy().balancesTitle}</span>
                     <span class="balance-summary__value">
-                      {data()
-                        .members.reduce(
-                          (sum, m) => sum + Number(m.netDueMajor.replace(/[^0-9.-]/g, '')),
-                          0
-                        )
-                        .toFixed(2)}{' '}
-                      {data().currency}
+                      {data().totalDueMajor} {data().currency}
                     </span>
                     <span class="balance-summary__sub">{copy().balancesSubtitle}</span>
                   </div>
                   <div class="balance-summary__col">
                     <span class="balance-summary__label">{copy().purchasesBalanceTitle}</span>
                     <span class="balance-summary__value">
-                      {data()
-                        .members.reduce(
-                          (sum, m) => sum + Number(m.purchaseOffsetMajor.replace(/[^0-9.-]/g, '')),
-                          0
-                        )
-                        .toFixed(2)}{' '}
-                      {data().currency}
+                      {purchaseTotalMajor()} {data().currency}
                     </span>
                     <span class="balance-summary__sub">{copy().purchasesBalanceBody}</span>
                   </div>
                   <div class="balance-summary__col">
                     <span class="balance-summary__label">{copy().utilitiesBalanceTitle}</span>
                     <span class="balance-summary__value">
-                      {data()
-                        .members.reduce(
-                          (sum, m) => sum + Number(m.utilityShareMajor.replace(/[^0-9.-]/g, '')),
-                          0
-                        )
-                        .toFixed(2)}{' '}
-                      {data().currency}
+                      {utilityTotalMajor()} {data().currency}
                     </span>
                     <span class="balance-summary__sub">{copy().utilitiesBalanceBody}</span>
                   </div>
