@@ -230,35 +230,30 @@ jobs:
       - name: Load webhook secret
         id: webhook-secret
         run: |
-          set +e
           secret_name="telegram-webhook-secret"
           if [[ "${SERVICE_SUFFIX}" == "dev" ]]; then
             secret_name="telegram-webhook-secret-test"
           fi
+
+          echo "Loading secret: ${secret_name}"
           secret="$(gcloud secrets versions access latest \
             --secret "${secret_name}" \
-            --project "${{ vars.GCP_PROJECT_ID }}" 2>/dev/null)"
-          status=$?
-          set -e
+            --project "${{ vars.GCP_PROJECT_ID }}")"
 
-          if [[ $status -eq 0 && -n "$secret" ]]; then
-            echo "::add-mask::$secret"
-            {
-              echo "available=true"
-              echo "secret<<EOF"
-              echo "$secret"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "::add-mask::$secret"
+          echo "secret=${secret}" >> "$GITHUB_OUTPUT"
 
       - name: Set Telegram Webhook
-        if: ${{ steps.telegram-token.outputs.available == 'true' && steps.webhook-secret.outputs.available == 'true' }}
+        if: ${{ !cancelled() && steps.telegram-token.outputs.available == 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ steps.telegram-token.outputs.token }}
           TELEGRAM_WEBHOOK_SECRET: ${{ steps.webhook-secret.outputs.secret }}
         run: |
+          if [[ -z "$TELEGRAM_WEBHOOK_SECRET" ]]; then
+            echo "ERROR: TELEGRAM_WEBHOOK_SECRET is not set"
+            exit 1
+          fi
+
           SERVICE_URL=$(gcloud run services describe "household-${SERVICE_SUFFIX}-bot-api" \
             --region "${GCP_REGION}" \
             --project "${{ vars.GCP_PROJECT_ID }}" \
