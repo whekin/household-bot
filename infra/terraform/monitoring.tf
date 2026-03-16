@@ -30,6 +30,30 @@ locals {
   }
 }
 
+resource "google_logging_project_exclusion" "noise" {
+  name        = "${local.name_prefix}-log-exclusion"
+  project     = var.project_id
+  description = "Exclude successful health checks and static assets from ingestion"
+
+  filter = <<-EOT
+resource.type="cloud_run_revision"
+httpRequest.status=200
+(
+  httpRequest.userAgent =~ "GoogleHC/.*" OR
+  httpRequest.userAgent =~ "kube-probe/.*" OR
+  httpRequest.requestUrl =~ ".*\\.(js|css|png|jpg|jpeg|ico|svg|woff|woff2|map)$" OR
+  httpRequest.requestUrl =~ ".*/health$"
+)
+  EOT
+}
+
+resource "google_logging_project_bucket_config" "default" {
+  project        = var.project_id
+  location       = "global"
+  bucket_id      = "_Default"
+  retention_days = 3
+}
+
 resource "google_monitoring_notification_channel" "email" {
   for_each = toset(var.alert_notification_emails)
 
