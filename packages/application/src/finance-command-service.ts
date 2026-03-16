@@ -139,6 +139,7 @@ export interface FinanceDashboardLedgerEntry {
     included: boolean
     shareAmount: Money | null
   }[]
+  payerMemberId?: string
 }
 
 export interface FinanceDashboard {
@@ -528,6 +529,7 @@ async function buildFinanceDashboard(
         kind: 'purchase',
         title: purchase.description ?? 'Shared purchase',
         memberId: purchase.payerMemberId,
+        payerMemberId: purchase.payerMemberId,
         amount: converted.originalAmount,
         currency: purchase.currency,
         displayAmount: converted.settlementAmount,
@@ -653,7 +655,8 @@ export interface FinanceCommandService {
         included?: boolean
         shareAmountMajor?: string
       }[]
-    }
+    },
+    payerMemberId?: string
   ): Promise<{
     purchaseId: string
     amount: Money
@@ -888,7 +891,7 @@ export function createFinanceCommandService(
       return repository.deleteUtilityBill(billId)
     },
 
-    async updatePurchase(purchaseId, description, amountArg, currencyArg, split) {
+    async updatePurchase(purchaseId, description, amountArg, currencyArg, split, payerMemberId) {
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
@@ -920,6 +923,11 @@ export function createFinanceCommandService(
         amountMinor: amount.amountMinor,
         currency,
         description: description.trim().length > 0 ? description.trim() : null,
+        ...(payerMemberId
+          ? {
+              payerMemberId
+            }
+          : {}),
         ...(split
           ? {
               splitMode: split.mode,

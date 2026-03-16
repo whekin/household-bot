@@ -169,6 +169,7 @@ export const dictionary = {
     participantExcluded: 'Excluded',
     purchaseCustomShareLabel: 'Custom amount',
     purchaseEditorBody: 'Review the purchase details and adjust the split only when needed.',
+    purchasePayerLabel: 'Paid by',
     paymentsAdminTitle: 'Payments',
     paymentsAdminBody: 'Add, fix, or remove payment records for the current cycle.',
     paymentsAddAction: 'Add payment',
@@ -516,6 +517,7 @@ export const dictionary = {
     purchaseCustomShareLabel: 'Своя сумма',
     purchaseEditorBody:
       'Проверь покупку и меняй детали разделения только если это действительно нужно.',
+    purchasePayerLabel: 'Оплатил',
     paymentsAdminTitle: 'Оплаты',
     paymentsAdminBody: 'Добавляй, исправляй или удаляй оплаты за текущий цикл.',
     paymentsAddAction: 'Добавить оплату',

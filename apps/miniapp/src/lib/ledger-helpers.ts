@@ -33,6 +33,7 @@ export type PurchaseDraft = {
   description: string
   amountMajor: string
   currency: 'USD' | 'GEL'
+  payerMemberId?: string
   splitMode: 'equal' | 'custom_amounts'
   splitInputMode: 'equal' | 'exact' | 'percentage'
   participants: ParticipantShare[]
@@ -110,6 +111,7 @@ export function purchaseDrafts(
           description: entry.title,
           amountMajor: entry.amountMajor,
           currency: entry.currency,
+          ...(entry.payerMemberId !== undefined ? { payerMemberId: entry.payerMemberId } : {}),
           splitMode: entry.purchaseSplitMode ?? 'equal',
           splitInputMode: (entry.purchaseSplitMode ?? 'equal') === 'equal' ? 'equal' : 'exact',
           participants:
@@ -129,6 +131,7 @@ export function purchaseDraftForEntry(entry: MiniAppDashboard['ledger'][number])
     description: entry.title,
     amountMajor: entry.amountMajor,
     currency: entry.currency,
+    ...(entry.payerMemberId !== undefined ? { payerMemberId: entry.payerMemberId } : {}),
     splitMode: entry.purchaseSplitMode ?? 'equal',
     splitInputMode: (entry.purchaseSplitMode ?? 'equal') === 'equal' ? 'equal' : 'exact',
     participants:

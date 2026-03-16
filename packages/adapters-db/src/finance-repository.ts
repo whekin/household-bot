@@ -441,6 +441,11 @@ export function createDbFinanceRepository(
                   participantSplitMode: input.splitMode
                 }
               : {}),
+            ...(input.payerMemberId
+              ? {
+                  senderMemberId: input.payerMemberId
+                }
+              : {}),
             needsReview: 0,
             processingStatus: 'confirmed',
             parserError: null

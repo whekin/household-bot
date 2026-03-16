@@ -152,6 +152,7 @@ export interface MiniAppDashboard {
       included: boolean
       shareAmountMajor: string | null
     }[]
+    payerMemberId?: string
   }[]
 }
 
@@ -996,6 +997,7 @@ export async function addMiniAppPurchase(
     description: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    payerMemberId?: string
     split?: {
       mode: 'equal' | 'custom_amounts'
       participants: readonly {
@@ -1030,6 +1032,7 @@ export async function updateMiniAppPurchase(
     description: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    payerMemberId?: string
     split?: {
       mode: 'equal' | 'custom_amounts'
       participants: readonly {

@@ -202,7 +202,7 @@ function ParticipantSplitInputs(props: ParticipantSplitInputsProps) {
 }
 
 export default function LedgerRoute() {
-  const { initData, refreshHouseholdData } = useSession()
+  const { initData, refreshHouseholdData, session } = useSession()
   const { copy } = useI18n()
   const { dashboard, loading, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
     useDashboard()
@@ -384,6 +384,11 @@ export default function LedgerRoute() {
         description: draft.description,
         amountMajor: draft.amountMajor,
         currency: draft.currency,
+        ...(draft.payerMemberId
+          ? {
+              payerMemberId: draft.payerMemberId
+            }
+          : {}),
         split: {
           mode: draft.splitMode,
           participants: draft.participants.map((p) => ({
@@ -428,6 +433,11 @@ export default function LedgerRoute() {
         description: draft.description,
         amountMajor: draft.amountMajor,
         currency: draft.currency,
+        ...(draft.payerMemberId
+          ? {
+              payerMemberId: draft.payerMemberId
+            }
+          : {}),
         ...(draft.participants.length > 0
           ? {
               split: {
@@ -444,10 +454,12 @@ export default function LedgerRoute() {
           : {})
       })
       setAddPurchaseOpen(false)
+      const currentSession = session()
       setNewPurchase({
         description: '',
         amountMajor: '',
         currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+        ...(currentSession.status === 'ready' ? { payerMemberId: currentSession.member.id } : {}),
         splitMode: 'equal',
         splitInputMode: 'equal',
         participants: []
@@ -785,6 +797,25 @@ export default function LedgerRoute() {
               }
             />
           </Field>
+          <Field label={copy().purchasePayerLabel}>
+            <Select
+              value={newPurchase().payerMemberId ?? ''}
+              ariaLabel={copy().purchasePayerLabel}
+              placeholder="—"
+              options={[{ value: '', label: '—' }, ...memberOptions()]}
+              onChange={(value) =>
+                setNewPurchase((p) => {
+                  const base = { ...p }
+                  if (value) {
+                    return { ...base, payerMemberId: value }
+                  }
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  const { payerMemberId, ...rest } = base
+                  return rest as PurchaseDraft
+                })
+              }
+            />
+          </Field>
           <div style={{ 'grid-column': '1 / -1' }}>
             <Field label="Split By">
               <Select
@@ -889,6 +920,26 @@ export default function LedgerRoute() {
                   options={currencyOptions()}
                   onChange={(value) =>
                     setPurchaseDraft((d) => (d ? { ...d, currency: value as 'USD' | 'GEL' } : d))
+                  }
+                />
+              </Field>
+              <Field label={copy().purchasePayerLabel}>
+                <Select
+                  value={draft().payerMemberId ?? ''}
+                  ariaLabel={copy().purchasePayerLabel}
+                  placeholder="—"
+                  options={[{ value: '', label: '—' }, ...memberOptions()]}
+                  onChange={(value) =>
+                    setPurchaseDraft((d) => {
+                      if (!d) return d
+                      const base = { ...d }
+                      if (value) {
+                        return { ...base, payerMemberId: value }
+                      }
+                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                      const { payerMemberId, ...rest } = base
+                      return rest as PurchaseDraft
+                    })
                   }
                 />
               </Field>

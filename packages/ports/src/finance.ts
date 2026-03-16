@@ -191,6 +191,7 @@ export interface FinanceRepository {
     amountMinor: bigint
     currency: CurrencyCode
     description: string | null
+    payerMemberId?: string
     splitMode?: 'equal' | 'custom_amounts'
     participants?: readonly {
       memberId: string

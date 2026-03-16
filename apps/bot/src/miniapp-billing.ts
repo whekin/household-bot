@@ -322,6 +322,7 @@ async function readAddPurchasePayload(request: Request): Promise<{
   description: string
   amountMajor: string
   currency?: string
+  payerMemberId?: string
   split?: {
     mode: 'equal' | 'custom_amounts'
     participants: {
@@ -336,6 +337,7 @@ async function readAddPurchasePayload(request: Request): Promise<{
     description?: string
     amountMajor?: string
     currency?: string
+    payerMemberId?: string
     split?: {
       mode?: string
       participants?: {
@@ -367,6 +369,11 @@ async function readAddPurchasePayload(request: Request): Promise<{
           currency: parsed.currency
         }
       : {}),
+    ...(parsed.payerMemberId !== undefined
+      ? {
+          payerMemberId: parsed.payerMemberId
+        }
+      : {}),
     ...(parsed.split !== undefined
       ? {
           split: {
@@ -387,6 +394,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
   description?: string
   amountMajor?: string
   currency?: string
+  payerMemberId?: string
   split?: {
     mode: 'equal' | 'custom_amounts'
     participants: {
@@ -401,6 +409,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     description?: string
     amountMajor?: string
     currency?: string
+    payerMemberId?: string
     split?: {
       mode?: string
       participants?: {
@@ -434,6 +443,11 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     ...(parsed.currency?.trim()
       ? {
           currency: parsed.currency.trim()
+        }
+      : {}),
+    ...(parsed.payerMemberId !== undefined
+      ? {
+          payerMemberId: parsed.payerMemberId
         }
       : {}),
     ...(parsed.split &&
@@ -1187,10 +1201,11 @@ export function createMiniAppAddPurchaseHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        const payerMemberId = payload.payerMemberId ?? auth.member.id
         await service.addPurchase(
           payload.description,
           payload.amountMajor,
-          auth.member.id,
+          payerMemberId,
           payload.currency,
           payload.split
         )
@@ -1243,12 +1258,14 @@ export function createMiniAppUpdatePurchaseHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        const payerMemberId = payload.payerMemberId
         const updated = await service.updatePurchase(
           payload.purchaseId,
           payload.description,
           payload.amountMajor,
           payload.currency,
-          payload.split
+          payload.split,
+          payerMemberId
         )
 
         if (!updated) {
