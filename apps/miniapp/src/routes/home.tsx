@@ -13,7 +13,7 @@ import { Input } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
 import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
-import { memberRemainingClass, ledgerPrimaryAmount } from '../lib/ledger-helpers'
+import { ledgerPrimaryAmount } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   compareTodayToPeriodDay,
@@ -34,8 +34,6 @@ export default function HomeRoute() {
     currentMemberLine,
     utilityLedger,
     utilityTotalMajor,
-    purchaseLedger,
-    purchaseTotalMajor,
     testingPeriodOverride,
     testingTodayOverride
   } = useDashboard()
@@ -731,100 +729,6 @@ export default function HomeRoute() {
                     </>
                   )
                 }}
-              </Show>
-
-              {/* Your balance card */}
-              <Show when={currentMemberLine()}>
-                {(member) => (
-                  <>
-                    <Show when={homeMode() !== 'none'}>
-                      {(() => {
-                        const subtotalMinor =
-                          majorStringToMinor(member().rentShareMajor) +
-                          majorStringToMinor(member().utilityShareMajor)
-                        const subtotalMajor = minorToMajorString(subtotalMinor)
-
-                        return (
-                          <Card>
-                            <div class="balance-card">
-                              <div class="balance-card__header">
-                                <span class="balance-card__label">{copy().yourBalanceTitle}</span>
-                                <Show when={dueStatusBadge()}>
-                                  {(badge) => (
-                                    <Badge variant={badge().variant}>{badge().label}</Badge>
-                                  )}
-                                </Show>
-                              </div>
-                              <div class="balance-card__amounts">
-                                <div class="balance-card__row">
-                                  <span>{copy().shareRent}</span>
-                                  <strong>
-                                    {member().rentShareMajor} {data().currency}
-                                  </strong>
-                                </div>
-                                <div class="balance-card__row">
-                                  <span>{copy().shareUtilities}</span>
-                                  <strong>
-                                    {member().utilityShareMajor} {data().currency}
-                                  </strong>
-                                </div>
-                                <div class="balance-card__row balance-card__row--subtotal">
-                                  <span>{copy().totalDueLabel}</span>
-                                  <strong>
-                                    {subtotalMajor} {data().currency}
-                                  </strong>
-                                </div>
-                                <div class="balance-card__row">
-                                  <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>
-                                    {member().purchaseOffsetMajor} {data().currency}
-                                  </strong>
-                                </div>
-                                <div
-                                  class={`balance-card__row balance-card__remaining ${memberRemainingClass(member())}`}
-                                >
-                                  <span>{copy().remainingLabel}</span>
-                                  <strong>
-                                    {member().remainingMajor} {data().currency}
-                                  </strong>
-                                </div>
-                              </div>
-                            </div>
-                          </Card>
-                        )
-                      })()}
-                    </Show>
-
-                    <Show when={homeMode() === 'none'}>
-                      <Card>
-                        <div class="balance-card">
-                          <div class="balance-card__header">
-                            <span class="balance-card__label">{copy().homePurchasesTitle}</span>
-                          </div>
-                          <div class="balance-card__amounts">
-                            <div class="balance-card__row balance-card__row--subtotal">
-                              <span>{copy().homePurchasesOffsetLabel}</span>
-                              <strong>
-                                {member().purchaseOffsetMajor} {data().currency}
-                              </strong>
-                            </div>
-                            <div class="balance-card__row">
-                              <span>
-                                {copy().homePurchasesTotalLabel.replace(
-                                  '{count}',
-                                  String(purchaseLedger().length)
-                                )}
-                              </span>
-                              <strong>
-                                {purchaseTotalMajor()} {data().currency}
-                              </strong>
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-                    </Show>
-                  </>
-                )}
               </Show>
 
               {/* Rent FX card */}
