@@ -62,7 +62,10 @@ export function createSchedulerRequestAuthorizer(options: {
       }
 
       try {
-        const audience = oidcAudience ?? new URL(request.url).origin
+        const origin = new URL(request.url).origin
+        const audience =
+          oidcAudience ??
+          (origin.startsWith('http://') ? origin.replace('http://', 'https://') : origin)
         const ticket = await verifier.verifyIdToken({
           idToken: token,
           audience
