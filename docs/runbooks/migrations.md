@@ -47,8 +47,15 @@ bun run build
 
 ## CD behavior
 
-- CD deploy runs migrations before deploy and now requires the `DATABASE_URL` GitHub secret.
+- CD deploy runs migrations before deploy and requires the owner-only `DATABASE_URL` GitHub secret.
 - If `DATABASE_URL` is missing, CD fails fast instead of deploying schema-dependent code without migrations.
+
+## Runtime connection split
+
+- `DATABASE_URL` is for migrations, schema checks, and other owner-only maintenance tasks.
+- `APP_DATABASE_URL` is for authenticated request paths such as mini app routes.
+- `WORKER_DATABASE_URL` is for Telegram ingestion, reminders, scheduler jobs, and other internal worker flows.
+- Runtime services should not use `DATABASE_URL`.
 
 ## Safety rules
 

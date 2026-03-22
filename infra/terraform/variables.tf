@@ -57,7 +57,21 @@ variable "scheduler_shared_secret_id" {
 }
 
 variable "database_url_secret_id" {
-  description = "Optional Secret Manager ID for DATABASE_URL"
+  description = "Optional Secret Manager ID for owner-only DATABASE_URL used outside runtime deploys"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "app_database_url_secret_id" {
+  description = "Optional Secret Manager ID for APP_DATABASE_URL"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "worker_database_url_secret_id" {
+  description = "Optional Secret Manager ID for WORKER_DATABASE_URL"
   type        = string
   default     = null
   nullable    = true

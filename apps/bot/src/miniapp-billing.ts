@@ -2,7 +2,7 @@ import type { FinanceCommandService, HouseholdOnboardingService } from '@househo
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
-import type { MiniAppSessionResult } from './miniapp-auth'
+import type { MiniAppAuthorizedSession, MiniAppSessionResult } from './miniapp-auth'
 
 import {
   allowedMiniAppOrigin,
@@ -11,6 +11,54 @@ import {
   miniAppJsonResponse,
   readMiniAppRequestPayload
 } from './miniapp-auth'
+
+interface MiniAppBillingHandlerBaseOptions {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForSession?: (session: MiniAppAuthorizedSession) => FinanceCommandService
+  financeServiceForHousehold?: (householdId: string) => FinanceCommandService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
+  logger?: Logger
+}
+
+function createConfiguredMiniAppBillingSessionService(options: {
+  botToken: string
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
+}) {
+  return createMiniAppSessionService({
+    botToken: options.botToken,
+    ...(options.onboardingServiceForTelegramUserId
+      ? {
+          onboardingServiceForTelegramUserId: options.onboardingServiceForTelegramUserId
+        }
+      : {}),
+    ...(options.onboardingService
+      ? {
+          onboardingService: options.onboardingService
+        }
+      : {})
+  })
+}
+
+function resolveFinanceService(
+  options: Pick<
+    MiniAppBillingHandlerBaseOptions,
+    'financeServiceForSession' | 'financeServiceForHousehold'
+  >,
+  session: MiniAppAuthorizedSession
+): FinanceCommandService {
+  const service =
+    options.financeServiceForSession?.(session) ??
+    options.financeServiceForHousehold?.(session.member.householdId)
+
+  if (!service) {
+    throw new Error('Mini app finance service is not configured')
+  }
+
+  return service
+}
 
 function serializeCycleState(
   state: Awaited<ReturnType<FinanceCommandService['getAdminCycleState']>>
@@ -42,6 +90,7 @@ async function authenticateAdminSession(
   | Response
   | {
       member: NonNullable<MiniAppSessionResult['member']>
+      telegramUserId: string
     }
 > {
   const payload = await readMiniAppRequestPayload(request)
@@ -54,7 +103,7 @@ async function authenticateAdminSession(
     return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
   }
 
-  if (!session.authorized || !session.member) {
+  if (!session.authorized || !session.member || !session.telegramUser) {
     return miniAppJsonResponse(
       { ok: false, error: 'Access limited to active household members' },
       403,
@@ -67,7 +116,8 @@ async function authenticateAdminSession(
   }
 
   return {
-    member: session.member
+    member: session.member,
+    telegramUserId: session.telegramUser.id
   }
 }
 
@@ -79,6 +129,7 @@ async function authenticateMemberSession(
   | Response
   | {
       member: NonNullable<MiniAppSessionResult['member']>
+      telegramUserId: string
     }
 > {
   const payload = await readMiniAppRequestPayload(request)
@@ -91,7 +142,12 @@ async function authenticateMemberSession(
     return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
   }
 
-  if (!session.authorized || !session.member || session.member.status !== 'active') {
+  if (
+    !session.authorized ||
+    !session.member ||
+    !session.telegramUser ||
+    session.member.status !== 'active'
+  ) {
     return miniAppJsonResponse(
       { ok: false, error: 'Access limited to active household members' },
       403,
@@ -100,7 +156,8 @@ async function authenticateMemberSession(
   }
 
   return {
-    member: session.member
+    member: session.member,
+    telegramUserId: session.telegramUser.id
   }
 }
 
@@ -530,19 +587,10 @@ async function readPaymentMutationPayload(request: Request): Promise<{
   }
 }
 
-export function createMiniAppBillingCycleHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppBillingCycleHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -567,9 +615,9 @@ export function createMiniAppBillingCycleHandler(options: {
         }
 
         const payload = await readCycleQueryPayload(request)
-        const cycleState = await options
-          .financeServiceForHousehold(auth.member.householdId)
-          .getAdminCycleState(payload.period)
+        const cycleState = await resolveFinanceService(options, auth).getAdminCycleState(
+          payload.period
+        )
 
         return miniAppJsonResponse(
           {
@@ -587,19 +635,10 @@ export function createMiniAppBillingCycleHandler(options: {
   }
 }
 
-export function createMiniAppOpenCycleHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppOpenCycleHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -624,7 +663,7 @@ export function createMiniAppOpenCycleHandler(options: {
         }
 
         const payload = await readOpenCyclePayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         await service.openCycle(payload.period, payload.currency)
         const cycleState = await service.getAdminCycleState(payload.period)
 
@@ -644,19 +683,10 @@ export function createMiniAppOpenCycleHandler(options: {
   }
 }
 
-export function createMiniAppCloseCycleHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppCloseCycleHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -681,7 +711,7 @@ export function createMiniAppCloseCycleHandler(options: {
         }
 
         const payload = await readCycleQueryPayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         await service.closeCycle(payload.period)
         const cycleState = await service.getAdminCycleState()
 
@@ -701,19 +731,10 @@ export function createMiniAppCloseCycleHandler(options: {
   }
 }
 
-export function createMiniAppRentUpdateHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppRentUpdateHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -738,7 +759,7 @@ export function createMiniAppRentUpdateHandler(options: {
         }
 
         const payload = await readRentUpdatePayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const result = await service.setRent(payload.amountMajor, payload.currency, payload.period)
         if (!result) {
           return miniAppJsonResponse(
@@ -766,19 +787,10 @@ export function createMiniAppRentUpdateHandler(options: {
   }
 }
 
-export function createMiniAppAddUtilityBillHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppAddUtilityBillHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -803,7 +815,7 @@ export function createMiniAppAddUtilityBillHandler(options: {
         }
 
         const payload = await readUtilityBillPayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const result = await service.addUtilityBill(
           payload.billName,
           payload.amountMajor,
@@ -837,19 +849,10 @@ export function createMiniAppAddUtilityBillHandler(options: {
   }
 }
 
-export function createMiniAppSubmitUtilityBillHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppSubmitUtilityBillHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -874,7 +877,7 @@ export function createMiniAppSubmitUtilityBillHandler(options: {
         }
 
         const payload = await readUtilityBillPayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const result = await service.addUtilityBill(
           payload.billName,
           payload.amountMajor,
@@ -905,35 +908,33 @@ export function createMiniAppSubmitUtilityBillHandler(options: {
   }
 }
 
-export function createMiniAppSubmitPaymentHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  householdConfigurationRepository: HouseholdConfigurationRepository
-  logger?: Logger
-}): {
+export function createMiniAppSubmitPaymentHandler(
+  options: MiniAppBillingHandlerBaseOptions & {
+    householdConfigurationRepositoryForSession: (
+      session: MiniAppAuthorizedSession
+    ) => HouseholdConfigurationRepository
+  }
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
-  async function notifyPaymentRecorded(input: {
-    householdId: string
-    memberName: string
-    kind: 'rent' | 'utilities'
-    amountMajor: string
-    currency: string
-    period: string
-  }) {
+  async function notifyPaymentRecorded(
+    session: MiniAppAuthorizedSession,
+    input: {
+      householdId: string
+      memberName: string
+      kind: 'rent' | 'utilities'
+      amountMajor: string
+      currency: string
+      period: string
+    }
+  ) {
+    const householdConfigurationRepository =
+      options.householdConfigurationRepositoryForSession(session)
     const [chat, topic] = await Promise.all([
-      options.householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
-      options.householdConfigurationRepository.getHouseholdTopicBinding(
-        input.householdId,
-        'reminders'
-      )
+      householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
+      householdConfigurationRepository.getHouseholdTopicBinding(input.householdId, 'reminders')
     ])
 
     if (!chat || !topic) {
@@ -996,7 +997,7 @@ export function createMiniAppSubmitPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing payment fields' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const payment = await service.addPayment(
           auth.member.id,
           payload.kind,
@@ -1008,7 +1009,7 @@ export function createMiniAppSubmitPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Failed to record payment' }, 500, origin)
         }
 
-        await notifyPaymentRecorded({
+        await notifyPaymentRecorded(auth, {
           householdId: auth.member.householdId,
           memberName: auth.member.displayName,
           kind: payload.kind,
@@ -1032,19 +1033,10 @@ export function createMiniAppSubmitPaymentHandler(options: {
   }
 }
 
-export function createMiniAppUpdateUtilityBillHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateUtilityBillHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1069,7 +1061,7 @@ export function createMiniAppUpdateUtilityBillHandler(options: {
         }
 
         const payload = await readUtilityBillUpdatePayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const result = await service.updateUtilityBill(
           payload.billId,
           payload.billName,
@@ -1099,19 +1091,10 @@ export function createMiniAppUpdateUtilityBillHandler(options: {
   }
 }
 
-export function createMiniAppDeleteUtilityBillHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppDeleteUtilityBillHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1136,7 +1119,7 @@ export function createMiniAppDeleteUtilityBillHandler(options: {
         }
 
         const payload = await readUtilityBillDeletePayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const deleted = await service.deleteUtilityBill(payload.billId)
 
         if (!deleted) {
@@ -1161,19 +1144,10 @@ export function createMiniAppDeleteUtilityBillHandler(options: {
   }
 }
 
-export function createMiniAppAddPurchaseHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppAddPurchaseHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1200,7 +1174,7 @@ export function createMiniAppAddPurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing purchase fields' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const payerMemberId = payload.payerMemberId ?? auth.member.id
         await service.addPurchase(
           payload.description,
@@ -1218,19 +1192,10 @@ export function createMiniAppAddPurchaseHandler(options: {
   }
 }
 
-export function createMiniAppUpdatePurchaseHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppUpdatePurchaseHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1257,7 +1222,7 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing purchase fields' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const payerMemberId = payload.payerMemberId
         const updated = await service.updatePurchase(
           payload.purchaseId,
@@ -1280,19 +1245,10 @@ export function createMiniAppUpdatePurchaseHandler(options: {
   }
 }
 
-export function createMiniAppDeletePurchaseHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppDeletePurchaseHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1315,7 +1271,7 @@ export function createMiniAppDeletePurchaseHandler(options: {
         }
 
         const payload = await readPurchaseMutationPayload(request)
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const deleted = await service.deletePurchase(payload.purchaseId)
 
         if (!deleted) {
@@ -1330,19 +1286,10 @@ export function createMiniAppDeletePurchaseHandler(options: {
   }
 }
 
-export function createMiniAppAddPaymentHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppAddPaymentHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1369,7 +1316,7 @@ export function createMiniAppAddPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing payment fields' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const payment = await service.addPayment(
           payload.memberId,
           payload.kind,
@@ -1389,19 +1336,10 @@ export function createMiniAppAddPaymentHandler(options: {
   }
 }
 
-export function createMiniAppUpdatePaymentHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppUpdatePaymentHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1428,7 +1366,7 @@ export function createMiniAppUpdatePaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing payment fields' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const payment = await service.updatePayment(
           payload.paymentId,
           payload.memberId,
@@ -1449,19 +1387,10 @@ export function createMiniAppUpdatePaymentHandler(options: {
   }
 }
 
-export function createMiniAppDeletePaymentHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
+export function createMiniAppDeletePaymentHandler(options: MiniAppBillingHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppBillingSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1488,7 +1417,7 @@ export function createMiniAppDeletePaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing payment id' }, 400, origin)
         }
 
-        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const service = resolveFinanceService(options, auth)
         const deleted = await service.deletePayment(payload.paymentId)
 
         if (!deleted) {

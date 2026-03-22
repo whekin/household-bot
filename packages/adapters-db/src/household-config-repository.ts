@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 
-import { createDbClient, schema } from '@household/db'
+import { createDbClient, type DbSessionContext, schema } from '@household/db'
 import {
   instantToDate,
   normalizeSupportedLocale,
@@ -334,13 +334,23 @@ function utilityCategorySlug(name: string): string {
     .slice(0, 48)
 }
 
-export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
+export function createDbHouseholdConfigurationRepository(
+  databaseUrl: string,
+  options: {
+    sessionContext?: DbSessionContext
+  } = {}
+): {
   repository: HouseholdConfigurationRepository
   close: () => Promise<void>
 } {
   const { db, queryClient } = createDbClient(databaseUrl, {
     max: 5,
-    prepare: false
+    prepare: false,
+    ...(options.sessionContext
+      ? {
+          sessionContext: options.sessionContext
+        }
+      : {})
   })
 
   const defaultUtilityCategories = [

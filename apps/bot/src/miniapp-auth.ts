@@ -115,12 +115,28 @@ export interface MiniAppSessionResult {
   }
 }
 
+export interface MiniAppAuthorizedSession {
+  member: NonNullable<MiniAppSessionResult['member']>
+  telegramUserId: string
+}
+
 export function createMiniAppSessionService(options: {
   botToken: string
-  onboardingService: HouseholdOnboardingService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
 }): {
   authenticate: (payload: MiniAppRequestPayload) => Promise<MiniAppSessionResult | null>
 } {
+  const resolveOnboardingService =
+    options.onboardingServiceForTelegramUserId ??
+    (() => {
+      if (!options.onboardingService) {
+        throw new Error('Mini app onboarding service is not configured')
+      }
+
+      return options.onboardingService
+    })
+
   return {
     authenticate: async (payload) => {
       if (!payload.initData) {
@@ -132,7 +148,7 @@ export function createMiniAppSessionService(options: {
         return null
       }
 
-      const access = await options.onboardingService.getMiniAppAccess({
+      const access = await resolveOnboardingService(telegramUser.id).getMiniAppAccess({
         identity: {
           telegramUserId: telegramUser.id,
           displayName:
@@ -190,14 +206,24 @@ export function createMiniAppSessionService(options: {
 export function createMiniAppAuthHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  onboardingService: HouseholdOnboardingService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
   const sessionService = createMiniAppSessionService({
     botToken: options.botToken,
-    onboardingService: options.onboardingService
+    ...(options.onboardingServiceForTelegramUserId
+      ? {
+          onboardingServiceForTelegramUserId: options.onboardingServiceForTelegramUserId
+        }
+      : {}),
+    ...(options.onboardingService
+      ? {
+          onboardingService: options.onboardingService
+        }
+      : {})
   })
 
   return {
@@ -264,7 +290,8 @@ export function createMiniAppAuthHandler(options: {
 export function createMiniAppJoinHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  onboardingService: HouseholdOnboardingService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -304,7 +331,13 @@ export function createMiniAppJoinHandler(options: {
           )
         }
 
-        const result = await options.onboardingService.joinHousehold({
+        const onboardingService =
+          options.onboardingServiceForTelegramUserId?.(telegramUser.id) ?? options.onboardingService
+        if (!onboardingService) {
+          throw new Error('Mini app onboarding service is not configured')
+        }
+
+        const result = await onboardingService.joinHousehold({
           identity: {
             telegramUserId: telegramUser.id,
             displayName:

@@ -47,7 +47,11 @@ import { createReminderJobsHandler } from './reminder-jobs'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createBotWebhookServer } from './server'
-import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
+import {
+  createMiniAppAuthHandler,
+  createMiniAppJoinHandler,
+  type MiniAppAuthorizedSession
+} from './miniapp-auth'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import {
   createMiniAppApproveMemberHandler,
@@ -90,13 +94,13 @@ configureLogger({
 
 const logger = getLogger('runtime')
 const shutdownTasks: Array<() => Promise<void>> = []
-const householdConfigurationRepositoryClient = runtime.databaseUrl
-  ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
+const workerHouseholdConfigurationRepositoryClient = runtime.workerDatabaseUrl
+  ? createDbHouseholdConfigurationRepository(runtime.workerDatabaseUrl)
   : null
 const bot = createTelegramBot(
   runtime.telegramBotToken,
   getLogger('telegram'),
-  householdConfigurationRepositoryClient?.repository
+  workerHouseholdConfigurationRepositoryClient?.repository
 )
 bot.botInfo = await bot.api.getMe()
 const webhookHandler = webhookCallback(bot, 'std/http', {
@@ -111,29 +115,23 @@ const paymentConfirmationServices = new Map<
 const exchangeRateProvider = createNbgExchangeRateProvider({
   logger: getLogger('fx')
 })
-const householdOnboardingService = householdConfigurationRepositoryClient
+const householdOnboardingService = workerHouseholdConfigurationRepositoryClient
   ? createHouseholdOnboardingService({
-      repository: householdConfigurationRepositoryClient.repository
+      repository: workerHouseholdConfigurationRepositoryClient.repository
     })
   : null
-const miniAppAdminService = householdConfigurationRepositoryClient
-  ? createMiniAppAdminService(householdConfigurationRepositoryClient.repository)
-  : null
-const localePreferenceService = householdConfigurationRepositoryClient
-  ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
-  : null
-const telegramPendingActionRepositoryClient = runtime.databaseUrl
-  ? createDbTelegramPendingActionRepository(runtime.databaseUrl!)
+const telegramPendingActionRepositoryClient = runtime.workerDatabaseUrl
+  ? createDbTelegramPendingActionRepository(runtime.workerDatabaseUrl!)
   : null
 const processedBotMessageRepositoryClient =
-  runtime.databaseUrl && runtime.assistantEnabled
-    ? createDbProcessedBotMessageRepository(runtime.databaseUrl!)
+  runtime.workerDatabaseUrl && runtime.assistantEnabled
+    ? createDbProcessedBotMessageRepository(runtime.workerDatabaseUrl!)
     : null
-const purchaseRepositoryClient = runtime.databaseUrl
-  ? createPurchaseMessageRepository(runtime.databaseUrl!)
+const purchaseRepositoryClient = runtime.workerDatabaseUrl
+  ? createPurchaseMessageRepository(runtime.workerDatabaseUrl!)
   : null
-const topicMessageHistoryRepositoryClient = runtime.databaseUrl
-  ? createDbTopicMessageHistoryRepository(runtime.databaseUrl!)
+const topicMessageHistoryRepositoryClient = runtime.workerDatabaseUrl
+  ? createDbTopicMessageHistoryRepository(runtime.workerDatabaseUrl!)
   : null
 const purchaseInterpreter = createOpenAiPurchaseInterpreter(
   runtime.openaiApiKey,
@@ -169,6 +167,167 @@ const anonymousFeedbackServices = new Map<
   string,
   ReturnType<typeof createAnonymousFeedbackService>
 >()
+const appHouseholdConfigurationRepositoryClients = new Map<
+  string,
+  ReturnType<typeof createDbHouseholdConfigurationRepository>
+>()
+const appOnboardingServices = new Map<string, ReturnType<typeof createHouseholdOnboardingService>>()
+const appFinanceRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
+const appFinanceServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
+const appMiniAppAdminServices = new Map<string, ReturnType<typeof createMiniAppAdminService>>()
+const appLocalePreferenceServices = new Map<
+  string,
+  ReturnType<typeof createLocalePreferenceService>
+>()
+
+function miniAppSessionKey(session: MiniAppAuthorizedSession): string {
+  return [
+    session.telegramUserId,
+    session.member.householdId,
+    session.member.id,
+    session.member.isAdmin ? 'admin' : 'member'
+  ].join(':')
+}
+
+function appHouseholdConfigurationRepositoryKey(input: {
+  telegramUserId: string
+  householdId?: string
+  memberId?: string
+  isAdmin?: boolean
+}): string {
+  return [
+    input.telegramUserId,
+    input.householdId ?? 'none',
+    input.memberId ?? 'none',
+    input.isAdmin === true ? 'admin' : 'member'
+  ].join(':')
+}
+
+function appHouseholdConfigurationRepositoryForContext(input: {
+  telegramUserId: string
+  householdId?: string
+  memberId?: string
+  isAdmin?: boolean
+}) {
+  const key = appHouseholdConfigurationRepositoryKey(input)
+  const existing = appHouseholdConfigurationRepositoryClients.get(key)
+  if (existing) {
+    return existing
+  }
+
+  const repositoryClient = createDbHouseholdConfigurationRepository(runtime.appDatabaseUrl!, {
+    sessionContext: {
+      telegramUserId: input.telegramUserId,
+      ...(input.householdId
+        ? {
+            householdId: input.householdId
+          }
+        : {}),
+      ...(input.memberId
+        ? {
+            memberId: input.memberId
+          }
+        : {}),
+      ...(input.isAdmin !== undefined
+        ? {
+            isAdmin: input.isAdmin
+          }
+        : {})
+    }
+  })
+  appHouseholdConfigurationRepositoryClients.set(key, repositoryClient)
+  shutdownTasks.push(repositoryClient.close)
+  return repositoryClient
+}
+
+function appOnboardingServiceForTelegramUserId(telegramUserId: string) {
+  const existing = appOnboardingServices.get(telegramUserId)
+  if (existing) {
+    return existing
+  }
+
+  const service = createHouseholdOnboardingService({
+    repository: appHouseholdConfigurationRepositoryForContext({
+      telegramUserId
+    }).repository
+  })
+  appOnboardingServices.set(telegramUserId, service)
+  return service
+}
+
+function appHouseholdConfigurationRepositoryForSession(session: MiniAppAuthorizedSession) {
+  return appHouseholdConfigurationRepositoryForContext({
+    telegramUserId: session.telegramUserId,
+    householdId: session.member.householdId,
+    memberId: session.member.id,
+    isAdmin: session.member.isAdmin
+  })
+}
+
+function appFinanceServiceForSession(session: MiniAppAuthorizedSession) {
+  const key = miniAppSessionKey(session)
+  const existing = appFinanceServices.get(key)
+  if (existing) {
+    return existing
+  }
+
+  const repositoryClient = createDbFinanceRepository(
+    runtime.appDatabaseUrl!,
+    session.member.householdId,
+    {
+      sessionContext: {
+        telegramUserId: session.telegramUserId,
+        householdId: session.member.householdId,
+        memberId: session.member.id,
+        ...(session.member.isAdmin !== undefined
+          ? {
+              isAdmin: session.member.isAdmin
+            }
+          : {})
+      }
+    }
+  )
+  appFinanceRepositoryClients.set(key, repositoryClient)
+  shutdownTasks.push(repositoryClient.close)
+
+  const service = createFinanceCommandService({
+    householdId: session.member.householdId,
+    repository: repositoryClient.repository,
+    householdConfigurationRepository:
+      appHouseholdConfigurationRepositoryForSession(session).repository,
+    exchangeRateProvider
+  })
+  appFinanceServices.set(key, service)
+  return service
+}
+
+function appMiniAppAdminServiceForSession(session: MiniAppAuthorizedSession) {
+  const key = miniAppSessionKey(session)
+  const existing = appMiniAppAdminServices.get(key)
+  if (existing) {
+    return existing
+  }
+
+  const service = createMiniAppAdminService(
+    appHouseholdConfigurationRepositoryForSession(session).repository
+  )
+  appMiniAppAdminServices.set(key, service)
+  return service
+}
+
+function appLocalePreferenceServiceForSession(session: MiniAppAuthorizedSession) {
+  const key = miniAppSessionKey(session)
+  const existing = appLocalePreferenceServices.get(key)
+  if (existing) {
+    return existing
+  }
+
+  const service = createLocalePreferenceService(
+    appHouseholdConfigurationRepositoryForSession(session).repository
+  )
+  appLocalePreferenceServices.set(key, service)
+  return service
+}
 
 function financeServiceForHousehold(householdId: string) {
   const existing = financeServices.get(householdId)
@@ -180,7 +339,7 @@ function financeServiceForHousehold(householdId: string) {
   const service = createFinanceCommandService({
     householdId,
     repository: repositoryClient.repository,
-    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient!.repository,
     exchangeRateProvider
   })
   financeServices.set(householdId, service)
@@ -193,7 +352,7 @@ function financeRepositoryForHousehold(householdId: string) {
     return existing
   }
 
-  const repositoryClient = createDbFinanceRepository(runtime.databaseUrl!, householdId)
+  const repositoryClient = createDbFinanceRepository(runtime.workerDatabaseUrl!, householdId)
   financeRepositoryClients.set(householdId, repositoryClient)
   shutdownTasks.push(repositoryClient.close)
   return repositoryClient
@@ -209,7 +368,7 @@ function paymentConfirmationServiceForHousehold(householdId: string) {
     householdId,
     financeService: financeServiceForHousehold(householdId),
     repository: financeRepositoryForHousehold(householdId).repository,
-    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient!.repository,
     exchangeRateProvider
   })
   paymentConfirmationServices.set(householdId, service)
@@ -222,7 +381,10 @@ function anonymousFeedbackServiceForHousehold(householdId: string) {
     return existing
   }
 
-  const repositoryClient = createDbAnonymousFeedbackRepository(runtime.databaseUrl!, householdId)
+  const repositoryClient = createDbAnonymousFeedbackRepository(
+    runtime.workerDatabaseUrl!,
+    householdId
+  )
   anonymousFeedbackRepositoryClients.set(householdId, repositoryClient)
   shutdownTasks.push(repositoryClient.close)
 
@@ -231,8 +393,8 @@ function anonymousFeedbackServiceForHousehold(householdId: string) {
   return service
 }
 
-if (householdConfigurationRepositoryClient) {
-  shutdownTasks.push(householdConfigurationRepositoryClient.close)
+if (workerHouseholdConfigurationRepositoryClient) {
+  shutdownTasks.push(workerHouseholdConfigurationRepositoryClient.close)
 }
 
 if (telegramPendingActionRepositoryClient) {
@@ -251,10 +413,10 @@ if (topicMessageHistoryRepositoryClient) {
   shutdownTasks.push(topicMessageHistoryRepositoryClient.close)
 }
 
-if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
+if (purchaseRepositoryClient && workerHouseholdConfigurationRepositoryClient) {
   registerConfiguredPurchaseTopicIngestion(
     bot,
-    householdConfigurationRepositoryClient.repository,
+    workerHouseholdConfigurationRepositoryClient.repository,
     purchaseRepositoryClient.repository,
     {
       ...(topicProcessor
@@ -280,7 +442,7 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
 
   registerConfiguredPaymentTopicIngestion(
     bot,
-    householdConfigurationRepositoryClient.repository,
+    workerHouseholdConfigurationRepositoryClient.repository,
     telegramPendingActionRepositoryClient!.repository,
     financeServiceForHousehold,
     paymentConfirmationServiceForHousehold,
@@ -306,13 +468,13 @@ if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
       event: 'runtime.feature_disabled',
       feature: 'purchase-topic-ingestion'
     },
-    'Purchase topic ingestion is disabled. Set DATABASE_URL to enable Telegram topic lookups.'
+    'Purchase topic ingestion is disabled. Set WORKER_DATABASE_URL to enable Telegram topic lookups.'
   )
 }
 
 if (runtime.financeCommandsEnabled) {
   const financeCommands = createFinanceCommandsService({
-    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient!.repository,
     financeServiceForHousehold,
     ...(runtime.miniAppUrl
       ? {
@@ -329,21 +491,21 @@ if (runtime.financeCommandsEnabled) {
       event: 'runtime.feature_disabled',
       feature: 'finance-commands'
     },
-    'Finance commands are disabled. Set DATABASE_URL to enable household lookups.'
+    'Finance commands are disabled. Set WORKER_DATABASE_URL to enable household lookups.'
   )
 }
 
-if (householdConfigurationRepositoryClient) {
+if (workerHouseholdConfigurationRepositoryClient) {
   registerHouseholdSetupCommands({
     bot,
     householdSetupService: createHouseholdSetupService(
-      householdConfigurationRepositoryClient.repository
+      workerHouseholdConfigurationRepositoryClient.repository
     ),
     householdAdminService: createHouseholdAdminService(
-      householdConfigurationRepositoryClient.repository
+      workerHouseholdConfigurationRepositoryClient.repository
     ),
     householdOnboardingService: householdOnboardingService!,
-    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient.repository,
     ...(telegramPendingActionRepositoryClient
       ? {
           promptRepository: telegramPendingActionRepositoryClient.repository
@@ -362,20 +524,22 @@ if (householdConfigurationRepositoryClient) {
       event: 'runtime.feature_disabled',
       feature: 'household-setup'
     },
-    'Household setup commands are disabled. Set DATABASE_URL to enable.'
+    'Household setup commands are disabled. Set WORKER_DATABASE_URL to enable.'
   )
 }
 
 const reminderJobs = runtime.reminderJobsEnabled
   ? (() => {
-      const reminderRepositoryClient = createDbReminderDispatchRepository(runtime.databaseUrl!)
+      const reminderRepositoryClient = createDbReminderDispatchRepository(
+        runtime.workerDatabaseUrl!
+      )
       const reminderService = createReminderJobService(reminderRepositoryClient.repository)
 
       shutdownTasks.push(reminderRepositoryClient.close)
 
       return createReminderJobsHandler({
         listReminderTargets: () =>
-          householdConfigurationRepositoryClient!.repository.listReminderTargets(),
+          workerHouseholdConfigurationRepositoryClient!.repository.listReminderTargets(),
         ensureBillingCycle: async ({ householdId, at }) => {
           await financeServiceForHousehold(householdId).ensureExpectedCycle(at)
         },
@@ -426,19 +590,19 @@ if (!runtime.reminderJobsEnabled) {
       event: 'runtime.feature_disabled',
       feature: 'reminder-jobs'
     },
-    'Reminder jobs are disabled. Set DATABASE_URL and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
+    'Reminder jobs are disabled. Set WORKER_DATABASE_URL and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
   )
 }
 
 if (
   runtime.anonymousFeedbackEnabled &&
-  householdConfigurationRepositoryClient &&
+  workerHouseholdConfigurationRepositoryClient &&
   telegramPendingActionRepositoryClient
 ) {
   registerAnonymousFeedback({
     bot,
     anonymousFeedbackServiceForHousehold,
-    householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient!.repository,
     promptRepository: telegramPendingActionRepositoryClient!.repository,
     logger: getLogger('anonymous-feedback')
   })
@@ -448,19 +612,19 @@ if (
       event: 'runtime.feature_disabled',
       feature: 'anonymous-feedback'
     },
-    'Anonymous feedback is disabled. Set DATABASE_URL to enable household and topic lookups.'
+    'Anonymous feedback is disabled. Set WORKER_DATABASE_URL to enable household and topic lookups.'
   )
 }
 
 if (
   runtime.assistantEnabled &&
-  householdConfigurationRepositoryClient &&
+  workerHouseholdConfigurationRepositoryClient &&
   telegramPendingActionRepositoryClient
 ) {
   if (processedBotMessageRepositoryClient) {
     registerDmAssistant({
       bot,
-      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient.repository,
       messageProcessingRepository: processedBotMessageRepositoryClient.repository,
       promptRepository: telegramPendingActionRepositoryClient.repository,
       financeServiceForHousehold,
@@ -492,7 +656,7 @@ if (
   } else {
     registerDmAssistant({
       bot,
-      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient.repository,
       promptRepository: telegramPendingActionRepositoryClient.repository,
       financeServiceForHousehold,
       memoryStore: assistantMemoryStore,
@@ -523,10 +687,10 @@ if (
   }
 }
 
-if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
+if (workerHouseholdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
   registerReminderTopicUtilities({
     bot,
-    householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+    householdConfigurationRepository: workerHouseholdConfigurationRepositoryClient.repository,
     promptRepository: telegramPendingActionRepositoryClient.repository,
     financeServiceForHousehold,
     logger: getLogger('reminder-utilities')
@@ -537,272 +701,272 @@ const server = createBotWebhookServer({
   webhookPath: runtime.telegramWebhookPath,
   webhookSecret: runtime.telegramWebhookSecret,
   webhookHandler,
-  miniAppAuth: householdOnboardingService
+  miniAppAuth: runtime.miniAppAuthEnabled
     ? createMiniAppAuthHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
         logger: getLogger('miniapp-auth')
       })
     : undefined,
-  miniAppJoin: householdOnboardingService
+  miniAppJoin: runtime.miniAppAuthEnabled
     ? createMiniAppJoinHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
         logger: getLogger('miniapp-auth')
       })
     : undefined,
-  miniAppDashboard: householdOnboardingService
+  miniAppDashboard: runtime.miniAppAuthEnabled
     ? createMiniAppDashboardHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        financeServiceForHousehold,
-        onboardingService: householdOnboardingService!,
+        financeServiceForSession: appFinanceServiceForSession,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
         logger: getLogger('miniapp-dashboard')
       })
     : undefined,
-  miniAppPendingMembers: householdOnboardingService
+  miniAppPendingMembers: runtime.miniAppAuthEnabled
     ? createMiniAppPendingMembersHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppApproveMember: householdOnboardingService
+  miniAppApproveMember: runtime.miniAppAuthEnabled
     ? createMiniAppApproveMemberHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppRejectMember: householdOnboardingService
+  miniAppRejectMember: runtime.miniAppAuthEnabled
     ? createMiniAppRejectMemberHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppSettings: householdOnboardingService
+  miniAppSettings: runtime.miniAppAuthEnabled
     ? createMiniAppSettingsHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         assistantUsageTracker,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateSettings: householdOnboardingService
+  miniAppUpdateSettings: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateSettingsHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpsertUtilityCategory: householdOnboardingService
+  miniAppUpsertUtilityCategory: runtime.miniAppAuthEnabled
     ? createMiniAppUpsertUtilityCategoryHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppPromoteMember: householdOnboardingService
+  miniAppPromoteMember: runtime.miniAppAuthEnabled
     ? createMiniAppPromoteMemberHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateOwnDisplayName: householdOnboardingService
+  miniAppUpdateOwnDisplayName: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateOwnDisplayNameHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateMemberDisplayName: householdOnboardingService
+  miniAppUpdateMemberDisplayName: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateMemberDisplayNameHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateMemberRentWeight: householdOnboardingService
+  miniAppUpdateMemberRentWeight: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateMemberRentWeightHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateMemberStatus: householdOnboardingService
+  miniAppUpdateMemberStatus: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateMemberStatusHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppUpdateMemberAbsencePolicy: householdOnboardingService
+  miniAppUpdateMemberAbsencePolicy: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateMemberAbsencePolicyHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        miniAppAdminService: miniAppAdminService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        miniAppAdminServiceForSession: appMiniAppAdminServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,
-  miniAppBillingCycle: householdOnboardingService
+  miniAppBillingCycle: runtime.miniAppAuthEnabled
     ? createMiniAppBillingCycleHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppOpenCycle: householdOnboardingService
+  miniAppOpenCycle: runtime.miniAppAuthEnabled
     ? createMiniAppOpenCycleHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppCloseCycle: householdOnboardingService
+  miniAppCloseCycle: runtime.miniAppAuthEnabled
     ? createMiniAppCloseCycleHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppRentUpdate: householdOnboardingService
+  miniAppRentUpdate: runtime.miniAppAuthEnabled
     ? createMiniAppRentUpdateHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppAddUtilityBill: householdOnboardingService
+  miniAppAddUtilityBill: runtime.miniAppAuthEnabled
     ? createMiniAppAddUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppSubmitUtilityBill: householdOnboardingService
+  miniAppSubmitUtilityBill: runtime.miniAppAuthEnabled
     ? createMiniAppSubmitUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppUpdateUtilityBill: householdOnboardingService
+  miniAppUpdateUtilityBill: runtime.miniAppAuthEnabled
     ? createMiniAppUpdateUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppDeleteUtilityBill: householdOnboardingService
+  miniAppDeleteUtilityBill: runtime.miniAppAuthEnabled
     ? createMiniAppDeleteUtilityBillHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppAddPurchase: householdOnboardingService
+  miniAppAddPurchase: runtime.miniAppAuthEnabled
     ? createMiniAppAddPurchaseHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppUpdatePurchase: householdOnboardingService
+  miniAppUpdatePurchase: runtime.miniAppAuthEnabled
     ? createMiniAppUpdatePurchaseHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppDeletePurchase: householdOnboardingService
+  miniAppDeletePurchase: runtime.miniAppAuthEnabled
     ? createMiniAppDeletePurchaseHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppAddPayment: householdOnboardingService
+  miniAppAddPayment: runtime.miniAppAuthEnabled
     ? createMiniAppAddPaymentHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppUpdatePayment: householdOnboardingService
+  miniAppUpdatePayment: runtime.miniAppAuthEnabled
     ? createMiniAppUpdatePaymentHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppDeletePayment: householdOnboardingService
+  miniAppDeletePayment: runtime.miniAppAuthEnabled
     ? createMiniAppDeletePaymentHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        financeServiceForHousehold,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        financeServiceForSession: appFinanceServiceForSession,
         logger: getLogger('miniapp-billing')
       })
     : undefined,
-  miniAppLocalePreference: householdOnboardingService
+  miniAppLocalePreference: runtime.miniAppAuthEnabled
     ? createMiniAppLocalePreferenceHandler({
         allowedOrigins: runtime.miniAppAllowedOrigins,
         botToken: runtime.telegramBotToken,
-        onboardingService: householdOnboardingService,
-        localePreferenceService: localePreferenceService!,
+        onboardingServiceForTelegramUserId: appOnboardingServiceForTelegramUserId,
+        localePreferenceServiceForSession: appLocalePreferenceServiceForSession,
         logger: getLogger('miniapp-admin')
       })
     : undefined,

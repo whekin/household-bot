@@ -179,8 +179,11 @@ module "bot_api_service" {
       TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret_id
       SCHEDULER_SHARED_SECRET = var.scheduler_shared_secret_id
     },
-    var.database_url_secret_id == null ? {} : {
-      DATABASE_URL = var.database_url_secret_id
+    var.app_database_url_secret_id == null ? {} : {
+      APP_DATABASE_URL = var.app_database_url_secret_id
+    },
+    var.worker_database_url_secret_id == null ? {} : {
+      WORKER_DATABASE_URL = var.worker_database_url_secret_id
     },
     var.telegram_bot_token_secret_id == null ? {} : {
       TELEGRAM_BOT_TOKEN = var.telegram_bot_token_secret_id

@@ -12,11 +12,58 @@ import type { AssistantUsageTracker } from './dm-assistant'
 
 import {
   allowedMiniAppOrigin,
+  type MiniAppAuthorizedSession,
   createMiniAppSessionService,
   miniAppErrorResponse,
   miniAppJsonResponse,
   readMiniAppRequestPayload
 } from './miniapp-auth'
+
+interface MiniAppAdminHandlerBaseOptions {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
+  miniAppAdminServiceForSession?: (session: MiniAppAuthorizedSession) => MiniAppAdminService
+  miniAppAdminService?: MiniAppAdminService
+  logger?: Logger
+}
+
+function createConfiguredMiniAppSessionService(options: {
+  botToken: string
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
+}) {
+  return createMiniAppSessionService({
+    botToken: options.botToken,
+    ...(options.onboardingServiceForTelegramUserId
+      ? {
+          onboardingServiceForTelegramUserId: options.onboardingServiceForTelegramUserId
+        }
+      : {}),
+    ...(options.onboardingService
+      ? {
+          onboardingService: options.onboardingService
+        }
+      : {})
+  })
+}
+
+function resolveMiniAppAdminService(
+  options: Pick<
+    MiniAppAdminHandlerBaseOptions,
+    'miniAppAdminServiceForSession' | 'miniAppAdminService'
+  >,
+  session: MiniAppAuthorizedSession
+): MiniAppAdminService {
+  const service = options.miniAppAdminServiceForSession?.(session) ?? options.miniAppAdminService
+
+  if (!service) {
+    throw new Error('Mini app admin service is not configured')
+  }
+
+  return service
+}
 
 async function readApprovalPayload(request: Request): Promise<{
   initData: string
@@ -401,6 +448,7 @@ async function authenticateAdminSession(
   | Response
   | {
       member: NonNullable<MiniAppSessionResult['member']>
+      telegramUserId: string
     }
 > {
   const payload = await readMiniAppRequestPayload(request)
@@ -413,7 +461,7 @@ async function authenticateAdminSession(
     return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
   }
 
-  if (!session.authorized || !session.member) {
+  if (!session.authorized || !session.member || !session.telegramUser) {
     return miniAppJsonResponse(
       { ok: false, error: 'Admin access required for active household members' },
       403,
@@ -430,23 +478,15 @@ async function authenticateAdminSession(
   }
 
   return {
-    member: session.member
+    member: session.member,
+    telegramUserId: session.telegramUser.id
   }
 }
 
-export function createMiniAppPendingMembersHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppPendingMembersHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -478,6 +518,7 @@ export function createMiniAppPendingMembersHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -488,7 +529,10 @@ export function createMiniAppPendingMembersHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.listPendingMembers({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).listPendingMembers({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin
         })
@@ -513,20 +557,14 @@ export function createMiniAppPendingMembersHandler(options: {
   }
 }
 
-export function createMiniAppSettingsHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  assistantUsageTracker?: AssistantUsageTracker
-  logger?: Logger
-}): {
+export function createMiniAppSettingsHandler(
+  options: MiniAppAdminHandlerBaseOptions & {
+    assistantUsageTracker?: AssistantUsageTracker
+  }
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -545,9 +583,12 @@ export function createMiniAppSettingsHandler(options: {
         if (auth instanceof Response) {
           return auth
         }
-        const { member } = auth
+        const { member, telegramUserId } = auth
 
-        const result = await options.miniAppAdminService.getSettings({
+        const result = await resolveMiniAppAdminService(options, {
+          member,
+          telegramUserId
+        }).getSettings({
           householdId: member.householdId,
           actorIsAdmin: member.isAdmin
         })
@@ -580,19 +621,10 @@ export function createMiniAppSettingsHandler(options: {
   }
 }
 
-export function createMiniAppUpdateSettingsHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateSettingsHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -623,6 +655,7 @@ export function createMiniAppUpdateSettingsHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -633,7 +666,10 @@ export function createMiniAppUpdateSettingsHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateSettings({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateSettings({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           ...(payload.householdName !== undefined
@@ -715,19 +751,12 @@ export function createMiniAppUpdateSettingsHandler(options: {
   }
 }
 
-export function createMiniAppUpsertUtilityCategoryHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpsertUtilityCategoryHandler(
+  options: MiniAppAdminHandlerBaseOptions
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -758,6 +787,7 @@ export function createMiniAppUpsertUtilityCategoryHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -768,7 +798,10 @@ export function createMiniAppUpsertUtilityCategoryHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.upsertUtilityCategory({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).upsertUtilityCategory({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           ...(payload.slug
@@ -811,19 +844,10 @@ export function createMiniAppUpsertUtilityCategoryHandler(options: {
   }
 }
 
-export function createMiniAppPromoteMemberHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppPromoteMemberHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -854,6 +878,7 @@ export function createMiniAppPromoteMemberHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -864,7 +889,10 @@ export function createMiniAppPromoteMemberHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.promoteMemberToAdmin({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).promoteMemberToAdmin({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId
@@ -898,19 +926,10 @@ export function createMiniAppPromoteMemberHandler(options: {
   }
 }
 
-export function createMiniAppUpdateOwnDisplayNameHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateOwnDisplayNameHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -930,7 +949,7 @@ export function createMiniAppUpdateOwnDisplayNameHandler(options: {
           initData: payload.initData
         })
 
-        if (!session || !session.authorized || !session.member) {
+        if (!session || !session.authorized || !session.member || !session.telegramUser) {
           return miniAppJsonResponse(
             { ok: false, error: 'Active household membership required' },
             session ? 403 : 401,
@@ -938,7 +957,10 @@ export function createMiniAppUpdateOwnDisplayNameHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateOwnDisplayName({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateOwnDisplayName({
           householdId: session.member.householdId,
           actorMemberId: session.member.id,
           displayName: payload.displayName
@@ -974,19 +996,12 @@ export function createMiniAppUpdateOwnDisplayNameHandler(options: {
   }
 }
 
-export function createMiniAppUpdateMemberRentWeightHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateMemberRentWeightHandler(
+  options: MiniAppAdminHandlerBaseOptions
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1017,6 +1032,7 @@ export function createMiniAppUpdateMemberRentWeightHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1027,7 +1043,10 @@ export function createMiniAppUpdateMemberRentWeightHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateMemberRentShareWeight({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateMemberRentShareWeight({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
@@ -1070,19 +1089,12 @@ export function createMiniAppUpdateMemberRentWeightHandler(options: {
   }
 }
 
-export function createMiniAppUpdateMemberDisplayNameHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateMemberDisplayNameHandler(
+  options: MiniAppAdminHandlerBaseOptions
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1106,6 +1118,7 @@ export function createMiniAppUpdateMemberDisplayNameHandler(options: {
           !session ||
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1120,7 +1133,10 @@ export function createMiniAppUpdateMemberDisplayNameHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Missing memberId' }, 400, origin)
         }
 
-        const result = await options.miniAppAdminService.updateMemberDisplayName({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateMemberDisplayName({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
@@ -1163,19 +1179,10 @@ export function createMiniAppUpdateMemberDisplayNameHandler(options: {
   }
 }
 
-export function createMiniAppUpdateMemberStatusHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateMemberStatusHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1199,6 +1206,7 @@ export function createMiniAppUpdateMemberStatusHandler(options: {
           !session ||
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1209,7 +1217,10 @@ export function createMiniAppUpdateMemberStatusHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateMemberStatus({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateMemberStatus({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
@@ -1244,19 +1255,12 @@ export function createMiniAppUpdateMemberStatusHandler(options: {
   }
 }
 
-export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppUpdateMemberAbsencePolicyHandler(
+  options: MiniAppAdminHandlerBaseOptions
+): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1280,6 +1284,7 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
           !session ||
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1290,7 +1295,10 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateMemberAbsencePolicy({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).updateMemberAbsencePolicy({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
@@ -1325,19 +1333,10 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
   }
 }
 
-export function createMiniAppApproveMemberHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppApproveMemberHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1368,6 +1367,7 @@ export function createMiniAppApproveMemberHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1378,7 +1378,10 @@ export function createMiniAppApproveMemberHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.approvePendingMember({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).approvePendingMember({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           pendingTelegramUserId: payload.pendingTelegramUserId
@@ -1410,19 +1413,10 @@ export function createMiniAppApproveMemberHandler(options: {
   }
 }
 
-export function createMiniAppRejectMemberHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  onboardingService: HouseholdOnboardingService
-  miniAppAdminService: MiniAppAdminService
-  logger?: Logger
-}): {
+export function createMiniAppRejectMemberHandler(options: MiniAppAdminHandlerBaseOptions): {
   handler: (request: Request) => Promise<Response>
 } {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
+  const sessionService = createConfiguredMiniAppSessionService(options)
 
   return {
     handler: async (request) => {
@@ -1453,6 +1447,7 @@ export function createMiniAppRejectMemberHandler(options: {
         if (
           !session.authorized ||
           !session.member ||
+          !session.telegramUser ||
           session.member.status !== 'active' ||
           !session.member.isAdmin
         ) {
@@ -1463,7 +1458,10 @@ export function createMiniAppRejectMemberHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.rejectPendingMember({
+        const result = await resolveMiniAppAdminService(options, {
+          member: session.member,
+          telegramUserId: session.telegramUser.id
+        }).rejectPendingMember({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           pendingTelegramUserId: payload.pendingTelegramUserId
