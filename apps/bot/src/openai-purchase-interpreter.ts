@@ -14,6 +14,7 @@ export interface PurchaseInterpretation {
   amountMinor: bigint | null
   currency: 'GEL' | 'USD' | null
   itemDescription: string | null
+  payerMemberId?: string | null
   amountSource?: PurchaseInterpretationAmountSource | null
   calculationExplanation?: string | null
   participantMemberIds?: readonly string[] | null
@@ -43,6 +44,7 @@ interface OpenAiStructuredResult {
   amountMinor: string | null
   currency: 'GEL' | 'USD' | null
   itemDescription: string | null
+  payerMemberId: string | null
   amountSource: PurchaseInterpretationAmountSource | null
   calculationExplanation: string | null
   participantMemberIds: string[] | null
@@ -102,6 +104,26 @@ function normalizeParticipantMemberIds(
     .filter((memberId) => (allowedMemberIds ? allowedMemberIds.has(memberId) : true))
 
   return normalized.length > 0 ? normalized : null
+}
+
+function normalizePayerMemberId(
+  value: string | null | undefined,
+  householdMembers: readonly PurchaseInterpreterHouseholdMember[] | undefined
+): string | null {
+  if (!value) {
+    return null
+  }
+
+  const normalized = value.trim()
+  if (normalized.length === 0) {
+    return null
+  }
+
+  if (!householdMembers) {
+    return normalized
+  }
+
+  return householdMembers.some((member) => member.memberId === normalized) ? normalized : null
 }
 
 function resolveMissingCurrency(input: {
@@ -198,6 +220,7 @@ export function createOpenAiPurchaseInterpreter(
               'If the latest message is a complete standalone purchase on its own, ignore the earlier clarification context.',
               'If the latest message answers a previous clarification, combine it with the earlier messages to resolve the purchase.',
               'If a household member roster is provided and the user explicitly says who shares the purchase, return participantMemberIds as the included member IDs.',
+              'If a household member roster is provided and the user explicitly says who paid for the purchase, return payerMemberId.',
               'For phrases like "split with Dima", "for me and Alice", or similar, include the sender and the explicitly mentioned household members in participantMemberIds.',
               'If the message does not clearly specify a participant subset, return participantMemberIds as null.',
               'Away members may still be included when the user explicitly names them.',
@@ -260,6 +283,9 @@ export function createOpenAiPurchaseInterpreter(
                 itemDescription: {
                   anyOf: [{ type: 'string' }, { type: 'null' }]
                 },
+                payerMemberId: {
+                  anyOf: [{ type: 'string' }, { type: 'null' }]
+                },
                 amountSource: {
                   anyOf: [
                     {
@@ -295,6 +321,7 @@ export function createOpenAiPurchaseInterpreter(
                 'amountMinor',
                 'currency',
                 'itemDescription',
+                'payerMemberId',
                 'amountSource',
                 'calculationExplanation',
                 'participantMemberIds',
@@ -339,6 +366,7 @@ export function createOpenAiPurchaseInterpreter(
 
     const amountMinor = asOptionalBigInt(parsedJson.amountMinor)
     const itemDescription = normalizeOptionalText(parsedJson.itemDescription)
+    const payerMemberId = normalizePayerMemberId(parsedJson.payerMemberId, options.householdMembers)
     const amountSource = normalizeAmountSource(parsedJson.amountSource, amountMinor)
     const calculationExplanation = normalizeOptionalText(parsedJson.calculationExplanation)
     const participantMemberIds = normalizeParticipantMemberIds(
@@ -374,6 +402,10 @@ export function createOpenAiPurchaseInterpreter(
       confidence: normalizeConfidence(parsedJson.confidence),
       parserMode: 'llm',
       clarificationQuestion: decision === 'clarification' ? clarificationQuestion : null
+    }
+
+    if (payerMemberId) {
+      result.payerMemberId = payerMemberId
     }
 
     if (participantMemberIds) {

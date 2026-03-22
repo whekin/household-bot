@@ -41,6 +41,7 @@ import { stripExplicitBotMention } from './telegram-mentions'
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
 const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
+const PURCHASE_PAYER_CALLBACK_PREFIX = 'purchase:payer:'
 const PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX = 'purchase:fix_amount:'
 const MIN_PROPOSAL_CONFIDENCE = 70
 const LIKELY_PURCHASE_VERB_PATTERN =
@@ -64,6 +65,8 @@ type StoredPurchaseProcessingStatus =
 interface StoredPurchaseMessageRow {
   id: string
   householdId: string
+  senderMemberId: string | null
+  payerMemberId: string | null
   senderTelegramUserId: string
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
@@ -77,16 +80,24 @@ interface PurchaseProposalFields {
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
   parsedItemDescription: string | null
+  payerMemberId?: string | null
+  payerDisplayName?: string | null
   amountSource?: PurchaseInterpretationAmountSource | null
   calculationExplanation?: string | null
   parserConfidence: number | null
   parserMode: 'llm' | null
 }
 
+interface PurchaseProposalPayerCandidate {
+  memberId: string
+  displayName: string
+}
+
 interface PurchaseClarificationResult extends PurchaseProposalFields {
   status: 'clarification_needed'
   purchaseMessageId: string
   clarificationQuestion: string | null
+  payerCandidates?: readonly PurchaseProposalPayerCandidate[]
 }
 
 interface PurchasePendingConfirmationResult extends PurchaseProposalFields {
@@ -106,6 +117,25 @@ interface PurchaseProposalParticipant {
   displayName: string
   included: boolean
 }
+
+export type PurchaseProposalPayerSelectionResult =
+  | ({
+      status: 'selected'
+      purchaseMessageId: string
+      householdId: string
+      participants: readonly PurchaseProposalParticipant[]
+    } & PurchaseProposalFields)
+  | {
+      status: 'forbidden'
+      householdId: string
+    }
+  | {
+      status: 'not_pending'
+      householdId: string
+    }
+  | {
+      status: 'not_found'
+    }
 
 export interface PurchaseTopicIngestionConfig {
   householdId: string
@@ -239,6 +269,11 @@ export interface PurchaseMessageIngestionRepository {
     participantId: string,
     actorTelegramUserId: string
   ): Promise<PurchaseProposalParticipantToggleResult>
+  selectPayer?(
+    purchaseMessageId: string,
+    memberId: string,
+    actorTelegramUserId: string
+  ): Promise<PurchaseProposalPayerSelectionResult>
   requestAmountCorrection?(
     purchaseMessageId: string,
     actorTelegramUserId: string
@@ -250,6 +285,8 @@ interface PurchasePersistenceDecision {
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
   parsedItemDescription: string | null
+  payerMemberId: string | null
+  payerCandidateMemberIds: readonly string[] | null
   amountSource: PurchaseInterpretationAmountSource | null
   calculationExplanation: string | null
   participantMemberIds: readonly string[] | null
@@ -312,6 +349,8 @@ function normalizeInterpretation(
       parsedAmountMinor: null,
       parsedCurrency: null,
       parsedItemDescription: null,
+      payerMemberId: null,
+      payerCandidateMemberIds: null,
       amountSource: null,
       calculationExplanation: null,
       participantMemberIds: null,
@@ -329,6 +368,8 @@ function normalizeInterpretation(
       parsedAmountMinor: interpretation.amountMinor,
       parsedCurrency: interpretation.currency,
       parsedItemDescription: interpretation.itemDescription,
+      payerMemberId: interpretation.payerMemberId ?? null,
+      payerCandidateMemberIds: null,
       amountSource: interpretation.amountSource ?? null,
       calculationExplanation: interpretation.calculationExplanation ?? null,
       participantMemberIds: interpretation.participantMemberIds ?? null,
@@ -355,6 +396,8 @@ function normalizeInterpretation(
       parsedAmountMinor: interpretation.amountMinor,
       parsedCurrency: interpretation.currency,
       parsedItemDescription: interpretation.itemDescription,
+      payerMemberId: interpretation.payerMemberId ?? null,
+      payerCandidateMemberIds: null,
       amountSource: interpretation.amountSource ?? null,
       calculationExplanation: interpretation.calculationExplanation ?? null,
       participantMemberIds: interpretation.participantMemberIds ?? null,
@@ -371,6 +414,8 @@ function normalizeInterpretation(
     parsedAmountMinor: interpretation.amountMinor,
     parsedCurrency: interpretation.currency,
     parsedItemDescription: interpretation.itemDescription,
+    payerMemberId: interpretation.payerMemberId ?? null,
+    payerCandidateMemberIds: null,
     amountSource: interpretation.amountSource ?? null,
     calculationExplanation: interpretation.calculationExplanation ?? null,
     participantMemberIds: interpretation.participantMemberIds ?? null,
@@ -393,6 +438,7 @@ export function toPurchaseInterpretation(
     amountSource: result.amountSource,
     calculationExplanation: result.calculationExplanation,
     participantMemberIds: result.participantMemberIds,
+    payerMemberId: null,
     confidence: result.confidence,
     parserMode: 'llm',
     clarificationQuestion: null
@@ -407,6 +453,7 @@ export function toPurchaseClarificationInterpretation(
     amountMinor: null,
     currency: null,
     itemDescription: null,
+    payerMemberId: null,
     confidence: 0,
     parserMode: 'llm',
     clarificationQuestion: result.clarificationQuestion
@@ -429,6 +476,7 @@ export function resolveProposalParticipantSelection(input: {
   members: readonly {
     memberId: string
     telegramUserId: string | null
+    displayName?: string
     lifecycleStatus: 'active' | 'away' | 'left'
   }[]
   policyByMemberId: ReadonlyMap<
@@ -440,6 +488,7 @@ export function resolveProposalParticipantSelection(input: {
   >
   senderTelegramUserId: string
   senderMemberId: string | null
+  payerMemberId?: string | null
   explicitParticipantMemberIds: readonly string[] | null
 }): readonly { memberId: string; included: boolean }[] {
   const eligibleMembers = input.members.filter((member) => member.lifecycleStatus !== 'left')
@@ -455,6 +504,7 @@ export function resolveProposalParticipantSelection(input: {
     }
 
     const fallbackParticipant =
+      eligibleMembers.find((member) => member.memberId === input.payerMemberId) ??
       eligibleMembers.find((member) => member.memberId === input.senderMemberId) ??
       eligibleMembers.find((member) => member.telegramUserId === input.senderTelegramUserId) ??
       eligibleMembers[0]
@@ -491,6 +541,7 @@ export function resolveProposalParticipantSelection(input: {
   }
 
   const fallbackParticipant =
+    participants.find((participant) => participant.memberId === input.payerMemberId) ??
     participants.find((participant) => participant.memberId === input.senderMemberId) ??
     participants.find((participant) => participant.telegramUserId === input.senderTelegramUserId) ??
     participants[0]
@@ -501,9 +552,122 @@ export function resolveProposalParticipantSelection(input: {
   }))
 }
 
+function normalizeMemberText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/['’]s\b/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function aliasVariants(token: string): string[] {
+  const aliases = new Set<string>([token])
+
+  if (token.endsWith('а') && token.length > 2) {
+    aliases.add(`${token.slice(0, -1)}ы`)
+    aliases.add(`${token.slice(0, -1)}е`)
+    aliases.add(`${token.slice(0, -1)}у`)
+  }
+
+  if (token.endsWith('я') && token.length > 2) {
+    aliases.add(`${token.slice(0, -1)}и`)
+    aliases.add(`${token.slice(0, -1)}ю`)
+  }
+
+  return [...aliases]
+}
+
+function memberAliases(displayName: string): string[] {
+  const normalized = normalizeMemberText(displayName)
+  const tokens = normalized.split(' ').filter((token) => token.length >= 2)
+  const aliases = new Set<string>([normalized, ...tokens])
+
+  for (const token of tokens) {
+    for (const alias of aliasVariants(token)) {
+      aliases.add(alias)
+    }
+  }
+
+  return [...aliases]
+}
+
+function resolvePurchasePayer(input: {
+  rawText: string
+  members: readonly {
+    memberId: string
+    displayName: string
+    status: 'active' | 'away' | 'left'
+  }[]
+  senderMemberId: string | null
+}):
+  | {
+      status: 'resolved'
+      payerMemberId: string | null
+      payerCandidateMemberIds: null
+    }
+  | {
+      status: 'ambiguous'
+      payerMemberId: null
+      payerCandidateMemberIds: readonly string[]
+    } {
+  const eligibleMembers = input.members.filter((member) => member.status !== 'left')
+  const normalizedText = normalizeMemberText(input.rawText)
+
+  if (normalizedText.length === 0 || eligibleMembers.length === 0) {
+    return {
+      status: 'resolved',
+      payerMemberId: input.senderMemberId,
+      payerCandidateMemberIds: null
+    }
+  }
+
+  const mentionedMembers = eligibleMembers.filter((member) =>
+    memberAliases(member.displayName).some((alias) => {
+      const pattern = new RegExp(
+        `(^|\\s)${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`,
+        'u'
+      )
+      return pattern.test(normalizedText)
+    })
+  )
+
+  if (mentionedMembers.length === 0) {
+    if (input.senderMemberId) {
+      return {
+        status: 'resolved',
+        payerMemberId: input.senderMemberId,
+        payerCandidateMemberIds: null
+      }
+    }
+
+    return {
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: eligibleMembers.map((member) => member.memberId)
+    }
+  }
+
+  if (mentionedMembers.length === 1) {
+    return {
+      status: 'resolved',
+      payerMemberId: mentionedMembers[0]!.memberId,
+      payerCandidateMemberIds: null
+    }
+  }
+
+  return {
+    status: 'ambiguous',
+    payerMemberId: null,
+    payerCandidateMemberIds: mentionedMembers.map((member) => member.memberId)
+  }
+}
+
 function toStoredPurchaseRow(row: {
   id: string
   householdId: string
+  senderMemberId: string | null
+  payerMemberId: string | null
   senderTelegramUserId: string
   parsedAmountMinor: bigint | null
   parsedCurrency: string | null
@@ -515,6 +679,8 @@ function toStoredPurchaseRow(row: {
   return {
     id: row.id,
     householdId: row.householdId,
+    senderMemberId: row.senderMemberId,
+    payerMemberId: row.payerMemberId,
     senderTelegramUserId: row.senderTelegramUserId,
     parsedAmountMinor: row.parsedAmountMinor,
     parsedCurrency:
@@ -541,6 +707,8 @@ function toProposalFields(row: StoredPurchaseMessageRow): PurchaseProposalFields
     parsedAmountMinor: row.parsedAmountMinor,
     parsedCurrency: row.parsedCurrency,
     parsedItemDescription: row.parsedItemDescription,
+    payerMemberId: row.payerMemberId,
+    payerDisplayName: null,
     amountSource: null,
     calculationExplanation: null,
     parserConfidence: row.parserConfidence,
@@ -652,6 +820,28 @@ function shouldShowProcessingReply(
   return true
 }
 
+function readPurchaseMessageText(ctx: Pick<Context, 'message' | 'msg' | 'me'>): string | null {
+  const strippedMention = stripExplicitBotMention(ctx)
+  if (strippedMention) {
+    return strippedMention.strippedText
+  }
+
+  const message = ctx.message
+  if (!message) {
+    return null
+  }
+
+  if ('text' in message && typeof message.text === 'string') {
+    return message.text
+  }
+
+  if ('caption' in message && typeof message.caption === 'string') {
+    return message.caption
+  }
+
+  return null
+}
+
 async function finalizePurchaseReply(
   ctx: Context,
   pendingReply: PendingPurchaseReply | null,
@@ -712,7 +902,8 @@ async function finalizePurchaseReply(
 
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
   const message = ctx.message
-  if (!message || !('text' in message)) {
+  const rawText = readPurchaseMessageText(ctx)
+  if (!message || !rawText) {
     return null
   }
 
@@ -735,7 +926,7 @@ function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
     messageId: message.message_id.toString(),
     threadId: message.message_thread_id.toString(),
     senderTelegramUserId,
-    rawText: stripExplicitBotMention(ctx)?.strippedText ?? message.text,
+    rawText,
     messageSentAt: instantFromEpochSeconds(message.date)
   }
 
@@ -855,6 +1046,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       .select({
         id: schema.purchaseMessages.id,
         householdId: schema.purchaseMessages.householdId,
+        senderMemberId: schema.purchaseMessages.senderMemberId,
+        payerMemberId: schema.purchaseMessages.payerMemberId,
         senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
         parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
         parsedCurrency: schema.purchaseMessages.parsedCurrency,
@@ -897,10 +1090,63 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     }))
   }
 
+  async function loadHouseholdMembers(householdId: string) {
+    return (
+      await db
+        .select({
+          memberId: schema.members.id,
+          displayName: schema.members.displayName,
+          telegramUserId: schema.members.telegramUserId,
+          status: schema.members.lifecycleStatus
+        })
+        .from(schema.members)
+        .where(eq(schema.members.householdId, householdId))
+    ).map((member) => ({
+      memberId: member.memberId,
+      displayName: member.displayName,
+      telegramUserId: member.telegramUserId,
+      status: normalizeLifecycleStatus(member.status)
+    }))
+  }
+
+  function findMemberDisplayName(
+    members: readonly { memberId: string; displayName: string }[],
+    memberId: string | null
+  ): string | null {
+    if (!memberId) {
+      return null
+    }
+
+    return members.find((member) => member.memberId === memberId)?.displayName ?? null
+  }
+
+  function payerCandidatesFromIds(
+    members: readonly {
+      memberId: string
+      displayName: string
+      status: 'active' | 'away' | 'left'
+    }[],
+    candidateIds: readonly string[] | null
+  ): readonly PurchaseProposalPayerCandidate[] {
+    if (!candidateIds || candidateIds.length === 0) {
+      return []
+    }
+
+    const wanted = new Set(candidateIds)
+    return members
+      .filter((member) => member.status !== 'left')
+      .filter((member) => wanted.has(member.memberId))
+      .map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName
+      }))
+  }
+
   async function defaultProposalParticipants(input: {
     householdId: string
     senderTelegramUserId: string
     senderMemberId: string | null
+    payerMemberId: string | null
     messageSentAt: Instant
     explicitParticipantMemberIds: readonly string[] | null
   }): Promise<readonly { memberId: string; included: boolean }[]> {
@@ -963,8 +1209,60 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       policyByMemberId,
       senderTelegramUserId: input.senderTelegramUserId,
       senderMemberId: input.senderMemberId,
+      payerMemberId: input.payerMemberId,
       explicitParticipantMemberIds: input.explicitParticipantMemberIds
     })
+  }
+
+  function finalizePayerDecision(input: {
+    decision: PurchasePersistenceDecision
+    rawText: string
+    householdMembers: readonly {
+      memberId: string
+      displayName: string
+      status: 'active' | 'away' | 'left'
+    }[]
+    senderMemberId: string | null
+  }): PurchasePersistenceDecision {
+    if (
+      input.decision.status === 'ignored_not_purchase' ||
+      input.decision.status === 'parse_failed' ||
+      input.decision.payerMemberId
+    ) {
+      return input.decision
+    }
+
+    const payerResolution = resolvePurchasePayer({
+      rawText: input.rawText,
+      members: input.householdMembers,
+      senderMemberId: input.senderMemberId
+    })
+
+    if (payerResolution.status === 'resolved' && payerResolution.payerMemberId) {
+      return {
+        ...input.decision,
+        payerMemberId: payerResolution.payerMemberId,
+        payerCandidateMemberIds: null
+      }
+    }
+
+    const canAskWithButtons =
+      input.decision.parsedAmountMinor !== null &&
+      input.decision.parsedCurrency !== null &&
+      input.decision.parsedItemDescription !== null
+
+    return {
+      ...input.decision,
+      status: canAskWithButtons ? 'clarification_needed' : input.decision.status,
+      payerMemberId: null,
+      payerCandidateMemberIds:
+        payerResolution.status === 'ambiguous' ? payerResolution.payerCandidateMemberIds : null,
+      clarificationQuestion:
+        canAskWithButtons && input.decision.clarificationQuestion === null
+          ? null
+          : input.decision.clarificationQuestion,
+      needsReview: true
+    }
   }
 
   async function mutateProposalStatus(
@@ -1023,6 +1321,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       .returning({
         id: schema.purchaseMessages.id,
         householdId: schema.purchaseMessages.householdId,
+        senderMemberId: schema.purchaseMessages.senderMemberId,
+        payerMemberId: schema.purchaseMessages.payerMemberId,
         senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
         parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
         parsedCurrency: schema.purchaseMessages.parsedCurrency,
@@ -1104,22 +1404,9 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         .limit(1)
 
       const senderMemberId = matchedMember[0]?.id ?? null
-      const householdMembers = (
-        await db
-          .select({
-            memberId: schema.members.id,
-            displayName: schema.members.displayName,
-            status: schema.members.lifecycleStatus
-          })
-          .from(schema.members)
-          .where(eq(schema.members.householdId, record.householdId))
+      const householdMembers = (await loadHouseholdMembers(record.householdId)).filter(
+        (member) => member.status !== 'left'
       )
-        .map((member) => ({
-          memberId: member.memberId,
-          displayName: member.displayName,
-          status: normalizeLifecycleStatus(member.status)
-        }))
-        .filter((member) => member.status !== 'left')
       let parserError: string | null = null
       const clarificationContext = interpreter ? await getClarificationContext(record) : undefined
 
@@ -1143,16 +1430,22 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
           })
         : null
 
-      const decision = normalizeInterpretation(
-        interpretation,
-        parserError ?? (interpreter ? null : 'Purchase interpreter is unavailable')
-      )
+      const decision = finalizePayerDecision({
+        decision: normalizeInterpretation(
+          interpretation,
+          parserError ?? (interpreter ? null : 'Purchase interpreter is unavailable')
+        ),
+        rawText: record.rawText,
+        householdMembers,
+        senderMemberId
+      })
 
       const inserted = await db
         .insert(schema.purchaseMessages)
         .values({
           householdId: record.householdId,
           senderMemberId,
+          payerMemberId: decision.payerMemberId,
           senderTelegramUserId: record.senderTelegramUserId,
           senderDisplayName: record.senderDisplayName,
           rawText: record.rawText,
@@ -1200,16 +1493,27 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor,
             parsedCurrency: decision.parsedCurrency,
             parsedItemDescription: decision.parsedItemDescription,
+            payerMemberId: decision.payerMemberId,
+            payerDisplayName: findMemberDisplayName(householdMembers, decision.payerMemberId),
             amountSource: decision.amountSource,
             calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence,
-            parserMode: decision.parserMode
+            parserMode: decision.parserMode,
+            ...(decision.payerCandidateMemberIds
+              ? {
+                  payerCandidates: payerCandidatesFromIds(
+                    householdMembers,
+                    decision.payerCandidateMemberIds
+                  )
+                }
+              : {})
           }
         case 'pending_confirmation': {
           const participants = await defaultProposalParticipants({
             householdId: record.householdId,
             senderTelegramUserId: record.senderTelegramUserId,
             senderMemberId,
+            payerMemberId: decision.payerMemberId,
             messageSentAt: record.messageSentAt,
             explicitParticipantMemberIds: decision.participantMemberIds
           })
@@ -1230,6 +1534,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor!,
             parsedCurrency: decision.parsedCurrency!,
             parsedItemDescription: decision.parsedItemDescription!,
+            payerMemberId: decision.payerMemberId,
+            payerDisplayName: findMemberDisplayName(householdMembers, decision.payerMemberId),
             amountSource: decision.amountSource,
             calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence ?? MIN_PROPOSAL_CONFIDENCE,
@@ -1258,14 +1564,22 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         .limit(1)
 
       const senderMemberId = matchedMember[0]?.id ?? null
-
-      const decision = normalizeInterpretation(interpretation, null)
+      const householdMembers = (await loadHouseholdMembers(record.householdId)).filter(
+        (member) => member.status !== 'left'
+      )
+      const decision = finalizePayerDecision({
+        decision: normalizeInterpretation(interpretation, null),
+        rawText: record.rawText,
+        householdMembers,
+        senderMemberId
+      })
 
       const inserted = await db
         .insert(schema.purchaseMessages)
         .values({
           householdId: record.householdId,
           senderMemberId,
+          payerMemberId: decision.payerMemberId,
           senderTelegramUserId: record.senderTelegramUserId,
           senderDisplayName: record.senderDisplayName,
           rawText: record.rawText,
@@ -1313,16 +1627,27 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor,
             parsedCurrency: decision.parsedCurrency,
             parsedItemDescription: decision.parsedItemDescription,
+            payerMemberId: decision.payerMemberId,
+            payerDisplayName: findMemberDisplayName(householdMembers, decision.payerMemberId),
             amountSource: decision.amountSource,
             calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence,
-            parserMode: decision.parserMode
+            parserMode: decision.parserMode,
+            ...(decision.payerCandidateMemberIds
+              ? {
+                  payerCandidates: payerCandidatesFromIds(
+                    householdMembers,
+                    decision.payerCandidateMemberIds
+                  )
+                }
+              : {})
           }
         case 'pending_confirmation': {
           const participants = await defaultProposalParticipants({
             householdId: record.householdId,
             senderTelegramUserId: record.senderTelegramUserId,
             senderMemberId,
+            payerMemberId: decision.payerMemberId,
             messageSentAt: record.messageSentAt,
             explicitParticipantMemberIds: decision.participantMemberIds
           })
@@ -1343,6 +1668,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             parsedAmountMinor: decision.parsedAmountMinor!,
             parsedCurrency: decision.parsedCurrency!,
             parsedItemDescription: decision.parsedItemDescription!,
+            payerMemberId: decision.payerMemberId,
+            payerDisplayName: findMemberDisplayName(householdMembers, decision.payerMemberId),
             amountSource: decision.amountSource,
             calculationExplanation: decision.calculationExplanation,
             parserConfidence: decision.parserConfidence ?? MIN_PROPOSAL_CONFIDENCE,
@@ -1374,6 +1701,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
           memberId: schema.purchaseMessageParticipants.memberId,
           included: schema.purchaseMessageParticipants.included,
           householdId: schema.purchaseMessages.householdId,
+          payerMemberId: schema.purchaseMessages.payerMemberId,
           senderTelegramUserId: schema.purchaseMessages.senderTelegramUserId,
           parsedAmountMinor: schema.purchaseMessages.parsedAmountMinor,
           parsedCurrency: schema.purchaseMessages.parsedCurrency,
@@ -1446,6 +1774,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         })
         .where(eq(schema.purchaseMessageParticipants.id, participantId))
 
+      const householdMembers = await loadHouseholdMembers(existing.householdId)
+
       return {
         status: 'updated',
         purchaseMessageId: existing.purchaseMessageId,
@@ -1456,11 +1786,111 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             ? existing.parsedCurrency
             : null,
         parsedItemDescription: existing.parsedItemDescription,
+        payerMemberId: existing.payerMemberId,
+        payerDisplayName: findMemberDisplayName(householdMembers, existing.payerMemberId),
         parserConfidence: existing.parserConfidence,
         parserMode: existing.parserMode === 'llm' ? 'llm' : null,
         participants: toProposalParticipants(
           await getStoredParticipants(existing.purchaseMessageId)
         )
+      }
+    },
+
+    async selectPayer(purchaseMessageId, memberId, actorTelegramUserId) {
+      const existing = await getStoredMessage(purchaseMessageId)
+      if (!existing) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (existing.senderTelegramUserId !== actorTelegramUserId) {
+        return {
+          status: 'forbidden',
+          householdId: existing.householdId
+        }
+      }
+
+      if (existing.processingStatus !== 'clarification_needed') {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
+      }
+
+      if (
+        existing.parsedAmountMinor === null ||
+        existing.parsedCurrency === null ||
+        existing.parsedItemDescription === null
+      ) {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
+      }
+
+      const householdMembers = await loadHouseholdMembers(existing.householdId)
+      const payer = householdMembers.find(
+        (candidate) => candidate.memberId === memberId && candidate.status !== 'left'
+      )
+
+      if (!payer) {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
+      }
+
+      await db
+        .update(schema.purchaseMessages)
+        .set({
+          payerMemberId: payer.memberId,
+          processingStatus: 'pending_confirmation',
+          needsReview: 1
+        })
+        .where(
+          and(
+            eq(schema.purchaseMessages.id, purchaseMessageId),
+            eq(schema.purchaseMessages.senderTelegramUserId, actorTelegramUserId),
+            eq(schema.purchaseMessages.processingStatus, 'clarification_needed')
+          )
+        )
+
+      await db
+        .delete(schema.purchaseMessageParticipants)
+        .where(eq(schema.purchaseMessageParticipants.purchaseMessageId, purchaseMessageId))
+
+      const participants = await defaultProposalParticipants({
+        householdId: existing.householdId,
+        senderTelegramUserId: existing.senderTelegramUserId,
+        senderMemberId: existing.senderMemberId,
+        payerMemberId: payer.memberId,
+        messageSentAt: nowInstant(),
+        explicitParticipantMemberIds: null
+      })
+
+      if (participants.length > 0) {
+        await db.insert(schema.purchaseMessageParticipants).values(
+          participants.map((participant) => ({
+            purchaseMessageId,
+            memberId: participant.memberId,
+            included: participantIncludedAsInt(participant.included)
+          }))
+        )
+      }
+
+      return {
+        status: 'selected',
+        purchaseMessageId,
+        householdId: existing.householdId,
+        parsedAmountMinor: existing.parsedAmountMinor,
+        parsedCurrency: existing.parsedCurrency,
+        parsedItemDescription: existing.parsedItemDescription,
+        payerMemberId: payer.memberId,
+        payerDisplayName: payer.displayName,
+        parserConfidence: existing.parserConfidence,
+        parserMode: existing.parserMode,
+        participants: toProposalParticipants(await getStoredParticipants(purchaseMessageId))
       }
     },
 
@@ -1626,6 +2056,19 @@ function formatPurchaseCalculationNote(
   return t.calculatedAmountNote(result.calculationExplanation ?? null)
 }
 
+function formatPurchasePayer(
+  locale: BotLocale,
+  result: {
+    payerDisplayName?: string | null
+  }
+): string | null {
+  if (!result.payerDisplayName) {
+    return null
+  }
+
+  return getBotTranslations(locale).purchase.payerSelected(result.payerDisplayName)
+}
+
 export function buildPurchaseAcknowledgement(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale = 'en'
@@ -1639,11 +2082,17 @@ export function buildPurchaseAcknowledgement(
     case 'pending_confirmation':
       return t.proposal(
         formatPurchaseSummary(locale, result),
+        formatPurchasePayer(locale, result),
         formatPurchaseCalculationNote(locale, result),
         formatPurchaseParticipants(locale, result.participants)
       )
     case 'clarification_needed':
-      return t.clarification(result.clarificationQuestion ?? clarificationFallback(locale, result))
+      return t.clarification(
+        result.clarificationQuestion ??
+          (result.payerCandidates && result.payerCandidates.length > 0
+            ? t.payerFallbackQuestion
+            : clarificationFallback(locale, result))
+      )
     case 'parse_failed':
       return t.parseFailed
   }
@@ -1930,7 +2379,11 @@ async function handlePurchaseMessageResult(
           result.purchaseMessageId,
           result.participants
         )
-      : undefined,
+      : result.status === 'clarification_needed' &&
+          result.payerCandidates &&
+          result.payerCandidates.length > 0
+        ? purchaseClarificationReplyMarkup(locale, result.purchaseMessageId, result.payerCandidates)
+        : undefined,
     historyRepository
       ? {
           repository: historyRepository,
@@ -1971,9 +2424,47 @@ function buildPurchaseToggleMessage(
 ): string {
   return getBotTranslations(locale).purchase.proposal(
     formatPurchaseSummary(locale, result),
+    formatPurchasePayer(locale, result),
     null,
     formatPurchaseParticipants(locale, result.participants)
   )
+}
+
+function buildPurchasePayerSelectionMessage(
+  locale: BotLocale,
+  result: Extract<PurchaseProposalPayerSelectionResult, { status: 'selected' }>
+): string {
+  return getBotTranslations(locale).purchase.proposal(
+    formatPurchaseSummary(locale, result),
+    formatPurchasePayer(locale, result),
+    null,
+    formatPurchaseParticipants(locale, result.participants)
+  )
+}
+
+function purchaseClarificationReplyMarkup(
+  locale: BotLocale,
+  purchaseMessageId: string,
+  payerCandidates: readonly PurchaseProposalPayerCandidate[]
+) {
+  const t = getBotTranslations(locale).purchase
+
+  return {
+    inline_keyboard: [
+      ...payerCandidates.map((candidate) => [
+        {
+          text: t.payerButton(candidate.displayName),
+          callback_data: `${PURCHASE_PAYER_CALLBACK_PREFIX}${purchaseMessageId}:${candidate.memberId}`
+        }
+      ]),
+      [
+        {
+          text: t.cancelButton,
+          callback_data: `${PURCHASE_CANCEL_CALLBACK_PREFIX}${purchaseMessageId}`
+        }
+      ]
+    ]
+  }
 }
 
 function registerPurchaseProposalCallbacks(
@@ -1982,6 +2473,70 @@ function registerPurchaseProposalCallbacks(
   resolveLocale: (householdId: string) => Promise<BotLocale>,
   logger?: Logger
 ): void {
+  bot.callbackQuery(
+    new RegExp(`^${PURCHASE_PAYER_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
+    async (ctx) => {
+      const purchaseMessageId = ctx.match[1]
+      const memberId = ctx.match[2]
+      const actorTelegramUserId = ctx.from?.id?.toString()
+
+      if (!repository.selectPayer || !actorTelegramUserId || !purchaseMessageId || !memberId) {
+        await ctx.answerCallbackQuery({
+          text: getBotTranslations('en').purchase.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const result = await repository.selectPayer(purchaseMessageId, memberId, actorTelegramUserId)
+      const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
+      const t = getBotTranslations(locale).purchase
+
+      if (result.status === 'not_found' || result.status === 'not_pending') {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      if (result.status === 'forbidden') {
+        await ctx.answerCallbackQuery({
+          text: t.notYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      await ctx.answerCallbackQuery({
+        text: t.payerSelectedToast(result.payerDisplayName ?? memberId)
+      })
+
+      if (ctx.msg) {
+        await ctx.editMessageText(buildPurchasePayerSelectionMessage(locale, result), {
+          reply_markup: purchaseProposalReplyMarkup(
+            locale,
+            {
+              amountSource: result.amountSource ?? null
+            },
+            result.purchaseMessageId,
+            result.participants
+          )
+        })
+      }
+
+      logger?.info(
+        {
+          event: 'purchase.payer_selected',
+          purchaseMessageId,
+          memberId,
+          actorTelegramUserId
+        },
+        'Purchase proposal payer selected'
+      )
+    }
+  )
+
   bot.callbackQuery(new RegExp(`^${PURCHASE_PARTICIPANT_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
     const participantId = ctx.match[1]
     const actorTelegramUserId = ctx.from?.id?.toString()
@@ -2233,7 +2788,7 @@ export function registerPurchaseTopicIngestion(
 ): void {
   void registerPurchaseProposalCallbacks(bot, repository, async () => 'en', options.logger)
 
-  bot.on('message:text', async (ctx, next) => {
+  bot.on('message', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
       await next()
@@ -2361,7 +2916,7 @@ export function registerConfiguredPurchaseTopicIngestion(
     options.logger
   )
 
-  bot.on('message:text', async (ctx, next) => {
+  bot.on('message', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
       await next()
@@ -2441,13 +2996,27 @@ export function registerConfiguredPurchaseTopicIngestion(
         }
       })
 
-      // Get household members for the processor
-      const householdMembers = await (async () => {
-        if (!options.topicProcessor) return []
-        // This will be loaded from DB in the actual implementation
-        // For now, we return empty array - the processor will work without it
-        return []
-      })()
+      const householdMembers =
+        options.topicProcessor &&
+        'listHouseholdMembers' in householdConfigurationRepository &&
+        typeof householdConfigurationRepository.listHouseholdMembers === 'function'
+          ? (await householdConfigurationRepository.listHouseholdMembers(record.householdId)).map(
+              (member) => ({
+                memberId: member.id,
+                displayName: member.displayName,
+                status: member.status
+              })
+            )
+          : []
+      const senderMemberId =
+        ('getHouseholdMember' in householdConfigurationRepository &&
+        typeof householdConfigurationRepository.getHouseholdMember === 'function'
+          ? await householdConfigurationRepository.getHouseholdMember(
+              record.householdId,
+              record.senderTelegramUserId
+            )
+          : null
+        )?.id ?? null
 
       // Use topic processor if available, fall back to legacy router
       if (options.topicProcessor) {
@@ -2462,7 +3031,7 @@ export function registerConfiguredPurchaseTopicIngestion(
           householdContext: householdContext.householdContext,
           assistantTone: householdContext.assistantTone,
           householdMembers,
-          senderMemberId: null, // Will be resolved in saveWithInterpretation
+          senderMemberId,
           recentThreadMessages: conversationContext.recentThreadMessages.map((m) => ({
             role: m.role,
             speaker: m.speaker,
@@ -2506,6 +3075,15 @@ export function registerConfiguredPurchaseTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            cacheTopicMessageRoute(ctx, 'purchase', {
+              route: 'silent',
+              replyText: null,
+              helperKind: null,
+              shouldStartTyping: false,
+              shouldClearWorkflow: false,
+              confidence: 80,
+              reason: processorResult.reason
+            })
             await next()
             return
           }
@@ -2520,6 +3098,15 @@ export function registerConfiguredPurchaseTopicIngestion(
           }
 
           case 'topic_helper': {
+            cacheTopicMessageRoute(ctx, 'purchase', {
+              route: 'silent',
+              replyText: null,
+              helperKind: null,
+              shouldStartTyping: false,
+              shouldClearWorkflow: false,
+              confidence: 80,
+              reason: processorResult.reason
+            })
             await next()
             return
           }

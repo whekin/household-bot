@@ -280,8 +280,13 @@ export const ruBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     processing: 'Проверяю покупку...',
-    proposal: (summary: string, calculationNote: string | null, participants: string | null) =>
-      `Похоже, это общая покупка: ${summary}.${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nПодтвердите или отмените ниже.`,
+    proposal: (
+      summary: string,
+      payer: string | null,
+      calculationNote: string | null,
+      participants: string | null
+    ) =>
+      `Похоже, это общая покупка: ${summary}.${payer ? `\n${payer}` : ''}${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nПодтвердите или отмените ниже.`,
     calculatedAmountNote: (explanation: string | null) =>
       explanation
         ? `Я посчитал итог как ${explanation}. Всё верно?`
@@ -299,6 +304,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     participantExcluded: (displayName) => `- ${displayName} (не участвует)`,
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
+    payerHeading: 'Кто оплатил:',
+    payerSelected: (displayName) => `Оплатил: ${displayName}`,
+    payerQuestion: 'Кто именно это купил?',
+    payerFallbackQuestion: 'Не понял, кто именно это купил. Выберите человека ниже.',
+    payerButton: (displayName) => `Оплатил ${displayName}`,
+    payerSelectedToast: (displayName) => `Записал покупателя: ${displayName}.`,
     confirmButton: 'Подтвердить',
     calculatedConfirmButton: 'Верно',
     calculatedFixAmountButton: 'Исправить сумму',

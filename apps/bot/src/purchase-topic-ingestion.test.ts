@@ -60,6 +60,7 @@ function purchaseUpdate(
   options: {
     replyToBot?: boolean
     threadId?: number
+    asCaption?: boolean
   } = {}
 ) {
   const commandToken = text.split(' ')[0] ?? text
@@ -99,16 +100,30 @@ function purchaseUpdate(
             }
           }
         : {}),
-      text,
-      entities: text.startsWith('/')
-        ? [
-            {
-              offset: 0,
-              length: commandToken.length,
-              type: 'bot_command'
-            }
-          ]
-        : []
+      ...(options.asCaption
+        ? {
+            caption: text,
+            photo: [
+              {
+                file_id: 'photo-1',
+                file_unique_id: 'photo-1',
+                width: 100,
+                height: 100
+              }
+            ]
+          }
+        : {
+            text,
+            entities: text.startsWith('/')
+              ? [
+                  {
+                    offset: 0,
+                    length: commandToken.length,
+                    type: 'bot_command'
+                  }
+                ]
+              : []
+          })
     }
   }
 }
@@ -626,6 +641,160 @@ Confirm or cancel below.`,
     expect(calls[0]?.payload).toMatchObject({
       text: 'Which currency was this purchase in?'
     })
+  })
+
+  test('reads purchase captions from photo messages', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        expect(record.rawText).toBe('Bought toilet paper 30 gel')
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-caption',
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'toilet paper',
+          payerMemberId: 'member-1',
+          payerDisplayName: 'Mia',
+          parserConfidence: 90,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(
+      purchaseUpdate('Bought toilet paper 30 gel', { asCaption: true }) as never
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      text: expect.stringContaining('toilet paper - 30.00 GEL')
+    })
+  })
+
+  test('shows payer selection buttons when the purchase payer is ambiguous', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-1',
+          clarificationQuestion: null,
+          parsedAmountMinor: 1000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'chicken',
+          payerMemberId: null,
+          payerDisplayName: null,
+          parserConfidence: 78,
+          parserMode: 'llm',
+          payerCandidates: [
+            { memberId: 'member-1', displayName: 'Mia' },
+            { memberId: 'member-2', displayName: 'Dima' }
+          ]
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(purchaseUpdate('Dima bought chicken for 10 gel') as never)
+
+    expect(calls).toHaveLength(1)
+    const payload = calls[0]?.payload as {
+      text: string
+      reply_markup?: {
+        inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
+      }
+    }
+
+    expect(payload.text).toBe('I could not tell who bought this. Pick the payer below.')
+    expect(payload.reply_markup?.inline_keyboard?.[0]).toEqual([
+      {
+        text: 'Mia paid',
+        callback_data: 'purchase:payer:proposal-1:member-1'
+      }
+    ])
+    expect(payload.reply_markup?.inline_keyboard?.[1]).toEqual([
+      {
+        text: 'Dima paid',
+        callback_data: 'purchase:payer:proposal-1:member-2'
+      }
+    ])
+    expect(payload.reply_markup?.inline_keyboard?.[2]).toEqual([
+      {
+        text: 'Cancel',
+        callback_data: 'purchase:cancel:proposal-1'
+      }
+    ])
   })
 
   test('keeps bare-amount purchase reports on the ingestion path', async () => {

@@ -295,11 +295,10 @@ export function createTopicProcessor(
   - The message reports a completed purchase or payment (your primary purpose in these topics)
   - The user addresses the bot (by @mention, reply to bot, or text reference in ANY language — бот, bot, kojori, кожори, or any recognizable variant)
   - There is an active clarification/confirmation workflow for this user
-  - The user is clearly engaged with the bot (recent bot interaction, strong context reference)
 - Regular chat between users (plans, greetings, discussion) → silent
 
 === PURCHASE TOPIC (topicRole=purchase) ===
-Purchase detection is CONTENT-BASED — engagement signals are irrelevant for this decision.
+Purchase detection is CONTENT-BASED. This topic is a workflow topic, not a casual assistant thread.
 If the message reports a completed purchase (past-tense buy verb + realistic item + amount), classify as "purchase" REGARDLESS of mention/engagement.
 - Completed buy verbs: купил, bought, ordered, picked up, spent, взял, заказал, потратил, сходил взял, etc.
 - Realistic household items: food, groceries, household goods, toiletries, medicine, transport, cafe, restaurant
@@ -307,6 +306,8 @@ If the message reports a completed purchase (past-tense buy verb + realistic ite
 - Gifts for household members ARE shared purchases
 - Plans, wishes, future intent → silent (NOT purchases)
 - Fantastical items (car, plane, island) or excessive amounts (>500) → chat_reply with playful response
+- If the user explicitly addresses the bot with non-purchase banter, use chat_reply with one short sentence.
+- Do not use topic_helper for casual banter in the purchase topic.
 
 When classifying as "purchase":
 - amountMinor in minor currency units (350 GEL → 35000, 3.50 → 350)
@@ -315,15 +316,19 @@ When classifying as "purchase":
 - Use clarification when amount, item, or intent is unclear but purchase seems likely
 
 === PAYMENT TOPIC (topicRole=payments) ===
+This topic is also a workflow topic, not a casual assistant thread.
 If the message reports a completed rent or utility payment (payment verb + rent/utilities + amount), classify as "payment".
 - Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил
 - Realistic amount for rent/utilities
+- If the message is a payment-related balance/status question, use topic_helper.
+- If the user explicitly addresses the bot with non-payment banter, use chat_reply with one short sentence.
+- Otherwise ordinary discussion in this topic stays silent.
 
 === CHAT REPLIES ===
 CRITICAL: chat_reply replyText must NEVER claim a purchase or payment was saved, recorded, confirmed, or logged. The chat_reply route does NOT save anything. Only "purchase" and "payment" routes process real data.
 
 === BOT ADDRESSING ===
-When the user addresses the bot (by any means), you MUST respond — never silent.
+When the user addresses the bot (by any means), you should respond briefly, but finance topics still stay workflow-focused.
 For bare summons ("бот?", "bot", "@kojori_bot"), use topic_helper to let the assistant greet.
 For small talk or jokes directed at the bot, use chat_reply with a short playful response.
 For questions that need household knowledge, use topic_helper.

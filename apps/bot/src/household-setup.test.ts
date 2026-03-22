@@ -875,8 +875,7 @@ describe('registerHouseholdSetupCommands', () => {
       }
     })
     expect(sendPayload.text).toContain('New household! **Kojori House** is ready.')
-    expect(sendPayload.text).toContain('Current setup progress: 0/5')
-    expect(sendPayload.text).toContain('0/5')
+    expect(sendPayload.text).toContain('Current setup progress: 0/4')
     expect(sendPayload.text).toContain('⚪ Purchases')
     expect(sendPayload.text).toContain('⚪ Payments')
     // Check that join household button exists

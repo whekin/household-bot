@@ -148,6 +148,13 @@
       "when": 1773590603863,
       "tag": "0020_natural_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1774200000000,
+      "tag": "0021_sharp_payer",
+      "breakpoints": true
     }
   ]
 }

@@ -355,6 +355,7 @@ export function createDbFinanceRepository(
         id: purchaseId,
         householdId,
         senderMemberId: input.payerMemberId,
+        payerMemberId: input.payerMemberId,
         senderTelegramUserId: 'miniapp',
         senderDisplayName: member?.displayName ?? 'Mini App',
         telegramChatId: 'miniapp',
@@ -388,7 +389,7 @@ export function createDbFinanceRepository(
       const rows = await db
         .select({
           id: schema.purchaseMessages.id,
-          payerMemberId: schema.purchaseMessages.senderMemberId,
+          payerMemberId: schema.purchaseMessages.payerMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
           description: schema.purchaseMessages.parsedItemDescription,
@@ -443,7 +444,8 @@ export function createDbFinanceRepository(
               : {}),
             ...(input.payerMemberId
               ? {
-                  senderMemberId: input.payerMemberId
+                  senderMemberId: input.payerMemberId,
+                  payerMemberId: input.payerMemberId
                 }
               : {}),
             needsReview: 0,
@@ -458,7 +460,7 @@ export function createDbFinanceRepository(
           )
           .returning({
             id: schema.purchaseMessages.id,
-            payerMemberId: schema.purchaseMessages.senderMemberId,
+            payerMemberId: schema.purchaseMessages.payerMemberId,
             amountMinor: schema.purchaseMessages.parsedAmountMinor,
             currency: schema.purchaseMessages.parsedCurrency,
             description: schema.purchaseMessages.parsedItemDescription,
@@ -763,7 +765,7 @@ export function createDbFinanceRepository(
       const rows = await db
         .select({
           id: schema.purchaseMessages.id,
-          payerMemberId: schema.purchaseMessages.senderMemberId,
+          payerMemberId: schema.purchaseMessages.payerMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
           description: schema.purchaseMessages.parsedItemDescription,
@@ -774,7 +776,7 @@ export function createDbFinanceRepository(
         .where(
           and(
             eq(schema.purchaseMessages.householdId, householdId),
-            isNotNull(schema.purchaseMessages.senderMemberId),
+            isNotNull(schema.purchaseMessages.payerMemberId),
             isNotNull(schema.purchaseMessages.parsedAmountMinor),
             isNotNull(schema.purchaseMessages.parsedCurrency),
             or(

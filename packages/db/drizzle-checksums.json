@@ -22,6 +22,7 @@
     "0018_nimble_kojori.sql": "818738e729119c6de8049dcfca562926a5dc6e321ecbbf9cf38e02bc70b5a0dc",
     "0019_faithful_madame_masque.sql": "38711341799b04a7c47fcc64fd19faf5b26e6f183d6a4c01d492b9929cd63641",
     "0020_natural_mauler.sql": "a80a4a0196a3b4931040850089346d1bc99b34a5afca77d6d62478ee4b8902c1",
-    "0020_silver_payments.sql": "9686235c75453f1eaa016f2f4ab7fce8fe964c76a4e3515987a2b9f90bd7b1ad"
+    "0020_silver_payments.sql": "9686235c75453f1eaa016f2f4ab7fce8fe964c76a4e3515987a2b9f90bd7b1ad",
+    "0021_sharp_payer.sql": "973596e154382984ba7769979ea58298b6d93c5139540854be01e8b283ddb4f1"
   }
 }

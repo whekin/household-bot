@@ -15,6 +15,23 @@ import type {
 
 import { createFinanceCommandService } from './finance-command-service'
 
+function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date())
+  const year = Number(parts.find((part) => part.type === 'year')?.value ?? '0')
+  const month = Number(parts.find((part) => part.type === 'month')?.value ?? '1')
+  const day = Number(parts.find((part) => part.type === 'day')?.value ?? '1')
+  const carryMonth = day > rentDueDay ? month + 1 : month
+  const normalizedYear = carryMonth > 12 ? year + 1 : year
+  const normalizedMonth = carryMonth > 12 ? 1 : carryMonth
+
+  return `${normalizedYear}-${String(normalizedMonth).padStart(2, '0')}`
+}
+
 class FinanceRepositoryStub implements FinanceRepository {
   householdId = 'household-1'
   member: FinanceMemberRecord | null = null
@@ -428,9 +445,10 @@ describe('createFinanceCommandService', () => {
     const service = createService(repository)
 
     const result = await service.addUtilityBill('Electricity', '55.20', 'member-1')
+    const expectedPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
 
     expect(result).not.toBeNull()
-    expect(result?.period).toBe('2026-03')
+    expect(result?.period).toBe(expectedPeriod)
     expect(repository.lastUtilityBill).toEqual({
       cycleId: 'opened-cycle',
       billName: 'Electricity',

@@ -22,7 +22,6 @@ const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
 
 const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
-  'chat',
   'purchase',
   'feedback',
   'reminders',
@@ -1104,7 +1103,7 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     options.bot.callbackQuery(
-      /^bind_topic:(chat|purchase|feedback|reminders|payments):(\d+)$/,
+      /^bind_topic:(purchase|feedback|reminders|payments):(\d+)$/,
       async (ctx) => {
         const locale = await resolveReplyLocale({
           ctx,

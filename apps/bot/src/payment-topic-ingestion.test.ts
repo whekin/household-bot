@@ -395,6 +395,9 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
         ]
       }
     })
+    const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(String(payload?.text)).not.toContain('Аренда к оплате')
+    expect(String(payload?.text)).not.toContain('Баланс по общим покупкам')
 
     expect(await promptRepository.getPendingAction('-10012345', '10002')).toMatchObject({
       action: 'payment_topic_confirmation'

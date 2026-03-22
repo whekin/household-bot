@@ -1417,7 +1417,7 @@ Confirm or cancel below.`,
     })
   })
 
-  test('uses topic processor for classification and assistant for response', async () => {
+  test('does not hand finance-topic helper routing over to the generic assistant', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
     let assistantCalls = 0
@@ -1493,17 +1493,8 @@ Confirm or cancel below.`,
     await bot.handleUpdate(topicMentionUpdate('@household_test_bot how is life?') as never)
 
     expect(processorCalls).toBe(1)
-    expect(assistantCalls).toBe(1)
-    expect(calls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          method: 'sendMessage',
-          payload: expect.objectContaining({
-            text: 'Still here.'
-          })
-        })
-      ])
-    )
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(0)
   })
 
   test('stays silent for regular group chatter when the bot is not addressed', async () => {

@@ -15,10 +15,29 @@ import type {
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
+function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date())
+  const year = Number(parts.find((part) => part.type === 'year')?.value ?? '0')
+  const month = Number(parts.find((part) => part.type === 'month')?.value ?? '1')
+  const day = Number(parts.find((part) => part.type === 'day')?.value ?? '1')
+  const carryMonth = day > rentDueDay ? month + 1 : month
+  const normalizedYear = carryMonth > 12 ? year + 1 : year
+  const normalizedMonth = carryMonth > 12 ? 1 : carryMonth
+
+  return `${normalizedYear}-${String(normalizedMonth).padStart(2, '0')}`
+}
+
 function repository(
   member: Awaited<ReturnType<FinanceRepository['getMemberByTelegramUserId']>>
 ): FinanceRepository {
-  const cycle = {
+  let cycle: Awaited<ReturnType<FinanceRepository['getOpenCycle']>> extends infer T
+    ? Exclude<T, null>
+    : never = {
     id: 'cycle-1',
     period: '2026-03',
     currency: 'GEL' as const
@@ -38,7 +57,13 @@ function repository(
     getOpenCycle: async () => cycle,
     getCycleByPeriod: async (period) => (period === cycle.period ? cycle : null),
     getLatestCycle: async () => cycle,
-    openCycle: async () => {},
+    openCycle: async (period, currency) => {
+      cycle = {
+        id: 'opened-cycle',
+        period,
+        currency
+      }
+    },
     closeCycle: async () => {},
     saveRentRule: async () => {},
     getCycleExchangeRate: async () => null,
@@ -326,7 +351,7 @@ describe('createMiniAppDashboardHandler', () => {
       ok: true,
       authorized: true,
       dashboard: {
-        period: '2026-03',
+        period: expectedCurrentCyclePeriod('Asia/Tbilisi', 20),
         currency: 'GEL',
         paymentBalanceAdjustmentPolicy: 'utilities',
         totalDueMajor: '2010.00',

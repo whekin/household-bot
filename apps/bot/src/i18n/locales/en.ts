@@ -276,8 +276,13 @@ export const enBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     processing: 'Checking that purchase...',
-    proposal: (summary: string, calculationNote: string | null, participants: string | null) =>
-      `I think this shared purchase was: ${summary}.${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nConfirm or cancel below.`,
+    proposal: (
+      summary: string,
+      payer: string | null,
+      calculationNote: string | null,
+      participants: string | null
+    ) =>
+      `I think this shared purchase was: ${summary}.${payer ? `\n${payer}` : ''}${calculationNote ? `\n${calculationNote}` : ''}${participants ? `\n\n${participants}` : ''}\nConfirm or cancel below.`,
     calculatedAmountNote: (explanation: string | null) =>
       explanation
         ? `I calculated the total as ${explanation}. Is that right?`
@@ -295,6 +300,12 @@ export const enBotTranslations: BotTranslationCatalog = {
     participantExcluded: (displayName) => `- ${displayName} (excluded)`,
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
+    payerHeading: 'Paid by:',
+    payerSelected: (displayName) => `Paid by: ${displayName}`,
+    payerQuestion: 'Who actually bought this?',
+    payerFallbackQuestion: 'I could not tell who bought this. Pick the payer below.',
+    payerButton: (displayName) => `${displayName} paid`,
+    payerSelectedToast: (displayName) => `Set payer to ${displayName}.`,
     confirmButton: 'Confirm',
     calculatedConfirmButton: 'Looks right',
     calculatedFixAmountButton: 'Fix amount',

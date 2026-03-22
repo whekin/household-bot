@@ -106,6 +106,28 @@ export function fallbackTopicMessageRoute(
         reason: 'active_purchase_workflow'
       }
     }
+
+    if (input.isExplicitMention || input.isReplyToBot) {
+      return {
+        route: 'topic_helper',
+        replyText: null,
+        helperKind: 'assistant',
+        shouldStartTyping: true,
+        shouldClearWorkflow: false,
+        confidence: 56,
+        reason: 'addressed_finance_topic'
+      }
+    }
+
+    return {
+      route: 'silent',
+      replyText: null,
+      helperKind: null,
+      shouldStartTyping: false,
+      shouldClearWorkflow: false,
+      confidence: 78,
+      reason: 'quiet_purchase_topic'
+    }
   }
 
   if (input.topicRole === 'payments') {
@@ -122,6 +144,28 @@ export function fallbackTopicMessageRoute(
         confidence: 72,
         reason: 'active_payment_workflow'
       }
+    }
+
+    if (input.isExplicitMention || input.isReplyToBot) {
+      return {
+        route: 'topic_helper',
+        replyText: null,
+        helperKind: 'assistant',
+        shouldStartTyping: false,
+        shouldClearWorkflow: false,
+        confidence: 56,
+        reason: 'addressed_finance_topic'
+      }
+    }
+
+    return {
+      route: 'silent',
+      replyText: null,
+      helperKind: null,
+      shouldStartTyping: false,
+      shouldClearWorkflow: false,
+      confidence: 78,
+      reason: 'quiet_payments_topic'
     }
   }
 

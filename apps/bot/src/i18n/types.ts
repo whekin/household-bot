@@ -264,6 +264,7 @@ export interface BotTranslationCatalog {
     processing: string
     proposal: (
       summary: string,
+      payer: string | null,
       calculationNote: string | null,
       participants: string | null
     ) => string
@@ -279,6 +280,12 @@ export interface BotTranslationCatalog {
     participantExcluded: (displayName: string) => string
     participantToggleIncluded: (displayName: string) => string
     participantToggleExcluded: (displayName: string) => string
+    payerHeading: string
+    payerSelected: (displayName: string) => string
+    payerQuestion: string
+    payerFallbackQuestion: string
+    payerButton: (displayName: string) => string
+    payerSelectedToast: (displayName: string) => string
     confirmButton: string
     calculatedConfirmButton: string
     calculatedFixAmountButton: string

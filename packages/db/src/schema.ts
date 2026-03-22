@@ -417,6 +417,9 @@ export const purchaseMessages = pgTable(
     senderMemberId: uuid('sender_member_id').references(() => members.id, {
       onDelete: 'set null'
     }),
+    payerMemberId: uuid('payer_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
     senderTelegramUserId: text('sender_telegram_user_id').notNull(),
     senderDisplayName: text('sender_display_name'),
     rawText: text('raw_text').notNull(),

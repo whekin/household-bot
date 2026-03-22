@@ -21,7 +21,7 @@ import {
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
 } from './payment-proposals'
-import type { TopicMessageRouter } from './topic-message-router'
+import { cacheTopicMessageRoute, type TopicMessageRouter } from './topic-message-router'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
@@ -662,6 +662,15 @@ export function registerConfiguredPaymentTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            cacheTopicMessageRoute(ctx, 'payments', {
+              route: 'silent',
+              replyText: null,
+              helperKind: null,
+              shouldStartTyping: false,
+              shouldClearWorkflow: false,
+              confidence: processorResult.reason === 'test' ? 0 : 80,
+              reason: processorResult.reason
+            })
             await next()
             return
           }

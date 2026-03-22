@@ -174,6 +174,28 @@ function formatPaymentBreakdown(locale: BotLocale, breakdown: PaymentProposalBre
   return lines.join('\n')
 }
 
+function shouldUseCompactTopicProposal(input: {
+  surface: 'assistant' | 'topic'
+  breakdown: PaymentProposalBreakdown
+}): boolean {
+  if (input.surface !== 'topic') {
+    return false
+  }
+
+  if (input.breakdown.guidance.kind !== 'rent') {
+    return false
+  }
+
+  if (input.breakdown.guidance.adjustmentPolicy !== 'utilities') {
+    return false
+  }
+
+  return (
+    input.breakdown.explicitAmount === null ||
+    input.breakdown.explicitAmount.equals(input.breakdown.guidance.proposalAmount)
+  )
+}
+
 export function formatPaymentProposalText(input: {
   locale: BotLocale
   surface: 'assistant' | 'topic'
@@ -198,6 +220,15 @@ export function formatPaymentProposalText(input: {
           amount.toMajorString(),
           amount.currency
         )
+
+  if (
+    shouldUseCompactTopicProposal({
+      surface: input.surface,
+      breakdown: input.proposal.breakdown
+    })
+  ) {
+    return intro
+  }
 
   return `${intro}\n\n${formatPaymentBreakdown(input.locale, input.proposal.breakdown)}`
 }
