@@ -23,6 +23,51 @@ import {
   parseCalendarDate
 } from '../lib/dates'
 import { submitMiniAppUtilityBill, addMiniAppPayment } from '../miniapp-api'
+import type { MiniAppDashboard } from '../miniapp-api'
+
+function sumMemberPaymentsByKind(
+  data: MiniAppDashboard,
+  memberId: string,
+  kind: 'rent' | 'utilities'
+): bigint {
+  return data.ledger.reduce((sum, entry) => {
+    if (entry.kind !== 'payment' || entry.memberId !== memberId || entry.paymentKind !== kind) {
+      return sum
+    }
+
+    return sum + majorStringToMinor(entry.amountMajor)
+  }, 0n)
+}
+
+function paymentProposalMinor(
+  data: MiniAppDashboard,
+  member: MiniAppDashboard['members'][number],
+  kind: 'rent' | 'utilities'
+): bigint {
+  const purchaseOffsetMinor = majorStringToMinor(member.purchaseOffsetMajor)
+  const baseMinor =
+    kind === 'rent'
+      ? majorStringToMinor(member.rentShareMajor)
+      : majorStringToMinor(member.utilityShareMajor)
+
+  if (data.paymentBalanceAdjustmentPolicy === kind) {
+    return baseMinor + purchaseOffsetMinor
+  }
+
+  return baseMinor
+}
+
+function paymentRemainingMinor(
+  data: MiniAppDashboard,
+  member: MiniAppDashboard['members'][number],
+  kind: 'rent' | 'utilities'
+): bigint {
+  const proposalMinor = paymentProposalMinor(data, member, kind)
+  const paidMinor = sumMemberPaymentsByKind(data, member.memberId, kind)
+  const remainingMinor = proposalMinor - paidMinor
+
+  return remainingMinor > 0n ? remainingMinor : 0n
+}
 
 export default function HomeRoute() {
   const navigate = useNavigate()
@@ -160,7 +205,8 @@ export default function HomeRoute() {
 
   const homeMode = createMemo(() => {
     const data = dashboard()
-    if (!data) return 'none' as const
+    const member = currentMemberLine()
+    if (!data || !member) return 'none' as const
     const period = effectivePeriod() ?? data.period
     const today = todayOverride()
 
@@ -178,15 +224,19 @@ export default function HomeRoute() {
       dueDay: data.rentDueDay,
       todayOverride: today
     })
+    const utilitiesDueMinor = paymentRemainingMinor(data, member, 'utilities')
+    const rentDueMinor = paymentRemainingMinor(data, member, 'rent')
+    const utilitiesActive = utilities.active && utilitiesDueMinor > 0n
+    const rentActive = rent.active && rentDueMinor > 0n
 
-    if (utilities.active && rent.active) {
+    if (utilitiesActive && rentActive) {
       const utilitiesDays = utilities.daysUntilDue ?? Number.POSITIVE_INFINITY
       const rentDays = rent.daysUntilDue ?? Number.POSITIVE_INFINITY
       return utilitiesDays <= rentDays ? ('utilities' as const) : ('rent' as const)
     }
 
-    if (utilities.active) return 'utilities' as const
-    if (rent.active) return 'rent' as const
+    if (utilitiesActive) return 'utilities' as const
+    if (rentActive) return 'rent' as const
     return 'none' as const
   })
 
@@ -220,7 +270,7 @@ export default function HomeRoute() {
     if (!data || !currentMemberLine()) return
 
     const member = currentMemberLine()!
-    const amount = type === 'rent' ? member.rentShareMajor : member.utilityShareMajor
+    const amount = minorToMajorString(paymentRemainingMinor(data, member, type))
 
     setQuickPaymentType(type)
     setQuickPaymentAmount(amount)
@@ -311,17 +361,9 @@ export default function HomeRoute() {
               <Show when={currentMemberLine()}>
                 {(member) => {
                   const policy = () => data().paymentBalanceAdjustmentPolicy
-
-                  const rentBaseMinor = () => majorStringToMinor(member().rentShareMajor)
-                  const utilitiesBaseMinor = () => majorStringToMinor(member().utilityShareMajor)
-                  const purchaseOffsetMinor = () => majorStringToMinor(member().purchaseOffsetMajor)
-
-                  const rentProposalMinor = () =>
-                    policy() === 'rent' ? rentBaseMinor() + purchaseOffsetMinor() : rentBaseMinor()
-                  const utilitiesProposalMinor = () =>
-                    policy() === 'utilities'
-                      ? utilitiesBaseMinor() + purchaseOffsetMinor()
-                      : utilitiesBaseMinor()
+                  const rentRemainingMinor = () => paymentRemainingMinor(data(), member(), 'rent')
+                  const utilitiesRemainingMinor = () =>
+                    paymentRemainingMinor(data(), member(), 'utilities')
 
                   const mode = () => homeMode()
                   const currency = () => data().currency
@@ -410,7 +452,7 @@ export default function HomeRoute() {
                               <div class="balance-card__row balance-card__row--subtotal">
                                 <span>{copy().finalDue}</span>
                                 <strong>
-                                  {minorToMajorString(utilitiesProposalMinor())} {currency()}
+                                  {minorToMajorString(utilitiesRemainingMinor())} {currency()}
                                 </strong>
                               </div>
                               <div class="balance-card__row">
@@ -475,7 +517,7 @@ export default function HomeRoute() {
                               <div class="balance-card__row balance-card__row--subtotal">
                                 <span>{copy().finalDue}</span>
                                 <strong>
-                                  {minorToMajorString(rentProposalMinor())} {currency()}
+                                  {minorToMajorString(rentRemainingMinor())} {currency()}
                                 </strong>
                               </div>
                               <div class="balance-card__row">
