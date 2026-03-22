@@ -12,7 +12,10 @@ Execute the first real deployment with a repeatable sequence that covers infrast
   - GCP project
   - GitHub repo settings
   - Telegram bot token
-  - Supabase project and database URL
+  - Supabase project and three database URLs:
+    - owner `DATABASE_URL` for migrations only
+    - `APP_DATABASE_URL` for authenticated request paths
+    - `WORKER_DATABASE_URL` for bot and scheduler workers
 
 ## Required Configuration Inventory
 
@@ -28,7 +31,8 @@ Required in your environment `*.tfvars`:
 
 Recommended:
 
-- `database_url_secret_id = "database-url"`
+- `app_database_url_secret_id = "app-database-url"`
+- `worker_database_url_secret_id = "worker-database-url"`
 - `telegram_bot_token_secret_id = "telegram-bot-token"`
 - `openai_api_key_secret_id = "openai-api-key"`
 - `bot_mini_app_allowed_origins`
@@ -46,10 +50,9 @@ Create the secret resources via Terraform, then add secret versions for:
 - `telegram-bot-token`
 - `telegram-webhook-secret`
 - `scheduler-shared-secret`
-- `database-url`
+- `app-database-url`
+- `worker-database-url`
 - optional `openai-api-key`
-- optional `supabase-url`
-- optional `supabase-publishable-key`
 
 ### GitHub Actions secrets
 
@@ -129,15 +132,19 @@ Use the real project ID from Terraform variables:
 echo -n "<telegram-bot-token>" | gcloud secrets versions add telegram-bot-token --data-file=- --project <project_id>
 echo -n "<telegram-webhook-secret>" | gcloud secrets versions add telegram-webhook-secret --data-file=- --project <project_id>
 echo -n "<scheduler-shared-secret>" | gcloud secrets versions add scheduler-shared-secret --data-file=- --project <project_id>
-echo -n "<database-url>" | gcloud secrets versions add database-url --data-file=- --project <project_id>
+echo -n "<app-database-url>" | gcloud secrets versions add app-database-url --data-file=- --project <project_id>
+echo -n "<worker-database-url>" | gcloud secrets versions add worker-database-url --data-file=- --project <project_id>
 ```
 
 Add optional secret versions only if those integrations are enabled.
 
-For a functional household dev deployment, set `database_url_secret_id = "database-url"` in
-`dev.tfvars` before the apply that creates the Cloud Run services. Otherwise the bot deploys
-without `DATABASE_URL`, and finance commands, reminders, mini app auth/dashboard, and anonymous
-feedback remain disabled.
+For a functional household deployment, set both `app_database_url_secret_id` and
+`worker_database_url_secret_id` in `dev.tfvars` before the apply that creates the Cloud Run
+services. Otherwise the bot deploys without `APP_DATABASE_URL` and `WORKER_DATABASE_URL`, and mini
+app auth, finance commands, reminders, purchase ingestion, and anonymous feedback remain disabled.
+
+Keep `DATABASE_URL` out of normal runtime secrets. It is only required in GitHub Actions for the
+migration step that runs before deploy.
 
 Keep `telegram_bot_token_secret_id = "telegram-bot-token"` aligned with the actual bot token
 secret name. CD uses that secret to sync the Telegram command menu after deploy.
@@ -217,6 +224,9 @@ The smoke script verifies:
 - mini app auth endpoint is mounted
 - scheduler endpoint rejects unauthenticated requests
 - Telegram webhook matches the expected URL when bot token is provided
+
+Production deploys should also set `MINI_APP_ALLOWED_ORIGINS` explicitly. The browser path remains
+bot API only; there is no supported direct browser access to Supabase.
 
 ## Phase 8: Scheduler Enablement
 

@@ -4,6 +4,7 @@ import type { Logger } from '@household/observability'
 
 import {
   allowedMiniAppOrigin,
+  type MiniAppAuthorizedSession,
   createMiniAppSessionService,
   miniAppErrorResponse,
   miniAppJsonResponse
@@ -53,15 +54,26 @@ async function readLocalePreferenceRequest(request: Request): Promise<LocalePref
 export function createMiniAppLocalePreferenceHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  onboardingService: HouseholdOnboardingService
-  localePreferenceService: LocalePreferenceService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
+  localePreferenceServiceForSession?: (session: MiniAppAuthorizedSession) => LocalePreferenceService
+  localePreferenceService?: LocalePreferenceService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
   const sessionService = createMiniAppSessionService({
     botToken: options.botToken,
-    onboardingService: options.onboardingService
+    ...(options.onboardingServiceForTelegramUserId
+      ? {
+          onboardingServiceForTelegramUserId: options.onboardingServiceForTelegramUserId
+        }
+      : {}),
+    ...(options.onboardingService
+      ? {
+          onboardingService: options.onboardingService
+        }
+      : {})
   })
 
   return {
@@ -100,9 +112,18 @@ export function createMiniAppLocalePreferenceHandler(options: {
 
         let memberPreferredLocale = session.member.preferredLocale
         let householdDefaultLocale = session.member.householdDefaultLocale
+        const localePreferenceService =
+          options.localePreferenceServiceForSession?.({
+            member: session.member,
+            telegramUserId: session.telegramUser.id
+          }) ?? options.localePreferenceService
+
+        if (!localePreferenceService) {
+          throw new Error('Mini app locale preference service is not configured')
+        }
 
         if (payload.scope === 'member') {
-          const result = await options.localePreferenceService.updateMemberLocale({
+          const result = await localePreferenceService.updateMemberLocale({
             householdId: session.member.householdId,
             telegramUserId: session.telegramUser.id,
             locale: payload.locale
@@ -115,7 +136,7 @@ export function createMiniAppLocalePreferenceHandler(options: {
           memberPreferredLocale = result.member.preferredLocale
           householdDefaultLocale = result.member.householdDefaultLocale
         } else {
-          const result = await options.localePreferenceService.updateHouseholdLocale({
+          const result = await localePreferenceService.updateHouseholdLocale({
             householdId: session.member.householdId,
             actorIsAdmin: session.member.isAdmin,
             locale: payload.locale

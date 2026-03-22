@@ -3,6 +3,7 @@ import type { Logger } from '@household/observability'
 
 import {
   allowedMiniAppOrigin,
+  type MiniAppAuthorizedSession,
   createMiniAppSessionService,
   miniAppErrorResponse,
   miniAppJsonResponse,
@@ -12,15 +13,26 @@ import {
 export function createMiniAppDashboardHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
+  financeServiceForSession?: (session: MiniAppAuthorizedSession) => FinanceCommandService
+  financeServiceForHousehold?: (householdId: string) => FinanceCommandService
+  onboardingServiceForTelegramUserId?: (telegramUserId: string) => HouseholdOnboardingService
+  onboardingService?: HouseholdOnboardingService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
 } {
   const sessionService = createMiniAppSessionService({
     botToken: options.botToken,
-    onboardingService: options.onboardingService
+    ...(options.onboardingServiceForTelegramUserId
+      ? {
+          onboardingServiceForTelegramUserId: options.onboardingServiceForTelegramUserId
+        }
+      : {}),
+    ...(options.onboardingService
+      ? {
+          onboardingService: options.onboardingService
+        }
+      : {})
   })
 
   return {
@@ -62,7 +74,7 @@ export function createMiniAppDashboardHandler(options: {
           )
         }
 
-        if (!session.member) {
+        if (!session.member || !session.telegramUser) {
           return miniAppJsonResponse(
             { ok: false, error: 'Authenticated session is missing member context' },
             500,
@@ -70,9 +82,17 @@ export function createMiniAppDashboardHandler(options: {
           )
         }
 
-        const dashboard = await options
-          .financeServiceForHousehold(session.member.householdId)
-          .generateDashboard()
+        const financeService =
+          options.financeServiceForSession?.({
+            member: session.member,
+            telegramUserId: session.telegramUser.id
+          }) ?? options.financeServiceForHousehold?.(session.member.householdId)
+
+        if (!financeService) {
+          throw new Error('Mini app finance service is not configured')
+        }
+
+        const dashboard = await financeService.generateDashboard()
         if (!dashboard) {
           return miniAppJsonResponse(
             { ok: false, error: 'No billing cycle available' },

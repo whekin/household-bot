@@ -29,8 +29,8 @@ Define a reproducible GCP infrastructure baseline for deployment of the bot API 
 - Bot runtime reads secret-backed env vars:
   - `TELEGRAM_WEBHOOK_SECRET`
   - `SCHEDULER_SHARED_SECRET`
-  - `SUPABASE_URL` (optional)
-  - `SUPABASE_PUBLISHABLE_KEY` (optional)
+  - `APP_DATABASE_URL` (optional)
+  - `WORKER_DATABASE_URL` (optional)
 
 ## Domain Rules
 

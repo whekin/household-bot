@@ -64,12 +64,13 @@ codex review --base origin/main
 - Copy `.env.example` to `.env` before running app/database commands.
 - `bun run db:seed` refreshes the committed fixture household and is destructive for previously seeded fixture rows.
 - Local bot feature flags come from env presence:
-  - finance commands require `DATABASE_URL` plus household setup in Telegram via `/setup`
-  - purchase ingestion requires `DATABASE_URL` plus a bound purchase topic via `/bind_purchase_topic`
-  - anonymous feedback requires `DATABASE_URL` plus a bound feedback topic via `/bind_feedback_topic`
-  - reminders require `DATABASE_URL` plus `SCHEDULER_SHARED_SECRET` or `SCHEDULER_OIDC_ALLOWED_EMAILS`
+  - mini app auth and mini app API routes require `APP_DATABASE_URL`
+  - finance commands require `WORKER_DATABASE_URL` plus household setup in Telegram via `/setup`
+  - purchase ingestion requires `WORKER_DATABASE_URL` plus a bound purchase topic via `/bind_purchase_topic`
+  - anonymous feedback requires `WORKER_DATABASE_URL` plus a bound feedback topic via `/bind_feedback_topic`
+  - reminders require `WORKER_DATABASE_URL` plus `SCHEDULER_SHARED_SECRET` or `SCHEDULER_OIDC_ALLOWED_EMAILS`
     and optionally use a dedicated reminders topic via `/bind_reminders_topic`
-  - mini app CORS can be constrained with `MINI_APP_ALLOWED_ORIGINS`
+  - mini app CORS must be set explicitly with `MINI_APP_ALLOWED_ORIGINS`
 - Migration workflow is documented in `docs/runbooks/migrations.md`.
 - Destructive dev reset guidance is documented in `docs/runbooks/dev-reset.md`.
 - First deploy flow is documented in `docs/runbooks/first-deploy.md`.

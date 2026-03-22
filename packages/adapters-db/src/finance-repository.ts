@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 
-import { createDbClient, schema } from '@household/db'
+import { createDbClient, type DbSessionContext, schema } from '@household/db'
 import type { FinanceRepository } from '@household/ports'
 import {
   instantFromDatabaseValue,
@@ -22,14 +22,22 @@ function toCurrencyCode(raw: string): CurrencyCode {
 
 export function createDbFinanceRepository(
   databaseUrl: string,
-  householdId: string
+  householdId: string,
+  options: {
+    sessionContext?: DbSessionContext
+  } = {}
 ): {
   repository: FinanceRepository
   close: () => Promise<void>
 } {
   const { db, queryClient } = createDbClient(databaseUrl, {
     max: 5,
-    prepare: false
+    prepare: false,
+    ...(options.sessionContext
+      ? {
+          sessionContext: options.sessionContext
+        }
+      : {})
   })
 
   async function loadPurchaseParticipants(purchaseIds: readonly string[]): Promise<

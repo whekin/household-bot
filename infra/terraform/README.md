@@ -58,8 +58,9 @@ echo -n "<value>" | gcloud secrets versions add telegram-webhook-secret --data-f
 echo -n "<value>" | gcloud secrets versions add scheduler-shared-secret --data-file=- --project <project_id>
 ```
 
-If you configure optional secret IDs such as `database_url_secret_id` or
-`openai_api_key_secret_id`, add versions for those secrets as well.
+If you configure optional secret IDs such as `app_database_url_secret_id`,
+`worker_database_url_secret_id`, or `openai_api_key_secret_id`, add versions for those secrets as
+well.
 
 If GitHub OIDC deploy access is enabled, keep `telegram_bot_token_secret_id` aligned with the
 real bot token secret name so CD can read it and sync Telegram commands automatically.
@@ -84,6 +85,9 @@ Recommended approach:
     `bot_assistant_rate_limit_rolling_window_ms`
   - optional `bot_mini_app_allowed_origins`
   - optional `alert_notification_emails`
+  - runtime DB URLs should stay split:
+    `APP_DATABASE_URL` for authenticated request flows and `WORKER_DATABASE_URL` for background
+    workers
 
 ## Alerting baseline
 
@@ -115,3 +119,4 @@ CI runs:
 - Scheduler jobs default to `paused = true` and `dry_run = true` to prevent accidental sends before live reminder delivery is ready.
 - Bot API is public to accept Telegram webhooks; scheduler endpoint should still verify app-level auth.
 - `bot_mini_app_allowed_origins` cannot be auto-derived in Terraform because the bot and mini app Cloud Run services reference each other; set it explicitly once the mini app URL is known.
+- `DATABASE_URL` is migration-only and should not be injected into the bot runtime service.

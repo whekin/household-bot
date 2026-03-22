@@ -4,6 +4,8 @@ export interface BotRuntimeConfig {
   telegramBotToken: string
   telegramWebhookSecret: string
   telegramWebhookPath: string
+  appDatabaseUrl?: string
+  workerDatabaseUrl?: string
   databaseUrl?: string
   purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
@@ -101,20 +103,22 @@ function parsePositiveInteger(raw: string | undefined, fallback: number, key: st
 
 export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRuntimeConfig {
   const databaseUrl = parseOptionalValue(env.DATABASE_URL)
+  const appDatabaseUrl = parseOptionalValue(env.APP_DATABASE_URL)
+  const workerDatabaseUrl = parseOptionalValue(env.WORKER_DATABASE_URL)
   const schedulerSharedSecret = parseOptionalValue(env.SCHEDULER_SHARED_SECRET)
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
   const miniAppUrl = parseOptionalValue(env.MINI_APP_URL)
 
-  const purchaseTopicIngestionEnabled = databaseUrl !== undefined
-
-  const financeCommandsEnabled = databaseUrl !== undefined
-  const anonymousFeedbackEnabled = databaseUrl !== undefined
-  const assistantEnabled = databaseUrl !== undefined
-  const miniAppAuthEnabled = databaseUrl !== undefined
+  const purchaseTopicIngestionEnabled = workerDatabaseUrl !== undefined
+  const financeCommandsEnabled = workerDatabaseUrl !== undefined
+  const anonymousFeedbackEnabled = workerDatabaseUrl !== undefined
+  const assistantEnabled = workerDatabaseUrl !== undefined
+  const miniAppAuthEnabled = appDatabaseUrl !== undefined
   const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
   const reminderJobsEnabled =
-    databaseUrl !== undefined && (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
+    workerDatabaseUrl !== undefined &&
+    (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
@@ -172,6 +176,12 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
 
   if (databaseUrl !== undefined) {
     runtime.databaseUrl = databaseUrl
+  }
+  if (appDatabaseUrl !== undefined) {
+    runtime.appDatabaseUrl = appDatabaseUrl
+  }
+  if (workerDatabaseUrl !== undefined) {
+    runtime.workerDatabaseUrl = workerDatabaseUrl
   }
   if (schedulerSharedSecret !== undefined) {
     runtime.schedulerSharedSecret = schedulerSharedSecret
