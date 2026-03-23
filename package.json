@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "scripts"
+    "scripts",
+    "infra/pulumi/*"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
@@ -36,11 +37,17 @@
     "dev:bot": "bun run --filter @household/bot dev",
     "dev:miniapp": "bun run --filter @household/miniapp dev",
     "docker:build:bot": "docker build -f apps/bot/Dockerfile -t household-bot:local .",
+    "docker:build:bot:lambda": "docker build -f apps/bot/Dockerfile.lambda -t household-bot-lambda:local .",
     "docker:build:miniapp": "docker build -f apps/miniapp/Dockerfile -t household-miniapp:local .",
     "docker:build": "bun run docker:build:bot && bun run docker:build:miniapp",
+    "docker:push:bot:lambda": "bun run scripts/ops/push-bot-aws-lambda-image.ts",
     "docker:smoke": "docker compose up --build",
+    "infra:aws:preview": "bun run --cwd infra/pulumi/aws preview",
+    "infra:aws:up": "bun run --cwd infra/pulumi/aws up",
+    "infra:aws:typecheck": "bun run --cwd infra/pulumi/aws typecheck",
     "test:e2e": "bun run scripts/e2e/billing-flow.ts",
     "ops:deploy:smoke": "bun run scripts/ops/deploy-smoke.ts",
+    "ops:aws:miniapp:publish": "bun run scripts/ops/publish-miniapp-aws.ts",
     "ops:telegram:webhook": "bun run scripts/ops/telegram-webhook.ts",
     "ops:telegram:commands": "bun run scripts/ops/telegram-commands.ts",
     "ops:reminder": "bun run scripts/ops/trigger-reminder.ts"

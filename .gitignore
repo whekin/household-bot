@@ -37,3 +37,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 *.tfvars
 *.tfvars.json
 !infra/terraform/terraform.tfvars.example
+
+# pulumi state
+infra/pulumi/aws/.pulumi

@@ -1,0 +1,3 @@
+name: household-aws
+runtime: nodejs
+description: AWS Lambda + S3 deployment target for the household bot monorepo

@@ -1,0 +1,88 @@
+name: CD / AWS
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 'Pulumi stack'
+        required: true
+        default: 'dev'
+      ref:
+        description: 'Git ref to deploy (branch, tag, or SHA)'
+        required: true
+        default: 'main'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cd-aws-${{ github.event_name == 'workflow_dispatch' && inputs.stack || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy AWS target
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PULUMI_STACK: ${{ github.event_name == 'workflow_dispatch' && inputs.stack || vars.PULUMI_STACK }}
+      PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+      BOT_API_URL: ${{ vars.BOT_API_URL }}
+
+    steps:
+      - name: Checkout deployment ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Pulumi
+        uses: pulumi/actions@v6
+        with:
+          command: login
+
+      - name: Select Pulumi stack
+        working-directory: infra/pulumi/aws
+        run: pulumi stack select "$PULUMI_STACK"
+
+      - name: Preview infrastructure
+        run: bun run infra:aws:preview -- --stack "$PULUMI_STACK" --non-interactive
+
+      - name: Apply infrastructure
+        run: bun run infra:aws:up -- --stack "$PULUMI_STACK" --yes --non-interactive
+
+      - name: Resolve miniapp bucket
+        id: outputs
+        working-directory: infra/pulumi/aws
+        run: |
+          echo "miniapp_bucket=$(pulumi stack output miniAppBucketName --stack "$PULUMI_STACK")" >> "$GITHUB_OUTPUT"
+          echo "bot_origin_url=$(pulumi stack output botOriginUrl --stack "$PULUMI_STACK")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish miniapp assets
+        env:
+          AWS_MINIAPP_BUCKET: ${{ steps.outputs.outputs.miniapp_bucket }}
+          BOT_API_URL: ${{ vars.BOT_API_URL || steps.outputs.outputs.bot_origin_url }}
+        run: bun run ops:aws:miniapp:publish

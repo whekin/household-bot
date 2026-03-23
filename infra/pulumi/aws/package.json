@@ -1,0 +1,21 @@
+{
+  "name": "@household/infra-aws",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "echo 'No tests for Pulumi program'",
+    "lint": "oxlint .",
+    "preview": "pulumi preview",
+    "up": "pulumi up"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^7.9.1",
+    "@pulumi/awsx": "^3.3.0",
+    "@pulumi/pulumi": "^3.194.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2"
+  }
+}
