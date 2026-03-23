@@ -206,6 +206,65 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
     }
   })
 
+  test('interprets draft edits as partial updates', async () => {
+    const interpreter = createOpenAiAdHocNotificationInterpreter({
+      apiKey: 'test-key',
+      parserModel: 'gpt-5-mini',
+      rendererModel: 'gpt-5-mini',
+      timeoutMs: 5000
+    })
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      nestedJsonResponse({
+        decision: 'updated',
+        notificationText: null,
+        assigneeChanged: false,
+        assigneeMemberId: null,
+        resolvedLocalDate: '2026-03-24',
+        resolvedHour: 10,
+        resolvedMinute: 0,
+        resolutionMode: 'exact',
+        deliveryMode: null,
+        dmRecipientMemberIds: null,
+        confidence: 88,
+        clarificationQuestion: null
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!.interpretDraftEdit({
+        locale: 'ru',
+        timezone: 'Asia/Tbilisi',
+        localNow: '2026-03-23 23:30',
+        text: 'Давай на 10 часов лучше',
+        members: [
+          { memberId: 'dima', displayName: 'Дима', status: 'active' },
+          { memberId: 'georgiy', displayName: 'Георгий', status: 'active' }
+        ],
+        senderMemberId: 'dima',
+        currentNotificationText: 'пошпынять Георгия о том, позвонил ли он',
+        currentAssigneeMemberId: 'georgiy',
+        currentScheduledLocalDate: '2026-03-24',
+        currentScheduledHour: 9,
+        currentScheduledMinute: 0,
+        currentDeliveryMode: 'topic',
+        currentDmRecipientMemberIds: []
+      })
+
+      expect(result).toMatchObject({
+        decision: 'updated',
+        resolvedHour: 10,
+        resolvedMinute: 0,
+        resolutionMode: 'exact',
+        notificationText: null,
+        deliveryMode: null
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('renders the final delivery text that should be persisted', async () => {
     const interpreter = createOpenAiAdHocNotificationInterpreter({
       apiKey: 'test-key',

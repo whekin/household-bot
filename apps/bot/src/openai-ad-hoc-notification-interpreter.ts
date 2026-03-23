@@ -1,3 +1,5 @@
+import type { AdHocNotificationDeliveryMode } from '@household/ports'
+
 import { extractOpenAiResponseText, parseJsonFromResponseText } from './openai-responses'
 
 export type AdHocNotificationResolutionMode = 'exact' | 'fuzzy_window' | 'date_only' | 'ambiguous'
@@ -32,6 +34,22 @@ export interface AdHocNotificationScheduleInterpretation {
   parserMode: 'llm'
 }
 
+export interface AdHocNotificationDraftEditInterpretation {
+  decision: 'updated' | 'clarification'
+  notificationText: string | null
+  assigneeChanged: boolean
+  assigneeMemberId: string | null
+  resolvedLocalDate: string | null
+  resolvedHour: number | null
+  resolvedMinute: number | null
+  resolutionMode: AdHocNotificationResolutionMode | null
+  deliveryMode: AdHocNotificationDeliveryMode | null
+  dmRecipientMemberIds: readonly string[] | null
+  clarificationQuestion: string | null
+  confidence: number
+  parserMode: 'llm'
+}
+
 interface ReminderInterpretationResult {
   decision: 'notification' | 'clarification' | 'not_notification'
   notificationText: string | null
@@ -58,6 +76,21 @@ interface ReminderDeliveryTextResult {
   text: string | null
 }
 
+interface ReminderDraftEditResult {
+  decision: 'updated' | 'clarification'
+  notificationText: string | null
+  assigneeChanged: boolean
+  assigneeMemberId: string | null
+  resolvedLocalDate: string | null
+  resolvedHour: number | null
+  resolvedMinute: number | null
+  resolutionMode: AdHocNotificationResolutionMode | null
+  deliveryMode: AdHocNotificationDeliveryMode | null
+  dmRecipientMemberIds: string[] | null
+  confidence: number
+  clarificationQuestion: string | null
+}
+
 export interface AdHocNotificationInterpreter {
   interpretRequest(input: {
     locale: 'en' | 'ru'
@@ -75,6 +108,23 @@ export interface AdHocNotificationInterpreter {
     localNow: string
     text: string
   }): Promise<AdHocNotificationScheduleInterpretation | null>
+  interpretDraftEdit(input: {
+    locale: 'en' | 'ru'
+    timezone: string
+    localNow: string
+    text: string
+    members: readonly AdHocNotificationInterpreterMember[]
+    senderMemberId: string
+    currentNotificationText: string
+    currentAssigneeMemberId: string | null
+    currentScheduledLocalDate: string
+    currentScheduledHour: number
+    currentScheduledMinute: number
+    currentDeliveryMode: AdHocNotificationDeliveryMode
+    currentDmRecipientMemberIds: readonly string[]
+    assistantContext?: string | null
+    assistantTone?: string | null
+  }): Promise<AdHocNotificationDraftEditInterpretation | null>
   renderDeliveryText(input: {
     locale: 'en' | 'ru'
     originalRequestText: string
@@ -84,6 +134,25 @@ export interface AdHocNotificationInterpreter {
     assistantContext?: string | null
     assistantTone?: string | null
   }): Promise<string | null>
+}
+
+function normalizeDeliveryMode(
+  value: string | null | undefined
+): AdHocNotificationDeliveryMode | null {
+  return value === 'topic' || value === 'dm_all' || value === 'dm_selected' ? value : null
+}
+
+function normalizeMemberIds(
+  value: readonly string[] | null | undefined,
+  members: readonly AdHocNotificationInterpreterMember[]
+): readonly string[] | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  const valid = new Set(members.map((member) => member.memberId))
+  const selected = value.filter((memberId) => valid.has(memberId))
+  return [...new Set(selected)]
 }
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
@@ -434,6 +503,143 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
         resolvedHour: normalizeHour(parsed.resolvedHour),
         resolvedMinute: normalizeMinute(parsed.resolvedMinute),
         resolutionMode: normalizeResolutionMode(parsed.resolutionMode),
+        clarificationQuestion: normalizeOptionalText(parsed.clarificationQuestion),
+        confidence: normalizeConfidence(parsed.confidence),
+        parserMode: 'llm'
+      }
+    },
+
+    async interpretDraftEdit(options) {
+      const parsed = await fetchStructuredResult<ReminderDraftEditResult>({
+        apiKey,
+        model: parserModel,
+        schemaName: 'ad_hoc_notification_draft_edit',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            decision: {
+              type: 'string',
+              enum: ['updated', 'clarification']
+            },
+            notificationText: {
+              anyOf: [{ type: 'string' }, { type: 'null' }]
+            },
+            assigneeChanged: {
+              type: 'boolean'
+            },
+            assigneeMemberId: {
+              anyOf: [{ type: 'string' }, { type: 'null' }]
+            },
+            resolvedLocalDate: {
+              anyOf: [{ type: 'string' }, { type: 'null' }]
+            },
+            resolvedHour: {
+              anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            resolvedMinute: {
+              anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            resolutionMode: {
+              anyOf: [
+                {
+                  type: 'string',
+                  enum: ['exact', 'fuzzy_window', 'date_only', 'ambiguous']
+                },
+                { type: 'null' }
+              ]
+            },
+            deliveryMode: {
+              anyOf: [
+                {
+                  type: 'string',
+                  enum: ['topic', 'dm_all', 'dm_selected']
+                },
+                { type: 'null' }
+              ]
+            },
+            dmRecipientMemberIds: {
+              anyOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string'
+                  }
+                },
+                { type: 'null' }
+              ]
+            },
+            confidence: {
+              type: 'number',
+              minimum: 0,
+              maximum: 100
+            },
+            clarificationQuestion: {
+              anyOf: [{ type: 'string' }, { type: 'null' }]
+            }
+          },
+          required: [
+            'decision',
+            'notificationText',
+            'assigneeChanged',
+            'assigneeMemberId',
+            'resolvedLocalDate',
+            'resolvedHour',
+            'resolvedMinute',
+            'resolutionMode',
+            'deliveryMode',
+            'dmRecipientMemberIds',
+            'confidence',
+            'clarificationQuestion'
+          ]
+        },
+        prompt: [
+          'You interpret edit messages for an already prepared household reminder draft.',
+          'Treat the latest message as a request to modify the existing draft, not as a brand new reminder.',
+          'Only return fields that should change; keep unchanged fields as null, except assigneeChanged must explicitly say whether the assignee should change.',
+          'Use notificationText only when the user changes what should be reminded.',
+          'Use deliveryMode when the user changes where the reminder should be sent.',
+          'Use dmRecipientMemberIds only when the user clearly changes selected DM recipients.',
+          'Use resolutionMode exact for explicit clock time, fuzzy_window for phrases like morning/evening, date_only for plain day/date without explicit time, ambiguous when still unclear.',
+          'If the latest message is too ambiguous, return clarification and a short clarificationQuestion in the user language.',
+          promptWindowRules(),
+          options.assistantContext ? `Household context: ${options.assistantContext}` : null,
+          options.assistantTone ? `Preferred tone: ${options.assistantTone}` : null,
+          `Household timezone: ${options.timezone}`,
+          `Current local date/time in that timezone: ${options.localNow}`,
+          rosterText(options.members, options.senderMemberId),
+          '',
+          'Current draft:',
+          `- notificationText: ${options.currentNotificationText}`,
+          `- assigneeMemberId: ${options.currentAssigneeMemberId ?? 'none'}`,
+          `- scheduledLocalDate: ${options.currentScheduledLocalDate}`,
+          `- scheduledLocalTime: ${String(options.currentScheduledHour).padStart(2, '0')}:${String(options.currentScheduledMinute).padStart(2, '0')}`,
+          `- deliveryMode: ${options.currentDeliveryMode}`,
+          `- dmRecipientMemberIds: ${options.currentDmRecipientMemberIds.join(', ') || 'none'}`,
+          '',
+          'Latest user edit message:',
+          options.text
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        timeoutMs
+      })
+
+      if (!parsed) {
+        return null
+      }
+
+      return {
+        decision: parsed.decision === 'updated' ? 'updated' : 'clarification',
+        notificationText: normalizeOptionalText(parsed.notificationText),
+        assigneeChanged: parsed.assigneeChanged,
+        assigneeMemberId: normalizeMemberId(parsed.assigneeMemberId, options.members),
+        resolvedLocalDate: normalizeOptionalText(parsed.resolvedLocalDate),
+        resolvedHour: normalizeHour(parsed.resolvedHour),
+        resolvedMinute: normalizeMinute(parsed.resolvedMinute),
+        resolutionMode: normalizeResolutionMode(parsed.resolutionMode),
+        deliveryMode: normalizeDeliveryMode(parsed.deliveryMode),
+        dmRecipientMemberIds: normalizeMemberIds(parsed.dmRecipientMemberIds, options.members),
         clarificationQuestion: normalizeOptionalText(parsed.clarificationQuestion),
         confidence: normalizeConfidence(parsed.confidence),
         parserMode: 'llm'

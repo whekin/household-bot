@@ -26,6 +26,7 @@ const AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX = 'adhocnotif:canceldraft:'
 const AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX = 'adhocnotif:cancel:'
 const AD_HOC_NOTIFICATION_MODE_PREFIX = 'adhocnotif:mode:'
 const AD_HOC_NOTIFICATION_MEMBER_PREFIX = 'adhocnotif:member:'
+const AD_HOC_NOTIFICATION_VIEW_PREFIX = 'adhocnotif:view:'
 
 type NotificationDraftPayload =
   | {
@@ -56,6 +57,7 @@ type NotificationDraftPayload =
       timePrecision: 'exact' | 'date_only_defaulted'
       deliveryMode: AdHocNotificationDeliveryMode
       dmRecipientMemberIds: readonly string[]
+      viewMode: 'compact' | 'expanded'
     }
 
 interface ReminderTopicContext {
@@ -139,6 +141,82 @@ function formatScheduledFor(locale: BotLocale, scheduledForIso: string, timezone
   return `${date} ${time} (${timezone})`
 }
 
+function formatTimeOfDay(locale: BotLocale, hour: number, minute: number): string {
+  const exact = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  if (locale !== 'ru' || minute !== 0) {
+    return locale === 'ru' ? `в ${exact}` : `at ${exact}`
+  }
+
+  if (hour >= 5 && hour <= 11) {
+    return `в ${hour} утра`
+  }
+  if (hour >= 12 && hour <= 16) {
+    return hour === 12 ? 'в 12 дня' : `в ${hour} дня`
+  }
+  if (hour >= 17 && hour <= 23) {
+    return hour === 18 ? 'в 6 вечера' : `в ${hour > 12 ? hour - 12 : hour} вечера`
+  }
+
+  return `в ${hour} ночи`
+}
+
+function relativeDayLabel(input: {
+  locale: BotLocale
+  now: Temporal.ZonedDateTime
+  target: Temporal.ZonedDateTime
+}): string | null {
+  const targetDate = input.target.toPlainDate()
+  const nowDate = input.now.toPlainDate()
+  const tomorrow = nowDate.add({ days: 1 })
+  const dayAfterTomorrow = nowDate.add({ days: 2 })
+
+  const sleepAwareCurrentDate = input.now.hour <= 4 ? nowDate.subtract({ days: 1 }) : nowDate
+  const sleepAwareTomorrow = sleepAwareCurrentDate.add({ days: 1 })
+  const sleepAwareDayAfterTomorrow = sleepAwareCurrentDate.add({ days: 2 })
+
+  if (targetDate.equals(sleepAwareCurrentDate)) {
+    return input.locale === 'ru' ? 'сегодня' : 'today'
+  }
+  if (targetDate.equals(sleepAwareTomorrow)) {
+    return input.locale === 'ru' ? 'завтра' : 'tomorrow'
+  }
+  if (targetDate.equals(sleepAwareDayAfterTomorrow)) {
+    return input.locale === 'ru' ? 'послезавтра' : 'the day after tomorrow'
+  }
+  if (targetDate.equals(tomorrow)) {
+    return input.locale === 'ru' ? 'завтра' : 'tomorrow'
+  }
+  if (targetDate.equals(dayAfterTomorrow)) {
+    return input.locale === 'ru' ? 'послезавтра' : 'the day after tomorrow'
+  }
+
+  return null
+}
+
+export function formatReminderWhen(input: {
+  locale: BotLocale
+  scheduledForIso: string
+  timezone: string
+  now?: Temporal.Instant
+}): string {
+  const now = (input.now ?? nowInstant()).toZonedDateTimeISO(input.timezone)
+  const target = Temporal.Instant.from(input.scheduledForIso).toZonedDateTimeISO(input.timezone)
+  const relativeDay = relativeDayLabel({
+    locale: input.locale,
+    now,
+    target
+  })
+  const timeText = formatTimeOfDay(input.locale, target.hour, target.minute)
+
+  if (relativeDay) {
+    return input.locale === 'ru' ? `${relativeDay} ${timeText}` : `${relativeDay} ${timeText}`
+  }
+
+  return input.locale === 'ru'
+    ? `${formatScheduledFor(input.locale, input.scheduledForIso, input.timezone)}`
+    : formatScheduledFor(input.locale, input.scheduledForIso, input.timezone)
+}
+
 function deliveryModeLabel(locale: BotLocale, mode: AdHocNotificationDeliveryMode): string {
   if (locale === 'ru') {
     switch (mode) {
@@ -166,49 +244,49 @@ function notificationSummaryText(input: {
   payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>
   members: readonly HouseholdMemberRecord[]
 }): string {
-  const assignee = input.payload.assigneeMemberId
-    ? input.members.find((member) => member.id === input.payload.assigneeMemberId)
-    : null
-  const selectedRecipients =
-    input.payload.deliveryMode === 'dm_selected'
-      ? input.members.filter((member) => input.payload.dmRecipientMemberIds.includes(member.id))
-      : []
-
   if (input.locale === 'ru') {
-    return [
-      'Запланировать напоминание?',
-      '',
-      `Текст напоминания: ${input.payload.renderedNotificationText}`,
-      `Когда: ${formatScheduledFor(input.locale, input.payload.scheduledForIso, input.payload.timezone)}`,
-      `Точность: ${input.payload.timePrecision === 'date_only_defaulted' ? 'время определено ботом' : 'точное время'}`,
-      `Куда: ${deliveryModeLabel(input.locale, input.payload.deliveryMode)}`,
-      assignee ? `Ответственный: ${assignee.displayName}` : null,
-      input.payload.deliveryMode === 'dm_selected' && selectedRecipients.length > 0
-        ? `Получатели: ${selectedRecipients.map((member) => member.displayName).join(', ')}`
-        : null,
-      '',
-      'Подтвердите или измените настройки ниже.'
-    ]
-      .filter(Boolean)
-      .join('\n')
+    const base = `Окей, ${formatReminderWhen({
+      locale: input.locale,
+      scheduledForIso: input.payload.scheduledForIso,
+      timezone: input.payload.timezone
+    })} напомню.`
+    if (input.payload.deliveryMode === 'topic') {
+      return base
+    }
+    if (input.payload.deliveryMode === 'dm_all') {
+      return `${base.slice(0, -1)} И всем в личку отправлю.`
+    }
+
+    const selectedRecipients = input.members.filter((member) =>
+      input.payload.dmRecipientMemberIds.includes(member.id)
+    )
+    const suffix =
+      selectedRecipients.length > 0
+        ? ` И выбранным в личку отправлю: ${selectedRecipients.map((member) => member.displayName).join(', ')}.`
+        : ' И выбранным в личку отправлю.'
+    return `${base.slice(0, -1)}${suffix}`
   }
 
-  return [
-    'Schedule this notification?',
-    '',
-    `Reminder text: ${input.payload.renderedNotificationText}`,
-    `When: ${formatScheduledFor(input.locale, input.payload.scheduledForIso, input.payload.timezone)}`,
-    `Precision: ${input.payload.timePrecision === 'date_only_defaulted' ? 'inferred/defaulted time' : 'exact time'}`,
-    `Delivery: ${deliveryModeLabel(input.locale, input.payload.deliveryMode)}`,
-    assignee ? `Assignee: ${assignee.displayName}` : null,
-    input.payload.deliveryMode === 'dm_selected' && selectedRecipients.length > 0
-      ? `Recipients: ${selectedRecipients.map((member) => member.displayName).join(', ')}`
-      : null,
-    '',
-    'Confirm or adjust below.'
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const base = `Okay, I’ll remind ${formatReminderWhen({
+    locale: input.locale,
+    scheduledForIso: input.payload.scheduledForIso,
+    timezone: input.payload.timezone
+  })}.`
+  if (input.payload.deliveryMode === 'topic') {
+    return base
+  }
+  if (input.payload.deliveryMode === 'dm_all') {
+    return `${base.slice(0, -1)} and DM everyone too.`
+  }
+
+  const selectedRecipients = input.members.filter((member) =>
+    input.payload.dmRecipientMemberIds.includes(member.id)
+  )
+  const suffix =
+    selectedRecipients.length > 0
+      ? ` and DM the selected people too: ${selectedRecipients.map((member) => member.displayName).join(', ')}.`
+      : ' and DM the selected people too.'
+  return `${base.slice(0, -1)}${suffix}`
 }
 
 function notificationDraftReplyMarkup(
@@ -216,6 +294,27 @@ function notificationDraftReplyMarkup(
   payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
   members: readonly HouseholdMemberRecord[]
 ): InlineKeyboardMarkup {
+  if (payload.viewMode === 'compact') {
+    return {
+      inline_keyboard: [
+        [
+          {
+            text: locale === 'ru' ? 'Подтвердить' : 'Confirm',
+            callback_data: `${AD_HOC_NOTIFICATION_CONFIRM_PREFIX}${payload.proposalId}`
+          },
+          {
+            text: locale === 'ru' ? 'Отменить' : 'Cancel',
+            callback_data: `${AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX}${payload.proposalId}`
+          },
+          {
+            text: locale === 'ru' ? 'Еще' : 'More',
+            callback_data: `${AD_HOC_NOTIFICATION_VIEW_PREFIX}${payload.proposalId}:expanded`
+          }
+        ]
+      ]
+    }
+  }
+
   const deliveryButtons = [
     {
       text: `${payload.deliveryMode === 'topic' ? '• ' : ''}${locale === 'ru' ? 'В топик' : 'Topic'}`,
@@ -236,6 +335,10 @@ function notificationDraftReplyMarkup(
       {
         text: locale === 'ru' ? 'Отменить' : 'Cancel',
         callback_data: `${AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX}${payload.proposalId}`
+      },
+      {
+        text: locale === 'ru' ? 'Скрыть' : 'Less',
+        callback_data: `${AD_HOC_NOTIFICATION_VIEW_PREFIX}${payload.proposalId}:compact`
       }
     ],
     deliveryButtons,
@@ -414,6 +517,19 @@ async function loadDraft(
   return pending?.action === AD_HOC_NOTIFICATION_ACTION
     ? (pending.payload as NotificationDraftPayload)
     : null
+}
+
+function draftLocalSchedule(payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>): {
+  date: string
+  hour: number
+  minute: number
+} {
+  const zdt = Temporal.Instant.from(payload.scheduledForIso).toZonedDateTimeISO(payload.timezone)
+  return {
+    date: zdt.toPlainDate().toString(),
+    hour: zdt.hour,
+    minute: zdt.minute
+  }
 }
 
 export function registerAdHocNotifications(options: {
@@ -643,14 +759,138 @@ export function registerAdHocNotifications(options: {
           stage: 'confirm',
           renderedNotificationText,
           scheduledForIso: schedule.scheduledFor!.toString(),
-          timePrecision: schedule.timePrecision!
+          timePrecision: schedule.timePrecision!,
+          viewMode: 'compact'
         }
         await saveDraft(options.promptRepository, ctx, confirmPayload)
         await showDraftConfirmation(ctx, confirmPayload)
         return
       }
 
-      await next()
+      if (!options.reminderInterpreter) {
+        await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+        return
+      }
+
+      const currentSchedule = draftLocalSchedule(existingDraft)
+      const interpretedEdit = await options.reminderInterpreter.interpretDraftEdit({
+        locale: reminderContext.locale,
+        timezone: existingDraft.timezone,
+        localNow: localNowText(existingDraft.timezone),
+        text: messageText,
+        members: interpreterMembers(reminderContext.members),
+        senderMemberId: reminderContext.member.id,
+        currentNotificationText: existingDraft.normalizedNotificationText,
+        currentAssigneeMemberId: existingDraft.assigneeMemberId,
+        currentScheduledLocalDate: currentSchedule.date,
+        currentScheduledHour: currentSchedule.hour,
+        currentScheduledMinute: currentSchedule.minute,
+        currentDeliveryMode: existingDraft.deliveryMode,
+        currentDmRecipientMemberIds: existingDraft.dmRecipientMemberIds,
+        assistantContext: reminderContext.assistantContext,
+        assistantTone: reminderContext.assistantTone
+      })
+
+      if (!interpretedEdit) {
+        await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+        return
+      }
+
+      if (interpretedEdit.decision === 'clarification') {
+        await replyInTopic(
+          ctx,
+          interpretedEdit.clarificationQuestion ??
+            (reminderContext.locale === 'ru'
+              ? 'Что именно поправить в напоминании?'
+              : 'What should I adjust in the reminder?')
+        )
+        return
+      }
+
+      const scheduleChanged =
+        interpretedEdit.resolvedLocalDate !== null ||
+        interpretedEdit.resolvedHour !== null ||
+        interpretedEdit.resolvedMinute !== null ||
+        interpretedEdit.resolutionMode !== null
+
+      let nextSchedule = {
+        scheduledForIso: existingDraft.scheduledForIso,
+        timePrecision: existingDraft.timePrecision
+      }
+
+      if (scheduleChanged) {
+        const parsedSchedule = parseAdHocNotificationSchedule({
+          timezone: existingDraft.timezone,
+          resolvedLocalDate: interpretedEdit.resolvedLocalDate ?? currentSchedule.date,
+          resolvedHour: interpretedEdit.resolvedHour ?? currentSchedule.hour,
+          resolvedMinute: interpretedEdit.resolvedMinute ?? currentSchedule.minute,
+          resolutionMode: interpretedEdit.resolutionMode ?? 'exact'
+        })
+
+        if (parsedSchedule.kind === 'missing_schedule') {
+          await replyInTopic(
+            ctx,
+            reminderContext.locale === 'ru'
+              ? 'Нужны понятные дата или время, чтобы обновить напоминание.'
+              : 'I need a clear date or time to update the reminder.'
+          )
+          return
+        }
+
+        if (parsedSchedule.kind === 'invalid_past') {
+          await replyInTopic(
+            ctx,
+            reminderContext.locale === 'ru'
+              ? 'Это время уже в прошлом. Пришлите будущую дату или время.'
+              : 'That time is already in the past. Send a future date or time.'
+          )
+          return
+        }
+
+        nextSchedule = {
+          scheduledForIso: parsedSchedule.scheduledFor!.toString(),
+          timePrecision: parsedSchedule.timePrecision!
+        }
+      }
+
+      const nextNormalizedNotificationText =
+        interpretedEdit.notificationText ?? existingDraft.normalizedNotificationText
+      const nextOriginalRequestText =
+        interpretedEdit.notificationText !== null ? messageText : existingDraft.originalRequestText
+      const nextAssigneeMemberId = interpretedEdit.assigneeChanged
+        ? interpretedEdit.assigneeMemberId
+        : existingDraft.assigneeMemberId
+      const nextDeliveryMode = interpretedEdit.deliveryMode ?? existingDraft.deliveryMode
+      const nextDmRecipientMemberIds =
+        interpretedEdit.dmRecipientMemberIds ??
+        (nextDeliveryMode === existingDraft.deliveryMode ? existingDraft.dmRecipientMemberIds : [])
+
+      const renderedNotificationText = await renderNotificationText({
+        reminderContext,
+        originalRequestText: nextOriginalRequestText,
+        normalizedNotificationText: nextNormalizedNotificationText,
+        assigneeMemberId: nextAssigneeMemberId
+      })
+      if (!renderedNotificationText) {
+        await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+        return
+      }
+
+      const nextPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
+        ...existingDraft,
+        originalRequestText: nextOriginalRequestText,
+        normalizedNotificationText: nextNormalizedNotificationText,
+        renderedNotificationText,
+        assigneeMemberId: nextAssigneeMemberId,
+        scheduledForIso: nextSchedule.scheduledForIso,
+        timePrecision: nextSchedule.timePrecision,
+        deliveryMode: nextDeliveryMode,
+        dmRecipientMemberIds: nextDmRecipientMemberIds,
+        viewMode: 'compact'
+      }
+
+      await saveDraft(options.promptRepository, ctx, nextPayload)
+      await showDraftConfirmation(ctx, nextPayload)
       return
     }
 
@@ -771,7 +1011,8 @@ export function registerAdHocNotifications(options: {
       scheduledForIso: parsedSchedule.scheduledFor!.toString(),
       timePrecision: parsedSchedule.timePrecision!,
       deliveryMode: 'topic',
-      dmRecipientMemberIds: []
+      dmRecipientMemberIds: [],
+      viewMode: 'compact'
     }
 
     await saveDraft(options.promptRepository, ctx, draft)
@@ -839,16 +1080,11 @@ export function registerAdHocNotifications(options: {
           reminderContext.locale === 'ru' ? 'Напоминание запланировано.' : 'Notification scheduled.'
       })
       await ctx.editMessageText(
-        [
-          reminderContext.locale === 'ru'
-            ? `Напоминание запланировано: ${result.notification.notificationText}`
-            : `Notification scheduled: ${result.notification.notificationText}`,
-          formatScheduledFor(
-            reminderContext.locale,
-            result.notification.scheduledFor.toString(),
-            result.notification.timezone
-          )
-        ].join('\n'),
+        notificationSummaryText({
+          locale: reminderContext.locale,
+          payload,
+          members: reminderContext.members
+        }),
         {
           reply_markup: buildSavedNotificationReplyMarkup(
             reminderContext.locale,
@@ -898,7 +1134,8 @@ export function registerAdHocNotifications(options: {
       const nextPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
         ...payload,
         deliveryMode: mode,
-        dmRecipientMemberIds: mode === 'dm_selected' ? payload.dmRecipientMemberIds : []
+        dmRecipientMemberIds: mode === 'dm_selected' ? payload.dmRecipientMemberIds : [],
+        viewMode: 'expanded'
       }
       await refreshConfirmationMessage(ctx, nextPayload)
       await ctx.answerCallbackQuery()
@@ -930,7 +1167,29 @@ export function registerAdHocNotifications(options: {
 
       await refreshConfirmationMessage(ctx, {
         ...payload,
-        dmRecipientMemberIds: [...selected]
+        dmRecipientMemberIds: [...selected],
+        viewMode: 'expanded'
+      })
+      await ctx.answerCallbackQuery()
+      return
+    }
+
+    if (data.startsWith(AD_HOC_NOTIFICATION_VIEW_PREFIX)) {
+      const [proposalId, viewMode] = data.slice(AD_HOC_NOTIFICATION_VIEW_PREFIX.length).split(':')
+      const payload = await loadDraft(options.promptRepository, ctx)
+      if (
+        !payload ||
+        payload.stage !== 'confirm' ||
+        payload.proposalId !== proposalId ||
+        (viewMode !== 'compact' && viewMode !== 'expanded')
+      ) {
+        await next()
+        return
+      }
+
+      await refreshConfirmationMessage(ctx, {
+        ...payload,
+        viewMode
       })
       await ctx.answerCallbackQuery()
       return
