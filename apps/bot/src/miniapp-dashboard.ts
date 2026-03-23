@@ -1,4 +1,8 @@
-import type { FinanceCommandService, HouseholdOnboardingService } from '@household/application'
+import type {
+  AdHocNotificationService,
+  FinanceCommandService,
+  HouseholdOnboardingService
+} from '@household/application'
 import { Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 
@@ -14,6 +18,7 @@ export function createMiniAppDashboardHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
   logger?: Logger
 }): {
@@ -74,6 +79,10 @@ export function createMiniAppDashboardHandler(options: {
         const dashboard = await options
           .financeServiceForHousehold(session.member.householdId)
           .generateDashboard()
+        const notifications = await options.adHocNotificationService.listUpcomingNotifications({
+          householdId: session.member.householdId,
+          viewerMemberId: session.member.id
+        })
         if (!dashboard) {
           return miniAppJsonResponse(
             { ok: false, error: 'No billing cycle available' },
@@ -178,6 +187,21 @@ export function createMiniAppDashboardHandler(options: {
                         })) ?? []
                     }
                   : {})
+              })),
+              notifications: notifications.map((notification) => ({
+                id: notification.id,
+                summaryText: notification.notificationText,
+                scheduledFor: notification.scheduledFor.toString(),
+                status: notification.status,
+                deliveryMode: notification.deliveryMode,
+                dmRecipientMemberIds: notification.dmRecipientMemberIds,
+                dmRecipientDisplayNames: notification.dmRecipientDisplayNames,
+                creatorMemberId: notification.creatorMemberId,
+                creatorDisplayName: notification.creatorDisplayName,
+                assigneeMemberId: notification.assigneeMemberId,
+                assigneeDisplayName: notification.assigneeDisplayName,
+                canCancel: notification.canCancel,
+                canEdit: notification.canEdit
               }))
             }
           },

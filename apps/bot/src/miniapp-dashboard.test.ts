@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  type AdHocNotificationService,
   createFinanceCommandService,
   createHouseholdOnboardingService
 } from '@household/application'
@@ -314,6 +315,23 @@ function onboardingRepository(): HouseholdConfigurationRepository {
   }
 }
 
+function notificationService(
+  items: Awaited<ReturnType<AdHocNotificationService['listUpcomingNotifications']>> = []
+): AdHocNotificationService {
+  return {
+    scheduleNotification: async () => {
+      throw new Error('not implemented')
+    },
+    listUpcomingNotifications: async () => items,
+    cancelNotification: async () => ({ status: 'not_found' }),
+    updateNotification: async () => ({ status: 'not_found' }),
+    listDueNotifications: async () => [],
+    claimDueNotification: async () => false,
+    releaseDueNotification: async () => {},
+    markNotificationSent: async () => null
+  }
+}
+
 describe('createMiniAppDashboardHandler', () => {
   test('returns a dashboard for an authenticated household member', async () => {
     const authDate = Math.floor(Date.now() / 1000)
@@ -344,10 +362,28 @@ describe('createMiniAppDashboardHandler', () => {
         isAdmin: true
       }
     ]
+    const adHocNotificationService = notificationService([
+      {
+        id: 'notification-1',
+        creatorMemberId: 'member-1',
+        creatorDisplayName: 'Stan',
+        assigneeMemberId: null,
+        assigneeDisplayName: null,
+        notificationText: 'Stan, breakfast time.',
+        scheduledFor: instantFromIso('2026-03-25T06:00:00.000Z'),
+        deliveryMode: 'topic',
+        dmRecipientMemberIds: [],
+        dmRecipientDisplayNames: [],
+        status: 'scheduled',
+        canCancel: true,
+        canEdit: true
+      }
+    ])
     const dashboard = createMiniAppDashboardHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       financeServiceForHousehold: () => financeService,
+      adHocNotificationService,
       onboardingService: createHouseholdOnboardingService({
         repository: householdRepository
       })
@@ -414,6 +450,17 @@ describe('createMiniAppDashboardHandler', () => {
             paymentKind: 'rent',
             currency: 'GEL',
             displayCurrency: 'GEL'
+          }
+        ],
+        notifications: [
+          {
+            id: 'notification-1',
+            summaryText: 'Stan, breakfast time.',
+            deliveryMode: 'topic',
+            dmRecipientMemberIds: [],
+            creatorDisplayName: 'Stan',
+            canCancel: true,
+            canEdit: true
           }
         ]
       }
@@ -550,6 +597,7 @@ describe('createMiniAppDashboardHandler', () => {
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       financeServiceForHousehold: () => financeService,
+      adHocNotificationService: notificationService(),
       onboardingService: createHouseholdOnboardingService({
         repository: householdRepository
       })
@@ -644,6 +692,7 @@ describe('createMiniAppDashboardHandler', () => {
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       financeServiceForHousehold: () => financeService,
+      adHocNotificationService: notificationService(),
       onboardingService: createHouseholdOnboardingService({
         repository: householdRepository
       })
@@ -706,6 +755,7 @@ describe('createMiniAppDashboardHandler', () => {
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       financeServiceForHousehold: () => financeService,
+      adHocNotificationService: notificationService(),
       onboardingService: createHouseholdOnboardingService({
         repository: householdRepository
       })

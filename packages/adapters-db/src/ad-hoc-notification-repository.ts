@@ -181,6 +181,38 @@ export function createDbAdHocNotificationRepository(databaseUrl: string): {
       return rows[0] ? mapNotification(rows[0]) : null
     },
 
+    async updateNotification(input) {
+      const updates: Record<string, unknown> = {
+        updatedAt: instantToDate(input.updatedAt)
+      }
+
+      if (input.scheduledFor) {
+        updates.scheduledFor = instantToDate(input.scheduledFor)
+      }
+      if (input.timePrecision) {
+        updates.timePrecision = input.timePrecision
+      }
+      if (input.deliveryMode) {
+        updates.deliveryMode = input.deliveryMode
+      }
+      if (input.dmRecipientMemberIds) {
+        updates.dmRecipientMemberIds = input.dmRecipientMemberIds
+      }
+
+      const rows = await db
+        .update(schema.adHocNotifications)
+        .set(updates)
+        .where(
+          and(
+            eq(schema.adHocNotifications.id, input.notificationId),
+            eq(schema.adHocNotifications.status, 'scheduled')
+          )
+        )
+        .returning(notificationSelect())
+
+      return rows[0] ? mapNotification(rows[0]) : null
+    },
+
     async listDueNotifications(asOf) {
       const rows = await db
         .select(notificationSelect())

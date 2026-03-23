@@ -316,6 +316,9 @@ describe('registerAdHocNotifications', () => {
       async cancelNotification() {
         return { status: 'not_found' }
       },
+      async updateNotification() {
+        return { status: 'not_found' }
+      },
       async listDueNotifications() {
         return []
       },
@@ -415,6 +418,9 @@ describe('registerAdHocNotifications', () => {
         async cancelNotification() {
           return { status: 'not_found' }
         },
+        async updateNotification() {
+          return { status: 'not_found' }
+        },
         async listDueNotifications() {
           return []
         },
@@ -495,6 +501,9 @@ describe('registerAdHocNotifications', () => {
           return []
         },
         async cancelNotification() {
+          return { status: 'not_found' }
+        },
+        async updateNotification() {
           return { status: 'not_found' }
         },
         async listDueNotifications() {

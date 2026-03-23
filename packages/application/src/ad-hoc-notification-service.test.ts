@@ -79,6 +79,31 @@ class NotificationRepositoryStub implements AdHocNotificationRepository {
     return next
   }
 
+  async updateNotification(input: {
+    notificationId: string
+    scheduledFor?: Temporal.Instant
+    timePrecision?: AdHocNotificationRecord['timePrecision']
+    deliveryMode?: AdHocNotificationRecord['deliveryMode']
+    dmRecipientMemberIds?: readonly string[]
+    updatedAt: Temporal.Instant
+  }): Promise<AdHocNotificationRecord | null> {
+    const record = this.notifications.get(input.notificationId)
+    if (!record || record.status !== 'scheduled') {
+      return null
+    }
+
+    const next = {
+      ...record,
+      scheduledFor: input.scheduledFor ?? record.scheduledFor,
+      timePrecision: input.timePrecision ?? record.timePrecision,
+      deliveryMode: input.deliveryMode ?? record.deliveryMode,
+      dmRecipientMemberIds: input.dmRecipientMemberIds ?? record.dmRecipientMemberIds,
+      updatedAt: input.updatedAt
+    }
+    this.notifications.set(input.notificationId, next)
+    return next
+  }
+
   async listDueNotifications(asOf: Temporal.Instant): Promise<readonly AdHocNotificationRecord[]> {
     return [...this.notifications.values()].filter(
       (notification) =>
@@ -263,6 +288,81 @@ describe('createAdHocNotificationService', () => {
     expect(result.status).toBe('cancelled')
     if (result.status === 'cancelled') {
       expect(result.notification.cancelledByMemberId).toBe('admin')
+    }
+  })
+
+  test('lists upcoming notifications for all household members with permission flags', async () => {
+    const repository = new NotificationRepositoryStub()
+    const creator = member({ id: 'creator' })
+    const viewer = member({ id: 'viewer' })
+    const service = createAdHocNotificationService({
+      repository,
+      householdConfigurationRepository: createHouseholdRepository([creator, viewer])
+    })
+
+    await repository.createNotification({
+      householdId: 'household-1',
+      creatorMemberId: 'creator',
+      originalRequestText: 'remind tomorrow',
+      notificationText: 'call landlord',
+      timezone: 'Asia/Tbilisi',
+      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      timePrecision: 'date_only_defaulted',
+      deliveryMode: 'topic',
+      friendlyTagAssignee: false
+    })
+
+    const items = await service.listUpcomingNotifications({
+      householdId: 'household-1',
+      viewerMemberId: 'viewer',
+      asOf: Temporal.Instant.from('2026-03-23T09:00:00Z')
+    })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      creatorDisplayName: 'creator',
+      canCancel: false,
+      canEdit: false
+    })
+  })
+
+  test('allows creator to reschedule and update delivery', async () => {
+    const repository = new NotificationRepositoryStub()
+    const creator = member({ id: 'creator' })
+    const alice = member({ id: 'alice' })
+    const bob = member({ id: 'bob' })
+    const service = createAdHocNotificationService({
+      repository,
+      householdConfigurationRepository: createHouseholdRepository([creator, alice, bob])
+    })
+
+    const created = await repository.createNotification({
+      householdId: 'household-1',
+      creatorMemberId: 'creator',
+      originalRequestText: 'remind tomorrow',
+      notificationText: 'call landlord',
+      timezone: 'Asia/Tbilisi',
+      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      timePrecision: 'date_only_defaulted',
+      deliveryMode: 'topic',
+      friendlyTagAssignee: false
+    })
+
+    const result = await service.updateNotification({
+      notificationId: created.id,
+      viewerMemberId: 'creator',
+      scheduledFor: Temporal.Instant.from('2026-03-24T09:00:00Z'),
+      timePrecision: 'exact',
+      deliveryMode: 'dm_selected',
+      dmRecipientMemberIds: ['alice', 'bob'],
+      asOf: Temporal.Instant.from('2026-03-23T09:00:00Z')
+    })
+
+    expect(result.status).toBe('updated')
+    if (result.status === 'updated') {
+      expect(result.notification.scheduledFor.toString()).toBe('2026-03-24T09:00:00Z')
+      expect(result.notification.deliveryMode).toBe('dm_selected')
+      expect(result.notification.dmRecipientMemberIds).toEqual(['alice', 'bob'])
     }
   })
 })

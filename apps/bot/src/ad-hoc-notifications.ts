@@ -217,26 +217,53 @@ export function formatReminderWhen(input: {
     : formatScheduledFor(input.locale, input.scheduledForIso, input.timezone)
 }
 
-function deliveryModeLabel(locale: BotLocale, mode: AdHocNotificationDeliveryMode): string {
-  if (locale === 'ru') {
-    switch (mode) {
-      case 'topic':
-        return 'в этот топик'
-      case 'dm_all':
-        return 'всем в личку'
-      case 'dm_selected':
-        return 'выбранным в личку'
+function listedNotificationLine(input: {
+  locale: BotLocale
+  timezone: string
+  item: Awaited<ReturnType<AdHocNotificationService['listUpcomingNotifications']>>[number]
+}): string {
+  const when = formatReminderWhen({
+    locale: input.locale,
+    scheduledForIso: input.item.scheduledFor.toString(),
+    timezone: input.timezone
+  })
+  const details: string[] = []
+
+  if (input.item.assigneeDisplayName) {
+    details.push(
+      input.locale === 'ru'
+        ? `для ${input.item.assigneeDisplayName}`
+        : `for ${input.item.assigneeDisplayName}`
+    )
+  }
+
+  if (input.item.deliveryMode !== 'topic') {
+    if (input.item.deliveryMode === 'dm_all') {
+      details.push(input.locale === 'ru' ? 'всем в личку' : 'DM to everyone')
+    } else {
+      const names = input.item.dmRecipientDisplayNames.join(', ')
+      details.push(
+        input.locale === 'ru'
+          ? names.length > 0
+            ? `в личку: ${names}`
+            : 'в выбранные лички'
+          : names.length > 0
+            ? `DM: ${names}`
+            : 'DM selected members'
+      )
     }
   }
 
-  switch (mode) {
-    case 'topic':
-      return 'this topic'
-    case 'dm_all':
-      return 'DM all members'
-    case 'dm_selected':
-      return 'DM selected members'
+  if (input.item.creatorDisplayName !== input.item.assigneeDisplayName) {
+    details.push(
+      input.locale === 'ru'
+        ? `создал ${input.item.creatorDisplayName}`
+        : `created by ${input.item.creatorDisplayName}`
+    )
   }
+
+  const suffix = details.length > 0 ? `\n${details.join(' · ')}` : ''
+  return `${when}\n${input.item.notificationText}${suffix}`
 }
 
 function notificationSummaryText(input: {
@@ -635,36 +662,42 @@ export function registerAdHocNotifications(options: {
       await replyInTopic(
         ctx,
         locale === 'ru'
-          ? 'Пока нет будущих напоминаний, которые вы можете отменить.'
-          : 'There are no upcoming notifications you can cancel yet.'
+          ? 'Пока будущих напоминаний нет.'
+          : 'There are no upcoming notifications yet.'
       )
       return
     }
 
-    const lines = items.slice(0, 10).map((item, index) => {
-      const when = formatScheduledFor(
-        locale,
-        item.scheduledFor.toString(),
-        reminderContext.timezone
-      )
-      return `${index + 1}. ${item.notificationText}\n${when}\n${deliveryModeLabel(locale, item.deliveryMode)}`
-    })
+    const listedItems = items.slice(0, 10).map((item, index) => ({
+      item,
+      index
+    }))
+    const lines = listedItems.map(
+      ({ item, index }) =>
+        `${index + 1}. ${listedNotificationLine({
+          locale,
+          timezone: reminderContext.timezone,
+          item
+        })}`
+    )
 
     const keyboard: InlineKeyboardMarkup = {
-      inline_keyboard: items.slice(0, 10).map((item, index) => [
-        {
-          text: locale === 'ru' ? `Отменить ${index + 1}` : `Cancel ${index + 1}`,
-          callback_data: `${AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX}${item.id}`
-        }
-      ])
+      inline_keyboard: listedItems
+        .filter(({ item }) => item.canCancel)
+        .map(({ item, index }) => [
+          {
+            text: locale === 'ru' ? `Отменить ${index + 1}` : `Cancel ${index + 1}`,
+            callback_data: `${AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX}${item.id}`
+          }
+        ])
     }
 
     await replyInTopic(
       ctx,
       [locale === 'ru' ? 'Ближайшие напоминания:' : 'Upcoming notifications:', '', ...lines].join(
-        '\n'
+        '\n\n'
       ),
-      keyboard
+      keyboard.inline_keyboard.length > 0 ? keyboard : undefined
     )
   })
 

@@ -53,6 +53,15 @@ export interface CancelAdHocNotificationInput {
   cancelledAt: Instant
 }
 
+export interface UpdateAdHocNotificationInput {
+  notificationId: string
+  scheduledFor?: Instant
+  timePrecision?: AdHocNotificationTimePrecision
+  deliveryMode?: AdHocNotificationDeliveryMode
+  dmRecipientMemberIds?: readonly string[]
+  updatedAt: Instant
+}
+
 export interface ClaimAdHocNotificationDeliveryResult {
   notificationId: string
   claimed: boolean
@@ -66,6 +75,7 @@ export interface AdHocNotificationRepository {
     asOf: Instant
   ): Promise<readonly AdHocNotificationRecord[]>
   cancelNotification(input: CancelAdHocNotificationInput): Promise<AdHocNotificationRecord | null>
+  updateNotification(input: UpdateAdHocNotificationInput): Promise<AdHocNotificationRecord | null>
   listDueNotifications(asOf: Instant): Promise<readonly AdHocNotificationRecord[]>
   markNotificationSent(
     notificationId: string,

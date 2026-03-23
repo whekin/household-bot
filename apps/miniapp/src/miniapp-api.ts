@@ -187,6 +187,21 @@ export interface MiniAppDashboard {
     }[]
     payerMemberId?: string
   }[]
+  notifications: {
+    id: string
+    summaryText: string
+    scheduledFor: string
+    status: 'scheduled' | 'sent' | 'cancelled'
+    deliveryMode: 'topic' | 'dm_all' | 'dm_selected'
+    dmRecipientMemberIds: readonly string[]
+    dmRecipientDisplayNames: readonly string[]
+    creatorMemberId: string
+    creatorDisplayName: string
+    assigneeMemberId: string | null
+    assigneeDisplayName: string | null
+    canCancel: boolean
+    canEdit: boolean
+  }[]
 }
 
 export interface MiniAppAdminSettingsPayload {
@@ -337,6 +352,64 @@ export async function fetchMiniAppDashboard(initData: string): Promise<MiniAppDa
   }
 
   return payload.dashboard
+}
+
+export async function updateMiniAppNotification(
+  initData: string,
+  input: {
+    notificationId: string
+    scheduledLocal?: string
+    timezone?: string
+    deliveryMode?: 'topic' | 'dm_all' | 'dm_selected'
+    dmRecipientMemberIds?: readonly string[]
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/notifications/update`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to update notification')
+  }
+}
+
+export async function cancelMiniAppNotification(
+  initData: string,
+  notificationId: string
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/notifications/cancel`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      notificationId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to cancel notification')
+  }
 }
 
 export async function fetchMiniAppPendingMembers(

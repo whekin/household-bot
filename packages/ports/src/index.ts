@@ -17,7 +17,8 @@ export {
   type AdHocNotificationTimePrecision,
   type CancelAdHocNotificationInput,
   type ClaimAdHocNotificationDeliveryResult,
-  type CreateAdHocNotificationInput
+  type CreateAdHocNotificationInput,
+  type UpdateAdHocNotificationInput
 } from './notifications'
 export type {
   ClaimProcessedBotMessageInput,

@@ -6,7 +6,8 @@ export {
   type AdHocNotificationSummary,
   type CancelAdHocNotificationResult,
   type DeliverableAdHocNotification,
-  type ScheduleAdHocNotificationResult
+  type ScheduleAdHocNotificationResult,
+  type UpdateAdHocNotificationResult
 } from './ad-hoc-notification-service'
 export {
   createAnonymousFeedbackService,

@@ -24,11 +24,16 @@ export interface AdHocNotificationSummary {
   id: string
   notificationText: string
   scheduledFor: Instant
+  status: 'scheduled' | 'sent' | 'cancelled'
   deliveryMode: AdHocNotificationDeliveryMode
-  friendlyTagAssignee: boolean
+  dmRecipientMemberIds: readonly string[]
+  dmRecipientDisplayNames: readonly string[]
   creatorDisplayName: string
+  creatorMemberId: string
   assigneeDisplayName: string | null
+  assigneeMemberId: string | null
   canCancel: boolean
+  canEdit: boolean
 }
 
 export interface DeliverableAdHocNotification {
@@ -63,6 +68,19 @@ export type CancelAdHocNotificationResult =
       status: 'not_found' | 'forbidden' | 'already_handled' | 'past_due'
     }
 
+export type UpdateAdHocNotificationResult =
+  | {
+      status: 'updated'
+      notification: AdHocNotificationRecord
+    }
+  | {
+      status: 'not_found' | 'forbidden' | 'already_handled' | 'past_due'
+    }
+  | {
+      status: 'invalid'
+      reason: 'delivery_mode_invalid' | 'dm_recipients_missing' | 'scheduled_for_past'
+    }
+
 export interface AdHocNotificationService {
   scheduleNotification(input: {
     householdId: string
@@ -89,6 +107,15 @@ export interface AdHocNotificationService {
     viewerMemberId: string
     asOf?: Instant
   }): Promise<CancelAdHocNotificationResult>
+  updateNotification(input: {
+    notificationId: string
+    viewerMemberId: string
+    scheduledFor?: Instant
+    timePrecision?: AdHocNotificationTimePrecision
+    deliveryMode?: AdHocNotificationDeliveryMode
+    dmRecipientMemberIds?: readonly string[]
+    asOf?: Instant
+  }): Promise<UpdateAdHocNotificationResult>
   listDueNotifications(asOf?: Instant): Promise<readonly DeliverableAdHocNotification[]>
   claimDueNotification(notificationId: string): Promise<boolean>
   releaseDueNotification(notificationId: string): Promise<void>
@@ -123,6 +150,13 @@ function canCancelNotification(
   actor: NotificationActor
 ): boolean {
   return actor.isAdmin || notification.creatorMemberId === actor.memberId
+}
+
+function canEditNotification(
+  notification: AdHocNotificationRecord,
+  actor: NotificationActor
+): boolean {
+  return canCancelNotification(notification, actor)
 }
 
 export function createAdHocNotificationService(input: {
@@ -256,23 +290,27 @@ export function createAdHocNotificationService(input: {
         asOf
       )
 
-      return notifications
-        .filter((notification) => actor.isAdmin || notification.creatorMemberId === actor.memberId)
-        .map((notification) => ({
-          id: notification.id,
-          notificationText: notification.notificationText,
-          scheduledFor: notification.scheduledFor,
-          deliveryMode: notification.deliveryMode,
-          friendlyTagAssignee: notification.friendlyTagAssignee,
-          creatorDisplayName:
-            memberMap.get(notification.creatorMemberId)?.displayName ??
-            notification.creatorMemberId,
-          assigneeDisplayName: notification.assigneeMemberId
-            ? (memberMap.get(notification.assigneeMemberId)?.displayName ??
-              notification.assigneeMemberId)
-            : null,
-          canCancel: canCancelNotification(notification, actor)
-        }))
+      return notifications.map((notification) => ({
+        id: notification.id,
+        notificationText: notification.notificationText,
+        scheduledFor: notification.scheduledFor,
+        status: notification.status,
+        deliveryMode: notification.deliveryMode,
+        dmRecipientMemberIds: notification.dmRecipientMemberIds,
+        dmRecipientDisplayNames: notification.dmRecipientMemberIds.map(
+          (memberId) => memberMap.get(memberId)?.displayName ?? memberId
+        ),
+        creatorDisplayName:
+          memberMap.get(notification.creatorMemberId)?.displayName ?? notification.creatorMemberId,
+        creatorMemberId: notification.creatorMemberId,
+        assigneeDisplayName: notification.assigneeMemberId
+          ? (memberMap.get(notification.assigneeMemberId)?.displayName ??
+            notification.assigneeMemberId)
+          : null,
+        assigneeMemberId: notification.assigneeMemberId,
+        canCancel: canCancelNotification(notification, actor),
+        canEdit: canEditNotification(notification, actor)
+      }))
     },
 
     async cancelNotification({ notificationId, viewerMemberId, asOf = nowInstant() }) {
@@ -317,6 +355,109 @@ export function createAdHocNotificationService(input: {
       return {
         status: 'cancelled',
         notification: cancelled
+      }
+    },
+
+    async updateNotification({
+      notificationId,
+      viewerMemberId,
+      scheduledFor,
+      timePrecision,
+      deliveryMode,
+      dmRecipientMemberIds,
+      asOf = nowInstant()
+    }) {
+      const notification = await input.repository.getNotificationById(notificationId)
+      if (!notification) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (notification.status !== 'scheduled') {
+        return {
+          status: 'already_handled'
+        }
+      }
+
+      if (notification.scheduledFor.epochMilliseconds <= asOf.epochMilliseconds) {
+        return {
+          status: 'past_due'
+        }
+      }
+
+      const actor = await resolveActor(notification.householdId, viewerMemberId)
+      if (!actor || !canEditNotification(notification, actor)) {
+        return {
+          status: 'forbidden'
+        }
+      }
+
+      const memberMap = await listMemberMap(
+        input.householdConfigurationRepository,
+        notification.householdId
+      )
+
+      if (scheduledFor && scheduledFor.epochMilliseconds <= asOf.epochMilliseconds) {
+        return {
+          status: 'invalid',
+          reason: 'scheduled_for_past'
+        }
+      }
+
+      let nextDeliveryMode = deliveryMode ?? notification.deliveryMode
+      let nextDmRecipientMemberIds = dmRecipientMemberIds ?? notification.dmRecipientMemberIds
+
+      switch (nextDeliveryMode) {
+        case 'topic':
+          nextDmRecipientMemberIds = []
+          break
+        case 'dm_all':
+          nextDmRecipientMemberIds = [...memberMap.values()]
+            .filter(isActiveMember)
+            .map((member) => member.id)
+          break
+        case 'dm_selected': {
+          const selected = nextDmRecipientMemberIds
+            .map((memberId) => memberMap.get(memberId))
+            .filter((member): member is HouseholdMemberRecord => Boolean(member))
+            .filter(isActiveMember)
+
+          if (selected.length === 0) {
+            return {
+              status: 'invalid',
+              reason: 'dm_recipients_missing'
+            }
+          }
+
+          nextDmRecipientMemberIds = selected.map((member) => member.id)
+          break
+        }
+        default:
+          return {
+            status: 'invalid',
+            reason: 'delivery_mode_invalid'
+          }
+      }
+
+      const updated = await input.repository.updateNotification({
+        notificationId,
+        ...(scheduledFor ? { scheduledFor } : {}),
+        ...(timePrecision ? { timePrecision } : {}),
+        deliveryMode: nextDeliveryMode,
+        dmRecipientMemberIds: nextDmRecipientMemberIds,
+        updatedAt: asOf
+      })
+
+      if (!updated) {
+        return {
+          status: 'already_handled'
+        }
+      }
+
+      return {
+        status: 'updated',
+        notification: updated
       }
     },
 

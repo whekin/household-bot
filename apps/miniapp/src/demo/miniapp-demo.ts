@@ -450,7 +450,39 @@ function createDashboard(state: {
     rentFxEffectiveDate: '2026-03-17',
     members: state.members,
     paymentPeriods,
-    ledger: state.ledger ?? baseLedger()
+    ledger: state.ledger ?? baseLedger(),
+    notifications: [
+      {
+        id: 'notification-breakfast',
+        summaryText: 'Stas, breakfast is waiting for your attention.',
+        scheduledFor: '2026-03-25T05:00:00.000Z',
+        status: 'scheduled',
+        deliveryMode: 'topic',
+        dmRecipientMemberIds: [],
+        dmRecipientDisplayNames: [],
+        creatorMemberId: 'demo-member',
+        creatorDisplayName: 'Stas',
+        assigneeMemberId: 'demo-member',
+        assigneeDisplayName: 'Stas',
+        canCancel: true,
+        canEdit: true
+      },
+      {
+        id: 'notification-call-georgiy',
+        summaryText: 'Dima, time to check whether Georgiy has called back.',
+        scheduledFor: '2026-03-25T16:00:00.000Z',
+        status: 'scheduled',
+        deliveryMode: 'dm_selected',
+        dmRecipientMemberIds: ['member-chorb', 'demo-member'],
+        dmRecipientDisplayNames: ['Dima', 'Stas'],
+        creatorMemberId: 'member-chorb',
+        creatorDisplayName: 'Chorbanaut',
+        assigneeMemberId: null,
+        assigneeDisplayName: null,
+        canCancel: true,
+        canEdit: true
+      }
+    ]
   }
 }
 

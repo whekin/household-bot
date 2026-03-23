@@ -5,7 +5,7 @@ import { cn } from '../../lib/cn'
 type InputProps = {
   value?: string
   placeholder?: string
-  type?: 'text' | 'number' | 'email'
+  type?: 'text' | 'number' | 'email' | 'datetime-local'
   min?: string | number
   max?: string | number
   step?: string | number

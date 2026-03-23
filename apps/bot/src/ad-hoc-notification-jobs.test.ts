@@ -63,6 +63,7 @@ describe('createAdHocNotificationJobsHandler', () => {
       },
       listUpcomingNotifications: async () => [],
       cancelNotification: async () => ({ status: 'not_found' }),
+      updateNotification: async () => ({ status: 'not_found' }),
       listDueNotifications: async () => [dueNotification()],
       claimDueNotification: async () => true,
       releaseDueNotification: async () => {},

@@ -23,7 +23,12 @@ import {
   nextCyclePeriod,
   parseCalendarDate
 } from '../lib/dates'
-import { submitMiniAppUtilityBill, addMiniAppPayment } from '../miniapp-api'
+import {
+  submitMiniAppUtilityBill,
+  addMiniAppPayment,
+  updateMiniAppNotification,
+  cancelMiniAppNotification
+} from '../miniapp-api'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 function sumMemberPaymentsByKind(
@@ -76,6 +81,117 @@ function paymentRemainingMinor(
   return remainingMinor > 0n ? remainingMinor : 0n
 }
 
+function zonedDateTimeParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
+
+  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? '0')
+
+  return {
+    year: read('year'),
+    month: read('month'),
+    day: read('day'),
+    hour: read('hour'),
+    minute: read('minute')
+  }
+}
+
+function dateKey(input: { year: number; month: number; day: number }) {
+  return [
+    String(input.year).padStart(4, '0'),
+    String(input.month).padStart(2, '0'),
+    String(input.day).padStart(2, '0')
+  ].join('-')
+}
+
+function shiftDateKey(currentKey: string, days: number): string {
+  const [yearText = '1970', monthText = '01', dayText = '01'] = currentKey.split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  const shifted = new Date(Date.UTC(year, month - 1, day + days))
+  return [
+    shifted.getUTCFullYear(),
+    String(shifted.getUTCMonth() + 1).padStart(2, '0'),
+    String(shifted.getUTCDate()).padStart(2, '0')
+  ].join('-')
+}
+
+function formatNotificationTimeOfDay(locale: 'en' | 'ru', hour: number, minute: number) {
+  const exact = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  if (locale !== 'ru' || minute !== 0) {
+    return locale === 'ru' ? `в ${exact}` : `at ${exact}`
+  }
+
+  if (hour >= 5 && hour <= 11) return `в ${hour} утра`
+  if (hour >= 12 && hour <= 16) return hour === 12 ? 'в 12 дня' : `в ${hour} дня`
+  if (hour >= 17 && hour <= 23) return `в ${hour > 12 ? hour - 12 : hour} вечера`
+  return `в ${hour} ночи`
+}
+
+function formatNotificationWhen(
+  locale: 'en' | 'ru',
+  scheduledForIso: string,
+  timeZone: string
+): string {
+  const now = zonedDateTimeParts(new Date(), timeZone)
+  const target = zonedDateTimeParts(new Date(scheduledForIso), timeZone)
+  const nowKey = dateKey(now)
+  const sleepAwareBaseKey = now.hour <= 4 ? shiftDateKey(nowKey, -1) : nowKey
+  const targetKey = dateKey(target)
+  const timeText = formatNotificationTimeOfDay(locale, target.hour, target.minute)
+
+  if (targetKey === sleepAwareBaseKey) {
+    return locale === 'ru' ? `Сегодня ${timeText}` : `Today ${timeText}`
+  }
+  if (targetKey === shiftDateKey(sleepAwareBaseKey, 1)) {
+    return locale === 'ru' ? `Завтра ${timeText}` : `Tomorrow ${timeText}`
+  }
+  if (targetKey === shiftDateKey(sleepAwareBaseKey, 2)) {
+    return locale === 'ru' ? `Послезавтра ${timeText}` : `The day after tomorrow ${timeText}`
+  }
+
+  const dateText =
+    locale === 'ru'
+      ? `${String(target.day).padStart(2, '0')}.${String(target.month).padStart(2, '0')}.${target.year}`
+      : `${target.year}-${String(target.month).padStart(2, '0')}-${String(target.day).padStart(2, '0')}`
+
+  return `${dateText} ${timeText}`
+}
+
+function formatNotificationDelivery(
+  locale: 'en' | 'ru',
+  notification: MiniAppDashboard['notifications'][number]
+) {
+  if (notification.deliveryMode === 'topic') {
+    return locale === 'ru' ? 'В этот топик' : 'This topic'
+  }
+
+  if (notification.deliveryMode === 'dm_all') {
+    return locale === 'ru' ? 'Всем в личку' : 'DM to everyone'
+  }
+
+  return locale === 'ru'
+    ? notification.dmRecipientDisplayNames.length > 0
+      ? `В личку: ${notification.dmRecipientDisplayNames.join(', ')}`
+      : 'В выбранные лички'
+    : notification.dmRecipientDisplayNames.length > 0
+      ? `DM: ${notification.dmRecipientDisplayNames.join(', ')}`
+      : 'DM selected members'
+}
+
+function notificationInputValue(iso: string, timeZone: string) {
+  const target = zonedDateTimeParts(new Date(iso), timeZone)
+  return `${dateKey(target)}T${String(target.hour).padStart(2, '0')}:${String(target.minute).padStart(2, '0')}`
+}
+
 export default function HomeRoute() {
   const navigate = useNavigate()
   const { readySession, initData, refreshHouseholdData } = useSession()
@@ -104,11 +220,29 @@ export default function HomeRoute() {
   )
   const [quickPaymentAmount, setQuickPaymentAmount] = createSignal('')
   const [submittingPayment, setSubmittingPayment] = createSignal(false)
+  const [notificationEditorOpen, setNotificationEditorOpen] = createSignal(false)
+  const [editingNotificationId, setEditingNotificationId] = createSignal<string | null>(null)
+  const [notificationScheduleDraft, setNotificationScheduleDraft] = createSignal('')
+  const [notificationDeliveryModeDraft, setNotificationDeliveryModeDraft] = createSignal<
+    'topic' | 'dm_all' | 'dm_selected'
+  >('topic')
+  const [notificationRecipientsDraft, setNotificationRecipientsDraft] = createSignal<string[]>([])
+  const [savingNotification, setSavingNotification] = createSignal(false)
+  const [cancellingNotificationId, setCancellingNotificationId] = createSignal<string | null>(null)
   const [toastState, setToastState] = createSignal<{
     visible: boolean
     message: string
     type: 'success' | 'info' | 'error'
   }>({ visible: false, message: '', type: 'info' })
+
+  const selectedNotification = createMemo(
+    () =>
+      dashboard()?.notifications.find(
+        (notification) => notification.id === editingNotificationId()
+      ) ?? null
+  )
+
+  const activeHouseholdMembers = createMemo(() => dashboard()?.members ?? [])
 
   async function copyText(value: string): Promise<boolean> {
     try {
@@ -328,6 +462,94 @@ export default function HomeRoute() {
       })
     } finally {
       setSubmittingPayment(false)
+    }
+  }
+
+  function openNotificationEditor(notification: MiniAppDashboard['notifications'][number]) {
+    const data = dashboard()
+    if (!data) return
+
+    setEditingNotificationId(notification.id)
+    setNotificationScheduleDraft(notificationInputValue(notification.scheduledFor, data.timezone))
+    setNotificationDeliveryModeDraft(notification.deliveryMode)
+    setNotificationRecipientsDraft(
+      notification.deliveryMode === 'dm_selected' ? [...notification.dmRecipientMemberIds] : []
+    )
+    setNotificationEditorOpen(true)
+  }
+
+  function toggleNotificationRecipient(memberId: string) {
+    setNotificationRecipientsDraft((current) =>
+      current.includes(memberId)
+        ? current.filter((value) => value !== memberId)
+        : [...current, memberId]
+    )
+  }
+
+  async function handleNotificationSave() {
+    const data = initData()
+    const current = dashboard()
+    const notification = selectedNotification()
+    if (!data || !current || !notification || !notification.canEdit || savingNotification()) return
+
+    setSavingNotification(true)
+    try {
+      await updateMiniAppNotification(data, {
+        notificationId: notification.id,
+        scheduledLocal: notificationScheduleDraft(),
+        timezone: current.timezone,
+        deliveryMode: notificationDeliveryModeDraft(),
+        dmRecipientMemberIds:
+          notificationDeliveryModeDraft() === 'dm_selected' ? notificationRecipientsDraft() : []
+      })
+      setNotificationEditorOpen(false)
+      setToastState({
+        visible: true,
+        message: locale() === 'ru' ? 'Напоминание обновлено.' : 'Notification updated.',
+        type: 'success'
+      })
+      await refreshHouseholdData(true, true)
+    } catch {
+      setToastState({
+        visible: true,
+        message:
+          locale() === 'ru'
+            ? 'Не получилось обновить напоминание.'
+            : 'Failed to update notification.',
+        type: 'error'
+      })
+    } finally {
+      setSavingNotification(false)
+    }
+  }
+
+  async function handleNotificationCancel(notificationId: string) {
+    const data = initData()
+    if (!data || cancellingNotificationId()) return
+
+    setCancellingNotificationId(notificationId)
+    try {
+      await cancelMiniAppNotification(data, notificationId)
+      if (editingNotificationId() === notificationId) {
+        setNotificationEditorOpen(false)
+      }
+      setToastState({
+        visible: true,
+        message: locale() === 'ru' ? 'Напоминание отменено.' : 'Notification cancelled.',
+        type: 'success'
+      })
+      await refreshHouseholdData(true, true)
+    } catch {
+      setToastState({
+        visible: true,
+        message:
+          locale() === 'ru'
+            ? 'Не получилось отменить напоминание.'
+            : 'Failed to cancel notification.',
+        type: 'error'
+      })
+    } finally {
+      setCancellingNotificationId(null)
     }
   }
 
@@ -918,6 +1140,105 @@ export default function HomeRoute() {
                 </Card>
               </Show>
 
+              <Card>
+                <div class="balance-card">
+                  <div class="balance-card__header">
+                    <span class="balance-card__label">
+                      {locale() === 'ru' ? 'Напоминания' : 'Notifications'}
+                    </span>
+                    <Badge variant="muted">{data().notifications.length}</Badge>
+                  </div>
+                  <Show
+                    when={data().notifications.length > 0}
+                    fallback={
+                      <p class="empty-state">
+                        {locale() === 'ru'
+                          ? 'Пока нет запланированных напоминаний.'
+                          : 'There are no scheduled notifications yet.'}
+                      </p>
+                    }
+                  >
+                    <div class="balance-card__amounts">
+                      <For each={data().notifications}>
+                        {(notification) => (
+                          <div
+                            class="balance-card__row"
+                            style={{
+                              'align-items': 'flex-start',
+                              'flex-direction': 'column',
+                              gap: '10px',
+                              padding: '12px 0'
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                width: '100%',
+                                'justify-content': 'space-between',
+                                gap: '12px',
+                                'align-items': 'flex-start'
+                              }}
+                            >
+                              <div style={{ display: 'grid', gap: '6px' }}>
+                                <strong>{notification.summaryText}</strong>
+                                <span>
+                                  {formatNotificationWhen(
+                                    locale(),
+                                    notification.scheduledFor,
+                                    data().timezone
+                                  )}
+                                </span>
+                                <span>{formatNotificationDelivery(locale(), notification)}</span>
+                                <Show when={notification.assigneeDisplayName}>
+                                  <span>
+                                    {(locale() === 'ru' ? 'Для: ' : 'For: ') +
+                                      notification.assigneeDisplayName}
+                                  </span>
+                                </Show>
+                                <span>
+                                  {(locale() === 'ru' ? 'Создал: ' : 'Created by: ') +
+                                    notification.creatorDisplayName}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: '8px',
+                                  'flex-wrap': 'nowrap',
+                                  'justify-content': 'flex-end',
+                                  'align-items': 'center',
+                                  'flex-shrink': '0'
+                                }}
+                              >
+                                <Show when={notification.canEdit}>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => openNotificationEditor(notification)}
+                                  >
+                                    {locale() === 'ru' ? 'Управлять' : 'Manage'}
+                                  </Button>
+                                </Show>
+                                <Show when={notification.canCancel}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    loading={cancellingNotificationId() === notification.id}
+                                    onClick={() => void handleNotificationCancel(notification.id)}
+                                  >
+                                    {locale() === 'ru' ? 'Отменить' : 'Cancel'}
+                                  </Button>
+                                </Show>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </Card>
+
               {/* Latest activity */}
               <Card>
                 <div class="activity-card">
@@ -971,6 +1292,122 @@ export default function HomeRoute() {
           )}
         </Match>
       </Switch>
+
+      <Modal
+        open={notificationEditorOpen()}
+        title={locale() === 'ru' ? 'Управление напоминанием' : 'Manage notification'}
+        {...(selectedNotification()
+          ? {
+              description: formatNotificationWhen(
+                locale(),
+                selectedNotification()!.scheduledFor,
+                dashboard()?.timezone ?? 'UTC'
+              )
+            }
+          : {})}
+        closeLabel={copy().showLessAction}
+        onClose={() => {
+          setNotificationEditorOpen(false)
+        }}
+        footer={
+          <>
+            <Show when={selectedNotification()?.canCancel}>
+              <Button
+                variant="ghost"
+                loading={cancellingNotificationId() === selectedNotification()?.id}
+                onClick={() =>
+                  selectedNotification() &&
+                  void handleNotificationCancel(selectedNotification()!.id)
+                }
+              >
+                {locale() === 'ru' ? 'Отменить напоминание' : 'Cancel notification'}
+              </Button>
+            </Show>
+            <Button variant="ghost" onClick={() => setNotificationEditorOpen(false)}>
+              {copy().showLessAction}
+            </Button>
+            <Button
+              variant="primary"
+              loading={savingNotification()}
+              disabled={
+                !notificationScheduleDraft().trim() ||
+                (notificationDeliveryModeDraft() === 'dm_selected' &&
+                  notificationRecipientsDraft().length === 0)
+              }
+              onClick={() => void handleNotificationSave()}
+            >
+              {locale() === 'ru' ? 'Сохранить' : 'Save'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gap: '16px' }}>
+          <Field label={locale() === 'ru' ? 'Когда' : 'When'}>
+            <Input
+              type="datetime-local"
+              value={notificationScheduleDraft()}
+              onInput={(event) => setNotificationScheduleDraft(event.currentTarget.value)}
+            />
+          </Field>
+
+          <Field label={locale() === 'ru' ? 'Куда отправлять' : 'Delivery'}>
+            <div style={{ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }}>
+              <Button
+                variant={notificationDeliveryModeDraft() === 'topic' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setNotificationDeliveryModeDraft('topic')}
+              >
+                {locale() === 'ru' ? 'В топик' : 'Topic'}
+              </Button>
+              <Button
+                variant={notificationDeliveryModeDraft() === 'dm_all' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setNotificationDeliveryModeDraft('dm_all')}
+              >
+                {locale() === 'ru' ? 'Всем в личку' : 'DM all'}
+              </Button>
+              <Button
+                variant={
+                  notificationDeliveryModeDraft() === 'dm_selected' ? 'primary' : 'secondary'
+                }
+                size="sm"
+                onClick={() => setNotificationDeliveryModeDraft('dm_selected')}
+              >
+                {locale() === 'ru' ? 'Выбрать получателей' : 'Select recipients'}
+              </Button>
+            </div>
+          </Field>
+
+          <Show when={notificationDeliveryModeDraft() === 'dm_selected'}>
+            <Field
+              label={locale() === 'ru' ? 'Получатели' : 'Recipients'}
+              hint={
+                locale() === 'ru'
+                  ? 'Выберите, кому отправить в личку.'
+                  : 'Choose who should receive the DM.'
+              }
+            >
+              <div style={{ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }}>
+                <For each={activeHouseholdMembers()}>
+                  {(member) => (
+                    <Button
+                      variant={
+                        notificationRecipientsDraft().includes(member.memberId)
+                          ? 'primary'
+                          : 'secondary'
+                      }
+                      size="sm"
+                      onClick={() => toggleNotificationRecipient(member.memberId)}
+                    >
+                      {member.displayName}
+                    </Button>
+                  )}
+                </For>
+              </div>
+            </Field>
+          </Show>
+        </div>
+      </Modal>
 
       {/* Quick Payment Modal */}
       <Modal

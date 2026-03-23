@@ -14,6 +14,18 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpdateNotification?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppCancelNotification?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppJoin?:
     | {
         path?: string
@@ -226,6 +238,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     : `/${options.webhookPath}`
   const miniAppAuthPath = options.miniAppAuth?.path ?? '/api/miniapp/session'
   const miniAppDashboardPath = options.miniAppDashboard?.path ?? '/api/miniapp/dashboard'
+  const miniAppUpdateNotificationPath =
+    options.miniAppUpdateNotification?.path ?? '/api/miniapp/notifications/update'
+  const miniAppCancelNotificationPath =
+    options.miniAppCancelNotification?.path ?? '/api/miniapp/notifications/cancel'
   const miniAppJoinPath = options.miniAppJoin?.path ?? '/api/miniapp/join'
   const miniAppPendingMembersPath =
     options.miniAppPendingMembers?.path ?? '/api/miniapp/admin/pending-members'
@@ -299,6 +315,14 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppDashboard && url.pathname === miniAppDashboardPath) {
         return await options.miniAppDashboard.handler(request)
+      }
+
+      if (options.miniAppUpdateNotification && url.pathname === miniAppUpdateNotificationPath) {
+        return await options.miniAppUpdateNotification.handler(request)
+      }
+
+      if (options.miniAppCancelNotification && url.pathname === miniAppCancelNotificationPath) {
+        return await options.miniAppCancelNotification.handler(request)
       }
 
       if (options.miniAppJoin && url.pathname === miniAppJoinPath) {

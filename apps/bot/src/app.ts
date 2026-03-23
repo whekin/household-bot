@@ -73,6 +73,10 @@ import {
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
+import {
+  createMiniAppCancelNotificationHandler,
+  createMiniAppUpdateNotificationHandler
+} from './miniapp-notifications'
 import { createNbgExchangeRateProvider } from './nbg-exchange-rates'
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
@@ -635,10 +639,31 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           allowedOrigins: runtime.miniAppAllowedOrigins,
           botToken: runtime.telegramBotToken,
           financeServiceForHousehold,
+          adHocNotificationService: adHocNotificationService!,
           onboardingService: householdOnboardingService,
           logger: getLogger('miniapp-dashboard')
         })
       : undefined,
+    miniAppUpdateNotification:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppUpdateNotificationHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            adHocNotificationService,
+            logger: getLogger('miniapp-notifications')
+          })
+        : undefined,
+    miniAppCancelNotification:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppCancelNotificationHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            adHocNotificationService,
+            logger: getLogger('miniapp-notifications')
+          })
+        : undefined,
     miniAppPendingMembers: householdOnboardingService
       ? createMiniAppPendingMembersHandler({
           allowedOrigins: runtime.miniAppAllowedOrigins,
