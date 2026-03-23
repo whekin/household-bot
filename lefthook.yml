@@ -3,6 +3,9 @@
 pre-commit:
   parallel: true
   commands:
+    db-migration-manifest:
+      glob: 'packages/db/drizzle/*.sql'
+      run: bun run db:migrations:manifest && git add packages/db/drizzle-checksums.json
     format:
       glob: '*.{ts,tsx,js,jsx,json,md}'
       run: bun run format:check
@@ -13,6 +16,8 @@ pre-commit:
 pre-push:
   parallel: true
   commands:
+    db-migrations:
+      run: bun run db:migrations:check
     typecheck:
       run: bun run typecheck
     test:

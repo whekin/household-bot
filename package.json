@@ -17,7 +17,7 @@
     "lint:fix": "oxlint --fix .",
     "format": "bunx oxfmt .",
     "format:check": "bunx oxfmt --check .",
-    "db:generate": "bunx drizzle-kit generate --config packages/db/drizzle.config.ts",
+    "db:generate": "bunx drizzle-kit generate --config packages/db/drizzle.config.ts && bun run db:migrations:manifest",
     "db:check": "bunx drizzle-kit check --config packages/db/drizzle.config.ts",
     "db:migrate": "bun run packages/db/src/migrate.ts",
     "db:migrations:check": "bun run scripts/check-migration-hygiene.ts",
