@@ -18,6 +18,7 @@ import {
   updateMiniAppMemberDisplayName,
   updateMiniAppMemberRentWeight,
   updateMiniAppMemberStatus,
+  demoteMiniAppMember,
   promoteMiniAppMember,
   approveMiniAppPendingMember,
   rejectMiniAppPendingMember,
@@ -259,6 +260,10 @@ export default function SettingsRoute() {
       // Promote to admin if requested and not already admin
       if (form.isAdmin && !currentMember.isAdmin) {
         updatedMember = await promoteMiniAppMember(data, memberId)
+      }
+      // Remove admin access if requested and currently admin
+      if (!form.isAdmin && currentMember.isAdmin) {
+        updatedMember = await demoteMiniAppMember(data, memberId)
       }
 
       // Update local state
@@ -906,16 +911,17 @@ export default function SettingsRoute() {
               }
             />
           </Field>
-          <Show when={!editMemberForm().isAdmin}>
-            <Field label={copy().promoteAdminLabel}>
-              <Button
-                variant="secondary"
-                onClick={() => setEditMemberForm((f) => ({ ...f, isAdmin: true }))}
-              >
-                {copy().promoteAdminAction}
-              </Button>
-            </Field>
-          </Show>
+          <Field label={copy().memberRoleLabel}>
+            <Select
+              value={editMemberForm().isAdmin ? 'admin' : 'resident'}
+              ariaLabel={copy().memberRoleLabel}
+              options={[
+                { value: 'resident', label: copy().memberRoleResident },
+                { value: 'admin', label: copy().memberRoleAdmin }
+              ]}
+              onChange={(value) => setEditMemberForm((f) => ({ ...f, isAdmin: value === 'admin' }))}
+            />
+          </Field>
         </div>
       </Modal>
 

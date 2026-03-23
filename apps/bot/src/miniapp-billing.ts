@@ -486,6 +486,7 @@ async function readPaymentMutationPayload(request: Request): Promise<{
   kind?: 'rent' | 'utilities'
   amountMajor?: string
   currency?: string
+  period?: string
 }> {
   const parsed = await parseJsonBody<{
     initData?: string
@@ -494,6 +495,7 @@ async function readPaymentMutationPayload(request: Request): Promise<{
     kind?: 'rent' | 'utilities'
     amountMajor?: string
     currency?: string
+    period?: string
   }>(request)
   const initData = parsed.initData?.trim()
   if (!initData) {
@@ -525,6 +527,11 @@ async function readPaymentMutationPayload(request: Request): Promise<{
     ...(parsed.currency?.trim()
       ? {
           currency: parsed.currency.trim()
+        }
+      : {}),
+    ...(parsed.period?.trim()
+      ? {
+          period: BillingPeriod.fromString(parsed.period.trim()).toString()
         }
       : {})
   }
@@ -1001,7 +1008,8 @@ export function createMiniAppSubmitPaymentHandler(options: {
           auth.member.id,
           payload.kind,
           payload.amountMajor,
-          payload.currency
+          payload.currency,
+          payload.period
         )
 
         if (!payment) {
@@ -1374,7 +1382,8 @@ export function createMiniAppAddPaymentHandler(options: {
           payload.memberId,
           payload.kind,
           payload.amountMajor,
-          payload.currency
+          payload.currency,
+          payload.period
         )
 
         if (!payment) {

@@ -44,6 +44,7 @@ export type PaymentDraft = {
   kind: 'rent' | 'utilities'
   amountMajor: string
   currency: 'USD' | 'GEL'
+  period: string
 }
 
 /* ── Pure helpers ───────────────────────────────────── */
@@ -170,7 +171,8 @@ export function paymentDrafts(
           memberId: entry.memberId ?? '',
           kind: entry.paymentKind ?? 'rent',
           amountMajor: entry.amountMajor,
-          currency: entry.currency
+          currency: entry.currency,
+          period: ''
         }
       ])
   )
@@ -181,7 +183,8 @@ export function paymentDraftForEntry(entry: MiniAppDashboard['ledger'][number]):
     memberId: entry.memberId ?? '',
     kind: entry.paymentKind ?? 'rent',
     amountMajor: entry.amountMajor,
-    currency: entry.currency
+    currency: entry.currency,
+    period: ''
   }
 }
 

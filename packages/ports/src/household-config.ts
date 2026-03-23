@@ -252,6 +252,7 @@ export interface HouseholdConfigurationRepository {
     householdId: string,
     memberId: string
   ): Promise<HouseholdMemberRecord | null>
+  demoteHouseholdAdmin(householdId: string, memberId: string): Promise<HouseholdMemberRecord | null>
   updateHouseholdMemberRentShareWeight(
     householdId: string,
     memberId: string,

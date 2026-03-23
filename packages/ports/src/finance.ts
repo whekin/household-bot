@@ -14,6 +14,12 @@ export interface FinanceCycleRecord {
   currency: CurrencyCode
 }
 
+export interface FinanceMemberOverduePaymentRecord {
+  kind: FinancePaymentKind
+  amountMinor: bigint
+  periods: readonly string[]
+}
+
 export interface FinanceCycleExchangeRateRecord {
   cycleId: string
   sourceCurrency: CurrencyCode
@@ -30,6 +36,8 @@ export interface FinanceRentRuleRecord {
 
 export interface FinanceParsedPurchaseRecord {
   id: string
+  cycleId: string | null
+  cyclePeriod?: string | null
   payerMemberId: string
   amountMinor: bigint
   currency: CurrencyCode
@@ -42,6 +50,15 @@ export interface FinanceParsedPurchaseRecord {
     included?: boolean
     shareAmountMinor: bigint | null
   }[]
+}
+
+export interface FinancePaymentPurchaseAllocationRecord {
+  id: string
+  paymentRecordId: string
+  purchaseId: string
+  memberId: string
+  amountMinor: bigint
+  recordedAt: Instant
 }
 
 export interface FinanceUtilityBillRecord {
@@ -57,6 +74,8 @@ export type FinancePaymentKind = 'rent' | 'utilities'
 
 export interface FinancePaymentRecord {
   id: string
+  cycleId: string
+  cyclePeriod?: string | null
   memberId: string
   kind: FinancePaymentKind
   amountMinor: bigint
@@ -151,6 +170,7 @@ export interface SettlementSnapshotRecord {
 export interface FinanceRepository {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   listMembers(): Promise<readonly FinanceMemberRecord[]>
+  listCycles(): Promise<readonly FinanceCycleRecord[]>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
   getCycleByPeriod(period: string): Promise<FinanceCycleRecord | null>
   getLatestCycle(): Promise<FinanceCycleRecord | null>
@@ -215,6 +235,15 @@ export interface FinanceRepository {
     currency: CurrencyCode
     recordedAt: Instant
   }): Promise<FinancePaymentRecord>
+  getPaymentRecord(paymentId: string): Promise<FinancePaymentRecord | null>
+  replacePaymentPurchaseAllocations(input: {
+    paymentRecordId: string
+    allocations: readonly {
+      purchaseId: string
+      memberId: string
+      amountMinor: bigint
+    }[]
+  }): Promise<void>
   updatePaymentRecord(input: {
     paymentId: string
     memberId: string
@@ -231,6 +260,8 @@ export interface FinanceRepository {
     start: Instant,
     end: Instant
   ): Promise<readonly FinanceParsedPurchaseRecord[]>
+  listParsedPurchases(): Promise<readonly FinanceParsedPurchaseRecord[]>
+  listPaymentPurchaseAllocations(): Promise<readonly FinancePaymentPurchaseAllocationRecord[]>
   getSettlementSnapshotLines(
     cycleId: string
   ): Promise<readonly FinanceSettlementSnapshotLineRecord[]>

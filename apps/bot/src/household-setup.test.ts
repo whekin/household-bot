@@ -484,6 +484,9 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     async promoteHouseholdAdmin() {
       return null
     },
+    async demoteHouseholdAdmin() {
+      return null
+    },
     async updateHouseholdMemberRentShareWeight() {
       return null
     },

@@ -92,6 +92,9 @@ export default function HomeRoute() {
   const [copiedValue, setCopiedValue] = createSignal<string | null>(null)
   const [quickPaymentOpen, setQuickPaymentOpen] = createSignal(false)
   const [quickPaymentType, setQuickPaymentType] = createSignal<'rent' | 'utilities'>('rent')
+  const [quickPaymentContext, setQuickPaymentContext] = createSignal<'current' | 'overdue'>(
+    'current'
+  )
   const [quickPaymentAmount, setQuickPaymentAmount] = createSignal('')
   const [submittingPayment, setSubmittingPayment] = createSignal(false)
   const [toastState, setToastState] = createSignal<{
@@ -203,10 +206,10 @@ export default function HomeRoute() {
     return override
   })
 
-  const homeMode = createMemo(() => {
+  const currentPaymentModes = createMemo(() => {
     const data = dashboard()
     const member = currentMemberLine()
-    if (!data || !member) return 'none' as const
+    if (!data || !member) return [] as ('rent' | 'utilities')[]
     const period = effectivePeriod() ?? data.period
     const today = todayOverride()
 
@@ -229,16 +232,20 @@ export default function HomeRoute() {
     const utilitiesActive = utilities.active && utilitiesDueMinor > 0n
     const rentActive = rent.active && rentDueMinor > 0n
 
-    if (utilitiesActive && rentActive) {
-      const utilitiesDays = utilities.daysUntilDue ?? Number.POSITIVE_INFINITY
-      const rentDays = rent.daysUntilDue ?? Number.POSITIVE_INFINITY
-      return utilitiesDays <= rentDays ? ('utilities' as const) : ('rent' as const)
+    const modes: ('rent' | 'utilities')[] = []
+    if (utilitiesActive) {
+      modes.push('utilities')
+    }
+    if (rentActive) {
+      modes.push('rent')
     }
 
-    if (utilitiesActive) return 'utilities' as const
-    if (rentActive) return 'rent' as const
-    return 'none' as const
+    return modes
   })
+
+  function overduePaymentFor(kind: 'rent' | 'utilities') {
+    return currentMemberLine()?.overduePayments.find((payment) => payment.kind === kind) ?? null
+  }
 
   async function handleSubmitUtilities() {
     const data = initData()
@@ -265,14 +272,21 @@ export default function HomeRoute() {
     }
   }
 
-  function openQuickPayment(type: 'rent' | 'utilities') {
+  function openQuickPayment(
+    type: 'rent' | 'utilities',
+    context: 'current' | 'overdue' = 'current'
+  ) {
     const data = dashboard()
     if (!data || !currentMemberLine()) return
 
     const member = currentMemberLine()!
-    const amount = minorToMajorString(paymentRemainingMinor(data, member, type))
+    const amount =
+      context === 'overdue'
+        ? (overduePaymentFor(type)?.amountMajor ?? '0.00')
+        : minorToMajorString(paymentRemainingMinor(data, member, type))
 
     setQuickPaymentType(type)
+    setQuickPaymentContext(context)
     setQuickPaymentAmount(amount)
     setQuickPaymentOpen(true)
   }
@@ -365,7 +379,7 @@ export default function HomeRoute() {
                   const utilitiesRemainingMinor = () =>
                     paymentRemainingMinor(data(), member(), 'utilities')
 
-                  const mode = () => homeMode()
+                  const modes = () => currentPaymentModes()
                   const currency = () => data().currency
                   const timezone = () => data().timezone
                   const period = () => effectivePeriod() ?? data().period
@@ -431,7 +445,93 @@ export default function HomeRoute() {
 
                   return (
                     <>
-                      <Show when={mode() === 'utilities'}>
+                      <Show when={overduePaymentFor('utilities')}>
+                        {(overdue) => (
+                          <Card accent>
+                            <div class="balance-card">
+                              <div class="balance-card__header">
+                                <span class="balance-card__label">
+                                  {copy().homeOverdueUtilitiesTitle}
+                                </span>
+                                <div
+                                  style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}
+                                >
+                                  <Badge variant="danger">{copy().overdueLabel}</Badge>
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => openQuickPayment('utilities', 'overdue')}
+                                  >
+                                    <CreditCard size={14} />
+                                    {copy().quickPaymentSubmitAction}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div class="balance-card__amounts">
+                                <div class="balance-card__row balance-card__row--subtotal">
+                                  <span>{copy().finalDue}</span>
+                                  <strong>
+                                    {overdue().amountMajor} {currency()}
+                                  </strong>
+                                </div>
+                                <div class="balance-card__row">
+                                  <span>
+                                    {copy().homeOverduePeriodsLabel.replace(
+                                      '{periods}',
+                                      overdue().periods.join(', ')
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </Card>
+                        )}
+                      </Show>
+
+                      <Show when={overduePaymentFor('rent')}>
+                        {(overdue) => (
+                          <Card accent>
+                            <div class="balance-card">
+                              <div class="balance-card__header">
+                                <span class="balance-card__label">
+                                  {copy().homeOverdueRentTitle}
+                                </span>
+                                <div
+                                  style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}
+                                >
+                                  <Badge variant="danger">{copy().overdueLabel}</Badge>
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => openQuickPayment('rent', 'overdue')}
+                                  >
+                                    <CreditCard size={14} />
+                                    {copy().quickPaymentSubmitAction}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div class="balance-card__amounts">
+                                <div class="balance-card__row balance-card__row--subtotal">
+                                  <span>{copy().finalDue}</span>
+                                  <strong>
+                                    {overdue().amountMajor} {currency()}
+                                  </strong>
+                                </div>
+                                <div class="balance-card__row">
+                                  <span>
+                                    {copy().homeOverduePeriodsLabel.replace(
+                                      '{periods}',
+                                      overdue().periods.join(', ')
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </Card>
+                        )}
+                      </Show>
+
+                      <Show when={modes().includes('utilities')}>
                         <Card accent>
                           <div class="balance-card">
                             <div class="balance-card__header">
@@ -441,7 +541,7 @@ export default function HomeRoute() {
                                 <Button
                                   variant="primary"
                                   size="sm"
-                                  onClick={() => openQuickPayment('utilities')}
+                                  onClick={() => openQuickPayment('utilities', 'current')}
                                 >
                                   <CreditCard size={14} />
                                   {copy().quickPaymentSubmitAction}
@@ -496,7 +596,7 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
-                      <Show when={mode() === 'rent'}>
+                      <Show when={modes().includes('rent')}>
                         <Card accent>
                           <div class="balance-card">
                             <div class="balance-card__header">
@@ -506,7 +606,7 @@ export default function HomeRoute() {
                                 <Button
                                   variant="primary"
                                   size="sm"
-                                  onClick={() => openQuickPayment('rent')}
+                                  onClick={() => openQuickPayment('rent', 'current')}
                                 >
                                   <CreditCard size={14} />
                                   {copy().quickPaymentSubmitAction}
@@ -543,7 +643,13 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
-                      <Show when={mode() === 'none'}>
+                      <Show
+                        when={
+                          modes().length === 0 &&
+                          !overduePaymentFor('utilities') &&
+                          !overduePaymentFor('rent')
+                        }
+                      >
                         <Card muted>
                           <div class="balance-card">
                             <div class="balance-card__header">
@@ -587,7 +693,7 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
-                      <Show when={mode() === 'utilities' && utilityLedger().length === 0}>
+                      <Show when={modes().includes('utilities') && utilityLedger().length === 0}>
                         <Card>
                           <div class="balance-card">
                             <div class="balance-card__header">
@@ -643,7 +749,9 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
-                      <Show when={mode() === 'rent' && data().rentPaymentDestinations?.length}>
+                      <Show
+                        when={modes().includes('rent') && data().rentPaymentDestinations?.length}
+                      >
                         <div style={{ display: 'grid', gap: '12px' }}>
                           <For each={data().rentPaymentDestinations ?? []}>
                             {(destination) => (
@@ -852,7 +960,10 @@ export default function HomeRoute() {
       <Modal
         open={quickPaymentOpen()}
         title={copy().quickPaymentTitle}
-        description={copy().quickPaymentBody.replace(
+        description={(quickPaymentContext() === 'overdue'
+          ? copy().quickPaymentOverdueBody
+          : copy().quickPaymentCurrentBody
+        ).replace(
           '{type}',
           quickPaymentType() === 'rent' ? copy().shareRent : copy().shareUtilities
         )}

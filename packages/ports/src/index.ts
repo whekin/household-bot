@@ -45,11 +45,13 @@ export type {
 } from './anonymous-feedback'
 export type {
   FinanceCycleRecord,
+  FinanceMemberOverduePaymentRecord,
   FinanceCycleExchangeRateRecord,
   FinancePaymentConfirmationReviewReason,
   FinancePaymentConfirmationSaveInput,
   FinancePaymentConfirmationSaveResult,
   FinancePaymentKind,
+  FinancePaymentPurchaseAllocationRecord,
   FinancePaymentRecord,
   FinanceSettlementSnapshotLineRecord,
   FinanceMemberRecord,

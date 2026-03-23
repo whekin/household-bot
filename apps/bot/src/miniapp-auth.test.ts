@@ -191,7 +191,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       sortOrder: input.sortOrder,
       isActive: input.isActive
     }),
-    promoteHouseholdAdmin: async () => null
+    promoteHouseholdAdmin: async () => null,
+    demoteHouseholdAdmin: async () => null
   }
 }
 

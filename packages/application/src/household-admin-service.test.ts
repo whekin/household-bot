@@ -183,6 +183,7 @@ function createRepositoryStub() {
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
+    demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],

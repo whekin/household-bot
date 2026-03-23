@@ -40,6 +40,7 @@ import {
   createMiniAppApproveMemberHandler,
   createMiniAppPendingMembersHandler,
   createMiniAppPromoteMemberHandler,
+  createMiniAppDemoteMemberHandler,
   createMiniAppRejectMemberHandler,
   createMiniAppSettingsHandler,
   createMiniAppUpdateMemberAbsencePolicyHandler,
@@ -627,6 +628,15 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       : undefined,
     miniAppPromoteMember: householdOnboardingService
       ? createMiniAppPromoteMemberHandler({
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          botToken: runtime.telegramBotToken,
+          onboardingService: householdOnboardingService,
+          miniAppAdminService: miniAppAdminService!,
+          logger: getLogger('miniapp-admin')
+        })
+      : undefined,
+    miniAppDemoteMember: householdOnboardingService
+      ? createMiniAppDemoteMemberHandler({
           allowedOrigins: runtime.miniAppAllowedOrigins,
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,

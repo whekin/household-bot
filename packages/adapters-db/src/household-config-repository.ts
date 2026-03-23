@@ -1512,6 +1512,40 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       })
     },
 
+    async demoteHouseholdAdmin(householdId, memberId) {
+      const rows = await db
+        .update(schema.members)
+        .set({
+          isAdmin: 0
+        })
+        .where(and(eq(schema.members.householdId, householdId), eq(schema.members.id, memberId)))
+        .returning({
+          id: schema.members.id,
+          householdId: schema.members.householdId,
+          telegramUserId: schema.members.telegramUserId,
+          displayName: schema.members.displayName,
+          lifecycleStatus: schema.members.lifecycleStatus,
+          preferredLocale: schema.members.preferredLocale,
+          rentShareWeight: schema.members.rentShareWeight,
+          isAdmin: schema.members.isAdmin
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const household = await this.getHouseholdChatByHouseholdId(householdId)
+      if (!household) {
+        throw new Error('Failed to resolve household chat after household admin demotion')
+      }
+
+      return toHouseholdMemberRecord({
+        ...row,
+        defaultLocale: household.defaultLocale
+      })
+    },
+
     async updateHouseholdMemberRentShareWeight(householdId, memberId, rentShareWeight) {
       const rows = await db
         .update(schema.members)

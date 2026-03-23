@@ -4,9 +4,12 @@ import type {
   ExchangeRateProvider,
   FinanceCycleRecord,
   FinanceMemberRecord,
+  FinanceMemberOverduePaymentRecord,
   FinancePaymentKind,
+  FinancePaymentPurchaseAllocationRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   HouseholdMemberAbsencePolicy,
   HouseholdMemberAbsencePolicyRecord,
@@ -116,6 +119,7 @@ export interface FinanceDashboardMemberLine {
   netDue: Money
   paid: Money
   remaining: Money
+  overduePayments: readonly FinanceMemberOverduePaymentRecord[]
   explanations: readonly string[]
 }
 
@@ -140,6 +144,13 @@ export interface FinanceDashboardLedgerEntry {
     shareAmount: Money | null
   }[]
   payerMemberId?: string
+  originPeriod?: string | null
+  resolutionStatus?: 'unresolved' | 'resolved'
+  resolvedAt?: string | null
+  outstandingByMember?: readonly {
+    memberId: string
+    amount: Money
+  }[]
 }
 
 export interface FinanceDashboard {
@@ -227,6 +238,95 @@ interface ConvertedCycleMoney {
   fxEffectiveDate: string | null
 }
 
+interface PurchaseHistoryState {
+  purchase: Awaited<ReturnType<FinanceRepository['listParsedPurchases']>>[number]
+  converted: ConvertedCycleMoney
+  outstandingByMemberId: ReadonlyMap<string, Money>
+  outstandingTotal: Money
+  resolvedAt: string | null
+}
+
+interface CycleBaseMemberLine {
+  memberId: string
+  rentShare: Money
+  utilityShare: Money
+  rentPaid: Money
+  utilityPaid: Money
+}
+
+interface MutableOverdueSummary {
+  rent: { amountMinor: bigint; periods: string[] }
+  utilities: { amountMinor: bigint; periods: string[] }
+}
+
+function periodFromInstant(instant: Temporal.Instant | null | undefined): string | null {
+  if (!instant) {
+    return null
+  }
+
+  const zdt = instant.toZonedDateTimeISO('UTC')
+  return `${zdt.year}-${String(zdt.month).padStart(2, '0')}`
+}
+
+function purchaseOriginPeriod(
+  purchase: Awaited<ReturnType<FinanceRepository['listParsedPurchases']>>[number]
+): string | null {
+  return purchase.cyclePeriod ?? periodFromInstant(purchase.occurredAt)
+}
+
+function buildPurchaseShareMap(input: {
+  purchase: Awaited<ReturnType<FinanceRepository['listParsedPurchases']>>[number]
+  amount: Money
+  activePurchaseParticipantIds: readonly string[]
+}): ReadonlyMap<string, Money> {
+  const shares = new Map<string, Money>()
+  const explicitParticipants =
+    input.purchase.participants?.filter((participant) => participant.included !== false) ?? []
+
+  if (explicitParticipants.length > 0) {
+    const explicitShares = explicitParticipants.filter(
+      (participant) => participant.shareAmountMinor !== null
+    )
+    if (explicitShares.length > 0) {
+      for (const participant of explicitShares) {
+        shares.set(
+          participant.memberId,
+          Money.fromMinor(participant.shareAmountMinor!, input.amount.currency)
+        )
+      }
+
+      return shares
+    }
+
+    const splitShares = input.amount.splitEvenly(explicitParticipants.length)
+    for (const [index, participant] of explicitParticipants.entries()) {
+      shares.set(participant.memberId, splitShares[index] ?? Money.zero(input.amount.currency))
+    }
+
+    return shares
+  }
+
+  const fallbackIds = input.activePurchaseParticipantIds
+  const splitShares = input.amount.splitEvenly(fallbackIds.length)
+  for (const [index, memberId] of fallbackIds.entries()) {
+    shares.set(memberId, splitShares[index] ?? Money.zero(input.amount.currency))
+  }
+
+  return shares
+}
+
+function sumAllocationMinor(
+  allocations: readonly FinancePaymentPurchaseAllocationRecord[],
+  purchaseId: string,
+  memberId: string
+): bigint {
+  return allocations
+    .filter(
+      (allocation) => allocation.purchaseId === purchaseId && allocation.memberId === memberId
+    )
+    .reduce((sum, allocation) => sum + allocation.amountMinor, 0n)
+}
+
 async function convertIntoCycleCurrency(
   dependencies: FinanceCommandServiceDependencies,
   input: {
@@ -289,6 +389,260 @@ async function convertIntoCycleCurrency(
   }
 }
 
+async function buildCycleBaseMemberLines(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  settings: HouseholdBillingSettingsRecord
+}): Promise<readonly CycleBaseMemberLine[]> {
+  const period = BillingPeriod.fromString(input.cycle.period)
+  const resolvedAbsencePolicies = resolveMemberAbsencePolicies({
+    members: input.members,
+    policies: input.memberAbsencePolicies,
+    period: input.cycle.period
+  })
+  const [rentRule, utilityBills, paymentRecords] = await Promise.all([
+    input.dependencies.repository.getRentRuleForPeriod(input.cycle.period),
+    input.dependencies.repository.listUtilityBillsForCycle(input.cycle.id),
+    input.dependencies.repository.listPaymentRecordsForCycle(input.cycle.id)
+  ])
+
+  const rentAmountMinor = rentRule?.amountMinor ?? 0n
+  const rentCurrency = rentRule?.currency ?? input.cycle.currency
+  const convertedRent = await convertIntoCycleCurrency(input.dependencies, {
+    cycle: input.cycle,
+    period,
+    lockDay: input.settings.rentWarningDay,
+    timezone: input.settings.timezone,
+    amount: Money.fromMinor(rentAmountMinor, rentCurrency)
+  })
+  const convertedUtilityBills = await Promise.all(
+    utilityBills.map(async (bill) => {
+      const converted = await convertIntoCycleCurrency(input.dependencies, {
+        cycle: input.cycle,
+        period,
+        lockDay: input.settings.utilitiesReminderDay,
+        timezone: input.settings.timezone,
+        amount: Money.fromMinor(bill.amountMinor, bill.currency)
+      })
+
+      return converted.settlementAmount
+    })
+  )
+
+  const utilities = convertedUtilityBills.reduce(
+    (sum, amount) => sum.add(amount),
+    Money.zero(input.cycle.currency)
+  )
+  const settlement = calculateMonthlySettlement({
+    cycleId: BillingCycleId.from(input.cycle.id),
+    period,
+    rent: convertedRent.settlementAmount,
+    utilities,
+    utilitySplitMode: 'equal',
+    members: input.members.map((member) => ({
+      memberId: MemberId.from(member.id),
+      active: member.status !== 'left',
+      participatesInRent:
+        member.status === 'left'
+          ? false
+          : (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') !== 'inactive',
+      participatesInUtilities:
+        member.status === 'away'
+          ? (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') ===
+            'away_rent_and_utilities'
+          : member.status !== 'left',
+      participatesInPurchases: member.status === 'active',
+      rentWeight: member.rentShareWeight
+    })),
+    purchases: []
+  })
+
+  const rentPaidByMemberId = new Map<string, Money>()
+  const utilityPaidByMemberId = new Map<string, Money>()
+  for (const payment of paymentRecords) {
+    const targetMap = payment.kind === 'rent' ? rentPaidByMemberId : utilityPaidByMemberId
+    const current = targetMap.get(payment.memberId) ?? Money.zero(input.cycle.currency)
+    targetMap.set(
+      payment.memberId,
+      current.add(Money.fromMinor(payment.amountMinor, payment.currency))
+    )
+  }
+
+  return settlement.lines.map((line) => ({
+    memberId: line.memberId.toString(),
+    rentShare: line.rentShare,
+    utilityShare: line.utilityShare,
+    rentPaid: rentPaidByMemberId.get(line.memberId.toString()) ?? Money.zero(input.cycle.currency),
+    utilityPaid:
+      utilityPaidByMemberId.get(line.memberId.toString()) ?? Money.zero(input.cycle.currency)
+  }))
+}
+
+async function computeMemberOverduePayments(input: {
+  dependencies: FinanceCommandServiceDependencies
+  currentCycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  settings: HouseholdBillingSettingsRecord
+}): Promise<ReadonlyMap<string, readonly FinanceMemberOverduePaymentRecord[]>> {
+  const localDate = localDateInTimezone(input.settings.timezone)
+  const overdueByMemberId = new Map<string, MutableOverdueSummary>()
+  const cycles = (await input.dependencies.repository.listCycles()).filter(
+    (cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0
+  )
+
+  for (const cycle of cycles) {
+    const baseLines = await buildCycleBaseMemberLines({
+      dependencies: input.dependencies,
+      cycle,
+      members: input.members,
+      memberAbsencePolicies: input.memberAbsencePolicies,
+      settings: input.settings
+    })
+    const rentDueDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.settings.rentDueDay
+    )
+    const utilitiesDueDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.settings.utilitiesDueDay
+    )
+
+    for (const line of baseLines) {
+      const current = overdueByMemberId.get(line.memberId) ?? {
+        rent: { amountMinor: 0n, periods: [] },
+        utilities: { amountMinor: 0n, periods: [] }
+      }
+
+      const rentRemainingMinor = line.rentShare.subtract(line.rentPaid).amountMinor
+      if (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 && rentRemainingMinor > 0n) {
+        current.rent.amountMinor += rentRemainingMinor
+        current.rent.periods.push(cycle.period)
+      }
+
+      const utilityRemainingMinor = line.utilityShare.subtract(line.utilityPaid).amountMinor
+      if (
+        Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
+        utilityRemainingMinor > 0n
+      ) {
+        current.utilities.amountMinor += utilityRemainingMinor
+        current.utilities.periods.push(cycle.period)
+      }
+
+      overdueByMemberId.set(line.memberId, current)
+    }
+  }
+
+  return new Map(
+    [...overdueByMemberId.entries()].map(([memberId, overdue]) => {
+      const items: FinanceMemberOverduePaymentRecord[] = []
+      if (overdue.rent.amountMinor > 0n) {
+        items.push({
+          kind: 'rent',
+          amountMinor: overdue.rent.amountMinor,
+          periods: overdue.rent.periods
+        })
+      }
+      if (overdue.utilities.amountMinor > 0n) {
+        items.push({
+          kind: 'utilities',
+          amountMinor: overdue.utilities.amountMinor,
+          periods: overdue.utilities.periods
+        })
+      }
+
+      return [memberId, items] as const
+    })
+  )
+}
+
+async function resolveAutomaticPaymentTargets(input: {
+  dependencies: FinanceCommandServiceDependencies
+  currentCycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  settings: HouseholdBillingSettingsRecord
+  memberId: string
+  kind: FinancePaymentKind
+}): Promise<
+  readonly {
+    cycle: FinanceCycleRecord
+    baseRemainingMinor: bigint
+    allowOverflow: boolean
+  }[]
+> {
+  const localDate = localDateInTimezone(input.settings.timezone)
+  const cycles = (await input.dependencies.repository.listCycles()).filter(
+    (cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0
+  )
+  const overdueTargets: {
+    cycle: FinanceCycleRecord
+    baseRemainingMinor: bigint
+    allowOverflow: boolean
+  }[] = []
+
+  for (const cycle of cycles) {
+    const baseLine = (
+      await buildCycleBaseMemberLines({
+        dependencies: input.dependencies,
+        cycle,
+        members: input.members,
+        memberAbsencePolicies: input.memberAbsencePolicies,
+        settings: input.settings
+      })
+    ).find((line) => line.memberId === input.memberId)
+
+    if (!baseLine) {
+      continue
+    }
+
+    const dueDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.kind === 'rent' ? input.settings.rentDueDay : input.settings.utilitiesDueDay
+    )
+    if (Temporal.PlainDate.compare(localDate, dueDate) <= 0) {
+      continue
+    }
+
+    const remainingMinor =
+      input.kind === 'rent'
+        ? baseLine.rentShare.subtract(baseLine.rentPaid).amountMinor
+        : baseLine.utilityShare.subtract(baseLine.utilityPaid).amountMinor
+
+    if (remainingMinor <= 0n) {
+      continue
+    }
+
+    overdueTargets.push({
+      cycle,
+      baseRemainingMinor: remainingMinor,
+      allowOverflow: false
+    })
+  }
+
+  const currentCycleAlreadyIncluded = overdueTargets.some(
+    (target) => target.cycle.id === input.currentCycle.id
+  )
+
+  if (currentCycleAlreadyIncluded) {
+    return overdueTargets.map((target, index) => ({
+      ...target,
+      allowOverflow: index === overdueTargets.length - 1
+    }))
+  }
+
+  return [
+    ...overdueTargets,
+    {
+      cycle: input.currentCycle,
+      baseRemainingMinor: 0n,
+      allowOverflow: true
+    }
+  ]
+}
+
 async function buildFinanceDashboard(
   dependencies: FinanceCommandServiceDependencies,
   periodArg?: string
@@ -323,15 +677,23 @@ async function buildFinanceDashboard(
     policies: memberAbsencePolicies,
     period: cycle.period
   })
-  const [purchases, utilityBills] = await Promise.all([
-    dependencies.repository.listParsedPurchasesForRange(start, end),
-    dependencies.repository.listUtilityBillsForCycle(cycle.id)
+  const [allPurchases, utilityBills, paymentPurchaseAllocations] = await Promise.all([
+    dependencies.repository.listParsedPurchases(),
+    dependencies.repository.listUtilityBillsForCycle(cycle.id),
+    dependencies.repository.listPaymentPurchaseAllocations()
   ])
   const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
   const previousCycle = await dependencies.repository.getCycleByPeriod(period.previous().toString())
   const previousSnapshotLines = previousCycle
     ? await dependencies.repository.getSettlementSnapshotLines(previousCycle.id)
     : []
+  const overduePaymentsByMemberId = await computeMemberOverduePayments({
+    dependencies,
+    currentCycle: cycle,
+    members,
+    memberAbsencePolicies,
+    settings
+  })
   const previousUtilityShareByMemberId = new Map(
     previousSnapshotLines.map((line) => [
       line.memberId,
@@ -365,7 +727,7 @@ async function buildFinanceDashboard(
   )
 
   const convertedPurchases = await Promise.all(
-    purchases.map(async (purchase) => {
+    allPurchases.map(async (purchase) => {
       const converted = await convertIntoCycleCurrency(dependencies, {
         cycle,
         period,
@@ -379,6 +741,82 @@ async function buildFinanceDashboard(
         converted
       }
     })
+  )
+
+  const currentCyclePurchaseIds = new Set(
+    allPurchases
+      .filter((purchase) => {
+        if (purchase.cycleId === cycle.id || purchase.cyclePeriod === cycle.period) {
+          return true
+        }
+
+        if (purchase.cycleId) {
+          return false
+        }
+
+        if (!purchase.occurredAt) {
+          return false
+        }
+
+        return (
+          Temporal.Instant.compare(purchase.occurredAt, start) >= 0 &&
+          Temporal.Instant.compare(purchase.occurredAt, end) < 0
+        )
+      })
+      .map((purchase) => purchase.id)
+  )
+
+  const activePurchaseParticipantIds = members
+    .filter((member) => member.status === 'active')
+    .map((member) => member.id)
+
+  const purchaseHistory: PurchaseHistoryState[] = convertedPurchases.map(
+    ({ purchase, converted }) => {
+      const shareMap = buildPurchaseShareMap({
+        purchase,
+        amount: converted.settlementAmount,
+        activePurchaseParticipantIds
+      })
+      const outstandingEntries = [...shareMap.entries()]
+        .filter(([memberId]) => memberId !== purchase.payerMemberId)
+        .map(([memberId, shareAmount]) => {
+          const allocatedMinor = sumAllocationMinor(
+            paymentPurchaseAllocations,
+            purchase.id,
+            memberId
+          )
+          const outstandingMinor =
+            shareAmount.amountMinor > allocatedMinor ? shareAmount.amountMinor - allocatedMinor : 0n
+
+          return [
+            memberId,
+            Money.fromMinor(outstandingMinor, converted.settlementAmount.currency)
+          ] as const
+        })
+        .filter(([, amount]) => amount.amountMinor > 0n)
+
+      const outstandingByMemberId = new Map<string, Money>(outstandingEntries)
+      const outstandingTotal = outstandingEntries.reduce(
+        (sum, [, amount]) => sum.add(amount),
+        Money.zero(converted.settlementAmount.currency)
+      )
+      const resolvedAt =
+        outstandingEntries.length === 0
+          ? (paymentPurchaseAllocations
+              .filter((allocation) => allocation.purchaseId === purchase.id)
+              .map((allocation) => allocation.recordedAt.toString())
+              .sort()
+              .at(-1) ?? null)
+          : null
+
+      return {
+        purchase,
+        converted,
+        outstandingByMemberId,
+        outstandingTotal,
+        resolvedAt
+      }
+    }
   )
 
   const utilities = convertedUtilityBills.reduce(
@@ -407,41 +845,49 @@ async function buildFinanceDashboard(
       participatesInPurchases: member.status === 'active',
       rentWeight: member.rentShareWeight
     })),
-    purchases: convertedPurchases.map(({ purchase, converted }) => {
-      const nextPurchase: {
-        purchaseId: PurchaseEntryId
-        payerId: MemberId
-        amount: Money
-        splitMode: 'equal' | 'custom_amounts'
-        participants?: {
-          memberId: MemberId
-          shareAmount?: Money
-        }[]
-      } = {
-        purchaseId: PurchaseEntryId.from(purchase.id),
-        payerId: MemberId.from(purchase.payerMemberId),
-        amount: converted.settlementAmount,
-        splitMode: purchase.splitMode ?? 'equal'
-      }
+    purchases: purchaseHistory
+      .filter(
+        ({ purchase, outstandingTotal }) =>
+          currentCyclePurchaseIds.has(purchase.id) || outstandingTotal.amountMinor > 0n
+      )
+      .map(({ purchase, converted, outstandingByMemberId, outstandingTotal }) => {
+        const nextPurchase: {
+          purchaseId: PurchaseEntryId
+          payerId: MemberId
+          amount: Money
+          splitMode: 'equal' | 'custom_amounts'
+          participants?: {
+            memberId: MemberId
+            shareAmount?: Money
+          }[]
+        } = {
+          purchaseId: PurchaseEntryId.from(purchase.id),
+          payerId: MemberId.from(purchase.payerMemberId),
+          amount: currentCyclePurchaseIds.has(purchase.id)
+            ? converted.settlementAmount
+            : outstandingTotal,
+          splitMode: 'custom_amounts'
+        }
 
-      if (purchase.participants) {
-        nextPurchase.participants = purchase.participants
-          .filter((participant) => participant.included !== false)
-          .map((participant) => ({
-            memberId: MemberId.from(participant.memberId),
-            ...(participant.shareAmountMinor !== null
-              ? {
-                  shareAmount: Money.fromMinor(
-                    participant.shareAmountMinor,
-                    converted.settlementAmount.currency
-                  )
-                }
-              : {})
+        const participantShareMap = currentCyclePurchaseIds.has(purchase.id)
+          ? buildPurchaseShareMap({
+              purchase,
+              amount: converted.settlementAmount,
+              activePurchaseParticipantIds
+            })
+          : outstandingByMemberId
+
+        nextPurchase.participants = [...participantShareMap.entries()]
+          .filter(([memberId]) =>
+            currentCyclePurchaseIds.has(purchase.id) ? true : memberId !== purchase.payerMemberId
+          )
+          .map(([memberId, shareAmount]) => ({
+            memberId: MemberId.from(memberId),
+            shareAmount
           }))
-      }
 
-      return nextPurchase
-    })
+        return nextPurchase
+      })
   })
 
   await dependencies.repository.replaceSettlementSnapshot({
@@ -502,6 +948,12 @@ async function buildFinanceDashboard(
     remaining: line.netDue.subtract(
       paymentsByMemberId.get(line.memberId.toString()) ?? Money.zero(cycle.currency)
     ),
+    overduePayments:
+      overduePaymentsByMemberId.get(line.memberId.toString())?.map((overdue) => ({
+        kind: overdue.kind,
+        amountMinor: overdue.amountMinor,
+        periods: overdue.periods
+      })) ?? [],
     explanations: line.explanations
   }))
 
@@ -523,7 +975,7 @@ async function buildFinanceDashboard(
       occurredAt: bill.createdAt.toString(),
       paymentKind: null
     })),
-    ...convertedPurchases.map(({ purchase, converted }) => {
+    ...purchaseHistory.map(({ purchase, converted, outstandingByMemberId, resolvedAt }) => {
       const entry: FinanceDashboardLedgerEntry = {
         id: purchase.id,
         kind: 'purchase',
@@ -539,7 +991,14 @@ async function buildFinanceDashboard(
         actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
         occurredAt: purchase.occurredAt?.toString() ?? null,
         paymentKind: null,
-        purchaseSplitMode: purchase.splitMode ?? 'equal'
+        purchaseSplitMode: purchase.splitMode ?? 'equal',
+        originPeriod: purchaseOriginPeriod(purchase),
+        resolutionStatus: outstandingByMemberId.size === 0 ? 'resolved' : 'unresolved',
+        resolvedAt,
+        outstandingByMember: [...outstandingByMemberId.entries()].map(([memberId, amount]) => ({
+          memberId,
+          amount
+        }))
       }
 
       if (purchase.participants) {
@@ -604,6 +1063,97 @@ async function buildFinanceDashboard(
     members: dashboardMembers,
     ledger
   }
+}
+
+async function allocatePaymentPurchaseOverage(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cyclePeriod: string
+  memberId: string
+  kind: FinancePaymentKind
+  paymentAmount: Money
+  settings: HouseholdBillingSettingsRecord
+}): Promise<
+  readonly {
+    purchaseId: string
+    memberId: string
+    amountMinor: bigint
+  }[]
+> {
+  const policy = input.settings.paymentBalanceAdjustmentPolicy ?? 'utilities'
+  if (policy === 'separate' || policy !== input.kind) {
+    return []
+  }
+
+  const dashboard = await buildFinanceDashboard(input.dependencies, input.cyclePeriod)
+  if (!dashboard) {
+    return []
+  }
+
+  const memberLine = dashboard.members.find((member) => member.memberId === input.memberId)
+  if (!memberLine) {
+    return []
+  }
+
+  const baseAmount = input.kind === 'rent' ? memberLine.rentShare : memberLine.utilityShare
+  let remainingMinor = input.paymentAmount.amountMinor - baseAmount.amountMinor
+  if (remainingMinor <= 0n) {
+    return []
+  }
+
+  const purchaseEntries = dashboard.ledger
+    .filter(
+      (
+        entry
+      ): entry is FinanceDashboardLedgerEntry & {
+        kind: 'purchase'
+        outstandingByMember: readonly { memberId: string; amount: Money }[]
+      } =>
+        entry.kind === 'purchase' &&
+        entry.resolutionStatus === 'unresolved' &&
+        Array.isArray(entry.outstandingByMember)
+    )
+    .sort((left, right) => {
+      const leftKey = `${left.originPeriod ?? ''}:${left.occurredAt ?? ''}:${left.id}`
+      const rightKey = `${right.originPeriod ?? ''}:${right.occurredAt ?? ''}:${right.id}`
+      return leftKey.localeCompare(rightKey)
+    })
+
+  const allocations: {
+    purchaseId: string
+    memberId: string
+    amountMinor: bigint
+  }[] = []
+
+  for (const entry of purchaseEntries) {
+    const memberOutstanding = entry.outstandingByMember.find(
+      (outstanding) => outstanding.memberId === input.memberId
+    )
+    if (!memberOutstanding || memberOutstanding.amount.amountMinor <= 0n) {
+      continue
+    }
+
+    const allocatedMinor =
+      remainingMinor >= memberOutstanding.amount.amountMinor
+        ? memberOutstanding.amount.amountMinor
+        : remainingMinor
+
+    if (allocatedMinor <= 0n) {
+      continue
+    }
+
+    allocations.push({
+      purchaseId: entry.id,
+      memberId: input.memberId,
+      amountMinor: allocatedMinor
+    })
+    remainingMinor -= allocatedMinor
+
+    if (remainingMinor === 0n) {
+      break
+    }
+  }
+
+  return allocations
 }
 
 export interface FinanceCommandService {
@@ -685,7 +1235,8 @@ export interface FinanceCommandService {
     memberId: string,
     kind: FinancePaymentKind,
     amountArg: string,
-    currencyArg?: string
+    currencyArg?: string,
+    periodArg?: string
   ): Promise<{
     paymentId: string
     amount: Money
@@ -1019,28 +1570,100 @@ export function createFinanceCommandService(
       return repository.deleteParsedPurchase(purchaseId)
     },
 
-    async addPayment(memberId, kind, amountArg, currencyArg) {
-      const [openCycle, settings] = await Promise.all([
-        ensureExpectedCycle(),
-        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
+    async addPayment(memberId, kind, amountArg, currencyArg, periodArg) {
+      const [settings, members, memberAbsencePolicies] = await Promise.all([
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+        householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
+        householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+          dependencies.householdId
+        )
       ])
+      const currentCycle = periodArg
+        ? await repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
+        : await ensureExpectedCycle()
+
+      if (!currentCycle) {
+        return null
+      }
 
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
-      const payment = await repository.addPaymentRecord({
-        cycleId: openCycle.id,
-        memberId,
-        kind,
-        amountMinor: amount.amountMinor,
-        currency,
-        recordedAt: nowInstant()
-      })
+      const paymentTargets = periodArg
+        ? [
+            {
+              cycle: currentCycle,
+              baseRemainingMinor: 0n,
+              allowOverflow: true
+            }
+          ]
+        : await resolveAutomaticPaymentTargets({
+            dependencies,
+            currentCycle,
+            members,
+            memberAbsencePolicies,
+            settings,
+            memberId,
+            kind
+          })
+
+      let remainingMinor = amount.amountMinor
+      let firstPayment: Awaited<ReturnType<FinanceRepository['addPaymentRecord']>> | null = null
+
+      for (const target of paymentTargets) {
+        if (remainingMinor <= 0n) {
+          break
+        }
+
+        const amountMinor =
+          target.allowOverflow || target.baseRemainingMinor <= 0n
+            ? remainingMinor
+            : remainingMinor > target.baseRemainingMinor
+              ? target.baseRemainingMinor
+              : remainingMinor
+
+        if (amountMinor <= 0n) {
+          continue
+        }
+
+        const payment = await repository.addPaymentRecord({
+          cycleId: target.cycle.id,
+          memberId,
+          kind,
+          amountMinor,
+          currency,
+          recordedAt: nowInstant()
+        })
+        if (!firstPayment) {
+          firstPayment = payment
+        }
+
+        const allocations = target.allowOverflow
+          ? await allocatePaymentPurchaseOverage({
+              dependencies,
+              cyclePeriod: target.cycle.period,
+              memberId,
+              kind,
+              paymentAmount: Money.fromMinor(amountMinor, currency),
+              settings
+            })
+          : []
+        await repository.replacePaymentPurchaseAllocations({
+          paymentRecordId: payment.id,
+          allocations
+        })
+
+        remainingMinor -= amountMinor
+      }
+
+      if (!firstPayment) {
+        return null
+      }
 
       return {
-        paymentId: payment.id,
+        paymentId: firstPayment.id,
         amount,
         currency,
-        period: openCycle.period
+        period: firstPayment.cyclePeriod ?? currentCycle.period
       }
     },
 
@@ -1050,6 +1673,10 @@ export function createFinanceCommandService(
       )
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
+      const existingPayment = await repository.getPaymentRecord(paymentId)
+      if (!existingPayment) {
+        return null
+      }
       const payment = await repository.updatePaymentRecord({
         paymentId,
         memberId,
@@ -1061,6 +1688,25 @@ export function createFinanceCommandService(
       if (!payment) {
         return null
       }
+
+      await repository.replacePaymentPurchaseAllocations({
+        paymentRecordId: paymentId,
+        allocations: []
+      })
+
+      const allocations = await allocatePaymentPurchaseOverage({
+        dependencies,
+        cyclePeriod:
+          existingPayment.cyclePeriod ?? expectedOpenCyclePeriod(settings, nowInstant()).toString(),
+        memberId,
+        kind,
+        paymentAmount: amount,
+        settings
+      })
+      await repository.replacePaymentPurchaseAllocations({
+        paymentRecordId: paymentId,
+        allocations
+      })
 
       return {
         paymentId: payment.id,

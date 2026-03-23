@@ -198,6 +198,7 @@ function createFinanceService(): FinanceCommandService {
           netDue: Money.fromMajor('500.50', 'GEL'),
           paid: Money.zero('GEL'),
           remaining: Money.fromMajor('500.50', 'GEL'),
+          overduePayments: [],
           explanations: []
         }
       ],

@@ -267,6 +267,7 @@ function createHouseholdRepository(): HouseholdConfigurationRepository {
     updateMemberPreferredLocale: async () => null,
     updateHouseholdMemberDisplayName: async () => null,
     promoteHouseholdAdmin: async () => null,
+    demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],
@@ -366,6 +367,7 @@ function createFinanceService(): FinanceCommandService {
           netDue: Money.fromMajor('850.00', 'GEL'),
           paid: Money.fromMajor('500.00', 'GEL'),
           remaining: Money.fromMajor('350.00', 'GEL'),
+          overduePayments: [],
           explanations: []
         },
         {
@@ -377,6 +379,7 @@ function createFinanceService(): FinanceCommandService {
           netDue: Money.fromMajor('815.00', 'GEL'),
           paid: Money.fromMajor('200.00', 'GEL'),
           remaining: Money.fromMajor('615.00', 'GEL'),
+          overduePayments: [],
           explanations: []
         },
         {
@@ -388,6 +391,7 @@ function createFinanceService(): FinanceCommandService {
           netDue: Money.fromMajor('680.00', 'GEL'),
           paid: Money.fromMajor('100.00', 'GEL'),
           remaining: Money.fromMajor('580.00', 'GEL'),
+          overduePayments: [],
           explanations: []
         }
       ],

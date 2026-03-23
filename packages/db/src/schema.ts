@@ -414,6 +414,9 @@ export const purchaseMessages = pgTable(
     householdId: uuid('household_id')
       .notNull()
       .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id').references(() => billingCycles.id, {
+      onDelete: 'set null'
+    }),
     senderMemberId: uuid('sender_member_id').references(() => members.id, {
       onDelete: 'set null'
     }),
@@ -444,6 +447,7 @@ export const purchaseMessages = pgTable(
       table.householdId,
       table.telegramThreadId
     ),
+    cycleIdx: index('purchase_messages_cycle_idx').on(table.cycleId),
     senderIdx: index('purchase_messages_sender_idx').on(table.senderTelegramUserId),
     tgMessageUnique: uniqueIndex('purchase_messages_household_tg_message_unique').on(
       table.householdId,
@@ -662,6 +666,31 @@ export const paymentRecords = pgTable(
   })
 )
 
+export const paymentPurchaseAllocations = pgTable(
+  'payment_purchase_allocations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    paymentRecordId: uuid('payment_record_id')
+      .notNull()
+      .references(() => paymentRecords.id, { onDelete: 'cascade' }),
+    purchaseId: uuid('purchase_id')
+      .notNull()
+      .references(() => purchaseMessages.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    paymentIdx: index('payment_purchase_allocations_payment_idx').on(table.paymentRecordId),
+    purchaseMemberIdx: index('payment_purchase_allocations_purchase_member_idx').on(
+      table.purchaseId,
+      table.memberId
+    )
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {
@@ -732,4 +761,5 @@ export type TopicMessage = typeof topicMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
 export type PaymentConfirmation = typeof paymentConfirmations.$inferSelect
 export type PaymentRecord = typeof paymentRecords.$inferSelect
+export type PaymentPurchaseAllocation = typeof paymentPurchaseAllocations.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

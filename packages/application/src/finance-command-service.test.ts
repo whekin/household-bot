@@ -45,10 +45,12 @@ class FinanceRepositoryStub implements FinanceRepository {
   openCycleRecord: FinanceCycleRecord | null = null
   cycleByPeriodRecord: FinanceCycleRecord | null = null
   latestCycleRecord: FinanceCycleRecord | null = null
+  cycles: readonly FinanceCycleRecord[] = []
   rentRule: FinanceRentRuleRecord | null = null
   purchases: readonly FinanceParsedPurchaseRecord[] = []
   utilityBills: readonly {
     id: string
+    cycleId?: string
     billName: string
     amountMinor: bigint
     currency: 'USD' | 'GEL'
@@ -57,6 +59,8 @@ class FinanceRepositoryStub implements FinanceRepository {
   }[] = []
   paymentRecords: readonly {
     id: string
+    cycleId: string
+    cyclePeriod?: string | null
     memberId: string
     kind: 'rent' | 'utilities'
     amountMinor: bigint
@@ -79,6 +83,10 @@ class FinanceRepositoryStub implements FinanceRepository {
   cycleExchangeRates = new Map<string, FinanceCycleExchangeRateRecord>()
   lastUpdatedPurchaseInput: Parameters<FinanceRepository['updateParsedPurchase']>[0] | null = null
   lastAddedPurchaseInput: Parameters<FinanceRepository['addParsedPurchase']>[0] | null = null
+  lastReplacedPaymentPurchaseAllocations:
+    | Parameters<FinanceRepository['replacePaymentPurchaseAllocations']>[0]
+    | null = null
+  addedPaymentRecords: Parameters<FinanceRepository['addPaymentRecord']>[0][] = []
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
@@ -88,12 +96,27 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.members
   }
 
+  async listCycles(): Promise<readonly FinanceCycleRecord[]> {
+    if (this.cycles.length > 0) {
+      return this.cycles
+    }
+
+    return [this.openCycleRecord ?? this.cycleByPeriodRecord ?? this.latestCycleRecord].filter(
+      (cycle): cycle is FinanceCycleRecord => Boolean(cycle)
+    )
+  }
+
   async getOpenCycle(): Promise<FinanceCycleRecord | null> {
     return this.openCycleRecord
   }
 
-  async getCycleByPeriod(): Promise<FinanceCycleRecord | null> {
-    return this.cycleByPeriodRecord ?? this.openCycleRecord ?? this.latestCycleRecord
+  async getCycleByPeriod(period: string): Promise<FinanceCycleRecord | null> {
+    return (
+      this.cycles.find((cycle) => cycle.period === period) ??
+      (this.cycleByPeriodRecord?.period === period ? this.cycleByPeriodRecord : null) ??
+      (this.openCycleRecord?.period === period ? this.openCycleRecord : null) ??
+      (this.latestCycleRecord?.period === period ? this.latestCycleRecord : null)
+    )
   }
 
   async getLatestCycle(): Promise<FinanceCycleRecord | null> {
@@ -153,6 +176,8 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.lastAddedPurchaseInput = input
     return {
       id: 'purchase-1',
+      cycleId: input.cycleId,
+      cyclePeriod: null,
       payerMemberId: input.payerMemberId,
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -179,6 +204,8 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.lastUpdatedPurchaseInput = input
     return {
       id: input.purchaseId,
+      cycleId: null,
+      cyclePeriod: null,
       payerMemberId: 'alice',
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -210,14 +237,40 @@ class FinanceRepositoryStub implements FinanceRepository {
     currency: 'USD' | 'GEL'
     recordedAt: Instant
   }) {
+    this.addedPaymentRecords.push(input)
+
     return {
-      id: 'payment-record-1',
+      id: `payment-record-${this.addedPaymentRecords.length}`,
+      cycleId: input.cycleId,
+      cyclePeriod:
+        this.cycles.find((cycle) => cycle.id === input.cycleId)?.period ??
+        this.openCycleRecord?.period ??
+        null,
       memberId: input.memberId,
       kind: input.kind,
       amountMinor: input.amountMinor,
       currency: input.currency,
       recordedAt: input.recordedAt
     }
+  }
+
+  async getPaymentRecord(paymentId: string) {
+    return {
+      id: paymentId,
+      cycleId: this.openCycleRecord?.id ?? 'cycle-1',
+      cyclePeriod: this.openCycleRecord?.period ?? '2026-03',
+      memberId: 'alice',
+      kind: 'utilities' as const,
+      amountMinor: 0n,
+      currency: 'GEL' as const,
+      recordedAt: instantFromIso('2026-03-20T10:00:00.000Z')
+    }
+  }
+
+  async replacePaymentPurchaseAllocations(
+    input: Parameters<FinanceRepository['replacePaymentPurchaseAllocations']>[0]
+  ) {
+    this.lastReplacedPaymentPurchaseAllocations = input
   }
 
   async updatePaymentRecord() {
@@ -236,16 +289,24 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.utilityBills.reduce((sum, bill) => sum + bill.amountMinor, 0n)
   }
 
-  async listUtilityBillsForCycle() {
-    return this.utilityBills
+  async listUtilityBillsForCycle(cycleId: string) {
+    return this.utilityBills.filter((bill) => !bill.cycleId || bill.cycleId === cycleId)
   }
 
-  async listPaymentRecordsForCycle() {
-    return this.paymentRecords
+  async listPaymentRecordsForCycle(cycleId: string) {
+    return this.paymentRecords.filter((payment) => payment.cycleId === cycleId)
   }
 
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
     return this.purchases
+  }
+
+  async listParsedPurchases(): Promise<readonly FinanceParsedPurchaseRecord[]> {
+    return this.purchases
+  }
+
+  async listPaymentPurchaseAllocations() {
+    return []
   }
 
   async getSettlementSnapshotLines() {
@@ -364,9 +425,10 @@ function createService(repository: FinanceRepositoryStub) {
 describe('createFinanceCommandService', () => {
   test('setRent falls back to the open cycle period when one is active', async () => {
     const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
     repository.openCycleRecord = {
       id: 'cycle-1',
-      period: '2026-03',
+      period: currentPeriod,
       currency: 'GEL'
     }
 
@@ -374,11 +436,11 @@ describe('createFinanceCommandService', () => {
     const result = await service.setRent('700', undefined, undefined)
 
     expect(result).not.toBeNull()
-    expect(result?.period).toBe('2026-03')
+    expect(result?.period).toBe(currentPeriod)
     expect(result?.currency).toBe('USD')
     expect(result?.amount.amountMinor).toBe(70000n)
     expect(repository.lastSavedRentRule).toEqual({
-      period: '2026-03',
+      period: currentPeriod,
       amountMinor: 70000n,
       currency: 'USD'
     })
@@ -386,9 +448,10 @@ describe('createFinanceCommandService', () => {
 
   test('getAdminCycleState prefers the open cycle and returns rent plus utility bills', async () => {
     const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
     repository.openCycleRecord = {
       id: 'cycle-1',
-      period: '2026-03',
+      period: currentPeriod,
       currency: 'GEL'
     }
     repository.latestCycleRecord = {
@@ -417,7 +480,7 @@ describe('createFinanceCommandService', () => {
     expect(result).toEqual({
       cycle: {
         id: 'cycle-1',
-        period: '2026-03',
+        period: currentPeriod,
         currency: 'GEL'
       },
       rentRule: {
@@ -498,6 +561,8 @@ describe('createFinanceCommandService', () => {
     repository.purchases = [
       {
         id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
         payerMemberId: 'alice',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -508,6 +573,8 @@ describe('createFinanceCommandService', () => {
     repository.paymentRecords = [
       {
         id: 'payment-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
         memberId: 'alice',
         kind: 'rent',
         amountMinor: 50000n,
@@ -517,8 +584,8 @@ describe('createFinanceCommandService', () => {
     ]
 
     const service = createService(repository)
-    const dashboard = await service.generateDashboard()
-    const statement = await service.generateStatement()
+    const dashboard = await service.generateDashboard('2026-03')
+    const statement = await service.generateStatement('2026-03')
 
     expect(dashboard).not.toBeNull()
     expect(dashboard?.currency).toBe('GEL')
@@ -578,7 +645,7 @@ describe('createFinanceCommandService', () => {
     }
 
     const service = createService(repository)
-    const dashboard = await service.generateDashboard()
+    const dashboard = await service.generateDashboard('2026-03')
 
     expect(dashboard?.period).toBe('2026-03')
   })
@@ -638,6 +705,8 @@ describe('createFinanceCommandService', () => {
     repository.purchases = [
       {
         id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
         payerMemberId: 'alice',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -742,6 +811,8 @@ describe('createFinanceCommandService', () => {
     repository.purchases = [
       {
         id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
         payerMemberId: 'alice',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -823,6 +894,8 @@ describe('createFinanceCommandService', () => {
     repository.purchases = [
       {
         id: 'malformed-purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
         payerMemberId: 'alice',
         amountMinor: 1000n, // Total is 10.00 GEL
         currency: 'GEL',
@@ -882,12 +955,318 @@ describe('createFinanceCommandService', () => {
     repository.rentRule = null
 
     const service = createService(repository)
-    const dashboard = await service.generateDashboard()
+    const dashboard = await service.generateDashboard('2026-03')
 
     expect(dashboard).not.toBeNull()
     expect(dashboard?.period).toBe('2026-03')
     expect(dashboard?.rentSourceAmount.amountMinor).toBe(0n)
     expect(dashboard?.rentDisplayAmount.amountMinor).toBe(0n)
     expect(dashboard?.totalDue.amountMinor).toBe(0n)
+  })
+
+  test('generateDashboard carries unresolved purchases from prior cycles into the current cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 0n,
+      currency: 'GEL'
+    }
+    repository.utilityBills = [
+      {
+        id: 'utility-1',
+        billName: 'Electricity',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-05T12:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Soap',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1500n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1500n
+          }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+    const bobLine = dashboard?.members.find((member) => member.memberId === 'bob')
+    const purchaseEntry = dashboard?.ledger.find((entry) => entry.id === 'purchase-1')
+
+    expect(bobLine?.purchaseOffset.amountMinor).toBe(1500n)
+    expect(bobLine?.utilityShare.amountMinor).toBe(2500n)
+    expect(purchaseEntry?.kind).toBe('purchase')
+    expect(purchaseEntry?.originPeriod).toBe('2026-03')
+    expect(purchaseEntry?.resolutionStatus).toBe('unresolved')
+    expect(purchaseEntry?.outstandingByMember).toEqual([
+      {
+        memberId: 'bob',
+        amount: Money.fromMinor(1500n, 'GEL')
+      }
+    ])
+  })
+
+  test('addPayment allocates utilities overage to the oldest unresolved purchase balance', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 0n,
+      currency: 'GEL'
+    }
+    repository.utilityBills = [
+      {
+        id: 'utility-1',
+        billName: 'Electricity',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-05T12:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-oldest',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Old soap',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1500n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1500n
+          }
+        ]
+      },
+      {
+        id: 'purchase-newer',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'New sponge',
+        occurredAt: instantFromIso('2026-04-07T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1000n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1000n
+          }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    await service.addPayment('bob', 'utilities', '40.00', 'GEL', '2026-04')
+
+    expect(repository.lastReplacedPaymentPurchaseAllocations).toEqual({
+      paymentRecordId: 'payment-record-1',
+      allocations: [
+        {
+          purchaseId: 'purchase-oldest',
+          memberId: 'bob',
+          amountMinor: 1500n
+        }
+      ]
+    })
+  })
+
+  test('generateDashboard aggregates overdue payments by kind across unresolved past cycles', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-01', period: '2026-01', currency: 'GEL' },
+      { id: 'cycle-2026-02', period: '2026-02', currency: 'GEL' },
+      { id: 'cycle-2026-03', period: '2026-03', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[2]!
+    repository.latestCycleRecord = repository.cycles[2]!
+    repository.rentRule = {
+      amountMinor: 2000n,
+      currency: 'GEL'
+    }
+    repository.utilityBills = [
+      {
+        id: 'utility-2026-02',
+        cycleId: 'cycle-2026-02',
+        billName: 'Electricity',
+        amountMinor: 600n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-02-10T12:00:00.000Z')
+      }
+    ]
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        memberId: 'bob',
+        kind: 'rent',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard()
+    const bobLine = dashboard?.members.find((member) => member.memberId === 'bob')
+
+    expect(bobLine?.overduePayments).toEqual([
+      {
+        kind: 'rent',
+        amountMinor: 2000n,
+        periods: ['2026-01', '2026-02']
+      },
+      {
+        kind: 'utilities',
+        amountMinor: 300n,
+        periods: ['2026-02']
+      }
+    ])
+  })
+
+  test('addPayment without explicit period applies overdue payments oldest-first across cycles', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-01', period: '2026-01', currency: 'GEL' },
+      { id: 'cycle-2026-02', period: '2026-02', currency: 'GEL' },
+      { id: 'cycle-2026-03', period: '2026-03', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[2]!
+    repository.latestCycleRecord = repository.cycles[2]!
+    repository.rentRule = {
+      amountMinor: 2000n,
+      currency: 'GEL'
+    }
+
+    const service = createService(repository)
+    await service.addPayment('bob', 'rent', '15.00', 'GEL')
+
+    expect(repository.addedPaymentRecords).toEqual([
+      {
+        cycleId: 'cycle-2026-01',
+        memberId: 'bob',
+        kind: 'rent',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        recordedAt: repository.addedPaymentRecords[0]!.recordedAt
+      },
+      {
+        cycleId: 'cycle-2026-02',
+        memberId: 'bob',
+        kind: 'rent',
+        amountMinor: 500n,
+        currency: 'GEL',
+        recordedAt: repository.addedPaymentRecords[1]!.recordedAt
+      }
+    ])
   })
 })

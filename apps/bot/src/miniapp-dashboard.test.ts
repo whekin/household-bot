@@ -54,6 +54,7 @@ function repository(
         isAdmin: true
       }
     ],
+    listCycles: async () => [cycle],
     getOpenCycle: async () => cycle,
     getCycleByPeriod: async (period) => (period === cycle.period ? cycle : null),
     getLatestCycle: async () => cycle,
@@ -72,6 +73,8 @@ function repository(
     updateParsedPurchase: async () => null,
     addParsedPurchase: async (input) => ({
       id: 'purchase-new',
+      cycleId: input.cycleId,
+      cyclePeriod: null,
       payerMemberId: input.payerMemberId,
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -90,6 +93,8 @@ function repository(
     deleteUtilityBill: async () => false,
     addPaymentRecord: async (input) => ({
       id: 'payment-new',
+      cycleId: input.cycleId,
+      cyclePeriod: null,
       memberId: input.memberId,
       kind: input.kind,
       amountMinor: input.amountMinor,
@@ -97,6 +102,8 @@ function repository(
       recordedAt: input.recordedAt
     }),
     updatePaymentRecord: async () => null,
+    getPaymentRecord: async () => null,
+    replacePaymentPurchaseAllocations: async () => {},
     deletePaymentRecord: async () => false,
     getRentRuleForPeriod: async () => ({
       amountMinor: 70000n,
@@ -116,6 +123,8 @@ function repository(
     listPaymentRecordsForCycle: async () => [
       {
         id: 'payment-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
         memberId: member?.id ?? 'member-1',
         kind: 'rent',
         amountMinor: 50000n,
@@ -126,6 +135,8 @@ function repository(
     listParsedPurchasesForRange: async () => [
       {
         id: 'purchase-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
         payerMemberId: member?.id ?? 'member-1',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -133,6 +144,19 @@ function repository(
         occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
       }
     ],
+    listParsedPurchases: async () => [
+      {
+        id: 'purchase-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        payerMemberId: member?.id ?? 'member-1',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Soap',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z')
+      }
+    ],
+    listPaymentPurchaseAllocations: async () => [],
     getSettlementSnapshotLines: async () => [],
     savePaymentConfirmation: async () =>
       ({
@@ -282,6 +306,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       isActive: input.isActive
     }),
     promoteHouseholdAdmin: async () => null,
+    demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],
@@ -364,6 +389,7 @@ describe('createMiniAppDashboardHandler', () => {
           {
             displayName: 'Stan',
             netDueMajor: '2010.00',
+            overduePayments: [],
             paidMajor: '500.00',
             remainingMajor: '1510.00',
             rentShareMajor: '1890.00',
@@ -408,6 +434,8 @@ describe('createMiniAppDashboardHandler', () => {
     financeRepository.listParsedPurchasesForRange = async () => [
       {
         id: 'purchase-1',
+        cycleId: 'cycle-1',
+        cyclePeriod: '2026-03',
         payerMemberId: 'member-1',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -433,6 +461,11 @@ describe('createMiniAppDashboardHandler', () => {
         ]
       }
     ]
+    financeRepository.listParsedPurchases = async () =>
+      financeRepository.listParsedPurchasesForRange(
+        instantFromIso('2026-03-01T00:00:00.000Z'),
+        instantFromIso('2026-04-01T00:00:00.000Z')
+      )
     financeRepository.listMembers = async () => [
       {
         id: 'member-1',

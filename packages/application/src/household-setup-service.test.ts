@@ -316,6 +316,21 @@ function createRepositoryStub() {
       members.set(`${householdId}:${member.telegramUserId}`, next)
       return next
     },
+    async demoteHouseholdAdmin(householdId, memberId) {
+      const member = [...members.values()].find(
+        (entry) => entry.householdId === householdId && entry.id === memberId
+      )
+      if (!member) {
+        return null
+      }
+
+      const next = {
+        ...member,
+        isAdmin: false
+      }
+      members.set(`${householdId}:${member.telegramUserId}`, next)
+      return next
+    },
 
     async updateHouseholdMemberRentShareWeight(householdId, memberId, rentShareWeight) {
       const member = [...members.values()].find(

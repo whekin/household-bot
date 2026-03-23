@@ -130,6 +130,11 @@ export interface MiniAppDashboard {
     netDueMajor: string
     paidMajor: string
     remainingMajor: string
+    overduePayments: readonly {
+      kind: 'rent' | 'utilities'
+      amountMajor: string
+      periods: readonly string[]
+    }[]
     explanations: readonly string[]
   }[]
   ledger: {
@@ -147,6 +152,13 @@ export interface MiniAppDashboard {
     actorDisplayName: string | null
     occurredAt: string | null
     purchaseSplitMode?: 'equal' | 'custom_amounts'
+    originPeriod?: string | null
+    resolutionStatus?: 'unresolved' | 'resolved'
+    resolvedAt?: string | null
+    outstandingByMember?: readonly {
+      memberId: string
+      amountMajor: string
+    }[]
     purchaseParticipants?: readonly {
       memberId: string
       included: boolean
@@ -711,6 +723,35 @@ export async function updateMiniAppMemberStatus(
   return payload.member
 }
 
+export async function demoteMiniAppMember(
+  initData: string,
+  memberId: string
+): Promise<MiniAppMember> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/demote`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      memberId
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    member?: MiniAppMember
+    error?: string
+  }
+
+  if (!response.ok || !payload.member) {
+    throw new Error(payload.error ?? 'Failed to remove admin access')
+  }
+
+  return payload.member
+}
+
 export async function updateMiniAppMemberAbsencePolicy(
   initData: string,
   memberId: string,
@@ -1085,6 +1126,7 @@ export async function addMiniAppPayment(
     kind: 'rent' | 'utilities'
     amountMajor: string
     currency: 'USD' | 'GEL'
+    period?: string
   }
 ): Promise<void> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/payments/add`, {

@@ -21,12 +21,7 @@ import type {
   MiniAppDashboard,
   MiniAppPendingMember
 } from '../miniapp-api'
-import {
-  demoAdminSettings,
-  demoCycleState,
-  demoDashboard,
-  demoPendingMembers
-} from '../demo/miniapp-demo'
+import { getDemoScenarioState, type DemoScenarioId } from '../demo/miniapp-demo'
 import { useSession } from './session-context'
 import { useI18n } from './i18n-context'
 
@@ -106,6 +101,8 @@ type DashboardContextValue = {
   memberUtilityBalanceVisuals: () => MemberBalanceItem[]
   testingRolePreview: () => TestingRolePreview | null
   setTestingRolePreview: (value: TestingRolePreview | null) => void
+  demoScenario: () => DemoScenarioId
+  setDemoScenario: (value: DemoScenarioId) => void
   testingPeriodOverride: () => string | null
   setTestingPeriodOverride: (value: string | null) => void
   testingTodayOverride: () => string | null
@@ -297,6 +294,7 @@ export function DashboardProvider(props: ParentProps) {
   const [cycleState, setCycleState] = createSignal<MiniAppAdminCycleState | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
   const [testingRolePreview, setTestingRolePreview] = createSignal<TestingRolePreview | null>(null)
+  const [demoScenario, setDemoScenarioSignal] = createSignal<DemoScenarioId>('current-cycle')
   const [testingPeriodOverride, setTestingPeriodOverride] = createSignal<string | null>(null)
   const [testingTodayOverride, setTestingTodayOverride] = createSignal<string | null>(null)
 
@@ -393,10 +391,22 @@ export function DashboardProvider(props: ParentProps) {
   }
 
   function applyDemoState() {
-    setDashboard(demoDashboard)
-    setPendingMembers([...demoPendingMembers])
-    setAdminSettings(demoAdminSettings)
-    setCycleState(demoCycleState)
+    const state = getDemoScenarioState(demoScenario())
+    setDashboard(state.dashboard)
+    setPendingMembers(state.pendingMembers)
+    setAdminSettings(state.adminSettings)
+    setCycleState(state.cycleState)
+  }
+
+  function setDemoScenario(value: DemoScenarioId) {
+    setDemoScenarioSignal(value)
+    if (readySession()?.mode === 'demo') {
+      const state = getDemoScenarioState(value)
+      setDashboard(state.dashboard)
+      setPendingMembers(state.pendingMembers)
+      setAdminSettings(state.adminSettings)
+      setCycleState(state.cycleState)
+    }
   }
 
   return (
@@ -424,6 +434,8 @@ export function DashboardProvider(props: ParentProps) {
         memberUtilityBalanceVisuals,
         testingRolePreview,
         setTestingRolePreview,
+        demoScenario,
+        setDemoScenario,
         testingPeriodOverride,
         setTestingPeriodOverride,
         testingTodayOverride,

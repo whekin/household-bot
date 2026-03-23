@@ -113,6 +113,7 @@ function createRepository(): HouseholdConfigurationRepository {
     updateMemberPreferredLocale: async () => null,
     updateHouseholdMemberDisplayName: async () => null,
     promoteHouseholdAdmin: async () => null,
+    demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],
@@ -150,6 +151,7 @@ function createDashboard(): NonNullable<
         netDue: Money.fromMajor('210', 'GEL'),
         paid: Money.fromMajor('100', 'GEL'),
         remaining: Money.fromMajor('110', 'GEL'),
+        overduePayments: [],
         explanations: []
       },
       {
@@ -161,6 +163,7 @@ function createDashboard(): NonNullable<
         netDue: Money.fromMajor('190', 'GEL'),
         paid: Money.zero('GEL'),
         remaining: Money.fromMajor('190', 'GEL'),
+        overduePayments: [],
         explanations: []
       }
     ],

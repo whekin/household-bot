@@ -20,10 +20,13 @@ export function AppShell(props: ParentProps) {
     effectiveIsAdmin,
     testingRolePreview,
     setTestingRolePreview,
+    demoScenario,
+    setDemoScenario,
     testingPeriodOverride,
     setTestingPeriodOverride,
     testingTodayOverride,
-    setTestingTodayOverride
+    setTestingTodayOverride,
+    applyDemoState
   } = useDashboard()
   const navigate = useNavigate()
 
@@ -36,6 +39,28 @@ export function AppShell(props: ParentProps) {
       left: copy().memberStatusLeft
     }
     return labels[status]
+  }
+
+  function demoScenarioLabel(
+    id: 'current-cycle' | 'overdue-utilities' | 'overdue-rent-and-utilities'
+  ) {
+    const labels = {
+      'current-cycle': copy().testingScenarioCurrentCycle ?? '',
+      'overdue-utilities': copy().testingScenarioOverdueUtilities ?? '',
+      'overdue-rent-and-utilities': copy().testingScenarioOverdueBoth ?? ''
+    }
+    return labels[id]
+  }
+
+  function demoScenarioDescription(
+    id: 'current-cycle' | 'overdue-utilities' | 'overdue-rent-and-utilities'
+  ) {
+    const descriptions = {
+      'current-cycle': copy().testingScenarioCurrentCycleBody ?? '',
+      'overdue-utilities': copy().testingScenarioOverdueUtilitiesBody ?? '',
+      'overdue-rent-and-utilities': copy().testingScenarioOverdueBothBody ?? ''
+    }
+    return descriptions[id]
   }
 
   let tapCount = 0
@@ -92,6 +117,9 @@ export function AppShell(props: ParentProps) {
           <Badge variant={readySession()?.mode === 'demo' ? 'accent' : 'default'}>
             {readySession()?.mode === 'demo' ? copy().demoBadge : copy().liveBadge}
           </Badge>
+          <Show when={readySession()?.mode === 'demo'}>
+            <Badge variant="muted">{demoScenarioLabel(demoScenario())}</Badge>
+          </Show>
           <Show
             when={readySession()?.member.isAdmin}
             fallback={
@@ -168,11 +196,47 @@ export function AppShell(props: ParentProps) {
               {copy().testingPreviewResidentAction ?? ''}
             </Button>
           </div>
+          <Show when={readySession()?.mode === 'demo'}>
+            <article class="testing-card__section testing-card__section--stack">
+              <span>{copy().testingScenarioLabel ?? ''}</span>
+              <div class="testing-card__section-content">
+                <strong>{demoScenarioLabel(demoScenario())}</strong>
+                <p class="testing-card__section-description">
+                  {demoScenarioDescription(demoScenario())}
+                </p>
+              </div>
+            </article>
+            <div class="testing-card__actions testing-card__actions--wrap">
+              <Button
+                variant={demoScenario() === 'current-cycle' ? 'primary' : 'secondary'}
+                onClick={() => setDemoScenario('current-cycle')}
+              >
+                {copy().testingScenarioCurrentCycle ?? ''}
+              </Button>
+              <Button
+                variant={demoScenario() === 'overdue-utilities' ? 'primary' : 'secondary'}
+                onClick={() => setDemoScenario('overdue-utilities')}
+              >
+                {copy().testingScenarioOverdueUtilities ?? ''}
+              </Button>
+              <Button
+                variant={demoScenario() === 'overdue-rent-and-utilities' ? 'primary' : 'secondary'}
+                onClick={() => setDemoScenario('overdue-rent-and-utilities')}
+              >
+                {copy().testingScenarioOverdueBoth ?? ''}
+              </Button>
+            </div>
+            <div class="modal-action-row">
+              <Button variant="ghost" onClick={() => applyDemoState()}>
+                {copy().testingResetDemoStateAction ?? ''}
+              </Button>
+            </div>
+          </Show>
           <article class="testing-card__section">
             <span>{copy().testingPeriodCurrentLabel ?? ''}</span>
             <strong>{dashboard()?.period ?? '—'}</strong>
           </article>
-          <div class="testing-card__actions" style={{ 'flex-direction': 'column', gap: '12px' }}>
+          <div class="testing-card__actions testing-card__actions--stack">
             <Field label={copy().testingPeriodOverrideLabel ?? ''} wide>
               <Input
                 placeholder={copy().testingPeriodOverridePlaceholder ?? ''}

@@ -215,6 +215,20 @@ function repository(): HouseholdConfigurationRepository {
             isAdmin: true
           }
         : null,
+    demoteHouseholdAdmin: async (householdId, memberId) =>
+      memberId === 'member-123456'
+        ? {
+            id: memberId,
+            householdId,
+            telegramUserId: '123456',
+            displayName: 'Stan',
+            status: 'active',
+            preferredLocale: null,
+            householdDefaultLocale: 'ru',
+            rentShareWeight: 1,
+            isAdmin: false
+          }
+        : null,
     updateHouseholdMemberRentShareWeight: async (_householdId, memberId, rentShareWeight) =>
       memberId === 'member-123456'
         ? {
@@ -509,6 +523,87 @@ describe('createMiniAppAdminService', () => {
         rentShareWeight: 1,
         isAdmin: true
       }
+    })
+  })
+
+  test('demotes a household admin when another admin still exists', async () => {
+    const service = createMiniAppAdminService({
+      ...repository(),
+      listHouseholdMembers: async () => [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: null,
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: true
+        },
+        {
+          id: 'member-999999',
+          householdId: 'household-1',
+          telegramUserId: '999999',
+          displayName: 'Mia',
+          status: 'active',
+          preferredLocale: null,
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: true
+        }
+      ]
+    })
+
+    const result = await service.demoteMemberFromAdmin({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456'
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      member: {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    })
+  })
+
+  test('rejects demoting the last household admin', async () => {
+    const service = createMiniAppAdminService({
+      ...repository(),
+      listHouseholdMembers: async () => [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: null,
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: true
+        }
+      ]
+    })
+
+    const result = await service.demoteMemberFromAdmin({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456'
+    })
+
+    expect(result).toEqual({
+      status: 'rejected',
+      reason: 'last_admin'
     })
   })
 

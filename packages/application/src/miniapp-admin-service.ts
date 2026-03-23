@@ -173,6 +173,20 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
+  demoteMemberFromAdmin(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+  }): Promise<
+    | {
+        status: 'ok'
+        member: HouseholdMemberRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'member_not_found' | 'last_admin'
+      }
+  >
   updateMemberRentShareWeight(input: {
     householdId: string
     actorIsAdmin: boolean
@@ -636,6 +650,47 @@ export function createMiniAppAdminService(
       }
 
       const member = await repository.promoteHouseholdAdmin(input.householdId, input.memberId)
+      if (!member) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      return {
+        status: 'ok',
+        member
+      }
+    },
+
+    async demoteMemberFromAdmin(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const members = await repository.listHouseholdMembers(input.householdId)
+      const targetMember = members.find((member) => member.id === input.memberId)
+      if (!targetMember) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      const adminCount = members.filter((member) => member.isAdmin).length
+      if (targetMember.isAdmin && adminCount <= 1) {
+        return {
+          status: 'rejected',
+          reason: 'last_admin'
+        }
+      }
+
+      const member = targetMember.isAdmin
+        ? await repository.demoteHouseholdAdmin(input.householdId, input.memberId)
+        : targetMember
       if (!member) {
         return {
           status: 'rejected',

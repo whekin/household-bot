@@ -153,6 +153,23 @@ export function createDbFinanceRepository(
       }
     },
 
+    async listCycles() {
+      const rows = await db
+        .select({
+          id: schema.billingCycles.id,
+          period: schema.billingCycles.period,
+          currency: schema.billingCycles.currency
+        })
+        .from(schema.billingCycles)
+        .where(eq(schema.billingCycles.householdId, householdId))
+        .orderBy(schema.billingCycles.period)
+
+      return rows.map((row) => ({
+        ...row,
+        currency: toCurrencyCode(row.currency)
+      }))
+    },
+
     async getCycleByPeriod(period) {
       const rows = await db
         .select({
@@ -354,6 +371,7 @@ export function createDbFinanceRepository(
       await db.insert(schema.purchaseMessages).values({
         id: purchaseId,
         householdId,
+        cycleId: input.cycleId,
         senderMemberId: input.payerMemberId,
         payerMemberId: input.payerMemberId,
         senderTelegramUserId: 'miniapp',
@@ -415,11 +433,13 @@ export function createDbFinanceRepository(
 
       return {
         id: row.id,
+        cycleId: input.cycleId,
         payerMemberId: row.payerMemberId,
         amountMinor: row.amountMinor,
         currency: toCurrencyCode(row.currency),
         description: row.description,
         occurredAt: row.occurredAt ? instantFromDatabaseValue(row.occurredAt) : null,
+        cyclePeriod: null,
         splitMode: row.splitMode as 'equal' | 'custom_amounts',
         participants: participantRows.map((p) => ({
           memberId: p.memberId,
@@ -502,11 +522,13 @@ export function createDbFinanceRepository(
 
         return {
           id: row.id,
+          cycleId: null,
           payerMemberId: row.payerMemberId,
           amountMinor: row.amountMinor,
           currency: toCurrencyCode(row.currency),
           description: row.description,
           occurredAt: instantFromDatabaseValue(row.occurredAt),
+          cyclePeriod: null,
           splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
           participants: participants.map((participant) => ({
             id: participant.id,
@@ -596,6 +618,7 @@ export function createDbFinanceRepository(
         })
         .returning({
           id: schema.paymentRecords.id,
+          cycleId: schema.paymentRecords.cycleId,
           memberId: schema.paymentRecords.memberId,
           kind: schema.paymentRecords.kind,
           amountMinor: schema.paymentRecords.amountMinor,
@@ -610,12 +633,74 @@ export function createDbFinanceRepository(
 
       return {
         id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: null,
         memberId: row.memberId,
         kind: row.kind === 'utilities' ? 'utilities' : 'rent',
         amountMinor: row.amountMinor,
         currency: toCurrencyCode(row.currency),
         recordedAt: instantFromDatabaseValue(row.recordedAt)!
       }
+    },
+
+    async getPaymentRecord(paymentId) {
+      const rows = await db
+        .select({
+          id: schema.paymentRecords.id,
+          cycleId: schema.paymentRecords.cycleId,
+          cyclePeriod: schema.billingCycles.period,
+          memberId: schema.paymentRecords.memberId,
+          kind: schema.paymentRecords.kind,
+          amountMinor: schema.paymentRecords.amountMinor,
+          currency: schema.paymentRecords.currency,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+        .from(schema.paymentRecords)
+        .innerJoin(schema.billingCycles, eq(schema.paymentRecords.cycleId, schema.billingCycles.id))
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentRecords.id, paymentId)
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: row.cyclePeriod,
+        memberId: row.memberId,
+        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
+      }
+    },
+
+    async replacePaymentPurchaseAllocations(input) {
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.paymentPurchaseAllocations)
+          .where(eq(schema.paymentPurchaseAllocations.paymentRecordId, input.paymentRecordId))
+
+        if (input.allocations.length === 0) {
+          return
+        }
+
+        await tx.insert(schema.paymentPurchaseAllocations).values(
+          input.allocations.map((allocation) => ({
+            paymentRecordId: input.paymentRecordId,
+            purchaseId: allocation.purchaseId,
+            memberId: allocation.memberId,
+            amountMinor: allocation.amountMinor
+          }))
+        )
+      })
     },
 
     async updatePaymentRecord(input) {
@@ -635,6 +720,7 @@ export function createDbFinanceRepository(
         )
         .returning({
           id: schema.paymentRecords.id,
+          cycleId: schema.paymentRecords.cycleId,
           memberId: schema.paymentRecords.memberId,
           kind: schema.paymentRecords.kind,
           amountMinor: schema.paymentRecords.amountMinor,
@@ -649,6 +735,8 @@ export function createDbFinanceRepository(
 
       return {
         id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: null,
         memberId: row.memberId,
         kind: row.kind === 'utilities' ? 'utilities' : 'rent',
         amountMinor: row.amountMinor,
@@ -741,6 +829,8 @@ export function createDbFinanceRepository(
       const rows = await db
         .select({
           id: schema.paymentRecords.id,
+          cycleId: schema.paymentRecords.cycleId,
+          cyclePeriod: schema.billingCycles.period,
           memberId: schema.paymentRecords.memberId,
           kind: schema.paymentRecords.kind,
           amountMinor: schema.paymentRecords.amountMinor,
@@ -748,11 +838,14 @@ export function createDbFinanceRepository(
           recordedAt: schema.paymentRecords.recordedAt
         })
         .from(schema.paymentRecords)
+        .innerJoin(schema.billingCycles, eq(schema.paymentRecords.cycleId, schema.billingCycles.id))
         .where(eq(schema.paymentRecords.cycleId, cycleId))
         .orderBy(schema.paymentRecords.recordedAt)
 
       return rows.map((row) => ({
         id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: row.cyclePeriod,
         memberId: row.memberId,
         kind: row.kind === 'utilities' ? 'utilities' : 'rent',
         amountMinor: row.amountMinor,
@@ -765,6 +858,8 @@ export function createDbFinanceRepository(
       const rows = await db
         .select({
           id: schema.purchaseMessages.id,
+          cycleId: schema.purchaseMessages.cycleId,
+          cyclePeriod: schema.billingCycles.period,
           payerMemberId: schema.purchaseMessages.payerMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
@@ -773,6 +868,10 @@ export function createDbFinanceRepository(
           splitMode: schema.purchaseMessages.participantSplitMode
         })
         .from(schema.purchaseMessages)
+        .leftJoin(
+          schema.billingCycles,
+          eq(schema.purchaseMessages.cycleId, schema.billingCycles.id)
+        )
         .where(
           and(
             eq(schema.purchaseMessages.householdId, householdId),
@@ -792,6 +891,8 @@ export function createDbFinanceRepository(
 
       return rows.map((row) => ({
         id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: row.cyclePeriod,
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
         currency: toCurrencyCode(row.currency!),
@@ -799,6 +900,82 @@ export function createDbFinanceRepository(
         occurredAt: instantFromDatabaseValue(row.occurredAt),
         splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
         participants: participantsByPurchaseId.get(row.id) ?? []
+      }))
+    },
+
+    async listParsedPurchases() {
+      const rows = await db
+        .select({
+          id: schema.purchaseMessages.id,
+          cycleId: schema.purchaseMessages.cycleId,
+          cyclePeriod: schema.billingCycles.period,
+          payerMemberId: schema.purchaseMessages.payerMemberId,
+          amountMinor: schema.purchaseMessages.parsedAmountMinor,
+          currency: schema.purchaseMessages.parsedCurrency,
+          description: schema.purchaseMessages.parsedItemDescription,
+          occurredAt: schema.purchaseMessages.messageSentAt,
+          splitMode: schema.purchaseMessages.participantSplitMode
+        })
+        .from(schema.purchaseMessages)
+        .leftJoin(
+          schema.billingCycles,
+          eq(schema.purchaseMessages.cycleId, schema.billingCycles.id)
+        )
+        .where(
+          and(
+            eq(schema.purchaseMessages.householdId, householdId),
+            isNotNull(schema.purchaseMessages.payerMemberId),
+            isNotNull(schema.purchaseMessages.parsedAmountMinor),
+            isNotNull(schema.purchaseMessages.parsedCurrency),
+            or(
+              eq(schema.purchaseMessages.processingStatus, 'parsed'),
+              eq(schema.purchaseMessages.processingStatus, 'confirmed')
+            )
+          )
+        )
+        .orderBy(schema.purchaseMessages.messageSentAt, schema.purchaseMessages.id)
+
+      const participantsByPurchaseId = await loadPurchaseParticipants(rows.map((row) => row.id))
+
+      return rows.map((row) => ({
+        id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: row.cyclePeriod,
+        payerMemberId: row.payerMemberId!,
+        amountMinor: row.amountMinor!,
+        currency: toCurrencyCode(row.currency!),
+        description: row.description,
+        occurredAt: instantFromDatabaseValue(row.occurredAt),
+        splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
+        participants: participantsByPurchaseId.get(row.id) ?? []
+      }))
+    },
+
+    async listPaymentPurchaseAllocations() {
+      const rows = await db
+        .select({
+          id: schema.paymentPurchaseAllocations.id,
+          paymentRecordId: schema.paymentPurchaseAllocations.paymentRecordId,
+          purchaseId: schema.paymentPurchaseAllocations.purchaseId,
+          memberId: schema.paymentPurchaseAllocations.memberId,
+          amountMinor: schema.paymentPurchaseAllocations.amountMinor,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+        .from(schema.paymentPurchaseAllocations)
+        .innerJoin(
+          schema.paymentRecords,
+          eq(schema.paymentPurchaseAllocations.paymentRecordId, schema.paymentRecords.id)
+        )
+        .where(eq(schema.paymentRecords.householdId, householdId))
+        .orderBy(
+          schema.paymentPurchaseAllocations.purchaseId,
+          schema.paymentPurchaseAllocations.memberId,
+          schema.paymentPurchaseAllocations.createdAt
+        )
+
+      return rows.map((row) => ({
+        ...row,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
       }))
     },
 
@@ -907,6 +1084,8 @@ export function createDbFinanceRepository(
           status: 'recorded' as const,
           paymentRecord: {
             id: paymentRow.id,
+            cycleId: input.cycleId,
+            cyclePeriod: null,
             memberId: paymentRow.memberId,
             kind: paymentRow.kind === 'utilities' ? 'utilities' : 'rent',
             amountMinor: paymentRow.amountMinor,

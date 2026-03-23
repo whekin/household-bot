@@ -207,6 +207,9 @@ function createRepositoryStub() {
     async promoteHouseholdAdmin() {
       return null
     },
+    async demoteHouseholdAdmin() {
+      return null
+    },
     async updateHouseholdMemberRentShareWeight() {
       return null
     },

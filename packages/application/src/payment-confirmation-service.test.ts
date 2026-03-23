@@ -86,6 +86,8 @@ function createRepositoryStub(): Pick<
         status: 'recorded',
         paymentRecord: {
           id: 'payment-1',
+          cycleId: input.cycleId,
+          cyclePeriod: null,
           memberId: input.memberId,
           kind: input.kind,
           amountMinor: input.amountMinor,
@@ -137,6 +139,7 @@ describe('createPaymentConfirmationService', () => {
               netDue: Money.fromMajor('500.50', 'GEL'),
               paid: Money.zero('GEL'),
               remaining: Money.fromMajor('500.50', 'GEL'),
+              overduePayments: [],
               explanations: []
             }
           ],
@@ -206,6 +209,7 @@ describe('createPaymentConfirmationService', () => {
               netDue: Money.fromMajor('500.50', 'GEL'),
               paid: Money.zero('GEL'),
               remaining: Money.fromMajor('500.50', 'GEL'),
+              overduePayments: [],
               explanations: []
             }
           ],

@@ -1,4 +1,5 @@
 import type { FinanceCommandService, HouseholdOnboardingService } from '@household/application'
+import { Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 
 import {
@@ -113,6 +114,14 @@ export function createMiniAppDashboardHandler(options: {
                 netDueMajor: line.netDue.toMajorString(),
                 paidMajor: line.paid.toMajorString(),
                 remainingMajor: line.remaining.toMajorString(),
+                overduePayments: line.overduePayments.map((overdue) => ({
+                  kind: overdue.kind,
+                  amountMajor: Money.fromMinor(
+                    overdue.amountMinor,
+                    dashboard.currency
+                  ).toMajorString(),
+                  periods: overdue.periods
+                })),
                 explanations: line.explanations
               })),
               ledger: dashboard.ledger.map((entry) => ({
@@ -132,6 +141,14 @@ export function createMiniAppDashboardHandler(options: {
                 ...(entry.kind === 'purchase'
                   ? {
                       purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
+                      originPeriod: entry.originPeriod ?? null,
+                      resolutionStatus: entry.resolutionStatus ?? 'unresolved',
+                      resolvedAt: entry.resolvedAt ?? null,
+                      outstandingByMember:
+                        entry.outstandingByMember?.map((outstanding) => ({
+                          memberId: outstanding.memberId,
+                          amountMajor: outstanding.amount.toMajorString()
+                        })) ?? [],
                       purchaseParticipants:
                         entry.purchaseParticipants?.map((participant) => ({
                           memberId: participant.memberId,

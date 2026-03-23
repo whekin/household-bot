@@ -206,6 +206,34 @@ export default function LedgerRoute() {
   const { copy } = useI18n()
   const { dashboard, loading, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
     useDashboard()
+  const unresolvedPurchaseLedger = createMemo(() =>
+    purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
+  )
+  const resolvedPurchaseLedger = createMemo(() =>
+    purchaseLedger().filter((entry) => entry.resolutionStatus === 'resolved')
+  )
+  const paymentPeriodOptions = createMemo(() => {
+    const periods = new Set<string>()
+    if (dashboard()?.period) {
+      periods.add(dashboard()!.period)
+    }
+
+    for (const entry of purchaseLedger()) {
+      if (entry.originPeriod) {
+        periods.add(entry.originPeriod)
+      }
+    }
+
+    for (const member of dashboard()?.members ?? []) {
+      for (const overdue of member.overduePayments) {
+        for (const period of overdue.periods) {
+          periods.add(period)
+        }
+      }
+    }
+
+    return [...periods].sort().map((period) => ({ value: period, label: period }))
+  })
 
   // ── Purchase editor ──────────────────────────────
   const [editingPurchase, setEditingPurchase] = createSignal<
@@ -262,7 +290,8 @@ export default function LedgerRoute() {
     memberId: '',
     kind: 'rent',
     amountMajor: '',
-    currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+    currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+    period: dashboard()?.period ?? ''
   })
   const [addingPayment, setAddingPayment] = createSignal(false)
 
@@ -518,14 +547,16 @@ export default function LedgerRoute() {
         memberId: draft.memberId,
         kind: draft.kind,
         amountMajor: draft.amountMajor,
-        currency: draft.currency
+        currency: draft.currency,
+        ...(draft.period ? { period: draft.period } : {})
       })
       setAddPaymentOpen(false)
       setNewPayment({
         memberId: '',
         kind: 'rent',
         amountMajor: '',
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+        period: dashboard()?.period ?? ''
       })
       await refreshHouseholdData(true, true)
     } finally {
@@ -615,31 +646,84 @@ export default function LedgerRoute() {
                   when={purchaseLedger().length > 0}
                   fallback={<p class="empty-state">{copy().purchasesEmpty}</p>}
                 >
-                  <div class="editable-list">
-                    <For each={purchaseLedger()}>
-                      {(entry) => (
-                        <button
-                          class="editable-list-row"
-                          onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
-                          disabled={!effectiveIsAdmin()}
-                        >
-                          <div class="editable-list-row__main">
-                            <span class="editable-list-row__title">{entry.title}</span>
-                            <span class="editable-list-row__subtitle">
-                              {entry.actorDisplayName}
-                            </span>
-                          </div>
-                          <div class="editable-list-row__meta">
-                            <strong>{ledgerPrimaryAmount(entry)}</strong>
-                            <Show when={ledgerSecondaryAmount(entry)}>
-                              {(secondary) => (
-                                <span class="editable-list-row__secondary">{secondary()}</span>
-                              )}
-                            </Show>
-                          </div>
-                        </button>
-                      )}
-                    </For>
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                    <div>
+                      <strong>{copy().unresolvedPurchasesTitle}</strong>
+                      <Show
+                        when={unresolvedPurchaseLedger().length > 0}
+                        fallback={<p class="empty-state">{copy().unresolvedPurchasesEmpty}</p>}
+                      >
+                        <div class="editable-list">
+                          <For each={unresolvedPurchaseLedger()}>
+                            {(entry) => (
+                              <button
+                                class="editable-list-row"
+                                onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
+                                disabled={!effectiveIsAdmin()}
+                              >
+                                <div class="editable-list-row__main">
+                                  <span class="editable-list-row__title">{entry.title}</span>
+                                  <span class="editable-list-row__subtitle">
+                                    {[entry.actorDisplayName, entry.originPeriod, 'Unresolved']
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                  </span>
+                                </div>
+                                <div class="editable-list-row__meta">
+                                  <strong>{ledgerPrimaryAmount(entry)}</strong>
+                                  <Show when={ledgerSecondaryAmount(entry)}>
+                                    {(secondary) => (
+                                      <span class="editable-list-row__secondary">
+                                        {secondary()}
+                                      </span>
+                                    )}
+                                  </Show>
+                                </div>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+
+                    <div>
+                      <strong>{copy().resolvedPurchasesTitle}</strong>
+                      <Show
+                        when={resolvedPurchaseLedger().length > 0}
+                        fallback={<p class="empty-state">{copy().resolvedPurchasesEmpty}</p>}
+                      >
+                        <div class="editable-list">
+                          <For each={resolvedPurchaseLedger()}>
+                            {(entry) => (
+                              <button
+                                class="editable-list-row"
+                                onClick={() => effectiveIsAdmin() && openPurchaseEditor(entry)}
+                                disabled={!effectiveIsAdmin()}
+                              >
+                                <div class="editable-list-row__main">
+                                  <span class="editable-list-row__title">{entry.title}</span>
+                                  <span class="editable-list-row__subtitle">
+                                    {[entry.actorDisplayName, entry.originPeriod, entry.resolvedAt]
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                  </span>
+                                </div>
+                                <div class="editable-list-row__meta">
+                                  <strong>{ledgerPrimaryAmount(entry)}</strong>
+                                  <Show when={ledgerSecondaryAmount(entry)}>
+                                    {(secondary) => (
+                                      <span class="editable-list-row__secondary">
+                                        {secondary()}
+                                      </span>
+                                    )}
+                                  </Show>
+                                </div>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                 </Show>
               </Collapsible>
@@ -691,7 +775,17 @@ export default function LedgerRoute() {
               >
                 <Show when={effectiveIsAdmin()}>
                   <div class="editable-list-actions">
-                    <Button variant="primary" size="sm" onClick={() => setAddPaymentOpen(true)}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        setNewPayment((payment) => ({
+                          ...payment,
+                          period: dashboard()?.period ?? ''
+                        }))
+                        setAddPaymentOpen(true)
+                      }}
+                    >
                       <Plus size={14} />
                       {copy().paymentsAddAction}
                     </Button>
@@ -1021,6 +1115,15 @@ export default function LedgerRoute() {
               onChange={(value) =>
                 setNewPayment((p) => ({ ...p, kind: value as 'rent' | 'utilities' }))
               }
+            />
+          </Field>
+          <Field label="Billing period">
+            <Select
+              value={newPayment().period ?? ''}
+              placeholder="—"
+              ariaLabel="Billing period"
+              options={[{ value: '', label: '—' }, ...paymentPeriodOptions()]}
+              onChange={(value) => setNewPayment((p) => ({ ...p, period: value }))}
             />
           </Field>
           <Field label={copy().paymentAmount}>

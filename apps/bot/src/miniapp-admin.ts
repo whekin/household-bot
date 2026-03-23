@@ -898,6 +898,94 @@ export function createMiniAppPromoteMemberHandler(options: {
   }
 }
 
+export function createMiniAppDemoteMemberHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readPromoteMemberPayload(request)
+        const session = await sessionService.authenticate({
+          initData: payload.initData
+        })
+
+        if (!session) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Invalid Telegram init data' },
+            401,
+            origin
+          )
+        }
+
+        if (
+          !session.authorized ||
+          !session.member ||
+          session.member.status !== 'active' ||
+          !session.member.isAdmin
+        ) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Admin access required for active household members' },
+            403,
+            origin
+          )
+        }
+
+        const result = await options.miniAppAdminService.demoteMemberFromAdmin({
+          householdId: session.member.householdId,
+          actorIsAdmin: session.member.isAdmin,
+          memberId: payload.memberId
+        })
+
+        if (result.status === 'rejected') {
+          const status =
+            result.reason === 'member_not_found' ? 404 : result.reason === 'last_admin' ? 409 : 403
+          const error =
+            result.reason === 'member_not_found'
+              ? 'Member not found'
+              : result.reason === 'last_admin'
+                ? 'Cannot remove the last household admin'
+                : 'Admin access required'
+
+          return miniAppJsonResponse({ ok: false, error }, status, origin)
+        }
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            member: result.member
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
 export function createMiniAppUpdateOwnDisplayNameHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string

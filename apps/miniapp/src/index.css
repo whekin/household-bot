@@ -58,6 +58,13 @@ a {
   border-width: 0;
 }
 
+.ui-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+
 .empty-state {
   color: var(--text-muted);
   font-size: var(--text-sm);
@@ -822,9 +829,9 @@ a {
 }
 
 .modal-sheet {
-  width: 100%;
+  width: min(100%, 480px);
   max-width: 480px;
-  max-height: 85dvh;
+  max-height: min(92dvh, 900px);
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
@@ -848,6 +855,7 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: var(--spacing-md);
   padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-md);
   position: sticky;
   top: 0;
@@ -869,6 +877,17 @@ a {
 
 .modal-close-button {
   flex-shrink: 0;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  color: var(--text-primary);
+  background: var(--bg-root);
+  border-color: var(--border);
+}
+
+.modal-close-button:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--border-hover);
 }
 
 .modal-sheet__body {
@@ -887,6 +906,7 @@ a {
   display: flex;
   gap: var(--spacing-sm);
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .modal-action-row--single {
@@ -1677,6 +1697,8 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
   padding: var(--spacing-sm);
   background: var(--bg-root);
   border-radius: var(--radius-sm);
@@ -1687,9 +1709,65 @@ a {
   color: var(--text-muted);
 }
 
+.testing-card__section strong {
+  margin-left: auto;
+  text-align: right;
+}
+
+.testing-card__section--stack {
+  align-items: flex-start;
+}
+
+.testing-card__section--stack strong {
+  margin-left: 0;
+  text-align: left;
+}
+
+.testing-card__section-content {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.testing-card__section-description {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 .testing-card__actions {
   display: flex;
   gap: var(--spacing-sm);
+}
+
+.testing-card__actions--wrap {
+  flex-wrap: wrap;
+}
+
+.testing-card__actions--wrap .ui-button {
+  flex: 1 1 160px;
+}
+
+.testing-card__actions--stack {
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .modal-sheet {
+    width: calc(100% - 16px);
+  }
+
+  .modal-sheet__header,
+  .modal-sheet__body,
+  .modal-sheet__footer {
+    padding-left: var(--spacing-lg);
+    padding-right: var(--spacing-lg);
+  }
+
+  .testing-card__actions .ui-button,
+  .modal-action-row .ui-button {
+    flex: 1 1 100%;
+  }
 }
 
 /* ── Balance Item (legacy compat) ─────────────────────── */
