@@ -15,7 +15,7 @@ function dueNotification(
       creatorMemberId: input.creatorMemberId ?? 'creator',
       assigneeMemberId: input.assigneeMemberId ?? 'assignee',
       originalRequestText: 'raw',
-      notificationText: input.notificationText ?? 'Ping Georgiy',
+      notificationText: input.notificationText ?? 'Georgiy, time to call already.',
       timezone: input.timezone ?? 'Asia/Tbilisi',
       scheduledFor: input.scheduledFor ?? Temporal.Instant.from('2026-03-23T09:00:00Z'),
       timePrecision: input.timePrecision ?? 'exact',
@@ -108,7 +108,7 @@ describe('createAdHocNotificationJobsHandler', () => {
 
     expect(payload.ok).toBe(true)
     expect(payload.notifications[0]?.outcome).toBe('sent')
-    expect(sentTopicMessages[0]).toContain('tg://user?id=222')
+    expect(sentTopicMessages[0]).toContain('Georgiy, time to call already.')
     expect(sentNotifications).toEqual(['notif-1'])
   })
 })

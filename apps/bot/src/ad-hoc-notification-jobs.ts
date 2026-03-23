@@ -70,9 +70,7 @@ export function createAdHocNotificationJobsHandler(options: {
         }
 
         const content = buildTopicNotificationText({
-          notificationText: notification.notification.notificationText,
-          assignee: notification.assignee,
-          friendlyTagAssignee: notification.notification.friendlyTagAssignee
+          notificationText: notification.notification.notificationText
         })
         await options.sendTopicMessage({
           householdId: notification.notification.householdId,

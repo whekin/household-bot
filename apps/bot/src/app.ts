@@ -75,6 +75,7 @@ import {
 import { createMiniAppLocalePreferenceHandler } from './miniapp-locale'
 import { createNbgExchangeRateProvider } from './nbg-exchange-rates'
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
+import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
 import {
   createPurchaseMessageRepository,
@@ -152,6 +153,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     runtime.openaiApiKey,
     runtime.purchaseParserModel
   )
+  const adHocNotificationInterpreter = createOpenAiAdHocNotificationInterpreter({
+    apiKey: runtime.openaiApiKey,
+    parserModel: runtime.purchaseParserModel,
+    rendererModel: runtime.assistantModel,
+    timeoutMs: runtime.assistantTimeoutMs
+  })
   const assistantMemoryStore = createInMemoryAssistantConversationMemoryStore(
     runtime.assistantMemoryMaxTurns
   )
@@ -403,6 +410,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       promptRepository: telegramPendingActionRepositoryClient.repository,
       notificationService: adHocNotificationService,
+      reminderInterpreter: adHocNotificationInterpreter,
       logger: getLogger('ad-hoc-notifications')
     })
   }

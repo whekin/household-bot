@@ -3,6 +3,7 @@ import { Temporal, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   AdHocNotificationDeliveryMode,
+  HouseholdAssistantConfigRecord,
   HouseholdConfigurationRepository,
   HouseholdMemberRecord,
   TelegramPendingActionRepository
@@ -10,12 +11,13 @@ import type {
 import type { Bot, Context } from 'grammy'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
-import {
-  parseAdHocNotificationRequest,
-  parseAdHocNotificationSchedule
-} from './ad-hoc-notification-parser'
+import { parseAdHocNotificationSchedule } from './ad-hoc-notification-parser'
 import { resolveReplyLocale } from './bot-locale'
 import type { BotLocale } from './i18n'
+import type {
+  AdHocNotificationInterpreter,
+  AdHocNotificationInterpreterMember
+} from './openai-ad-hoc-notification-interpreter'
 
 const AD_HOC_NOTIFICATION_ACTION = 'ad_hoc_notification' as const
 const AD_HOC_NOTIFICATION_ACTION_TTL_MS = 30 * 60_000
@@ -23,7 +25,6 @@ const AD_HOC_NOTIFICATION_CONFIRM_PREFIX = 'adhocnotif:confirm:'
 const AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX = 'adhocnotif:canceldraft:'
 const AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX = 'adhocnotif:cancel:'
 const AD_HOC_NOTIFICATION_MODE_PREFIX = 'adhocnotif:mode:'
-const AD_HOC_NOTIFICATION_FRIENDLY_PREFIX = 'adhocnotif:friendly:'
 const AD_HOC_NOTIFICATION_MEMBER_PREFIX = 'adhocnotif:member:'
 
 type NotificationDraftPayload =
@@ -35,11 +36,10 @@ type NotificationDraftPayload =
       creatorMemberId: string
       timezone: string
       originalRequestText: string
-      notificationText: string
+      normalizedNotificationText: string
       assigneeMemberId: string | null
       deliveryMode: AdHocNotificationDeliveryMode
       dmRecipientMemberIds: readonly string[]
-      friendlyTagAssignee: boolean
     }
   | {
       stage: 'confirm'
@@ -49,13 +49,13 @@ type NotificationDraftPayload =
       creatorMemberId: string
       timezone: string
       originalRequestText: string
-      notificationText: string
+      normalizedNotificationText: string
+      renderedNotificationText: string
       assigneeMemberId: string | null
       scheduledForIso: string
       timePrecision: 'exact' | 'date_only_defaulted'
       deliveryMode: AdHocNotificationDeliveryMode
       dmRecipientMemberIds: readonly string[]
-      friendlyTagAssignee: boolean
     }
 
 interface ReminderTopicContext {
@@ -65,6 +65,32 @@ interface ReminderTopicContext {
   member: HouseholdMemberRecord
   members: readonly HouseholdMemberRecord[]
   timezone: string
+  assistantContext: string | null
+  assistantTone: string | null
+}
+
+function unavailableReply(locale: BotLocale): string {
+  return locale === 'ru'
+    ? 'Сейчас не могу создать напоминание: модуль ИИ временно недоступен.'
+    : 'I cannot create reminders right now because the AI module is temporarily unavailable.'
+}
+
+function localNowText(timezone: string, now = nowInstant()): string {
+  const local = now.toZonedDateTimeISO(timezone)
+  return [
+    local.toPlainDate().toString(),
+    `${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}`
+  ].join(' ')
+}
+
+function interpreterMembers(
+  members: readonly HouseholdMemberRecord[]
+): readonly AdHocNotificationInterpreterMember[] {
+  return members.map((member) => ({
+    memberId: member.id,
+    displayName: member.displayName,
+    status: member.status
+  }))
 }
 
 function createProposalId(): string {
@@ -152,15 +178,14 @@ function notificationSummaryText(input: {
     return [
       'Запланировать напоминание?',
       '',
-      `Текст: ${input.payload.notificationText}`,
+      `Текст напоминания: ${input.payload.renderedNotificationText}`,
       `Когда: ${formatScheduledFor(input.locale, input.payload.scheduledForIso, input.payload.timezone)}`,
-      `Точность: ${input.payload.timePrecision === 'date_only_defaulted' ? 'время по умолчанию 12:00' : 'точное время'}`,
+      `Точность: ${input.payload.timePrecision === 'date_only_defaulted' ? 'время определено ботом' : 'точное время'}`,
       `Куда: ${deliveryModeLabel(input.locale, input.payload.deliveryMode)}`,
       assignee ? `Ответственный: ${assignee.displayName}` : null,
       input.payload.deliveryMode === 'dm_selected' && selectedRecipients.length > 0
         ? `Получатели: ${selectedRecipients.map((member) => member.displayName).join(', ')}`
         : null,
-      assignee ? `Дружелюбный тег: ${input.payload.friendlyTagAssignee ? 'вкл' : 'выкл'}` : null,
       '',
       'Подтвердите или измените настройки ниже.'
     ]
@@ -171,15 +196,14 @@ function notificationSummaryText(input: {
   return [
     'Schedule this notification?',
     '',
-    `Text: ${input.payload.notificationText}`,
+    `Reminder text: ${input.payload.renderedNotificationText}`,
     `When: ${formatScheduledFor(input.locale, input.payload.scheduledForIso, input.payload.timezone)}`,
-    `Precision: ${input.payload.timePrecision === 'date_only_defaulted' ? 'defaulted to 12:00' : 'exact time'}`,
+    `Precision: ${input.payload.timePrecision === 'date_only_defaulted' ? 'inferred/defaulted time' : 'exact time'}`,
     `Delivery: ${deliveryModeLabel(input.locale, input.payload.deliveryMode)}`,
     assignee ? `Assignee: ${assignee.displayName}` : null,
     input.payload.deliveryMode === 'dm_selected' && selectedRecipients.length > 0
       ? `Recipients: ${selectedRecipients.map((member) => member.displayName).join(', ')}`
       : null,
-    assignee ? `Friendly tag: ${input.payload.friendlyTagAssignee ? 'on' : 'off'}` : null,
     '',
     'Confirm or adjust below.'
   ]
@@ -222,15 +246,6 @@ function notificationDraftReplyMarkup(
       }
     ]
   ]
-
-  if (payload.assigneeMemberId) {
-    rows.push([
-      {
-        text: `${payload.friendlyTagAssignee ? '✅ ' : ''}${locale === 'ru' ? 'Тегнуть ответственного' : 'Friendly tag assignee'}`,
-        callback_data: `${AD_HOC_NOTIFICATION_FRIENDLY_PREFIX}${payload.proposalId}`
-      }
-    ])
-  }
 
   if (payload.deliveryMode === 'dm_selected') {
     const eligibleMembers = members.filter((member) => member.status === 'active')
@@ -331,7 +346,7 @@ async function resolveReminderTopicContext(
     return null
   }
 
-  const [locale, member, members, settings] = await Promise.all([
+  const [locale, member, members, settings, assistantConfig] = await Promise.all([
     resolveReplyLocale({
       ctx,
       repository,
@@ -339,7 +354,14 @@ async function resolveReminderTopicContext(
     }),
     repository.getHouseholdMember(binding.householdId, telegramUserId),
     repository.listHouseholdMembers(binding.householdId),
-    repository.getHouseholdBillingSettings(binding.householdId)
+    repository.getHouseholdBillingSettings(binding.householdId),
+    repository.getHouseholdAssistantConfig
+      ? repository.getHouseholdAssistantConfig(binding.householdId)
+      : Promise.resolve<HouseholdAssistantConfigRecord>({
+          householdId: binding.householdId,
+          assistantContext: null,
+          assistantTone: null
+        })
   ])
 
   if (!member) {
@@ -352,7 +374,9 @@ async function resolveReminderTopicContext(
     threadId,
     member,
     members,
-    timezone: settings.timezone
+    timezone: settings.timezone,
+    assistantContext: assistantConfig.assistantContext,
+    assistantTone: assistantConfig.assistantTone
   }
 }
 
@@ -397,8 +421,32 @@ export function registerAdHocNotifications(options: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
   notificationService: AdHocNotificationService
+  reminderInterpreter: AdHocNotificationInterpreter | undefined
   logger?: Logger
 }): void {
+  async function renderNotificationText(input: {
+    reminderContext: ReminderTopicContext
+    originalRequestText: string
+    normalizedNotificationText: string
+    assigneeMemberId: string | null
+  }): Promise<string | null> {
+    const assignee = input.assigneeMemberId
+      ? input.reminderContext.members.find((member) => member.id === input.assigneeMemberId)
+      : null
+
+    return (
+      options.reminderInterpreter?.renderDeliveryText({
+        locale: input.reminderContext.locale,
+        originalRequestText: input.originalRequestText,
+        notificationText: input.normalizedNotificationText,
+        requesterDisplayName: input.reminderContext.member.displayName,
+        assigneeDisplayName: assignee?.displayName ?? null,
+        assistantContext: input.reminderContext.assistantContext,
+        assistantTone: input.reminderContext.assistantTone
+      }) ?? null
+    )
+  }
+
   async function showDraftConfirmation(
     ctx: Context,
     draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>
@@ -523,17 +571,48 @@ export function registerAdHocNotifications(options: {
     const existingDraft = await loadDraft(options.promptRepository, ctx)
     if (existingDraft && existingDraft.threadId === reminderContext.threadId) {
       if (existingDraft.stage === 'await_schedule') {
+        if (!options.reminderInterpreter) {
+          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+          return
+        }
+
+        const interpretedSchedule = await options.reminderInterpreter.interpretSchedule({
+          locale: reminderContext.locale,
+          timezone: existingDraft.timezone,
+          localNow: localNowText(existingDraft.timezone),
+          text: messageText
+        })
+
+        if (!interpretedSchedule) {
+          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+          return
+        }
+
+        if (interpretedSchedule.decision === 'clarification') {
+          await replyInTopic(
+            ctx,
+            interpretedSchedule.clarificationQuestion ??
+              (reminderContext.locale === 'ru'
+                ? 'Когда напомнить? Напишите день, дату или время.'
+                : 'When should I remind? Please send a day, date, or time.')
+          )
+          return
+        }
+
         const schedule = parseAdHocNotificationSchedule({
-          text: messageText,
-          timezone: existingDraft.timezone
+          timezone: existingDraft.timezone,
+          resolvedLocalDate: interpretedSchedule.resolvedLocalDate,
+          resolvedHour: interpretedSchedule.resolvedHour,
+          resolvedMinute: interpretedSchedule.resolvedMinute,
+          resolutionMode: interpretedSchedule.resolutionMode
         })
 
         if (schedule.kind === 'missing_schedule') {
           await replyInTopic(
             ctx,
             reminderContext.locale === 'ru'
-              ? 'Нужны хотя бы день или дата. Например: «завтра», «24.03», «2026-03-24 18:30».'
-              : 'I still need at least a day or date. For example: "tomorrow", "2026-03-24", or "2026-03-24 18:30".'
+              ? 'Нужны дата или понятное время. Например: «завтра утром», «24.03», «2026-03-24 18:30».'
+              : 'I still need a date or a clear time. For example: "tomorrow morning", "2026-03-24", or "2026-03-24 18:30".'
           )
           return
         }
@@ -548,9 +627,21 @@ export function registerAdHocNotifications(options: {
           return
         }
 
+        const renderedNotificationText = await renderNotificationText({
+          reminderContext,
+          originalRequestText: existingDraft.originalRequestText,
+          normalizedNotificationText: existingDraft.normalizedNotificationText,
+          assigneeMemberId: existingDraft.assigneeMemberId
+        })
+        if (!renderedNotificationText) {
+          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+          return
+        }
+
         const confirmPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
           ...existingDraft,
           stage: 'confirm',
+          renderedNotificationText,
           scheduledForIso: schedule.scheduledFor!.toString(),
           timePrecision: schedule.timePrecision!
         }
@@ -563,20 +654,33 @@ export function registerAdHocNotifications(options: {
       return
     }
 
-    const parsed = parseAdHocNotificationRequest({
+    if (!options.reminderInterpreter) {
+      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+      return
+    }
+
+    const interpretedRequest = await options.reminderInterpreter.interpretRequest({
       text: messageText,
       timezone: reminderContext.timezone,
       locale: reminderContext.locale,
-      members: reminderContext.members,
-      senderMemberId: reminderContext.member.id
+      localNow: localNowText(reminderContext.timezone),
+      members: interpreterMembers(reminderContext.members),
+      senderMemberId: reminderContext.member.id,
+      assistantContext: reminderContext.assistantContext,
+      assistantTone: reminderContext.assistantTone
     })
 
-    if (parsed.kind === 'not_intent') {
+    if (!interpretedRequest) {
+      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
+      return
+    }
+
+    if (interpretedRequest.decision === 'not_notification') {
       await next()
       return
     }
 
-    if (!parsed.notificationText || parsed.notificationText.length === 0) {
+    if (!interpretedRequest.notificationText || interpretedRequest.notificationText.length === 0) {
       await replyInTopic(
         ctx,
         reminderContext.locale === 'ru'
@@ -586,38 +690,70 @@ export function registerAdHocNotifications(options: {
       return
     }
 
-    if (parsed.kind === 'missing_schedule') {
-      await saveDraft(options.promptRepository, ctx, {
-        stage: 'await_schedule',
-        proposalId: createProposalId(),
-        householdId: reminderContext.householdId,
-        threadId: reminderContext.threadId,
-        creatorMemberId: reminderContext.member.id,
-        timezone: reminderContext.timezone,
-        originalRequestText: parsed.originalRequestText,
-        notificationText: parsed.notificationText,
-        assigneeMemberId: parsed.assigneeMemberId,
-        deliveryMode: 'topic',
-        dmRecipientMemberIds: [],
-        friendlyTagAssignee: false
-      })
+    if (interpretedRequest.decision === 'clarification') {
+      if (interpretedRequest.notificationText) {
+        await saveDraft(options.promptRepository, ctx, {
+          stage: 'await_schedule',
+          proposalId: createProposalId(),
+          householdId: reminderContext.householdId,
+          threadId: reminderContext.threadId,
+          creatorMemberId: reminderContext.member.id,
+          timezone: reminderContext.timezone,
+          originalRequestText: messageText,
+          normalizedNotificationText: interpretedRequest.notificationText,
+          assigneeMemberId: interpretedRequest.assigneeMemberId,
+          deliveryMode: 'topic',
+          dmRecipientMemberIds: []
+        })
+      }
 
       await replyInTopic(
         ctx,
-        reminderContext.locale === 'ru'
-          ? 'Когда напомнить? Подойдёт свободная форма, например: «завтра», «завтра в 15:00», «24.03 18:30».'
-          : 'When should I remind? Free-form is fine, for example: "tomorrow", "tomorrow 15:00", or "2026-03-24 18:30".'
+        interpretedRequest.clarificationQuestion ??
+          (reminderContext.locale === 'ru'
+            ? 'Когда напомнить? Подойдёт свободная форма, например: «завтра утром», «завтра в 15:00», «24.03 18:30».'
+            : 'When should I remind? Free-form is fine, for example: "tomorrow morning", "tomorrow 15:00", or "2026-03-24 18:30".')
       )
       return
     }
 
-    if (parsed.kind === 'invalid_past') {
+    const parsedSchedule = parseAdHocNotificationSchedule({
+      timezone: reminderContext.timezone,
+      resolvedLocalDate: interpretedRequest.resolvedLocalDate,
+      resolvedHour: interpretedRequest.resolvedHour,
+      resolvedMinute: interpretedRequest.resolvedMinute,
+      resolutionMode: interpretedRequest.resolutionMode
+    })
+
+    if (parsedSchedule.kind === 'invalid_past') {
       await replyInTopic(
         ctx,
         reminderContext.locale === 'ru'
           ? 'Это время уже в прошлом. Пришлите будущую дату или время.'
           : 'That time is already in the past. Send a future date or time.'
       )
+      return
+    }
+
+    if (parsedSchedule.kind !== 'parsed') {
+      await replyInTopic(
+        ctx,
+        interpretedRequest.clarificationQuestion ??
+          (reminderContext.locale === 'ru'
+            ? 'Когда напомнить? Подойдёт свободная форма, например: «завтра утром», «завтра в 15:00», «24.03 18:30».'
+            : 'When should I remind? Free-form is fine, for example: "tomorrow morning", "tomorrow 15:00", or "2026-03-24 18:30".')
+      )
+      return
+    }
+
+    const renderedNotificationText = await renderNotificationText({
+      reminderContext,
+      originalRequestText: messageText,
+      normalizedNotificationText: interpretedRequest.notificationText,
+      assigneeMemberId: interpretedRequest.assigneeMemberId
+    })
+    if (!renderedNotificationText) {
+      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
       return
     }
 
@@ -628,14 +764,14 @@ export function registerAdHocNotifications(options: {
       threadId: reminderContext.threadId,
       creatorMemberId: reminderContext.member.id,
       timezone: reminderContext.timezone,
-      originalRequestText: parsed.originalRequestText,
-      notificationText: parsed.notificationText,
-      assigneeMemberId: parsed.assigneeMemberId,
-      scheduledForIso: parsed.scheduledFor!.toString(),
-      timePrecision: parsed.timePrecision!,
+      originalRequestText: messageText,
+      normalizedNotificationText: interpretedRequest.notificationText,
+      renderedNotificationText,
+      assigneeMemberId: interpretedRequest.assigneeMemberId,
+      scheduledForIso: parsedSchedule.scheduledFor!.toString(),
+      timePrecision: parsedSchedule.timePrecision!,
       deliveryMode: 'topic',
-      dmRecipientMemberIds: [],
-      friendlyTagAssignee: false
+      dmRecipientMemberIds: []
     }
 
     await saveDraft(options.promptRepository, ctx, draft)
@@ -670,14 +806,14 @@ export function registerAdHocNotifications(options: {
         householdId: payload.householdId,
         creatorMemberId: payload.creatorMemberId,
         originalRequestText: payload.originalRequestText,
-        notificationText: payload.notificationText,
+        notificationText: payload.renderedNotificationText,
         timezone: payload.timezone,
         scheduledFor: Temporal.Instant.from(payload.scheduledForIso),
         timePrecision: payload.timePrecision,
         deliveryMode: payload.deliveryMode,
         assigneeMemberId: payload.assigneeMemberId,
         dmRecipientMemberIds: payload.dmRecipientMemberIds,
-        friendlyTagAssignee: payload.friendlyTagAssignee,
+        friendlyTagAssignee: false,
         sourceTelegramChatId: ctx.chat?.id?.toString() ?? null,
         sourceTelegramThreadId: payload.threadId
       })
@@ -769,22 +905,6 @@ export function registerAdHocNotifications(options: {
       return
     }
 
-    if (data.startsWith(AD_HOC_NOTIFICATION_FRIENDLY_PREFIX)) {
-      const proposalId = data.slice(AD_HOC_NOTIFICATION_FRIENDLY_PREFIX.length)
-      const payload = await loadDraft(options.promptRepository, ctx)
-      if (!payload || payload.stage !== 'confirm' || payload.proposalId !== proposalId) {
-        await next()
-        return
-      }
-
-      await refreshConfirmationMessage(ctx, {
-        ...payload,
-        friendlyTagAssignee: !payload.friendlyTagAssignee
-      })
-      await ctx.answerCallbackQuery()
-      return
-    }
-
     if (data.startsWith(AD_HOC_NOTIFICATION_MEMBER_PREFIX)) {
       const rest = data.slice(AD_HOC_NOTIFICATION_MEMBER_PREFIX.length)
       const separatorIndex = rest.indexOf(':')
@@ -863,24 +983,10 @@ export function registerAdHocNotifications(options: {
   })
 }
 
-export function buildTopicNotificationText(input: {
-  notificationText: string
-  assignee?: {
-    displayName: string
-    telegramUserId: string
-  } | null
-  friendlyTagAssignee: boolean
-}): {
+export function buildTopicNotificationText(input: { notificationText: string }): {
   text: string
   parseMode: 'HTML'
 } {
-  if (input.friendlyTagAssignee && input.assignee) {
-    return {
-      text: `<a href="tg://user?id=${escapeHtml(input.assignee.telegramUserId)}">${escapeHtml(input.assignee.displayName)}</a>, ${escapeHtml(input.notificationText)}`,
-      parseMode: 'HTML'
-    }
-  }
-
   return {
     text: escapeHtml(input.notificationText),
     parseMode: 'HTML'
