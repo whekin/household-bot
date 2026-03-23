@@ -66,7 +66,7 @@ describe('createOpenAiChatAssistant', () => {
       expect(capturedBody!.input[1]?.role).toBe('system')
       expect(capturedBody!.input[1]?.content).toContain('Topic role: reminders')
       expect(capturedBody!.input[1]?.content).toContain(
-        'You cannot create, schedule, snooze, or manage arbitrary personal reminders.'
+        'Members can ask the bot to schedule a future notification in this topic.'
       )
     } finally {
       globalThis.fetch = originalFetch

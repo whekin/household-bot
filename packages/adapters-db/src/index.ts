@@ -1,3 +1,4 @@
+export { createDbAdHocNotificationRepository } from './ad-hoc-notification-repository'
 export { createDbAnonymousFeedbackRepository } from './anonymous-feedback-repository'
 export { createDbFinanceRepository } from './finance-repository'
 export { createDbHouseholdConfigurationRepository } from './household-config-repository'

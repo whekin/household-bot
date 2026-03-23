@@ -9,6 +9,10 @@ import type {
 } from '@household/ports'
 
 function parsePendingActionType(raw: string): TelegramPendingActionType {
+  if (raw === 'ad_hoc_notification') {
+    return raw
+  }
+
   if (raw === 'anonymous_feedback') {
     return raw
   }

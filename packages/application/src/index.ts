@@ -1,5 +1,14 @@
 export { calculateMonthlySettlement } from './settlement-engine'
 export {
+  createAdHocNotificationService,
+  type AdHocNotificationMemberSummary,
+  type AdHocNotificationService,
+  type AdHocNotificationSummary,
+  type CancelAdHocNotificationResult,
+  type DeliverableAdHocNotification,
+  type ScheduleAdHocNotificationResult
+} from './ad-hoc-notification-service'
+export {
   createAnonymousFeedbackService,
   type AnonymousFeedbackService,
   type AnonymousFeedbackSubmitResult

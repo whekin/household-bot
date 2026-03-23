@@ -61,9 +61,10 @@ function topicCapabilityNotes(topicRole: TopicMessageRole): string {
     case 'reminders':
       return [
         'Reminders topic capabilities:',
-        '- You can discuss existing household rent/utilities reminder timing and the supported utility-bill collection flow.',
-        '- You cannot create, schedule, snooze, or manage arbitrary personal reminders.',
-        '- You cannot promise future reminder setup. If asked, say that this feature is not supported.'
+        '- You can discuss existing household rent/utilities reminder timing, the supported utility-bill collection flow, and ad hoc household notifications.',
+        '- Members can ask the bot to schedule a future notification in this topic.',
+        '- If the date or time is missing, ask a concise follow-up instead of pretending it was scheduled.',
+        '- Do not claim a notification was saved unless the system explicitly confirmed it.'
       ].join('\n')
     case 'feedback':
       return [
