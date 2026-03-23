@@ -589,11 +589,13 @@ a {
 .ui-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 2px 8px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
+  white-space: nowrap;
   background: var(--accent-soft);
   color: var(--accent);
   border: none;
@@ -739,7 +741,8 @@ a {
   transition: transform var(--transition-base);
 }
 
-.ui-collapsible[data-expanded] .ui-collapsible__chevron {
+.ui-collapsible__trigger[data-expanded] .ui-collapsible__chevron,
+.ui-collapsible__trigger[aria-expanded='true'] .ui-collapsible__chevron {
   transform: rotate(180deg);
 }
 
@@ -1532,6 +1535,15 @@ a {
   flex-direction: column;
 }
 
+.editable-list-section-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
 .editable-list-row {
   display: flex;
   justify-content: space-between;
@@ -1552,6 +1564,15 @@ a {
 
 .editable-list-row:hover:not(:disabled) {
   background: var(--bg-input);
+}
+
+.editable-list-row--static {
+  cursor: default;
+}
+
+.editable-list-row--stacked {
+  align-items: flex-start;
+  gap: var(--spacing-sm);
 }
 
 .editable-list-row:disabled {
@@ -1589,6 +1610,13 @@ a {
 .editable-list-row__meta strong {
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
+}
+
+.editable-list-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
 }
 
 .editable-list-row__secondary {

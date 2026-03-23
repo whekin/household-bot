@@ -124,6 +124,27 @@ export function createMiniAppDashboardHandler(options: {
                 })),
                 explanations: line.explanations
               })),
+              paymentPeriods: (dashboard.paymentPeriods ?? []).map((period) => ({
+                period: period.period,
+                utilityTotalMajor: period.utilityTotal.toMajorString(),
+                hasOverdueBalance: period.hasOverdueBalance,
+                isCurrentPeriod: period.isCurrentPeriod,
+                kinds: period.kinds.map((kind) => ({
+                  kind: kind.kind,
+                  totalDueMajor: kind.totalDue.toMajorString(),
+                  totalPaidMajor: kind.totalPaid.toMajorString(),
+                  totalRemainingMajor: kind.totalRemaining.toMajorString(),
+                  unresolvedMembers: kind.unresolvedMembers.map((member) => ({
+                    memberId: member.memberId,
+                    displayName: member.displayName,
+                    suggestedAmountMajor: member.suggestedAmount.toMajorString(),
+                    baseDueMajor: member.baseDue.toMajorString(),
+                    paidMajor: member.paid.toMajorString(),
+                    remainingMajor: member.remaining.toMajorString(),
+                    effectivelySettled: member.effectivelySettled
+                  }))
+                }))
+              })),
               ledger: dashboard.ledger.map((entry) => ({
                 id: entry.id,
                 kind: entry.kind,

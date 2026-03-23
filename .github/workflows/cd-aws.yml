@@ -1,23 +1,23 @@
 name: CD / AWS
 
-on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      stack:
-        description: 'Pulumi stack'
-        required: true
-        default: 'dev'
-      ref:
-        description: 'Git ref to deploy (branch, tag, or SHA)'
-        required: true
-        default: 'main'
+# on:
+#   workflow_run:
+#     workflows:
+#       - CI
+#     types:
+#       - completed
+#     branches:
+#       - main
+#   workflow_dispatch:
+#     inputs:
+#       stack:
+#         description: 'Pulumi stack'
+#         required: true
+#         default: 'dev'
+#       ref:
+#         description: 'Git ref to deploy (branch, tag, or SHA)'
+#         required: true
+#         default: 'main'
 
 permissions:
   contents: read

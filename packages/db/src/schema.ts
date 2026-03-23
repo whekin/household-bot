@@ -507,6 +507,52 @@ export const processedBotMessages = pgTable(
   })
 )
 
+export const adHocNotifications = pgTable(
+  'ad_hoc_notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    creatorMemberId: uuid('creator_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    assigneeMemberId: uuid('assignee_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    originalRequestText: text('original_request_text').notNull(),
+    notificationText: text('notification_text').notNull(),
+    timezone: text('timezone').notNull(),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+    timePrecision: text('time_precision').notNull(),
+    deliveryMode: text('delivery_mode').notNull(),
+    dmRecipientMemberIds: jsonb('dm_recipient_member_ids')
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
+    friendlyTagAssignee: integer('friendly_tag_assignee').default(0).notNull(),
+    status: text('status').default('scheduled').notNull(),
+    sourceTelegramChatId: text('source_telegram_chat_id'),
+    sourceTelegramThreadId: text('source_telegram_thread_id'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledByMemberId: uuid('cancelled_by_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    dueIdx: index('ad_hoc_notifications_due_idx').on(table.status, table.scheduledFor),
+    householdStatusIdx: index('ad_hoc_notifications_household_status_idx').on(
+      table.householdId,
+      table.status,
+      table.scheduledFor
+    ),
+    creatorIdx: index('ad_hoc_notifications_creator_idx').on(table.creatorMemberId),
+    assigneeIdx: index('ad_hoc_notifications_assignee_idx').on(table.assigneeMemberId)
+  })
+)
+
 export const topicMessages = pgTable(
   'topic_messages',
   {

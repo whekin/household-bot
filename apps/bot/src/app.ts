@@ -2,6 +2,7 @@ import { webhookCallback } from 'grammy'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import {
+  createAdHocNotificationService,
   createAnonymousFeedbackService,
   createFinanceCommandService,
   createHouseholdAdminService,
@@ -13,6 +14,7 @@ import {
   createReminderJobService
 } from '@household/application'
 import {
+  createDbAdHocNotificationRepository,
   createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
@@ -23,6 +25,8 @@ import {
 } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
+import { createAdHocNotificationJobsHandler } from './ad-hoc-notification-jobs'
+import { registerAdHocNotifications } from './ad-hoc-notifications'
 import { registerAnonymousFeedback } from './anonymous-feedback'
 import {
   createInMemoryAssistantConversationMemoryStore,
@@ -178,6 +182,16 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     string,
     ReturnType<typeof createAnonymousFeedbackService>
   >()
+  const adHocNotificationRepositoryClient = runtime.databaseUrl
+    ? createDbAdHocNotificationRepository(runtime.databaseUrl)
+    : null
+  const adHocNotificationService =
+    adHocNotificationRepositoryClient && householdConfigurationRepositoryClient
+      ? createAdHocNotificationService({
+          repository: adHocNotificationRepositoryClient.repository,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository
+        })
+      : null
 
   function financeServiceForHousehold(householdId: string) {
     const existing = financeServices.get(householdId)
@@ -258,6 +272,10 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
 
   if (topicMessageHistoryRepositoryClient) {
     shutdownTasks.push(topicMessageHistoryRepositoryClient.close)
+  }
+
+  if (adHocNotificationRepositoryClient) {
+    shutdownTasks.push(adHocNotificationRepositoryClient.close)
   }
 
   if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
@@ -375,6 +393,20 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     )
   }
 
+  if (
+    householdConfigurationRepositoryClient &&
+    telegramPendingActionRepositoryClient &&
+    adHocNotificationService
+  ) {
+    registerAdHocNotifications({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      notificationService: adHocNotificationService,
+      logger: getLogger('ad-hoc-notifications')
+    })
+  }
+
   const reminderJobs = runtime.reminderJobsEnabled
     ? (() => {
         const reminderRepositoryClient = createDbReminderDispatchRepository(runtime.databaseUrl!)
@@ -428,6 +460,34 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         })
       })()
     : null
+  const adHocNotificationJobs =
+    runtime.reminderJobsEnabled &&
+    adHocNotificationService &&
+    householdConfigurationRepositoryClient
+      ? createAdHocNotificationJobsHandler({
+          notificationService: adHocNotificationService,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          sendTopicMessage: async (input) => {
+            const threadId = input.threadId ? Number(input.threadId) : undefined
+            await bot.api.sendMessage(input.chatId, input.text, {
+              ...(threadId && Number.isInteger(threadId)
+                ? {
+                    message_thread_id: threadId
+                  }
+                : {}),
+              ...(input.parseMode
+                ? {
+                    parse_mode: input.parseMode
+                  }
+                : {})
+            })
+          },
+          sendDirectMessage: async (input) => {
+            await bot.api.sendMessage(input.telegramUserId, input.text)
+          },
+          logger: getLogger('scheduler')
+        })
+      : null
 
   if (!runtime.reminderJobsEnabled) {
     logger.warn(
@@ -825,20 +885,50 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         })
       : undefined,
     scheduler:
-      reminderJobs && runtime.schedulerSharedSecret
+      (reminderJobs || adHocNotificationJobs) && runtime.schedulerSharedSecret
         ? {
+            pathPrefix: '/jobs',
             authorize: createSchedulerRequestAuthorizer({
               sharedSecret: runtime.schedulerSharedSecret,
               oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
             }).authorize,
-            handler: reminderJobs.handle
+            handler: async (request, jobPath) => {
+              if (jobPath.startsWith('reminder/')) {
+                return reminderJobs
+                  ? reminderJobs.handle(request, jobPath.slice('reminder/'.length))
+                  : new Response('Not Found', { status: 404 })
+              }
+
+              if (jobPath === 'notifications/due') {
+                return adHocNotificationJobs
+                  ? adHocNotificationJobs.handle(request)
+                  : new Response('Not Found', { status: 404 })
+              }
+
+              return new Response('Not Found', { status: 404 })
+            }
           }
-        : reminderJobs
+        : reminderJobs || adHocNotificationJobs
           ? {
+              pathPrefix: '/jobs',
               authorize: createSchedulerRequestAuthorizer({
                 oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
               }).authorize,
-              handler: reminderJobs.handle
+              handler: async (request, jobPath) => {
+                if (jobPath.startsWith('reminder/')) {
+                  return reminderJobs
+                    ? reminderJobs.handle(request, jobPath.slice('reminder/'.length))
+                    : new Response('Not Found', { status: 404 })
+                }
+
+                if (jobPath === 'notifications/due') {
+                  return adHocNotificationJobs
+                    ? adHocNotificationJobs.handle(request)
+                    : new Response('Not Found', { status: 404 })
+                }
+
+                return new Response('Not Found', { status: 404 })
+              }
             }
           : undefined
   })

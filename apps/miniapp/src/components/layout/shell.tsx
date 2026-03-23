@@ -5,6 +5,7 @@ import { Settings } from 'lucide-solid'
 import { useSession } from '../../contexts/session-context'
 import { useI18n } from '../../contexts/i18n-context'
 import { useDashboard } from '../../contexts/dashboard-context'
+import { formatCyclePeriod } from '../../lib/dates'
 import { NavigationTabs } from './navigation-tabs'
 import { Badge } from '../ui/badge'
 import { Button, IconButton } from '../ui/button'
@@ -234,7 +235,9 @@ export function AppShell(props: ParentProps) {
           </Show>
           <article class="testing-card__section">
             <span>{copy().testingPeriodCurrentLabel ?? ''}</span>
-            <strong>{dashboard()?.period ?? '—'}</strong>
+            <strong>
+              {dashboard()?.period ? formatCyclePeriod(dashboard()!.period, locale()) : '—'}
+            </strong>
           </article>
           <div class="testing-card__actions testing-card__actions--stack">
             <Field label={copy().testingPeriodOverrideLabel ?? ''} wide>

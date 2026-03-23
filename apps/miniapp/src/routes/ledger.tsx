@@ -15,17 +15,19 @@ import { Collapsible } from '../components/ui/collapsible'
 import { Toggle } from '../components/ui/toggle'
 import { Skeleton } from '../components/ui/skeleton'
 import {
-  ledgerPrimaryAmount,
+  formatMoneyLabel,
   ledgerSecondaryAmount,
   purchaseDraftForEntry,
   paymentDraftForEntry,
   computePaymentPrefill,
+  localizedCurrencyLabel,
   rebalancePurchaseSplit,
   validatePurchaseDraft,
   type PurchaseDraft,
   type PaymentDraft
 } from '../lib/ledger-helpers'
 import { minorToMajorString, majorStringToMinor } from '../lib/money'
+import { formatCyclePeriod, formatFriendlyDate } from '../lib/dates'
 import {
   addMiniAppPurchase,
   updateMiniAppPurchase,
@@ -38,6 +40,10 @@ import {
   deleteMiniAppUtilityBill,
   type MiniAppDashboard
 } from '../miniapp-api'
+
+function joinSubtitleParts(parts: readonly (string | null | undefined)[]): string {
+  return parts.filter(Boolean).join(' · ')
+}
 
 interface ParticipantSplitInputsProps {
   draft: PurchaseDraft
@@ -203,7 +209,7 @@ function ParticipantSplitInputs(props: ParticipantSplitInputsProps) {
 
 export default function LedgerRoute() {
   const { initData, refreshHouseholdData, session } = useSession()
-  const { copy } = useI18n()
+  const { copy, locale } = useI18n()
   const { dashboard, loading, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
     useDashboard()
   const unresolvedPurchaseLedger = createMemo(() =>
@@ -214,26 +220,15 @@ export default function LedgerRoute() {
   )
   const paymentPeriodOptions = createMemo(() => {
     const periods = new Set<string>()
-    if (dashboard()?.period) {
-      periods.add(dashboard()!.period)
+    for (const summary of dashboard()?.paymentPeriods ?? []) {
+      periods.add(summary.period)
     }
 
-    for (const entry of purchaseLedger()) {
-      if (entry.originPeriod) {
-        periods.add(entry.originPeriod)
-      }
-    }
-
-    for (const member of dashboard()?.members ?? []) {
-      for (const overdue of member.overduePayments) {
-        for (const period of overdue.periods) {
-          periods.add(period)
-        }
-      }
-    }
-
-    return [...periods].sort().map((period) => ({ value: period, label: period }))
+    return [...periods]
+      .sort()
+      .map((period) => ({ value: period, label: formatCyclePeriod(period, locale()) }))
   })
+  const paymentPeriodSummaries = createMemo(() => dashboard()?.paymentPeriods ?? [])
 
   // ── Purchase editor ──────────────────────────────
   const [editingPurchase, setEditingPurchase] = createSignal<
@@ -294,6 +289,7 @@ export default function LedgerRoute() {
     period: dashboard()?.period ?? ''
   })
   const [addingPayment, setAddingPayment] = createSignal(false)
+  const [paymentActionError, setPaymentActionError] = createSignal<string | null>(null)
 
   const addPurchaseButtonText = createMemo(() => {
     if (addingPurchase()) return copy().savingPurchase
@@ -543,6 +539,7 @@ export default function LedgerRoute() {
 
     setAddingPayment(true)
     try {
+      setPaymentActionError(null)
       await addMiniAppPayment(data, {
         memberId: draft.memberId,
         kind: draft.kind,
@@ -559,13 +556,58 @@ export default function LedgerRoute() {
         period: dashboard()?.period ?? ''
       })
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
       setAddingPayment(false)
     }
   }
 
+  async function handleResolveSuggestedPayment(input: {
+    memberId: string
+    kind: 'rent' | 'utilities'
+    period: string
+    amountMajor: string
+  }) {
+    const data = initData()
+    if (!data) return
+
+    setAddingPayment(true)
+    try {
+      setPaymentActionError(null)
+      await addMiniAppPayment(data, {
+        memberId: input.memberId,
+        kind: input.kind,
+        period: input.period,
+        amountMajor: input.amountMajor,
+        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+      })
+      await refreshHouseholdData(true, true)
+    } catch (error) {
+      setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
+    } finally {
+      setAddingPayment(false)
+    }
+  }
+
+  function openCustomPayment(input: {
+    memberId: string
+    kind: 'rent' | 'utilities'
+    period: string
+  }) {
+    setPaymentActionError(null)
+    setNewPayment({
+      memberId: input.memberId,
+      kind: input.kind,
+      amountMajor: computePaymentPrefill(dashboard(), input.memberId, input.kind, input.period),
+      currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+      period: input.period
+    })
+    setAddPaymentOpen(true)
+  }
+
   const currencyOptions = () => [
-    { value: 'GEL', label: 'GEL' },
+    { value: 'GEL', label: localizedCurrencyLabel(locale(), 'GEL') },
     { value: 'USD', label: 'USD' }
   ]
 
@@ -648,7 +690,9 @@ export default function LedgerRoute() {
                 >
                   <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
                     <div>
-                      <strong>{copy().unresolvedPurchasesTitle}</strong>
+                      <div class="editable-list-section-title">
+                        {copy().unresolvedPurchasesTitle}
+                      </div>
                       <Show
                         when={unresolvedPurchaseLedger().length > 0}
                         fallback={<p class="empty-state">{copy().unresolvedPurchasesEmpty}</p>}
@@ -664,13 +708,23 @@ export default function LedgerRoute() {
                                 <div class="editable-list-row__main">
                                   <span class="editable-list-row__title">{entry.title}</span>
                                   <span class="editable-list-row__subtitle">
-                                    {[entry.actorDisplayName, entry.originPeriod, 'Unresolved']
-                                      .filter(Boolean)
-                                      .join(' · ')}
+                                    {joinSubtitleParts([
+                                      entry.actorDisplayName,
+                                      entry.originPeriod
+                                        ? formatCyclePeriod(entry.originPeriod, locale())
+                                        : null,
+                                      'Unresolved'
+                                    ])}
                                   </span>
                                 </div>
                                 <div class="editable-list-row__meta">
-                                  <strong>{ledgerPrimaryAmount(entry)}</strong>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      entry.displayAmountMajor,
+                                      entry.displayCurrency,
+                                      locale()
+                                    )}
+                                  </strong>
                                   <Show when={ledgerSecondaryAmount(entry)}>
                                     {(secondary) => (
                                       <span class="editable-list-row__secondary">
@@ -686,8 +740,7 @@ export default function LedgerRoute() {
                       </Show>
                     </div>
 
-                    <div>
-                      <strong>{copy().resolvedPurchasesTitle}</strong>
+                    <Collapsible title={copy().resolvedPurchasesTitle} defaultOpen={false}>
                       <Show
                         when={resolvedPurchaseLedger().length > 0}
                         fallback={<p class="empty-state">{copy().resolvedPurchasesEmpty}</p>}
@@ -703,13 +756,25 @@ export default function LedgerRoute() {
                                 <div class="editable-list-row__main">
                                   <span class="editable-list-row__title">{entry.title}</span>
                                   <span class="editable-list-row__subtitle">
-                                    {[entry.actorDisplayName, entry.originPeriod, entry.resolvedAt]
-                                      .filter(Boolean)
-                                      .join(' · ')}
+                                    {joinSubtitleParts([
+                                      entry.actorDisplayName,
+                                      entry.originPeriod
+                                        ? formatCyclePeriod(entry.originPeriod, locale())
+                                        : null,
+                                      entry.resolvedAt
+                                        ? formatFriendlyDate(entry.resolvedAt, locale())
+                                        : null
+                                    ])}
                                   </span>
                                 </div>
                                 <div class="editable-list-row__meta">
-                                  <strong>{ledgerPrimaryAmount(entry)}</strong>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      entry.displayAmountMajor,
+                                      entry.displayCurrency,
+                                      locale()
+                                    )}
+                                  </strong>
                                   <Show when={ledgerSecondaryAmount(entry)}>
                                     {(secondary) => (
                                       <span class="editable-list-row__secondary">
@@ -723,47 +788,91 @@ export default function LedgerRoute() {
                           </For>
                         </div>
                       </Show>
-                    </div>
+                    </Collapsible>
                   </div>
                 </Show>
               </Collapsible>
 
               {/* ── Utility bills ──────────────────────── */}
               <Collapsible title={copy().utilityLedgerTitle}>
-                <Show when={effectiveIsAdmin()}>
-                  <div class="editable-list-actions">
-                    <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
-                      <Plus size={14} />
-                      {copy().addUtilityBillAction}
-                    </Button>
-                  </div>
-                </Show>
-                <Show
-                  when={utilityLedger().length > 0}
-                  fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
-                >
-                  <div class="editable-list">
-                    <For each={utilityLedger()}>
-                      {(entry) => (
-                        <button
-                          class="editable-list-row"
-                          onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
-                          disabled={!effectiveIsAdmin()}
-                        >
-                          <div class="editable-list-row__main">
-                            <span class="editable-list-row__title">{entry.title}</span>
-                            <span class="editable-list-row__subtitle">
-                              {entry.actorDisplayName}
-                            </span>
-                          </div>
-                          <div class="editable-list-row__meta">
-                            <strong>{ledgerPrimaryAmount(entry)}</strong>
-                          </div>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
+                <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                  <Show when={effectiveIsAdmin()}>
+                    <div class="editable-list-actions">
+                      <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
+                        <Plus size={14} />
+                        {copy().addUtilityBillAction}
+                      </Button>
+                    </div>
+                  </Show>
+                  <Show
+                    when={utilityLedger().length > 0}
+                    fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
+                  >
+                    <div class="editable-list">
+                      <For each={utilityLedger()}>
+                        {(entry) => (
+                          <button
+                            class="editable-list-row"
+                            onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
+                            disabled={!effectiveIsAdmin()}
+                          >
+                            <div class="editable-list-row__main">
+                              <span class="editable-list-row__title">{entry.title}</span>
+                              <span class="editable-list-row__subtitle">
+                                {entry.actorDisplayName}
+                              </span>
+                            </div>
+                            <div class="editable-list-row__meta">
+                              <strong>
+                                {formatMoneyLabel(
+                                  entry.displayAmountMajor,
+                                  entry.displayCurrency,
+                                  locale()
+                                )}
+                              </strong>
+                            </div>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <Collapsible title={copy().utilityHistoryTitle} defaultOpen={false}>
+                    <Show
+                      when={paymentPeriodSummaries().length > 0}
+                      fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
+                    >
+                      <div class="editable-list">
+                        <For each={paymentPeriodSummaries()}>
+                          {(summary) => (
+                            <div class="editable-list-row editable-list-row--static">
+                              <div class="editable-list-row__main">
+                                <span class="editable-list-row__title">
+                                  {formatCyclePeriod(summary.period, locale())}
+                                </span>
+                                <span class="editable-list-row__subtitle">
+                                  {summary.isCurrentPeriod
+                                    ? copy().currentCycleLabel
+                                    : summary.hasOverdueBalance
+                                      ? copy().overdueLabel
+                                      : copy().homeSettledTitle}
+                                </span>
+                              </div>
+                              <div class="editable-list-row__meta">
+                                <strong>
+                                  {formatMoneyLabel(
+                                    summary.utilityTotalMajor,
+                                    (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Collapsible>
+                </div>
               </Collapsible>
 
               {/* ── Payments ───────────────────────────── */}
@@ -776,7 +885,7 @@ export default function LedgerRoute() {
                 <Show when={effectiveIsAdmin()}>
                   <div class="editable-list-actions">
                     <Button
-                      variant="primary"
+                      variant="ghost"
                       size="sm"
                       onClick={() => {
                         setNewPayment((payment) => ({
@@ -791,34 +900,186 @@ export default function LedgerRoute() {
                     </Button>
                   </div>
                 </Show>
+                <Show when={paymentActionError()}>
+                  {(error) => <p class="empty-state">{error()}</p>}
+                </Show>
                 <Show
-                  when={paymentLedger().length > 0}
+                  when={paymentPeriodSummaries().length > 0}
                   fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
                 >
-                  <div class="editable-list">
-                    <For each={paymentLedger()}>
-                      {(entry) => (
-                        <button
-                          class="editable-list-row"
-                          onClick={() => effectiveIsAdmin() && openPaymentEditor(entry)}
-                          disabled={!effectiveIsAdmin()}
+                  <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                    <For each={paymentPeriodSummaries()}>
+                      {(summary) => (
+                        <Collapsible
+                          title={copy().paymentsPeriodTitle.replace(
+                            '{period}',
+                            formatCyclePeriod(summary.period, locale())
+                          )}
+                          body={
+                            summary.hasOverdueBalance
+                              ? copy().paymentsPeriodOverdueBody
+                              : summary.isCurrentPeriod
+                                ? copy().paymentsPeriodCurrentBody
+                                : copy().paymentsPeriodHistoryBody
+                          }
+                          defaultOpen={summary.isCurrentPeriod || summary.hasOverdueBalance}
                         >
-                          <div class="editable-list-row__main">
-                            <span class="editable-list-row__title">
-                              {entry.paymentKind === 'rent'
-                                ? copy().paymentLedgerRent
-                                : copy().paymentLedgerUtilities}
-                            </span>
-                            <span class="editable-list-row__subtitle">
-                              {entry.actorDisplayName}
-                            </span>
+                          <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                            <For each={summary.kinds}>
+                              {(kindSummary) => (
+                                <Show
+                                  when={kindSummary.unresolvedMembers.length > 0}
+                                  fallback={
+                                    <div class="editable-list-row editable-list-row--static">
+                                      <div class="editable-list-row__main">
+                                        <span class="editable-list-row__title">
+                                          {kindSummary.kind === 'rent'
+                                            ? copy().shareRent
+                                            : copy().shareUtilities}
+                                        </span>
+                                        <span class="editable-list-row__subtitle">
+                                          {copy().homeSettledTitle}
+                                        </span>
+                                      </div>
+                                      <div class="editable-list-row__meta">
+                                        <strong>
+                                          {formatMoneyLabel(
+                                            kindSummary.totalPaidMajor,
+                                            (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                            locale()
+                                          )}
+                                        </strong>
+                                      </div>
+                                    </div>
+                                  }
+                                >
+                                  <div>
+                                    <div class="editable-list-section-title">
+                                      {kindSummary.kind === 'rent'
+                                        ? copy().shareRent
+                                        : copy().shareUtilities}
+                                    </div>
+                                    <div class="editable-list">
+                                      <For each={kindSummary.unresolvedMembers}>
+                                        {(memberSummary) => (
+                                          <div class="editable-list-row editable-list-row--stacked">
+                                            <div class="editable-list-row__main">
+                                              <span class="editable-list-row__title">
+                                                {memberSummary.displayName}
+                                              </span>
+                                              <span class="editable-list-row__subtitle">
+                                                {copy()
+                                                  .paymentsBaseDueLabel.replace(
+                                                    '{amount}',
+                                                    formatMoneyLabel(
+                                                      memberSummary.baseDueMajor,
+                                                      (dashboard()?.currency as 'USD' | 'GEL') ??
+                                                        'GEL',
+                                                      locale()
+                                                    )
+                                                  )
+                                                  .replace(
+                                                    '{remaining}',
+                                                    formatMoneyLabel(
+                                                      memberSummary.remainingMajor,
+                                                      (dashboard()?.currency as 'USD' | 'GEL') ??
+                                                        'GEL',
+                                                      locale()
+                                                    )
+                                                  )}
+                                              </span>
+                                            </div>
+                                            <div class="editable-list-row__meta">
+                                              <strong>
+                                                {formatMoneyLabel(
+                                                  memberSummary.suggestedAmountMajor,
+                                                  (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                                  locale()
+                                                )}
+                                              </strong>
+                                              <div class="editable-list-inline-actions">
+                                                <Button
+                                                  variant="primary"
+                                                  size="sm"
+                                                  loading={addingPayment()}
+                                                  onClick={() =>
+                                                    void handleResolveSuggestedPayment({
+                                                      memberId: memberSummary.memberId,
+                                                      kind: kindSummary.kind,
+                                                      period: summary.period,
+                                                      amountMajor:
+                                                        memberSummary.suggestedAmountMajor
+                                                    })
+                                                  }
+                                                >
+                                                  {copy().paymentsResolveAction}
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() =>
+                                                    openCustomPayment({
+                                                      memberId: memberSummary.memberId,
+                                                      kind: kindSummary.kind,
+                                                      period: summary.period
+                                                    })
+                                                  }
+                                                >
+                                                  {copy().paymentsCustomAmountAction}
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </div>
+                                </Show>
+                              )}
+                            </For>
                           </div>
-                          <div class="editable-list-row__meta">
-                            <strong>{ledgerPrimaryAmount(entry)}</strong>
-                          </div>
-                        </button>
+                        </Collapsible>
                       )}
                     </For>
+
+                    <Collapsible title={copy().paymentsHistoryTitle} defaultOpen={false}>
+                      <Show
+                        when={paymentLedger().length > 0}
+                        fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
+                      >
+                        <div class="editable-list">
+                          <For each={paymentLedger()}>
+                            {(entry) => (
+                              <button
+                                class="editable-list-row"
+                                onClick={() => effectiveIsAdmin() && openPaymentEditor(entry)}
+                                disabled={!effectiveIsAdmin()}
+                              >
+                                <div class="editable-list-row__main">
+                                  <span class="editable-list-row__title">
+                                    {entry.paymentKind === 'rent'
+                                      ? copy().paymentLedgerRent
+                                      : copy().paymentLedgerUtilities}
+                                  </span>
+                                  <span class="editable-list-row__subtitle">
+                                    {entry.actorDisplayName}
+                                  </span>
+                                </div>
+                                <div class="editable-list-row__meta">
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      entry.displayAmountMajor,
+                                      entry.displayCurrency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </Collapsible>
                   </div>
                 </Show>
               </Collapsible>
@@ -1093,6 +1354,7 @@ export default function LedgerRoute() {
           </div>
         }
       >
+        <Show when={paymentActionError()}>{(error) => <p class="empty-state">{error()}</p>}</Show>
         <div class="editor-grid">
           <Field label={copy().paymentMember}>
             <Select
@@ -1101,8 +1363,12 @@ export default function LedgerRoute() {
               placeholder="—"
               options={[{ value: '', label: '—' }, ...memberOptions()]}
               onChange={(memberId) => {
-                const member = dashboard()?.members.find((m) => m.memberId === memberId)
-                const prefill = computePaymentPrefill(member, newPayment().kind)
+                const prefill = computePaymentPrefill(
+                  dashboard(),
+                  memberId,
+                  newPayment().kind,
+                  newPayment().period || dashboard()?.period || ''
+                )
                 setNewPayment((p) => ({ ...p, memberId, amountMajor: prefill }))
               }}
             />
@@ -1113,7 +1379,18 @@ export default function LedgerRoute() {
               ariaLabel={copy().paymentKind}
               options={kindOptions()}
               onChange={(value) =>
-                setNewPayment((p) => ({ ...p, kind: value as 'rent' | 'utilities' }))
+                setNewPayment((p) => ({
+                  ...p,
+                  kind: value as 'rent' | 'utilities',
+                  amountMajor: p.memberId
+                    ? computePaymentPrefill(
+                        dashboard(),
+                        p.memberId,
+                        value as 'rent' | 'utilities',
+                        p.period || dashboard()?.period || ''
+                      )
+                    : p.amountMajor
+                }))
               }
             />
           </Field>
@@ -1123,7 +1400,20 @@ export default function LedgerRoute() {
               placeholder="—"
               ariaLabel="Billing period"
               options={[{ value: '', label: '—' }, ...paymentPeriodOptions()]}
-              onChange={(value) => setNewPayment((p) => ({ ...p, period: value }))}
+              onChange={(value) =>
+                setNewPayment((p) => ({
+                  ...p,
+                  period: value,
+                  amountMajor: p.memberId
+                    ? computePaymentPrefill(
+                        dashboard(),
+                        p.memberId,
+                        p.kind,
+                        value || dashboard()?.period || ''
+                      )
+                    : p.amountMajor
+                }))
+              }
             />
           </Field>
           <Field label={copy().paymentAmount}>
