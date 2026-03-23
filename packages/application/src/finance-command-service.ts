@@ -123,6 +123,32 @@ export interface FinanceDashboardMemberLine {
   explanations: readonly string[]
 }
 
+export interface FinanceDashboardPaymentMemberSummary {
+  memberId: string
+  displayName: string
+  suggestedAmount: Money
+  baseDue: Money
+  paid: Money
+  remaining: Money
+  effectivelySettled: boolean
+}
+
+export interface FinanceDashboardPaymentKindSummary {
+  kind: FinancePaymentKind
+  totalDue: Money
+  totalPaid: Money
+  totalRemaining: Money
+  unresolvedMembers: readonly FinanceDashboardPaymentMemberSummary[]
+}
+
+export interface FinanceDashboardPaymentPeriodSummary {
+  period: string
+  utilityTotal: Money
+  hasOverdueBalance: boolean
+  isCurrentPeriod: boolean
+  kinds: readonly FinanceDashboardPaymentKindSummary[]
+}
+
 export interface FinanceDashboardLedgerEntry {
   id: string
   kind: 'purchase' | 'utility' | 'payment'
@@ -171,6 +197,7 @@ export interface FinanceDashboard {
   rentFxRateMicros: bigint | null
   rentFxEffectiveDate: string | null
   members: readonly FinanceDashboardMemberLine[]
+  paymentPeriods?: readonly FinanceDashboardPaymentPeriodSummary[]
   ledger: readonly FinanceDashboardLedgerEntry[]
 }
 
@@ -257,6 +284,33 @@ interface CycleBaseMemberLine {
 interface MutableOverdueSummary {
   rent: { amountMinor: bigint; periods: string[] }
   utilities: { amountMinor: bigint; periods: string[] }
+}
+
+const PAYMENT_SETTLEMENT_TOLERANCE_MINOR = 200n
+
+function effectiveRemainingMinor(expectedMinor: bigint, paidMinor: bigint): bigint {
+  const shortfallMinor = expectedMinor - paidMinor
+
+  if (shortfallMinor <= PAYMENT_SETTLEMENT_TOLERANCE_MINOR) {
+    return 0n
+  }
+
+  return shortfallMinor
+}
+
+function roundSuggestedPaymentMinor(kind: FinancePaymentKind, amountMinor: bigint): bigint {
+  if (kind !== 'rent') {
+    return amountMinor
+  }
+
+  if (amountMinor <= 0n) {
+    return 0n
+  }
+
+  const wholeMinor = amountMinor / 100n
+  const remainderMinor = amountMinor % 100n
+
+  return (remainderMinor >= 50n ? wholeMinor + 1n : wholeMinor) * 100n
 }
 
 function periodFromInstant(instant: Temporal.Instant | null | undefined): string | null {
@@ -516,13 +570,19 @@ async function computeMemberOverduePayments(input: {
         utilities: { amountMinor: 0n, periods: [] }
       }
 
-      const rentRemainingMinor = line.rentShare.subtract(line.rentPaid).amountMinor
+      const rentRemainingMinor = effectiveRemainingMinor(
+        line.rentShare.amountMinor,
+        line.rentPaid.amountMinor
+      )
       if (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 && rentRemainingMinor > 0n) {
         current.rent.amountMinor += rentRemainingMinor
         current.rent.periods.push(cycle.period)
       }
 
-      const utilityRemainingMinor = line.utilityShare.subtract(line.utilityPaid).amountMinor
+      const utilityRemainingMinor = effectiveRemainingMinor(
+        line.utilityShare.amountMinor,
+        line.utilityPaid.amountMinor
+      )
       if (
         Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
         utilityRemainingMinor > 0n
@@ -556,6 +616,161 @@ async function computeMemberOverduePayments(input: {
       return [memberId, items] as const
     })
   )
+}
+
+async function buildPaymentPeriodSummaries(input: {
+  dependencies: FinanceCommandServiceDependencies
+  currentCycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  settings: HouseholdBillingSettingsRecord
+}): Promise<readonly FinanceDashboardPaymentPeriodSummary[]> {
+  const localDate = localDateInTimezone(input.settings.timezone)
+  const memberNameById = new Map(input.members.map((member) => [member.id, member.displayName]))
+  const cycles = (await input.dependencies.repository.listCycles())
+    .filter((cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0)
+    .sort((left, right) => right.period.localeCompare(left.period))
+
+  const summaries: FinanceDashboardPaymentPeriodSummary[] = []
+
+  for (const cycle of cycles) {
+    const [baseLines, utilityBills] = await Promise.all([
+      buildCycleBaseMemberLines({
+        dependencies: input.dependencies,
+        cycle,
+        members: input.members,
+        memberAbsencePolicies: input.memberAbsencePolicies,
+        settings: input.settings
+      }),
+      input.dependencies.repository.listUtilityBillsForCycle(cycle.id)
+    ])
+
+    const utilityTotal = utilityBills.reduce(
+      (sum, bill) => sum.add(Money.fromMinor(bill.amountMinor, bill.currency)),
+      Money.zero(cycle.currency)
+    )
+    const rentDueDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.settings.rentDueDay
+    )
+    const utilitiesDueDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.settings.utilitiesDueDay
+    )
+
+    const rentMembers = baseLines.map((line) => {
+      const remainingMinor = effectiveRemainingMinor(
+        line.rentShare.amountMinor,
+        line.rentPaid.amountMinor
+      )
+      const baseDue = line.rentShare
+      return {
+        memberId: line.memberId,
+        displayName: memberNameById.get(line.memberId) ?? line.memberId,
+        suggestedAmount: Money.fromMinor(
+          roundSuggestedPaymentMinor('rent', remainingMinor),
+          cycle.currency
+        ),
+        baseDue,
+        paid: line.rentPaid,
+        remaining: Money.fromMinor(remainingMinor, cycle.currency),
+        effectivelySettled: remainingMinor === 0n
+      } satisfies FinanceDashboardPaymentMemberSummary
+    })
+
+    const utilitiesMembers = baseLines.map((line) => {
+      const remainingMinor = effectiveRemainingMinor(
+        line.utilityShare.amountMinor,
+        line.utilityPaid.amountMinor
+      )
+      return {
+        memberId: line.memberId,
+        displayName: memberNameById.get(line.memberId) ?? line.memberId,
+        suggestedAmount: Money.fromMinor(remainingMinor, cycle.currency),
+        baseDue: line.utilityShare,
+        paid: line.utilityPaid,
+        remaining: Money.fromMinor(remainingMinor, cycle.currency),
+        effectivelySettled: remainingMinor === 0n
+      } satisfies FinanceDashboardPaymentMemberSummary
+    })
+
+    const hasOverdueBalance =
+      (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 &&
+        rentMembers.some((member) => !member.effectivelySettled)) ||
+      (Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
+        utilitiesMembers.some((member) => !member.effectivelySettled))
+
+    summaries.push({
+      period: cycle.period,
+      utilityTotal,
+      hasOverdueBalance,
+      isCurrentPeriod: cycle.period === input.currentCycle.period,
+      kinds: [
+        {
+          kind: 'rent',
+          totalDue: rentMembers.reduce(
+            (sum, member) => sum.add(member.baseDue),
+            Money.zero(cycle.currency)
+          ),
+          totalPaid: rentMembers.reduce(
+            (sum, member) => sum.add(member.paid),
+            Money.zero(cycle.currency)
+          ),
+          totalRemaining: rentMembers.reduce(
+            (sum, member) => sum.add(member.remaining),
+            Money.zero(cycle.currency)
+          ),
+          unresolvedMembers: rentMembers.filter((member) => !member.effectivelySettled)
+        },
+        {
+          kind: 'utilities',
+          totalDue: utilitiesMembers.reduce(
+            (sum, member) => sum.add(member.baseDue),
+            Money.zero(cycle.currency)
+          ),
+          totalPaid: utilitiesMembers.reduce(
+            (sum, member) => sum.add(member.paid),
+            Money.zero(cycle.currency)
+          ),
+          totalRemaining: utilitiesMembers.reduce(
+            (sum, member) => sum.add(member.remaining),
+            Money.zero(cycle.currency)
+          ),
+          unresolvedMembers: utilitiesMembers.filter((member) => !member.effectivelySettled)
+        }
+      ]
+    })
+  }
+
+  return summaries
+}
+
+async function getCycleKindBaseRemaining(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  settings: HouseholdBillingSettingsRecord
+  memberId: string
+  kind: FinancePaymentKind
+}): Promise<bigint> {
+  const baseLine = (
+    await buildCycleBaseMemberLines({
+      dependencies: input.dependencies,
+      cycle: input.cycle,
+      members: input.members,
+      memberAbsencePolicies: input.memberAbsencePolicies,
+      settings: input.settings
+    })
+  ).find((line) => line.memberId === input.memberId)
+
+  if (!baseLine) {
+    return 0n
+  }
+
+  return input.kind === 'rent'
+    ? effectiveRemainingMinor(baseLine.rentShare.amountMinor, baseLine.rentPaid.amountMinor)
+    : effectiveRemainingMinor(baseLine.utilityShare.amountMinor, baseLine.utilityPaid.amountMinor)
 }
 
 async function resolveAutomaticPaymentTargets(input: {
@@ -608,8 +823,11 @@ async function resolveAutomaticPaymentTargets(input: {
 
     const remainingMinor =
       input.kind === 'rent'
-        ? baseLine.rentShare.subtract(baseLine.rentPaid).amountMinor
-        : baseLine.utilityShare.subtract(baseLine.utilityPaid).amountMinor
+        ? effectiveRemainingMinor(baseLine.rentShare.amountMinor, baseLine.rentPaid.amountMinor)
+        : effectiveRemainingMinor(
+            baseLine.utilityShare.amountMinor,
+            baseLine.utilityPaid.amountMinor
+          )
 
     if (remainingMinor <= 0n) {
       continue
@@ -687,13 +905,22 @@ async function buildFinanceDashboard(
   const previousSnapshotLines = previousCycle
     ? await dependencies.repository.getSettlementSnapshotLines(previousCycle.id)
     : []
-  const overduePaymentsByMemberId = await computeMemberOverduePayments({
-    dependencies,
-    currentCycle: cycle,
-    members,
-    memberAbsencePolicies,
-    settings
-  })
+  const [overduePaymentsByMemberId, paymentPeriods] = await Promise.all([
+    computeMemberOverduePayments({
+      dependencies,
+      currentCycle: cycle,
+      members,
+      memberAbsencePolicies,
+      settings
+    }),
+    buildPaymentPeriodSummaries({
+      dependencies,
+      currentCycle: cycle,
+      members,
+      memberAbsencePolicies,
+      settings
+    })
+  ])
   const previousUtilityShareByMemberId = new Map(
     previousSnapshotLines.map((line) => [
       line.memberId,
@@ -1061,6 +1288,7 @@ async function buildFinanceDashboard(
     rentFxRateMicros: convertedRent.fxRateMicros,
     rentFxEffectiveDate: convertedRent.fxEffectiveDate,
     members: dashboardMembers,
+    paymentPeriods,
     ledger
   }
 }
@@ -1095,7 +1323,8 @@ async function allocatePaymentPurchaseOverage(input: {
   }
 
   const baseAmount = input.kind === 'rent' ? memberLine.rentShare : memberLine.utilityShare
-  let remainingMinor = input.paymentAmount.amountMinor - baseAmount.amountMinor
+  const baseThresholdMinor = roundSuggestedPaymentMinor(input.kind, baseAmount.amountMinor)
+  let remainingMinor = input.paymentAmount.amountMinor - baseThresholdMinor
   if (remainingMinor <= 0n) {
     return []
   }
@@ -1588,6 +1817,22 @@ export function createFinanceCommandService(
 
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
+
+      if (periodArg) {
+        const explicitRemainingMinor = await getCycleKindBaseRemaining({
+          dependencies,
+          cycle: currentCycle,
+          members,
+          memberAbsencePolicies,
+          settings,
+          memberId,
+          kind
+        })
+        if (explicitRemainingMinor === 0n) {
+          throw new Error('Payment period is already settled')
+        }
+      }
+
       const paymentTargets = periodArg
         ? [
             {
@@ -1605,6 +1850,15 @@ export function createFinanceCommandService(
             memberId,
             kind
           })
+
+      if (
+        !periodArg &&
+        paymentTargets.every(
+          (target) => target.baseRemainingMinor <= 0n && target.cycle.id === currentCycle.id
+        )
+      ) {
+        throw new Error('Payment period is already settled')
+      }
 
       let remainingMinor = amount.amountMinor
       let firstPayment: Awaited<ReturnType<FinanceRepository['addPaymentRecord']>> | null = null

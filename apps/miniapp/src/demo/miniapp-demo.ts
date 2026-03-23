@@ -377,6 +377,59 @@ function createDashboard(state: {
   members: MiniAppDashboard['members']
   ledger?: MiniAppDashboard['ledger']
 }): MiniAppDashboard {
+  const paymentPeriods: MiniAppDashboard['paymentPeriods'] = [
+    {
+      period: '2026-03',
+      utilityTotalMajor: '286.00',
+      hasOverdueBalance: state.members.some((member) => member.overduePayments.length > 0),
+      isCurrentPeriod: true,
+      kinds: [
+        {
+          kind: 'rent',
+          totalDueMajor: state.members
+            .reduce((sum, member) => sum + Number(member.rentShareMajor), 0)
+            .toFixed(2),
+          totalPaidMajor: '0.00',
+          totalRemainingMajor: state.members
+            .reduce((sum, member) => sum + Number(member.rentShareMajor), 0)
+            .toFixed(2),
+          unresolvedMembers: state.members
+            .filter((member) => Number(member.rentShareMajor) > 0)
+            .map((member) => ({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              suggestedAmountMajor: member.rentShareMajor,
+              baseDueMajor: member.rentShareMajor,
+              paidMajor: '0.00',
+              remainingMajor: member.rentShareMajor,
+              effectivelySettled: false
+            }))
+        },
+        {
+          kind: 'utilities',
+          totalDueMajor: state.members
+            .reduce((sum, member) => sum + Number(member.utilityShareMajor), 0)
+            .toFixed(2),
+          totalPaidMajor: '0.00',
+          totalRemainingMajor: state.members
+            .reduce((sum, member) => sum + Number(member.utilityShareMajor), 0)
+            .toFixed(2),
+          unresolvedMembers: state.members
+            .filter((member) => Number(member.utilityShareMajor) > 0)
+            .map((member) => ({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              suggestedAmountMajor: member.utilityShareMajor,
+              baseDueMajor: member.utilityShareMajor,
+              paidMajor: '0.00',
+              remainingMajor: member.utilityShareMajor,
+              effectivelySettled: false
+            }))
+        }
+      ]
+    }
+  ]
+
   return {
     period: '2026-03',
     currency: 'GEL',
@@ -396,6 +449,7 @@ function createDashboard(state: {
     rentFxRateMicros: '2760000',
     rentFxEffectiveDate: '2026-03-17',
     members: state.members,
+    paymentPeriods,
     ledger: state.ledger ?? baseLedger()
   }
 }

@@ -13,11 +13,12 @@ import { Input } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
 import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
-import { ledgerPrimaryAmount } from '../lib/ledger-helpers'
+import { formatMoneyLabel, localizedCurrencyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   compareTodayToPeriodDay,
   daysUntilPeriodDay,
+  formatCyclePeriod,
   formatPeriodDay,
   nextCyclePeriod,
   parseCalendarDate
@@ -50,11 +51,17 @@ function paymentProposalMinor(
       ? majorStringToMinor(member.rentShareMajor)
       : majorStringToMinor(member.utilityShareMajor)
 
-  if (data.paymentBalanceAdjustmentPolicy === kind) {
-    return baseMinor + purchaseOffsetMinor
+  const proposalMinor =
+    data.paymentBalanceAdjustmentPolicy === kind ? baseMinor + purchaseOffsetMinor : baseMinor
+
+  if (kind !== 'rent' || proposalMinor <= 0n) {
+    return proposalMinor
   }
 
-  return baseMinor
+  const wholeMinor = proposalMinor / 100n
+  const remainderMinor = proposalMinor % 100n
+
+  return (remainderMinor >= 50n ? wholeMinor + 1n : wholeMinor) * 100n
 }
 
 function paymentRemainingMinor(
@@ -380,7 +387,10 @@ export default function HomeRoute() {
                     paymentRemainingMinor(data(), member(), 'utilities')
 
                   const modes = () => currentPaymentModes()
-                  const currency = () => data().currency
+                  const formatMajorAmount = (
+                    amountMajor: string,
+                    currencyCode: 'USD' | 'GEL' = data().currency
+                  ) => formatMoneyLabel(amountMajor, currencyCode, locale())
                   const timezone = () => data().timezone
                   const period = () => effectivePeriod() ?? data().period
                   const today = () => todayOverride()
@@ -470,15 +480,17 @@ export default function HomeRoute() {
                               <div class="balance-card__amounts">
                                 <div class="balance-card__row balance-card__row--subtotal">
                                   <span>{copy().finalDue}</span>
-                                  <strong>
-                                    {overdue().amountMajor} {currency()}
-                                  </strong>
+                                  <strong>{formatMajorAmount(overdue().amountMajor)}</strong>
                                 </div>
                                 <div class="balance-card__row">
                                   <span>
                                     {copy().homeOverduePeriodsLabel.replace(
                                       '{periods}',
-                                      overdue().periods.join(', ')
+                                      overdue()
+                                        .periods.map((period) =>
+                                          formatCyclePeriod(period, locale())
+                                        )
+                                        .join(', ')
                                     )}
                                   </span>
                                 </div>
@@ -513,15 +525,17 @@ export default function HomeRoute() {
                               <div class="balance-card__amounts">
                                 <div class="balance-card__row balance-card__row--subtotal">
                                   <span>{copy().finalDue}</span>
-                                  <strong>
-                                    {overdue().amountMajor} {currency()}
-                                  </strong>
+                                  <strong>{formatMajorAmount(overdue().amountMajor)}</strong>
                                 </div>
                                 <div class="balance-card__row">
                                   <span>
                                     {copy().homeOverduePeriodsLabel.replace(
                                       '{periods}',
-                                      overdue().periods.join(', ')
+                                      overdue()
+                                        .periods.map((period) =>
+                                          formatCyclePeriod(period, locale())
+                                        )
+                                        .join(', ')
                                     )}
                                   </span>
                                 </div>
@@ -552,7 +566,7 @@ export default function HomeRoute() {
                               <div class="balance-card__row balance-card__row--subtotal">
                                 <span>{copy().finalDue}</span>
                                 <strong>
-                                  {minorToMajorString(utilitiesRemainingMinor())} {currency()}
+                                  {formatMajorAmount(minorToMajorString(utilitiesRemainingMinor()))}
                                 </strong>
                               </div>
                               <div class="balance-card__row">
@@ -563,30 +577,30 @@ export default function HomeRoute() {
                               </div>
                               <div class="balance-card__row">
                                 <span>{copy().baseDue}</span>
-                                <strong>
-                                  {member().utilityShareMajor} {currency()}
-                                </strong>
+                                <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
                               </div>
                               <Show when={policy() === 'utilities'}>
                                 <div class="balance-card__row">
                                   <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>
-                                    {member().purchaseOffsetMajor} {currency()}
-                                  </strong>
+                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
                                 </div>
                               </Show>
                               <Show when={utilityLedger().length > 0}>
                                 <div class="balance-card__row balance-card__row--subtotal">
                                   <span>{copy().homeUtilitiesBillsTitle}</span>
-                                  <strong>
-                                    {utilityTotalMajor()} {currency()}
-                                  </strong>
+                                  <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
                                 </div>
                                 <For each={utilityLedger()}>
                                   {(entry) => (
                                     <div class="balance-card__row">
                                       <span>{entry.title}</span>
-                                      <strong>{ledgerPrimaryAmount(entry)}</strong>
+                                      <strong>
+                                        {formatMoneyLabel(
+                                          entry.displayAmountMajor,
+                                          entry.displayCurrency,
+                                          locale()
+                                        )}
+                                      </strong>
                                     </div>
                                   )}
                                 </For>
@@ -617,7 +631,7 @@ export default function HomeRoute() {
                               <div class="balance-card__row balance-card__row--subtotal">
                                 <span>{copy().finalDue}</span>
                                 <strong>
-                                  {minorToMajorString(rentRemainingMinor())} {currency()}
+                                  {formatMajorAmount(minorToMajorString(rentRemainingMinor()))}
                                 </strong>
                               </div>
                               <div class="balance-card__row">
@@ -626,16 +640,12 @@ export default function HomeRoute() {
                               </div>
                               <div class="balance-card__row">
                                 <span>{copy().baseDue}</span>
-                                <strong>
-                                  {member().rentShareMajor} {currency()}
-                                </strong>
+                                <strong>{formatMajorAmount(member().rentShareMajor)}</strong>
                               </div>
                               <Show when={policy() === 'rent'}>
                                 <div class="balance-card__row">
                                   <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>
-                                    {member().purchaseOffsetMajor} {currency()}
-                                  </strong>
+                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
                                 </div>
                               </Show>
                             </div>
@@ -924,7 +934,13 @@ export default function HomeRoute() {
                         {(entry) => (
                           <div class="activity-card__item">
                             <span class="activity-card__title">{entry.title}</span>
-                            <span class="activity-card__amount">{ledgerPrimaryAmount(entry)}</span>
+                            <span class="activity-card__amount">
+                              {formatMoneyLabel(
+                                entry.displayAmountMajor,
+                                entry.displayCurrency,
+                                locale()
+                              )}
+                            </span>
                           </div>
                         )}
                       </For>
@@ -997,7 +1013,14 @@ export default function HomeRoute() {
             />
           </Field>
           <Field label={copy().quickPaymentCurrencyLabel}>
-            <Input type="text" value={(dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'} disabled />
+            <Input
+              type="text"
+              value={localizedCurrencyLabel(
+                locale(),
+                (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+              )}
+              disabled
+            />
           </Field>
         </div>
       </Modal>

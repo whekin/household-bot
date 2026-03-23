@@ -5,6 +5,7 @@ import { useNavigate } from '@solidjs/router'
 import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
+import { formatCyclePeriod } from '../lib/dates'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
@@ -418,7 +419,7 @@ export default function SettingsRoute() {
                 <div class="settings-billing-summary">
                   <div class="settings-row">
                     <span>{copy().billingCyclePeriod}</span>
-                    <Badge variant="accent">{cycle().period}</Badge>
+                    <Badge variant="accent">{formatCyclePeriod(cycle().period, locale())}</Badge>
                   </div>
                   <div class="settings-row">
                     <span>{copy().currencyLabel}</span>

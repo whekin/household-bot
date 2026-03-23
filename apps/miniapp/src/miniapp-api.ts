@@ -137,6 +137,27 @@ export interface MiniAppDashboard {
     }[]
     explanations: readonly string[]
   }[]
+  paymentPeriods?: {
+    period: string
+    utilityTotalMajor: string
+    hasOverdueBalance: boolean
+    isCurrentPeriod: boolean
+    kinds: {
+      kind: 'rent' | 'utilities'
+      totalDueMajor: string
+      totalPaidMajor: string
+      totalRemainingMajor: string
+      unresolvedMembers: {
+        memberId: string
+        displayName: string
+        suggestedAmountMajor: string
+        baseDueMajor: string
+        paidMajor: string
+        remainingMajor: string
+        effectivelySettled: boolean
+      }[]
+    }[]
+  }[]
   ledger: {
     id: string
     kind: 'purchase' | 'utility' | 'payment'

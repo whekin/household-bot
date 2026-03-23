@@ -99,6 +99,25 @@ export function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number])
   return `${entry.amountMajor} ${entry.currency}`
 }
 
+export function localizedCurrencyLabel(
+  locale: 'en' | 'ru',
+  currency: MiniAppDashboard['currency']
+): string {
+  if (locale === 'ru' && currency === 'GEL') {
+    return 'Лари'
+  }
+
+  return currency
+}
+
+export function formatMoneyLabel(
+  amountMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: 'en' | 'ru'
+): string {
+  return `${amountMajor} ${localizedCurrencyLabel(locale, currency)}`
+}
+
 export function cycleUtilityBillDrafts(
   bills: MiniAppAdminCycleState['utilityBills']
 ): Record<string, UtilityBillDraft> {
@@ -407,29 +426,30 @@ export function resolvedMemberAbsencePolicy(
  * Bug #5 fix: Prefill with the remaining amount for the selected payment kind.
  */
 export function computePaymentPrefill(
-  member: MiniAppDashboard['members'][number] | null | undefined,
-  kind: 'rent' | 'utilities'
+  dashboard: MiniAppDashboard | null | undefined,
+  memberId: string,
+  kind: 'rent' | 'utilities',
+  period: string
 ): string {
-  if (!member) {
+  if (!dashboard) {
     return ''
   }
 
-  const rentMinor = majorStringToMinor(member.rentShareMajor)
-  const utilityMinor = majorStringToMinor(member.utilityShareMajor)
-  const remainingMinor = majorStringToMinor(member.remainingMajor)
-
-  if (remainingMinor <= 0n) {
+  const periodSummary = (dashboard.paymentPeriods ?? []).find((entry) => entry.period === period)
+  const kindSummary = periodSummary?.kinds.find((entry) => entry.kind === kind)
+  const memberSummary = kindSummary?.unresolvedMembers.find((entry) => entry.memberId === memberId)
+  if (!memberSummary) {
     return '0.00'
   }
 
-  // Estimate unpaid per kind (simplified: if total due matches,
-  // use share for that kind as an approximation)
-  const dueMinor = kind === 'rent' ? rentMinor : utilityMinor
-  if (dueMinor <= 0n) {
-    return '0.00'
+  let prefillMinor = majorStringToMinor(memberSummary.remainingMajor)
+  if (periodSummary?.isCurrentPeriod && dashboard.paymentBalanceAdjustmentPolicy === kind) {
+    const member = dashboard.members.find((entry) => entry.memberId === memberId)
+    const purchaseOffsetMinor = majorStringToMinor(member?.purchaseOffsetMajor ?? '0.00')
+    if (purchaseOffsetMinor > 0n) {
+      prefillMinor += purchaseOffsetMinor
+    }
   }
 
-  // If remaining is less than due for this kind, use remaining
-  const prefillMinor = remainingMinor < dueMinor ? remainingMinor : dueMinor
-  return minorToMajorString(prefillMinor)
+  return minorToMajorString(prefillMinor > 0n ? prefillMinor : 0n)
 }
