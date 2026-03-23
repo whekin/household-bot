@@ -6,7 +6,7 @@
     "typecheck": "tsgo --project tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.45.1",
     "@household/config": "workspace:*",
     "@household/db": "workspace:*"
   }

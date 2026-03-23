@@ -15,6 +15,6 @@
     "@household/db": "workspace:*",
     "@household/domain": "workspace:*",
     "@household/ports": "workspace:*",
-    "drizzle-orm": "^0.44.7"
+    "drizzle-orm": "^0.45.1"
   }
 }

@@ -16,8 +16,8 @@
     "@household/domain": "workspace:*",
     "@household/observability": "workspace:*",
     "@household/ports": "workspace:*",
-    "drizzle-orm": "^0.44.7",
-    "google-auth-library": "^10.4.1",
+    "drizzle-orm": "^0.45.1",
+    "google-auth-library": "^10.6.2",
     "grammy": "1.41.1"
   }
 }

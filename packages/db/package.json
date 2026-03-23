@@ -13,7 +13,7 @@
     "seed": "bun run src/seed.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.7"
   }
 }
