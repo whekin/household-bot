@@ -45,6 +45,7 @@ type NotificationDraftPayload =
   | {
       stage: 'confirm'
       proposalId: string
+      confirmationMessageId: number | null
       householdId: string
       threadId: string
       creatorMemberId: string
@@ -418,10 +419,10 @@ async function replyInTopic(
   options?: {
     parseMode?: 'HTML'
   }
-): Promise<void> {
+): Promise<number | null> {
   const message = ctx.msg
   if (!ctx.chat || !message) {
-    return
+    return null
   }
 
   const threadId =
@@ -429,7 +430,7 @@ async function replyInTopic(
       ? message.message_thread_id
       : undefined
 
-  await ctx.api.sendMessage(ctx.chat.id, text, {
+  const sentMessage = await ctx.api.sendMessage(ctx.chat.id, text, {
     ...(threadId !== undefined
       ? {
           message_thread_id: threadId
@@ -449,6 +450,8 @@ async function replyInTopic(
         }
       : {})
   })
+
+  return sentMessage.message_id
 }
 
 async function resolveReminderTopicContext(
@@ -593,7 +596,8 @@ export function registerAdHocNotifications(options: {
 
   async function showDraftConfirmation(
     ctx: Context,
-    draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>
+    draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
+    previousConfirmationMessageId?: number | null
   ) {
     const reminderContext = await resolveReminderTopicContext(
       ctx,
@@ -603,7 +607,7 @@ export function registerAdHocNotifications(options: {
       return
     }
 
-    await replyInTopic(
+    const confirmationMessageId = await replyInTopic(
       ctx,
       notificationSummaryText({
         locale: reminderContext.locale,
@@ -612,6 +616,23 @@ export function registerAdHocNotifications(options: {
       }),
       notificationDraftReplyMarkup(reminderContext.locale, draft, reminderContext.members)
     )
+
+    if (
+      previousConfirmationMessageId &&
+      ctx.chat &&
+      previousConfirmationMessageId !== confirmationMessageId
+    ) {
+      await ctx.api.editMessageReplyMarkup(ctx.chat.id, previousConfirmationMessageId, {
+        reply_markup: {
+          inline_keyboard: []
+        }
+      })
+    }
+
+    await saveDraft(options.promptRepository, ctx, {
+      ...draft,
+      confirmationMessageId
+    })
   }
 
   async function refreshConfirmationMessage(
@@ -791,12 +812,12 @@ export function registerAdHocNotifications(options: {
         const confirmPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
           ...existingDraft,
           stage: 'confirm',
+          confirmationMessageId: null,
           renderedNotificationText,
           scheduledForIso: schedule.scheduledFor!.toString(),
           timePrecision: schedule.timePrecision!,
           viewMode: 'compact'
         }
-        await saveDraft(options.promptRepository, ctx, confirmPayload)
         await showDraftConfirmation(ctx, confirmPayload)
         return
       }
@@ -932,8 +953,7 @@ export function registerAdHocNotifications(options: {
         viewMode: 'compact'
       }
 
-      await saveDraft(options.promptRepository, ctx, nextPayload)
-      await showDraftConfirmation(ctx, nextPayload)
+      await showDraftConfirmation(ctx, nextPayload, existingDraft.confirmationMessageId)
       return
     }
 
@@ -1043,6 +1063,7 @@ export function registerAdHocNotifications(options: {
     const draft: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
       stage: 'confirm',
       proposalId: createProposalId(),
+      confirmationMessageId: null,
       householdId: reminderContext.householdId,
       threadId: reminderContext.threadId,
       creatorMemberId: reminderContext.member.id,
@@ -1058,7 +1079,6 @@ export function registerAdHocNotifications(options: {
       viewMode: 'compact'
     }
 
-    await saveDraft(options.promptRepository, ctx, draft)
     await showDraftConfirmation(ctx, draft)
   })
 

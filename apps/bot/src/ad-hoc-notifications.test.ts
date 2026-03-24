@@ -378,11 +378,19 @@ describe('registerAdHocNotifications', () => {
     expect(calls[1]?.payload).toMatchObject({
       text: `Окей, ${updatedWhen} напомню.`
     })
+    expect(calls[2]?.method).toBe('editMessageReplyMarkup')
+    expect(calls[2]?.payload).toMatchObject({
+      chat_id: -10012345,
+      message_id: 1,
+      reply_markup: {
+        inline_keyboard: []
+      }
+    })
 
     await bot.handleUpdate(reminderMessageUpdate('А вообще, я не буду кушать') as never)
 
     expect(draftEditCalls).toBe(2)
-    expect(calls[2]?.payload).toMatchObject({
+    expect(calls[3]?.payload).toMatchObject({
       text: 'Окей, тогда не напоминаю.'
     })
     expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
@@ -403,9 +411,9 @@ describe('registerAdHocNotifications', () => {
       reminderCallbackUpdate(`adhocnotif:confirm:${renewedProposalId}`) as never
     )
 
-    expect(calls[4]?.method).toBe('answerCallbackQuery')
-    expect(calls[5]?.method).toBe('editMessageText')
-    expect(calls[5]?.payload).toMatchObject({
+    expect(calls[5]?.method).toBe('answerCallbackQuery')
+    expect(calls[6]?.method).toBe('editMessageText')
+    expect(calls[6]?.payload).toMatchObject({
       text: `Окей, ${initialWhen} напомню.`
     })
 
