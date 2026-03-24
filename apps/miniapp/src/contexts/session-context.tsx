@@ -102,6 +102,29 @@ const demoSession: Extract<SessionState, { status: 'ready' }> = {
   telegramUser: demoTelegramUser
 }
 
+async function waitForTelegramInitData(
+  readInitData: () => string | undefined,
+  options: {
+    timeoutMs?: number
+    intervalMs?: number
+  } = {}
+): Promise<string | undefined> {
+  const timeoutMs = options.timeoutMs ?? 2500
+  const intervalMs = options.intervalMs ?? 100
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const data = readInitData()
+    if (data) {
+      return data
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+
+  return readInitData()
+}
+
 /* ── Provider ───────────────────────────────────────── */
 
 export function SessionProvider(
@@ -146,7 +169,7 @@ export function SessionProvider(
     webApp?.ready?.()
     webApp?.expand?.()
 
-    const data = initData()
+    const data = await waitForTelegramInitData(initData)
     if (!data) {
       if (import.meta.env.DEV) {
         setSession(demoSession)
