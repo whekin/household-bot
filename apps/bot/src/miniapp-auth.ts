@@ -48,7 +48,9 @@ export function allowedMiniAppOrigin(
   return allowedOrigins.includes(origin) ? origin : undefined
 }
 
-export async function readMiniAppRequestPayload(request: Request): Promise<MiniAppRequestPayload> {
+export async function readMiniAppRequestPayload(request: {
+  text(): Promise<string>
+}): Promise<MiniAppRequestPayload> {
   const text = await request.text()
 
   if (text.trim().length === 0) {

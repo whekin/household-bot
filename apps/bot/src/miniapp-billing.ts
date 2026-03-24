@@ -44,7 +44,7 @@ async function authenticateAdminSession(
       member: NonNullable<MiniAppSessionResult['member']>
     }
 > {
-  const payload = await readMiniAppRequestPayload(request)
+  const payload = await readMiniAppRequestPayload(request.clone())
   if (!payload.initData) {
     return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
   }
@@ -81,7 +81,7 @@ async function authenticateMemberSession(
       member: NonNullable<MiniAppSessionResult['member']>
     }
 > {
-  const payload = await readMiniAppRequestPayload(request)
+  const payload = await readMiniAppRequestPayload(request.clone())
   if (!payload.initData) {
     return miniAppJsonResponse({ ok: false, error: 'Missing initData' }, 400, origin)
   }
