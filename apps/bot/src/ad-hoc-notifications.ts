@@ -170,18 +170,11 @@ function relativeDayLabel(input: {
   const tomorrow = nowDate.add({ days: 1 })
   const dayAfterTomorrow = nowDate.add({ days: 2 })
 
-  const sleepAwareCurrentDate = input.now.hour <= 4 ? nowDate.subtract({ days: 1 }) : nowDate
-  const sleepAwareTomorrow = sleepAwareCurrentDate.add({ days: 1 })
-  const sleepAwareDayAfterTomorrow = sleepAwareCurrentDate.add({ days: 2 })
-
-  if (targetDate.equals(sleepAwareCurrentDate)) {
-    return input.locale === 'ru' ? 'сегодня' : 'today'
-  }
-  if (targetDate.equals(sleepAwareTomorrow)) {
+  if (input.now.hour <= 4 && targetDate.equals(nowDate) && input.target.hour <= 12) {
     return input.locale === 'ru' ? 'завтра' : 'tomorrow'
   }
-  if (targetDate.equals(sleepAwareDayAfterTomorrow)) {
-    return input.locale === 'ru' ? 'послезавтра' : 'the day after tomorrow'
+  if (targetDate.equals(nowDate)) {
+    return input.locale === 'ru' ? 'сегодня' : 'today'
   }
   if (targetDate.equals(tomorrow)) {
     return input.locale === 'ru' ? 'завтра' : 'tomorrow'
