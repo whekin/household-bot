@@ -81,6 +81,10 @@ function cancelledDraftReply(locale: BotLocale): string {
   return locale === 'ru' ? 'Окей, тогда не напоминаю.' : 'Okay, I will drop this reminder.'
 }
 
+function cancelledSavedReply(locale: BotLocale): string {
+  return locale === 'ru' ? 'Окей, это напоминание убираю.' : 'Okay, I will drop this reminder.'
+}
+
 function localNowText(timezone: string, now = nowInstant()): string {
   const local = now.toZonedDateTimeISO(timezone)
   return [
@@ -1136,8 +1140,18 @@ export function registerAdHocNotifications(options: {
 
     if (data.startsWith(AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX)) {
       const proposalId = data.slice(AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX.length)
+      const reminderContext = await resolveReminderTopicContext(
+        ctx,
+        options.householdConfigurationRepository
+      )
       const payload = await loadDraft(options.promptRepository, ctx)
-      if (!payload || payload.proposalId !== proposalId || !ctx.chat || !ctx.from) {
+      if (
+        !payload ||
+        payload.proposalId !== proposalId ||
+        !ctx.chat ||
+        !ctx.from ||
+        !reminderContext
+      ) {
         await next()
         return
       }
@@ -1147,9 +1161,9 @@ export function registerAdHocNotifications(options: {
         ctx.from.id.toString()
       )
       await ctx.answerCallbackQuery({
-        text: 'Cancelled'
+        text: cancelledDraftReply(reminderContext.locale)
       })
-      await ctx.editMessageText('Cancelled', {
+      await ctx.editMessageText(cancelledDraftReply(reminderContext.locale), {
         reply_markup: {
           inline_keyboard: []
         }
@@ -1262,18 +1276,13 @@ export function registerAdHocNotifications(options: {
       }
 
       await ctx.answerCallbackQuery({
-        text: reminderContext.locale === 'ru' ? 'Напоминание отменено.' : 'Notification cancelled.'
+        text: cancelledSavedReply(reminderContext.locale)
       })
-      await ctx.editMessageText(
-        reminderContext.locale === 'ru'
-          ? `Напоминание отменено: ${result.notification.notificationText}`
-          : `Notification cancelled: ${result.notification.notificationText}`,
-        {
-          reply_markup: {
-            inline_keyboard: []
-          }
+      await ctx.editMessageText(cancelledSavedReply(reminderContext.locale), {
+        reply_markup: {
+          inline_keyboard: []
         }
-      )
+      })
       return
     }
 
