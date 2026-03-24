@@ -47,6 +47,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: '2026-03-24',
         resolvedHour: 15,
         resolvedMinute: 30,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'relative',
         resolutionMode: 'exact',
         confidence: 93,
         clarificationQuestion: null
@@ -72,6 +74,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: '2026-03-24',
         resolvedHour: 15,
         resolvedMinute: 30,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'relative',
         resolutionMode: 'exact',
         clarificationQuestion: null,
         confidence: 93,
@@ -100,6 +104,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: '2026-03-24',
         resolvedHour: 9,
         resolvedMinute: 0,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'relative',
         resolutionMode: 'fuzzy_window',
         confidence: 90,
         clarificationQuestion: null
@@ -141,6 +147,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: null,
         resolvedHour: null,
         resolvedMinute: null,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: null,
         resolutionMode: 'ambiguous',
         confidence: 82,
         clarificationQuestion: 'Когда напомнить: завтра утром, днем или вечером?'
@@ -185,6 +193,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: null,
         resolvedHour: null,
         resolvedMinute: null,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: null,
         resolutionMode: null,
         confidence: 96,
         clarificationQuestion: null
@@ -225,6 +235,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         resolvedLocalDate: '2026-03-24',
         resolvedHour: 10,
         resolvedMinute: 0,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'relative',
         resolutionMode: 'exact',
         deliveryMode: null,
         dmRecipientMemberIds: null,
@@ -256,6 +268,8 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
         decision: 'updated',
         resolvedHour: 10,
         resolvedMinute: 0,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'relative',
         resolutionMode: 'exact',
         notificationText: null,
         deliveryMode: null

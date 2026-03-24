@@ -191,7 +191,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'Напомни Георгию завтра',
       notificationText: 'пошпынять Георгия о том, позвонил ли он',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic'
     })
@@ -222,7 +222,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind everyone tomorrow',
       notificationText: 'pay rent',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'dm_all'
     })
@@ -246,7 +246,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'check rent',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: true
@@ -273,7 +273,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -306,7 +306,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -342,7 +342,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-24T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -351,7 +351,7 @@ describe('createAdHocNotificationService', () => {
     const result = await service.updateNotification({
       notificationId: created.id,
       viewerMemberId: 'creator',
-      scheduledFor: Temporal.Instant.from('2026-03-24T09:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2026-03-25T09:00:00Z'),
       timePrecision: 'exact',
       deliveryMode: 'dm_selected',
       dmRecipientMemberIds: ['alice', 'bob'],
@@ -360,7 +360,7 @@ describe('createAdHocNotificationService', () => {
 
     expect(result.status).toBe('updated')
     if (result.status === 'updated') {
-      expect(result.notification.scheduledFor.toString()).toBe('2026-03-24T09:00:00Z')
+      expect(result.notification.scheduledFor.toString()).toBe('2026-03-25T09:00:00Z')
       expect(result.notification.deliveryMode).toBe('dm_selected')
       expect(result.notification.dmRecipientMemberIds).toEqual(['alice', 'bob'])
     }

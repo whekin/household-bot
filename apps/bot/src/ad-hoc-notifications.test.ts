@@ -16,34 +16,38 @@ import { formatReminderWhen, registerAdHocNotifications } from './ad-hoc-notific
 import type { AdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 
 function createPromptRepository(): TelegramPendingActionRepository {
-  let pending: TelegramPendingActionRecord | null = null
+  const pending = new Map<string, TelegramPendingActionRecord>()
 
   return {
     async upsertPendingAction(input) {
-      pending = input
+      pending.set(`${input.telegramChatId}:${input.telegramUserId}`, input)
       return input
     },
-    async getPendingAction() {
-      return pending
+    async getPendingAction(telegramChatId, telegramUserId) {
+      return pending.get(`${telegramChatId}:${telegramUserId}`) ?? null
     },
-    async clearPendingAction() {
-      pending = null
+    async clearPendingAction(telegramChatId, telegramUserId) {
+      pending.delete(`${telegramChatId}:${telegramUserId}`)
     },
     async clearPendingActionsForChat(telegramChatId, action) {
-      if (!pending || pending.telegramChatId !== telegramChatId) {
-        return
+      for (const [key, value] of pending.entries()) {
+        if (value.telegramChatId !== telegramChatId) {
+          continue
+        }
+        if (action && value.action !== action) {
+          continue
+        }
+        pending.delete(key)
       }
-
-      if (action && pending.action !== action) {
-        return
-      }
-
-      pending = null
     }
   }
 }
 
-function reminderMessageUpdate(text: string, threadId = 777) {
+function reminderMessageUpdate(
+  text: string,
+  threadId = 777,
+  from: { id: number; firstName: string } = { id: 10002, firstName: 'Dima' }
+) {
   return {
     update_id: 4001,
     message: {
@@ -56,9 +60,9 @@ function reminderMessageUpdate(text: string, threadId = 777) {
         type: 'supergroup'
       },
       from: {
-        id: 10002,
+        id: from.id,
         is_bot: false,
-        first_name: 'Dima'
+        first_name: from.firstName
       },
       text
     }
@@ -110,6 +114,7 @@ function member(
 function createHouseholdRepository() {
   const members = [
     member({ id: 'dima', telegramUserId: '10002', displayName: 'Дима' }),
+    member({ id: 'stas', telegramUserId: '10003', displayName: 'Стас' }),
     member({ id: 'georgiy', displayName: 'Георгий' })
   ]
   const settings: HouseholdBillingSettingsRecord = {
@@ -238,6 +243,8 @@ describe('registerAdHocNotifications', () => {
           resolvedLocalDate: tomorrow,
           resolvedHour: 9,
           resolvedMinute: 0,
+          relativeOffsetMinutes: null,
+          dateReferenceMode: 'relative',
           resolutionMode: 'fuzzy_window',
           clarificationQuestion: null,
           confidence: 90,
@@ -250,6 +257,8 @@ describe('registerAdHocNotifications', () => {
           resolvedLocalDate: tomorrow,
           resolvedHour: 9,
           resolvedMinute: 0,
+          relativeOffsetMinutes: null,
+          dateReferenceMode: 'relative',
           resolutionMode: 'fuzzy_window',
           clarificationQuestion: null,
           confidence: 90,
@@ -267,6 +276,8 @@ describe('registerAdHocNotifications', () => {
             resolvedLocalDate: null,
             resolvedHour: null,
             resolvedMinute: null,
+            relativeOffsetMinutes: null,
+            dateReferenceMode: null,
             resolutionMode: null,
             deliveryMode: null,
             dmRecipientMemberIds: null,
@@ -284,6 +295,8 @@ describe('registerAdHocNotifications', () => {
           resolvedLocalDate: tomorrow,
           resolvedHour: 10,
           resolvedMinute: 0,
+          relativeOffsetMinutes: null,
+          dateReferenceMode: 'relative',
           resolutionMode: 'exact',
           deliveryMode: null,
           dmRecipientMemberIds: null,
@@ -573,6 +586,8 @@ describe('registerAdHocNotifications', () => {
             resolvedLocalDate: tomorrow,
             resolvedHour: 9,
             resolvedMinute: 0,
+            relativeOffsetMinutes: null,
+            dateReferenceMode: 'relative',
             resolutionMode: 'fuzzy_window',
             clarificationQuestion: null,
             confidence: 90,
@@ -609,6 +624,148 @@ describe('registerAdHocNotifications', () => {
     const expandedPayload = calls[1]?.payload as { reply_markup?: InlineKeyboardMarkup }
     expect(expandedPayload.reply_markup?.inline_keyboard[0]?.[2]?.text).toBe('Скрыть')
     expect(expandedPayload.reply_markup?.inline_keyboard[1]?.[0]?.text).toContain('В топик')
+  })
+  test('supports relative duration reminders like in 30 minutes', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const scheduledRequests: Array<{ scheduledFor: string }> = []
+    const now = Temporal.Instant.from('2026-03-24T08:00:00Z')
+    const promptRepository = createPromptRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    const originalNow = Temporal.Now.instant
+    Temporal.Now.instant = () => now
+
+    try {
+      registerAdHocNotifications({
+        bot,
+        householdConfigurationRepository: createHouseholdRepository() as never,
+        promptRepository,
+        notificationService: {
+          async scheduleNotification(input) {
+            scheduledRequests.push({
+              scheduledFor: input.scheduledFor.toString()
+            })
+            return {
+              status: 'scheduled',
+              notification: {
+                id: 'notif-1',
+                householdId: input.householdId,
+                creatorMemberId: input.creatorMemberId,
+                assigneeMemberId: input.assigneeMemberId ?? null,
+                originalRequestText: input.originalRequestText,
+                notificationText: input.notificationText,
+                timezone: input.timezone,
+                scheduledFor: input.scheduledFor,
+                timePrecision: input.timePrecision,
+                deliveryMode: input.deliveryMode,
+                dmRecipientMemberIds: input.dmRecipientMemberIds ?? [],
+                friendlyTagAssignee: false,
+                status: 'scheduled',
+                sourceTelegramChatId: input.sourceTelegramChatId ?? null,
+                sourceTelegramThreadId: input.sourceTelegramThreadId ?? null,
+                sentAt: null,
+                cancelledAt: null,
+                cancelledByMemberId: null,
+                createdAt: Temporal.Instant.from('2026-03-23T09:00:00Z'),
+                updatedAt: Temporal.Instant.from('2026-03-23T09:00:00Z')
+              }
+            }
+          },
+          async listUpcomingNotifications() {
+            return []
+          },
+          async cancelNotification() {
+            return { status: 'not_found' }
+          },
+          async updateNotification() {
+            return { status: 'not_found' }
+          },
+          async listDueNotifications() {
+            return []
+          },
+          async claimDueNotification() {
+            return false
+          },
+          async releaseDueNotification() {},
+          async markNotificationSent() {
+            return null
+          }
+        },
+        reminderInterpreter: {
+          async interpretRequest() {
+            return {
+              decision: 'notification',
+              notificationText: 'починить тебя',
+              assigneeMemberId: null,
+              resolvedLocalDate: null,
+              resolvedHour: null,
+              resolvedMinute: null,
+              relativeOffsetMinutes: 30,
+              dateReferenceMode: null,
+              resolutionMode: 'exact',
+              clarificationQuestion: null,
+              confidence: 94,
+              parserMode: 'llm'
+            }
+          },
+          async interpretSchedule() {
+            throw new Error('not used')
+          },
+          async interpretDraftEdit() {
+            throw new Error('not used')
+          },
+          async renderDeliveryText() {
+            return 'Пора чинить бота.'
+          }
+        }
+      })
+
+      await bot.handleUpdate(reminderMessageUpdate('Напомни починить тебя через 30 минут') as never)
+      const pending = await promptRepository.getPendingAction('-10012345', '10002')
+      const proposalId = (pending?.payload as { proposalId?: string } | null)?.proposalId
+      expect(proposalId).toBeTruthy()
+
+      await bot.handleUpdate(reminderCallbackUpdate(`adhocnotif:confirm:${proposalId}`) as never)
+    } finally {
+      Temporal.Now.instant = originalNow
+    }
+
+    expect((calls[0]?.payload as { text?: string })?.text).toContain('сегодня в 12:30')
+    expect(scheduledRequests).toEqual([
+      {
+        scheduledFor: '2026-03-24T08:30:00Z'
+      }
+    ])
   })
 })
 

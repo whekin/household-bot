@@ -68,6 +68,9 @@ describe('createOpenAiChatAssistant', () => {
       expect(capturedBody!.input[1]?.content).toContain(
         'Members can ask the bot to schedule a future notification in this topic.'
       )
+      expect(capturedBody!.input[1]?.content).toContain(
+        'Never tell the user to set a reminder on their own device in this topic.'
+      )
     } finally {
       globalThis.fetch = originalFetch
     }

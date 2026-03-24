@@ -17,6 +17,8 @@ export interface AdHocNotificationInterpretation {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   clarificationQuestion: string | null
   confidence: number
@@ -28,6 +30,8 @@ export interface AdHocNotificationScheduleInterpretation {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   clarificationQuestion: string | null
   confidence: number
@@ -42,6 +46,8 @@ export interface AdHocNotificationDraftEditInterpretation {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   deliveryMode: AdHocNotificationDeliveryMode | null
   dmRecipientMemberIds: readonly string[] | null
@@ -57,6 +63,8 @@ interface ReminderInterpretationResult {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   confidence: number
   clarificationQuestion: string | null
@@ -67,6 +75,8 @@ interface ReminderScheduleResult {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   confidence: number
   clarificationQuestion: string | null
@@ -84,6 +94,8 @@ interface ReminderDraftEditResult {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes: number | null
+  dateReferenceMode: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   deliveryMode: AdHocNotificationDeliveryMode | null
   dmRecipientMemberIds: string[] | null
@@ -202,6 +214,26 @@ function normalizeMinute(value: number | null | undefined): number | null {
   }
 
   return value
+}
+
+function normalizeRelativeOffsetMinutes(value: number | null | undefined): number | null {
+  if (
+    value === null ||
+    value === undefined ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    value > 7 * 24 * 60
+  ) {
+    return null
+  }
+
+  return value
+}
+
+function normalizeDateReferenceMode(
+  value: string | null | undefined
+): 'relative' | 'calendar' | null {
+  return value === 'relative' || value === 'calendar' ? value : null
 }
 
 function normalizeMemberId(
@@ -348,6 +380,18 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             resolvedMinute: {
               anyOf: [{ type: 'integer' }, { type: 'null' }]
             },
+            relativeOffsetMinutes: {
+              anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            dateReferenceMode: {
+              anyOf: [
+                {
+                  type: 'string',
+                  enum: ['relative', 'calendar']
+                },
+                { type: 'null' }
+              ]
+            },
             resolutionMode: {
               anyOf: [
                 {
@@ -373,6 +417,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             'resolvedLocalDate',
             'resolvedHour',
             'resolvedMinute',
+            'relativeOffsetMinutes',
+            'dateReferenceMode',
             'resolutionMode',
             'confidence',
             'clarificationQuestion'
@@ -385,9 +431,12 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
           'Use the provided member ids when a reminder is clearly aimed at a specific household member.',
           'resolvedLocalDate must be YYYY-MM-DD in the provided household timezone.',
           'resolvedHour and resolvedMinute must be in 24-hour local time when a reminder can be scheduled.',
+          'If the user uses a relative duration like "через 30 минут" or "in 2 hours", prefer relativeOffsetMinutes over absolute date/time fields.',
+          'dateReferenceMode must be relative for words like today, tomorrow, the day after tomorrow, today evening, tomorrow morning; use calendar only for explicit calendar dates.',
           'Use resolutionMode exact for explicit clock time, fuzzy_window for phrases like morning/evening, date_only for plain day/date without an explicit time, ambiguous when the request is still too vague to schedule.',
           'If schedule information is missing or ambiguous, return decision clarification and a short clarificationQuestion in the user language.',
           'If the message is not a reminder request, return decision not_notification.',
+          'During local 00:00-04:59, vague tomorrow phrases like "завтра", "завтра утром", "tomorrow", "tomorrow morning" refer to the upcoming same-calendar-day reminder window unless the user gave an explicit calendar date.',
           promptWindowRules(),
           options.assistantContext ? `Household context: ${options.assistantContext}` : null,
           options.assistantTone ? `Preferred tone: ${options.assistantTone}` : null,
@@ -419,6 +468,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
         resolvedLocalDate: normalizeOptionalText(parsed.resolvedLocalDate),
         resolvedHour: normalizeHour(parsed.resolvedHour),
         resolvedMinute: normalizeMinute(parsed.resolvedMinute),
+        relativeOffsetMinutes: normalizeRelativeOffsetMinutes(parsed.relativeOffsetMinutes),
+        dateReferenceMode: normalizeDateReferenceMode(parsed.dateReferenceMode),
         resolutionMode: normalizeResolutionMode(parsed.resolutionMode),
         clarificationQuestion: normalizeOptionalText(parsed.clarificationQuestion),
         confidence: normalizeConfidence(parsed.confidence),
@@ -448,6 +499,18 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             resolvedMinute: {
               anyOf: [{ type: 'integer' }, { type: 'null' }]
             },
+            relativeOffsetMinutes: {
+              anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            dateReferenceMode: {
+              anyOf: [
+                {
+                  type: 'string',
+                  enum: ['relative', 'calendar']
+                },
+                { type: 'null' }
+              ]
+            },
             resolutionMode: {
               anyOf: [
                 {
@@ -471,6 +534,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             'resolvedLocalDate',
             'resolvedHour',
             'resolvedMinute',
+            'relativeOffsetMinutes',
+            'dateReferenceMode',
             'resolutionMode',
             'confidence',
             'clarificationQuestion'
@@ -481,8 +546,11 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
           'Decide whether the message contains enough schedule information to produce a local date/time or whether you need clarification.',
           'resolvedLocalDate must be YYYY-MM-DD in the provided household timezone.',
           'resolvedHour and resolvedMinute must be local 24-hour time when parsed.',
+          'If the message uses a relative duration like "через 30 минут" or "in 2 hours", prefer relativeOffsetMinutes over absolute date/time fields.',
+          'dateReferenceMode must be relative for words like today, tomorrow, and the day after tomorrow; use calendar only for explicit calendar dates.',
           'Use resolutionMode exact for explicit clock time, fuzzy_window for phrases like morning/evening, date_only for plain day/date without explicit time, ambiguous when still unclear.',
           'If the schedule is missing or ambiguous, return clarification and ask a short question in the user language.',
+          'During local 00:00-04:59, vague tomorrow phrases like "завтра", "завтра утром", "tomorrow", "tomorrow morning" refer to the upcoming same-calendar-day reminder window unless the user gave an explicit calendar date.',
           promptWindowRules(),
           `Household timezone: ${options.timezone}`,
           `Current local date/time in that timezone: ${options.localNow}`,
@@ -502,6 +570,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
         resolvedLocalDate: normalizeOptionalText(parsed.resolvedLocalDate),
         resolvedHour: normalizeHour(parsed.resolvedHour),
         resolvedMinute: normalizeMinute(parsed.resolvedMinute),
+        relativeOffsetMinutes: normalizeRelativeOffsetMinutes(parsed.relativeOffsetMinutes),
+        dateReferenceMode: normalizeDateReferenceMode(parsed.dateReferenceMode),
         resolutionMode: normalizeResolutionMode(parsed.resolutionMode),
         clarificationQuestion: normalizeOptionalText(parsed.clarificationQuestion),
         confidence: normalizeConfidence(parsed.confidence),
@@ -539,6 +609,18 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             },
             resolvedMinute: {
               anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            relativeOffsetMinutes: {
+              anyOf: [{ type: 'integer' }, { type: 'null' }]
+            },
+            dateReferenceMode: {
+              anyOf: [
+                {
+                  type: 'string',
+                  enum: ['relative', 'calendar']
+                },
+                { type: 'null' }
+              ]
             },
             resolutionMode: {
               anyOf: [
@@ -586,6 +668,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
             'resolvedLocalDate',
             'resolvedHour',
             'resolvedMinute',
+            'relativeOffsetMinutes',
+            'dateReferenceMode',
             'resolutionMode',
             'deliveryMode',
             'dmRecipientMemberIds',
@@ -601,8 +685,11 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
           'Use notificationText only when the user changes what should be reminded.',
           'Use deliveryMode when the user changes where the reminder should be sent.',
           'Use dmRecipientMemberIds only when the user clearly changes selected DM recipients.',
+          'If the user uses a relative duration like "через 30 минут" or "in 2 hours", prefer relativeOffsetMinutes over absolute date/time fields.',
+          'dateReferenceMode must be relative for words like today, tomorrow, and the day after tomorrow; use calendar only for explicit calendar dates.',
           'Use resolutionMode exact for explicit clock time, fuzzy_window for phrases like morning/evening, date_only for plain day/date without explicit time, ambiguous when still unclear.',
           'If the latest message is too ambiguous, return clarification and a short clarificationQuestion in the user language.',
+          'During local 00:00-04:59, vague tomorrow phrases like "завтра", "завтра утром", "tomorrow", "tomorrow morning" refer to the upcoming same-calendar-day reminder window unless the user gave an explicit calendar date.',
           promptWindowRules(),
           options.assistantContext ? `Household context: ${options.assistantContext}` : null,
           options.assistantTone ? `Preferred tone: ${options.assistantTone}` : null,
@@ -643,6 +730,8 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
         resolvedLocalDate: normalizeOptionalText(parsed.resolvedLocalDate),
         resolvedHour: normalizeHour(parsed.resolvedHour),
         resolvedMinute: normalizeMinute(parsed.resolvedMinute),
+        relativeOffsetMinutes: normalizeRelativeOffsetMinutes(parsed.relativeOffsetMinutes),
+        dateReferenceMode: normalizeDateReferenceMode(parsed.dateReferenceMode),
         resolutionMode: normalizeResolutionMode(parsed.resolutionMode),
         deliveryMode: normalizeDeliveryMode(parsed.deliveryMode),
         dmRecipientMemberIds: normalizeMemberIds(parsed.dmRecipientMemberIds, options.members),

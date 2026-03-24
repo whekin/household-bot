@@ -27,16 +27,43 @@ export function parseAdHocNotificationSchedule(input: {
   resolvedLocalDate: string | null
   resolvedHour: number | null
   resolvedMinute: number | null
+  relativeOffsetMinutes?: number | null
+  dateReferenceMode?: 'relative' | 'calendar' | null
   resolutionMode: AdHocNotificationResolutionMode | null
   now?: Instant
 }): ParsedAdHocNotificationSchedule {
+  const effectiveNow = input.now ?? nowInstant()
   const timePrecision = precisionFromResolutionMode(input.resolutionMode)
   if (
-    !input.resolvedLocalDate ||
     input.resolutionMode === null ||
     input.resolutionMode === 'ambiguous' ||
     timePrecision === null
   ) {
+    return {
+      kind: 'missing_schedule',
+      scheduledFor: null,
+      timePrecision: null
+    }
+  }
+
+  if (input.relativeOffsetMinutes !== null && input.relativeOffsetMinutes !== undefined) {
+    const scheduled = effectiveNow.add({ minutes: input.relativeOffsetMinutes })
+    if (scheduled.epochMilliseconds <= effectiveNow.epochMilliseconds) {
+      return {
+        kind: 'invalid_past',
+        scheduledFor: null,
+        timePrecision: null
+      }
+    }
+
+    return {
+      kind: 'parsed',
+      scheduledFor: scheduled,
+      timePrecision
+    }
+  }
+
+  if (!input.resolvedLocalDate) {
     return {
       kind: 'missing_schedule',
       scheduledFor: null,
@@ -58,7 +85,17 @@ export function parseAdHocNotificationSchedule(input: {
   }
 
   try {
-    const date = Temporal.PlainDate.from(input.resolvedLocalDate)
+    const nowZdt = effectiveNow.toZonedDateTimeISO(input.timezone)
+    let date = Temporal.PlainDate.from(input.resolvedLocalDate)
+
+    if (
+      input.dateReferenceMode === 'relative' &&
+      nowZdt.hour <= 4 &&
+      Temporal.PlainDate.compare(date, nowZdt.toPlainDate().add({ days: 1 })) === 0
+    ) {
+      date = nowZdt.toPlainDate()
+    }
+
     const scheduled = Temporal.ZonedDateTime.from({
       timeZone: input.timezone,
       year: date.year,
@@ -70,7 +107,6 @@ export function parseAdHocNotificationSchedule(input: {
       millisecond: 0
     }).toInstant()
 
-    const effectiveNow = input.now ?? nowInstant()
     if (scheduled.epochMilliseconds <= effectiveNow.epochMilliseconds) {
       return {
         kind: 'invalid_past',

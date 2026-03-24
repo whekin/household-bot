@@ -11,6 +11,8 @@ describe('parseAdHocNotificationSchedule', () => {
       resolvedLocalDate: '2026-03-24',
       resolvedHour: 15,
       resolvedMinute: 30,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: 'relative',
       resolutionMode: 'exact',
       now: Temporal.Instant.from('2026-03-23T09:00:00Z')
     })
@@ -26,6 +28,8 @@ describe('parseAdHocNotificationSchedule', () => {
       resolvedLocalDate: '2026-03-24',
       resolvedHour: 12,
       resolvedMinute: 0,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: 'calendar',
       resolutionMode: 'date_only',
       now: Temporal.Instant.from('2026-03-23T09:00:00Z')
     })
@@ -41,6 +45,8 @@ describe('parseAdHocNotificationSchedule', () => {
       resolvedLocalDate: '2026-03-24',
       resolvedHour: 9,
       resolvedMinute: 0,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: 'relative',
       resolutionMode: 'fuzzy_window',
       now: Temporal.Instant.from('2026-03-23T09:00:00Z')
     })
@@ -56,6 +62,8 @@ describe('parseAdHocNotificationSchedule', () => {
       resolvedLocalDate: null,
       resolvedHour: null,
       resolvedMinute: null,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: null,
       resolutionMode: 'ambiguous',
       now: Temporal.Instant.from('2026-03-23T09:00:00Z')
     })
@@ -69,10 +77,45 @@ describe('parseAdHocNotificationSchedule', () => {
       resolvedLocalDate: '2026-03-23',
       resolvedHour: 10,
       resolvedMinute: 0,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: 'calendar',
       resolutionMode: 'exact',
       now: Temporal.Instant.from('2026-03-23T09:00:00Z')
     })
 
     expect(parsed.kind).toBe('invalid_past')
+  })
+
+  test('supports relative offsets like in 30 minutes', () => {
+    const parsed = parseAdHocNotificationSchedule({
+      timezone: 'Asia/Tbilisi',
+      resolvedLocalDate: null,
+      resolvedHour: null,
+      resolvedMinute: null,
+      relativeOffsetMinutes: 30,
+      dateReferenceMode: null,
+      resolutionMode: 'exact',
+      now: Temporal.Instant.from('2026-03-24T08:00:00Z')
+    })
+
+    expect(parsed.kind).toBe('parsed')
+    expect(parsed.timePrecision).toBe('exact')
+    expect(parsed.scheduledFor?.toString()).toBe('2026-03-24T08:30:00Z')
+  })
+
+  test('reinterprets pre-dawn relative tomorrow as the upcoming same-calendar day', () => {
+    const parsed = parseAdHocNotificationSchedule({
+      timezone: 'Asia/Tbilisi',
+      resolvedLocalDate: '2026-03-25',
+      resolvedHour: 9,
+      resolvedMinute: 0,
+      relativeOffsetMinutes: null,
+      dateReferenceMode: 'relative',
+      resolutionMode: 'fuzzy_window',
+      now: Temporal.Instant.from('2026-03-24T00:39:00Z')
+    })
+
+    expect(parsed.kind).toBe('parsed')
+    expect(parsed.scheduledFor?.toString()).toBe('2026-03-24T05:00:00Z')
   })
 })

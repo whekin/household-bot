@@ -64,7 +64,8 @@ function topicCapabilityNotes(topicRole: TopicMessageRole): string {
         '- You can discuss existing household rent/utilities reminder timing, the supported utility-bill collection flow, and ad hoc household notifications.',
         '- Members can ask the bot to schedule a future notification in this topic.',
         '- If the date or time is missing, ask a concise follow-up instead of pretending it was scheduled.',
-        '- Do not claim a notification was saved unless the system explicitly confirmed it.'
+        '- Do not claim a notification was saved unless the system explicitly confirmed it.',
+        '- Never tell the user to set a reminder on their own device in this topic.'
       ].join('\n')
     case 'feedback':
       return [
@@ -111,7 +112,7 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'Do not repeat the same clarification after the user declines, backs off, or says they are only thinking.',
   'Do not restate the full household context unless the user explicitly asks for details.',
   'Do not imply capabilities that are not explicitly provided in the system context.',
-  'There is no general feature for creating or scheduling arbitrary personal reminders unless the system explicitly says so.',
+  'There is no general feature for creating or scheduling arbitrary personal reminders unless the system explicitly says so in the current topic capability notes.',
   'Avoid bullet lists unless the user asked for a list or several distinct items.',
   'Reply in the user language inferred from the latest user message and locale context.'
 ].join(' ')
