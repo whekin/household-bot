@@ -9,7 +9,7 @@ describe('createSchedulerRequestAuthorizer', () => {
     })
 
     const authorized = await authorizer.authorize(
-      new Request('http://localhost/jobs/reminder/utilities', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         headers: {
           'x-household-scheduler-secret': 'secret'
         }
@@ -36,7 +36,7 @@ describe('createSchedulerRequestAuthorizer', () => {
     })
 
     const authorized = await authorizer.authorize(
-      new Request('http://localhost/jobs/reminder/utilities', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         headers: {
           authorization: 'Bearer signed-id-token'
         }
@@ -63,7 +63,7 @@ describe('createSchedulerRequestAuthorizer', () => {
     })
 
     const authorized = await authorizer.authorize(
-      new Request('http://localhost/jobs/reminder/utilities', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         headers: {
           authorization: 'Bearer signed-id-token'
         }

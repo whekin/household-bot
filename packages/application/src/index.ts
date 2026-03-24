@@ -25,10 +25,9 @@ export {
   type HouseholdOnboardingService
 } from './household-onboarding-service'
 export {
-  createReminderJobService,
-  type ReminderJobResult,
-  type ReminderJobService
-} from './reminder-job-service'
+  createScheduledDispatchService,
+  type ScheduledDispatchService
+} from './scheduled-dispatch-service'
 export {
   createLocalePreferenceService,
   type LocalePreferenceService

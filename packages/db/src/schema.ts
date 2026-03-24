@@ -553,6 +553,41 @@ export const adHocNotifications = pgTable(
   })
 )
 
+export const scheduledDispatches = pgTable(
+  'scheduled_dispatches',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    timezone: text('timezone').notNull(),
+    status: text('status').default('scheduled').notNull(),
+    provider: text('provider').notNull(),
+    providerDispatchId: text('provider_dispatch_id'),
+    adHocNotificationId: uuid('ad_hoc_notification_id').references(() => adHocNotifications.id, {
+      onDelete: 'cascade'
+    }),
+    period: text('period'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    dueIdx: index('scheduled_dispatches_due_idx').on(table.status, table.dueAt),
+    householdKindIdx: index('scheduled_dispatches_household_kind_idx').on(
+      table.householdId,
+      table.kind,
+      table.status
+    ),
+    adHocNotificationUnique: uniqueIndex('scheduled_dispatches_ad_hoc_notification_unique').on(
+      table.adHocNotificationId
+    )
+  })
+)
+
 export const topicMessages = pgTable(
   'topic_messages',
   {

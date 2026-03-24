@@ -10,6 +10,7 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
+    "@aws-sdk/client-scheduler": "^3.913.0",
     "@household/adapters-db": "workspace:*",
     "@household/application": "workspace:*",
     "@household/db": "workspace:*",

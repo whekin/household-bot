@@ -70,7 +70,7 @@ async function run(): Promise<void> {
   )
 
   await expectJson(
-    toUrl(botApiUrl, '/jobs/reminder/utilities'),
+    toUrl(botApiUrl, '/jobs/dispatch/test-dispatch'),
     {
       method: 'POST',
       headers: {

@@ -6,6 +6,7 @@
     "typecheck": "tsgo --project tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@aws-sdk/client-scheduler": "^3.913.0",
     "drizzle-orm": "^0.45.1",
     "@household/config": "workspace:*",
     "@household/db": "workspace:*"

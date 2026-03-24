@@ -3,6 +3,6 @@ export { createDbAnonymousFeedbackRepository } from './anonymous-feedback-reposi
 export { createDbFinanceRepository } from './finance-repository'
 export { createDbHouseholdConfigurationRepository } from './household-config-repository'
 export { createDbProcessedBotMessageRepository } from './processed-bot-message-repository'
-export { createDbReminderDispatchRepository } from './reminder-dispatch-repository'
+export { createDbScheduledDispatchRepository } from './scheduled-dispatch-repository'
 export { createDbTelegramPendingActionRepository } from './telegram-pending-action-repository'
 export { createDbTopicMessageHistoryRepository } from './topic-message-history-repository'

@@ -10,7 +10,58 @@ import {
 const appPromise = createBotRuntimeApp()
 const logger = getLogger('lambda')
 
-export async function handler(event: LambdaFunctionUrlRequest): Promise<LambdaFunctionUrlResponse> {
+interface ScheduledDispatchLambdaEvent {
+  source: 'household.scheduled-dispatch'
+  dispatchId: string
+}
+
+function isScheduledDispatchLambdaEvent(value: unknown): value is ScheduledDispatchLambdaEvent {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+  return (
+    candidate.source === 'household.scheduled-dispatch' && typeof candidate.dispatchId === 'string'
+  )
+}
+
+async function handleScheduledDispatchEvent(
+  event: ScheduledDispatchLambdaEvent
+): Promise<LambdaFunctionUrlResponse> {
+  const app = await appPromise
+  const secret = process.env.SCHEDULER_SHARED_SECRET
+
+  const response = await app.fetch(
+    new Request(`https://lambda.internal/jobs/dispatch/${event.dispatchId}`, {
+      method: 'POST',
+      headers: secret
+        ? {
+            'x-household-scheduler-secret': secret
+          }
+        : undefined,
+      body: JSON.stringify({
+        dispatchId: event.dispatchId
+      })
+    })
+  )
+
+  return {
+    statusCode: response.status,
+    headers: {
+      'content-type': response.headers.get('content-type') ?? 'application/json; charset=utf-8'
+    },
+    body: await response.text()
+  }
+}
+
+export async function handler(
+  event: LambdaFunctionUrlRequest | ScheduledDispatchLambdaEvent
+): Promise<LambdaFunctionUrlResponse> {
+  if (isScheduledDispatchLambdaEvent(event)) {
+    return handleScheduledDispatchEvent(event)
+  }
+
   const app = await appPromise
   return handleLambdaFunctionUrlEvent(event, app.fetch)
 }
@@ -76,7 +127,9 @@ async function runtimeLoop(): Promise<void> {
     }
 
     try {
-      const event = (await invocation.json()) as LambdaFunctionUrlRequest
+      const event = (await invocation.json()) as
+        | LambdaFunctionUrlRequest
+        | ScheduledDispatchLambdaEvent
       const response = await handler(event)
       await postRuntimeResponse(requestId, response)
     } catch (error) {

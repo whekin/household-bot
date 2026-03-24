@@ -16,24 +16,3 @@ export interface ReminderTarget {
   utilitiesDueDay: number
   utilitiesReminderDay: number
 }
-
-export interface ClaimReminderDispatchInput {
-  householdId: string
-  period: string
-  reminderType: ReminderType
-  payloadHash: string
-}
-
-export interface ClaimReminderDispatchResult {
-  dedupeKey: string
-  claimed: boolean
-}
-
-export interface ReminderDispatchRepository {
-  claimReminderDispatch(input: ClaimReminderDispatchInput): Promise<ClaimReminderDispatchResult>
-  releaseReminderDispatch(input: {
-    householdId: string
-    period: string
-    reminderType: ReminderType
-  }): Promise<void>
-}

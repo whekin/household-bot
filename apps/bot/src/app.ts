@@ -1,5 +1,4 @@
 import { webhookCallback } from 'grammy'
-import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import {
   createAdHocNotificationService,
@@ -11,7 +10,7 @@ import {
   createLocalePreferenceService,
   createMiniAppAdminService,
   createPaymentConfirmationService,
-  createReminderJobService
+  createScheduledDispatchService
 } from '@household/application'
 import {
   createDbAdHocNotificationRepository,
@@ -19,13 +18,12 @@ import {
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
   createDbProcessedBotMessageRepository,
-  createDbReminderDispatchRepository,
+  createDbScheduledDispatchRepository,
   createDbTelegramPendingActionRepository,
   createDbTopicMessageHistoryRepository
 } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
-import { createAdHocNotificationJobsHandler } from './ad-hoc-notification-jobs'
 import { registerAdHocNotifications } from './ad-hoc-notifications'
 import { registerAnonymousFeedback } from './anonymous-feedback'
 import {
@@ -39,6 +37,8 @@ import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig, type BotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
 import { HouseholdContextCache } from './household-context-cache'
+import { createAwsScheduledDispatchScheduler } from './aws-scheduled-dispatch-scheduler'
+import { createGcpScheduledDispatchScheduler } from './gcp-scheduled-dispatch-scheduler'
 import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import {
   createMiniAppApproveMemberHandler,
@@ -86,9 +86,9 @@ import {
   registerConfiguredPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
-import { createReminderJobsHandler } from './reminder-jobs'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
+import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
 import { createBotWebhookServer } from './server'
 import { createTopicProcessor } from './topic-processor'
 
@@ -134,8 +134,42 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         repository: householdConfigurationRepositoryClient.repository
       })
     : null
+  const scheduledDispatchRepositoryClient =
+    runtime.databaseUrl && runtime.scheduledDispatch
+      ? createDbScheduledDispatchRepository(runtime.databaseUrl)
+      : null
+  const scheduledDispatchScheduler =
+    runtime.scheduledDispatch && runtime.schedulerSharedSecret
+      ? runtime.scheduledDispatch.provider === 'gcp-cloud-tasks'
+        ? createGcpScheduledDispatchScheduler({
+            projectId: runtime.scheduledDispatch.projectId,
+            location: runtime.scheduledDispatch.location,
+            queue: runtime.scheduledDispatch.queue,
+            publicBaseUrl: runtime.scheduledDispatch.publicBaseUrl,
+            sharedSecret: runtime.schedulerSharedSecret
+          })
+        : createAwsScheduledDispatchScheduler({
+            region: runtime.scheduledDispatch.region,
+            targetLambdaArn: runtime.scheduledDispatch.targetLambdaArn,
+            roleArn: runtime.scheduledDispatch.roleArn,
+            groupName: runtime.scheduledDispatch.groupName
+          })
+      : null
+  const scheduledDispatchService =
+    scheduledDispatchRepositoryClient &&
+    scheduledDispatchScheduler &&
+    householdConfigurationRepositoryClient
+      ? createScheduledDispatchService({
+          repository: scheduledDispatchRepositoryClient.repository,
+          scheduler: scheduledDispatchScheduler,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository
+        })
+      : null
   const miniAppAdminService = householdConfigurationRepositoryClient
-    ? createMiniAppAdminService(householdConfigurationRepositoryClient.repository)
+    ? createMiniAppAdminService(
+        householdConfigurationRepositoryClient.repository,
+        scheduledDispatchService ?? undefined
+      )
     : null
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
@@ -200,7 +234,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     adHocNotificationRepositoryClient && householdConfigurationRepositoryClient
       ? createAdHocNotificationService({
           repository: adHocNotificationRepositoryClient.repository,
-          householdConfigurationRepository: householdConfigurationRepositoryClient.repository
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          ...(scheduledDispatchService
+            ? {
+                scheduledDispatchService
+              }
+            : {})
         })
       : null
 
@@ -289,6 +328,10 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     shutdownTasks.push(adHocNotificationRepositoryClient.close)
   }
 
+  if (scheduledDispatchRepositoryClient) {
+    shutdownTasks.push(scheduledDispatchRepositoryClient.close)
+  }
+
   if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     registerConfiguredPurchaseTopicIngestion(
       bot,
@@ -375,7 +418,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     registerHouseholdSetupCommands({
       bot,
       householdSetupService: createHouseholdSetupService(
-        householdConfigurationRepositoryClient.repository
+        householdConfigurationRepositoryClient.repository,
+        scheduledDispatchService ?? undefined
       ),
       householdAdminService: createHouseholdAdminService(
         householdConfigurationRepositoryClient.repository
@@ -419,65 +463,13 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     })
   }
 
-  const reminderJobs = runtime.reminderJobsEnabled
-    ? (() => {
-        const reminderRepositoryClient = createDbReminderDispatchRepository(runtime.databaseUrl!)
-        const reminderService = createReminderJobService(reminderRepositoryClient.repository)
-
-        shutdownTasks.push(reminderRepositoryClient.close)
-
-        return createReminderJobsHandler({
-          listReminderTargets: () =>
-            householdConfigurationRepositoryClient!.repository.listReminderTargets(),
-          ensureBillingCycle: async ({ householdId, at }) => {
-            await financeServiceForHousehold(householdId).ensureExpectedCycle(at)
-          },
-          releaseReminderDispatch: (input) =>
-            reminderRepositoryClient.repository.releaseReminderDispatch(input),
-          sendReminderMessage: async (target, content) => {
-            const threadId =
-              target.telegramThreadId !== null ? Number(target.telegramThreadId) : undefined
-
-            if (target.telegramThreadId !== null && (!threadId || !Number.isInteger(threadId))) {
-              throw new Error(
-                `Invalid reminder thread id for household ${target.householdId}: ${target.telegramThreadId}`
-              )
-            }
-
-            await bot.api.sendMessage(target.telegramChatId, content.text, {
-              ...(threadId
-                ? {
-                    message_thread_id: threadId
-                  }
-                : {}),
-              ...(content.replyMarkup
-                ? {
-                    reply_markup: content.replyMarkup as InlineKeyboardMarkup
-                  }
-                : {})
-            })
-          },
-          reminderService,
-          ...(runtime.miniAppUrl
-            ? {
-                miniAppUrl: runtime.miniAppUrl
-              }
-            : {}),
-          ...(bot.botInfo?.username
-            ? {
-                botUsername: bot.botInfo.username
-              }
-            : {}),
-          logger: getLogger('scheduler')
-        })
-      })()
-    : null
-  const adHocNotificationJobs =
-    runtime.reminderJobsEnabled &&
-    adHocNotificationService &&
+  const scheduledDispatchHandler =
+    scheduledDispatchService &&
+    adHocNotificationRepositoryClient &&
     householdConfigurationRepositoryClient
-      ? createAdHocNotificationJobsHandler({
-          notificationService: adHocNotificationService,
+      ? createScheduledDispatchHandler({
+          scheduledDispatchService,
+          adHocNotificationRepository: adHocNotificationRepositoryClient.repository,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           sendTopicMessage: async (input) => {
             const threadId = input.threadId ? Number(input.threadId) : undefined
@@ -491,23 +483,38 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
                 ? {
                     parse_mode: input.parseMode
                   }
+                : {}),
+              ...(input.replyMarkup
+                ? {
+                    reply_markup: input.replyMarkup
+                  }
                 : {})
             })
           },
           sendDirectMessage: async (input) => {
             await bot.api.sendMessage(input.telegramUserId, input.text)
           },
+          ...(runtime.miniAppUrl
+            ? {
+                miniAppUrl: runtime.miniAppUrl
+              }
+            : {}),
+          ...(bot.botInfo?.username
+            ? {
+                botUsername: bot.botInfo.username
+              }
+            : {}),
           logger: getLogger('scheduler')
         })
       : null
 
-  if (!runtime.reminderJobsEnabled) {
+  if (!scheduledDispatchHandler) {
     logger.warn(
       {
         event: 'runtime.feature_disabled',
-        feature: 'reminder-jobs'
+        feature: 'scheduled-dispatch'
       },
-      'Reminder jobs are disabled. Set DATABASE_URL and either SCHEDULER_SHARED_SECRET or SCHEDULER_OIDC_ALLOWED_EMAILS to enable.'
+      'Scheduled dispatch is disabled. Configure DATABASE_URL, SCHEDULED_DISPATCH_PROVIDER, and scheduler auth to enable reminder delivery.'
     )
   }
 
@@ -918,7 +925,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         })
       : undefined,
     scheduler:
-      (reminderJobs || adHocNotificationJobs) && runtime.schedulerSharedSecret
+      scheduledDispatchHandler && runtime.schedulerSharedSecret
         ? {
             pathPrefix: '/jobs',
             authorize: createSchedulerRequestAuthorizer({
@@ -926,37 +933,25 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
             }).authorize,
             handler: async (request, jobPath) => {
-              if (jobPath.startsWith('reminder/')) {
-                return reminderJobs
-                  ? reminderJobs.handle(request, jobPath.slice('reminder/'.length))
-                  : new Response('Not Found', { status: 404 })
-              }
-
-              if (jobPath === 'notifications/due') {
-                return adHocNotificationJobs
-                  ? adHocNotificationJobs.handle(request)
+              if (jobPath.startsWith('dispatch/')) {
+                return scheduledDispatchHandler
+                  ? scheduledDispatchHandler.handle(request, jobPath.slice('dispatch/'.length))
                   : new Response('Not Found', { status: 404 })
               }
 
               return new Response('Not Found', { status: 404 })
             }
           }
-        : reminderJobs || adHocNotificationJobs
+        : scheduledDispatchHandler
           ? {
               pathPrefix: '/jobs',
               authorize: createSchedulerRequestAuthorizer({
                 oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
               }).authorize,
               handler: async (request, jobPath) => {
-                if (jobPath.startsWith('reminder/')) {
-                  return reminderJobs
-                    ? reminderJobs.handle(request, jobPath.slice('reminder/'.length))
-                    : new Response('Not Found', { status: 404 })
-                }
-
-                if (jobPath === 'notifications/due') {
-                  return adHocNotificationJobs
-                    ? adHocNotificationJobs.handle(request)
+                if (jobPath.startsWith('dispatch/')) {
+                  return scheduledDispatchHandler
+                    ? scheduledDispatchHandler.handle(request, jobPath.slice('dispatch/'.length))
                     : new Response('Not Found', { status: 404 })
                 }
 
@@ -965,6 +960,10 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             }
           : undefined
   })
+
+  if (scheduledDispatchService) {
+    await scheduledDispatchService.reconcileAllBuiltInDispatches()
+  }
 
   return {
     fetch: server.fetch,

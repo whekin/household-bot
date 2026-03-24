@@ -7,6 +7,7 @@ import type {
   HouseholdConfigurationRepository,
   HouseholdMemberRecord
 } from '@household/ports'
+import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 interface NotificationActor {
   memberId: string
@@ -57,6 +58,7 @@ export type ScheduleAdHocNotificationResult =
         | 'delivery_mode_invalid'
         | 'friendly_assignee_missing'
         | 'scheduled_for_past'
+        | 'dispatch_schedule_failed'
     }
 
 export type CancelAdHocNotificationResult =
@@ -78,7 +80,11 @@ export type UpdateAdHocNotificationResult =
     }
   | {
       status: 'invalid'
-      reason: 'delivery_mode_invalid' | 'dm_recipients_missing' | 'scheduled_for_past'
+      reason:
+        | 'delivery_mode_invalid'
+        | 'dm_recipients_missing'
+        | 'scheduled_for_past'
+        | 'dispatch_schedule_failed'
     }
 
 export interface AdHocNotificationService {
@@ -165,6 +171,7 @@ export function createAdHocNotificationService(input: {
     HouseholdConfigurationRepository,
     'getHouseholdMember' | 'listHouseholdMembers'
   >
+  scheduledDispatchService?: ScheduledDispatchService
 }): AdHocNotificationService {
   async function resolveActor(
     householdId: string,
@@ -272,6 +279,28 @@ export function createAdHocNotificationService(input: {
         sourceTelegramThreadId: notificationInput.sourceTelegramThreadId ?? null
       })
 
+      if (input.scheduledDispatchService) {
+        try {
+          await input.scheduledDispatchService.scheduleAdHocNotification({
+            householdId: notification.householdId,
+            notificationId: notification.id,
+            dueAt: notification.scheduledFor,
+            timezone: notification.timezone
+          })
+        } catch {
+          await input.repository.cancelNotification({
+            notificationId: notification.id,
+            cancelledByMemberId: notification.creatorMemberId,
+            cancelledAt: nowInstant()
+          })
+
+          return {
+            status: 'invalid',
+            reason: 'dispatch_schedule_failed'
+          }
+        }
+      }
+
       return {
         status: 'scheduled',
         notification
@@ -352,6 +381,10 @@ export function createAdHocNotificationService(input: {
         }
       }
 
+      if (input.scheduledDispatchService) {
+        await input.scheduledDispatchService.cancelAdHocNotification(notificationId, asOf)
+      }
+
       return {
         status: 'cancelled',
         notification: cancelled
@@ -397,6 +430,10 @@ export function createAdHocNotificationService(input: {
         input.householdConfigurationRepository,
         notification.householdId
       )
+      const previousScheduledFor = notification.scheduledFor
+      const previousTimePrecision = notification.timePrecision
+      const previousDeliveryMode = notification.deliveryMode
+      const previousDmRecipientMemberIds = notification.dmRecipientMemberIds
 
       if (scheduledFor && scheduledFor.epochMilliseconds <= asOf.epochMilliseconds) {
         return {
@@ -452,6 +489,31 @@ export function createAdHocNotificationService(input: {
       if (!updated) {
         return {
           status: 'already_handled'
+        }
+      }
+
+      if (input.scheduledDispatchService) {
+        try {
+          await input.scheduledDispatchService.scheduleAdHocNotification({
+            householdId: updated.householdId,
+            notificationId: updated.id,
+            dueAt: updated.scheduledFor,
+            timezone: updated.timezone
+          })
+        } catch {
+          await input.repository.updateNotification({
+            notificationId,
+            scheduledFor: previousScheduledFor,
+            timePrecision: previousTimePrecision,
+            deliveryMode: previousDeliveryMode,
+            dmRecipientMemberIds: previousDmRecipientMemberIds,
+            updatedAt: nowInstant()
+          })
+
+          return {
+            status: 'invalid',
+            reason: 'dispatch_schedule_failed'
+          }
         }
       }
 

@@ -25,6 +25,7 @@
     "0020_silver_payments.sql": "9686235c75453f1eaa016f2f4ab7fce8fe964c76a4e3515987a2b9f90bd7b1ad",
     "0021_sharp_payer.sql": "973596e154382984ba7769979ea58298b6d93c5139540854be01e8b283ddb4f1",
     "0022_carry_purchase_history.sql": "f031c9736e43e71eec3263a323332c29de9324c6409db034b0760051c8a9f074",
-    "0023_huge_vision.sql": "9a682e8b62fc6c54711ccd7bb912dd7192e278f546d5853670bea6a0a4585c1c"
+    "0023_huge_vision.sql": "9a682e8b62fc6c54711ccd7bb912dd7192e278f546d5853670bea6a0a4585c1c",
+    "0024_lush_lucky_pierre.sql": "35d111486df774fde5add5cc98f2bf8bcb16d5bae8c4dd4df01fedb661a297d6"
   }
 }

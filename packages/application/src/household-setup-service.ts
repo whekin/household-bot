@@ -4,6 +4,7 @@ import type {
   HouseholdTopicBindingRecord,
   HouseholdTopicRole
 } from '@household/ports'
+import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 export interface HouseholdSetupService {
   setupGroupChat(input: {
@@ -72,7 +73,8 @@ function defaultHouseholdName(title: string | undefined, telegramChatId: string)
 }
 
 export function createHouseholdSetupService(
-  repository: HouseholdConfigurationRepository
+  repository: HouseholdConfigurationRepository,
+  scheduledDispatchService?: ScheduledDispatchService
 ): HouseholdSetupService {
   return {
     async setupGroupChat(input) {
@@ -116,6 +118,12 @@ export function createHouseholdSetupService(
             isAdmin: true
           })
         }
+      }
+
+      if (scheduledDispatchService) {
+        await scheduledDispatchService.reconcileHouseholdBuiltInDispatches(
+          registered.household.householdId
+        )
       }
 
       return {

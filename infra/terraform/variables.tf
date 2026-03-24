@@ -165,40 +165,17 @@ variable "openai_api_key_secret_id" {
   nullable    = true
 }
 
-variable "scheduler_timezone" {
-  description = "Scheduler timezone"
+variable "scheduled_dispatch_queue_name" {
+  description = "Cloud Tasks queue name for one-shot reminder dispatches"
   type        = string
-  default     = "Asia/Tbilisi"
+  default     = "scheduled-dispatches"
 }
 
-variable "scheduler_utilities_cron" {
-  description = "Cron expression for the utilities reminder scheduler job. Daily cadence is recommended because the app filters per household."
+variable "scheduled_dispatch_public_base_url" {
+  description = "Public bot base URL used by Cloud Tasks callbacks for scheduled dispatches"
   type        = string
-  default     = "0 9 * * *"
-}
-
-variable "scheduler_rent_warning_cron" {
-  description = "Cron expression for the rent warning scheduler job. Daily cadence is recommended because the app filters per household."
-  type        = string
-  default     = "0 9 * * *"
-}
-
-variable "scheduler_rent_due_cron" {
-  description = "Cron expression for the rent due scheduler job. Daily cadence is recommended because the app filters per household."
-  type        = string
-  default     = "0 9 * * *"
-}
-
-variable "scheduler_dry_run" {
-  description = "Whether scheduler jobs should invoke the bot in dry-run mode"
-  type        = bool
-  default     = true
-}
-
-variable "scheduler_paused" {
-  description = "Whether scheduler should be paused initially"
-  type        = bool
-  default     = true
+  default     = null
+  nullable    = true
 }
 
 variable "bot_min_instances" {

@@ -58,10 +58,18 @@ resource "google_service_account" "mini_runtime" {
   display_name = "${local.name_prefix} mini runtime"
 }
 
-resource "google_service_account" "scheduler_invoker" {
-  project      = var.project_id
-  account_id   = "${var.environment}-scheduler"
-  display_name = "${local.name_prefix} scheduler invoker"
+resource "google_cloud_tasks_queue" "scheduled_dispatches" {
+  project  = var.project_id
+  location = var.region
+  name     = var.scheduled_dispatch_queue_name
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_project_iam_member" "bot_runtime_cloud_tasks_enqueuer" {
+  project = var.project_id
+  role    = "roles/cloudtasks.enqueuer"
+  member  = "serviceAccount:${google_service_account.bot_runtime.email}"
 }
 
 resource "google_secret_manager_secret" "runtime" {
@@ -169,8 +177,12 @@ module "bot_api_service" {
     var.bot_mini_app_url == null ? {} : {
       MINI_APP_URL = var.bot_mini_app_url
     },
-    {
-      SCHEDULER_OIDC_ALLOWED_EMAILS = google_service_account.scheduler_invoker.email
+    var.scheduled_dispatch_public_base_url == null ? {} : {
+      SCHEDULED_DISPATCH_PROVIDER        = "gcp-cloud-tasks"
+      SCHEDULED_DISPATCH_PUBLIC_BASE_URL = var.scheduled_dispatch_public_base_url
+      GCP_SCHEDULED_DISPATCH_PROJECT_ID  = var.project_id
+      GCP_SCHEDULED_DISPATCH_LOCATION    = var.region
+      GCP_SCHEDULED_DISPATCH_QUEUE       = google_cloud_tasks_queue.scheduled_dispatches.name
     }
   )
 
@@ -192,6 +204,8 @@ module "bot_api_service" {
 
   depends_on = [
     google_project_service.enabled,
+    google_cloud_tasks_queue.scheduled_dispatches,
+    google_project_iam_member.bot_runtime_cloud_tasks_enqueuer,
     google_secret_manager_secret.runtime,
     google_secret_manager_secret_iam_member.bot_runtime_access
   ]
@@ -218,54 +232,6 @@ module "mini_app_service" {
   depends_on = [google_project_service.enabled]
 }
 
-resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = module.bot_api_service.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
-}
-
-resource "google_service_account_iam_member" "scheduler_token_creator" {
-  service_account_id = google_service_account.scheduler_invoker.name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
-}
-
-resource "google_cloud_scheduler_job" "reminders" {
-  for_each = local.reminder_jobs
-
-  project   = var.project_id
-  region    = var.region
-  name      = "${local.name_prefix}-${each.key}"
-  schedule  = each.value.schedule
-  time_zone = var.scheduler_timezone
-  paused    = var.scheduler_paused
-
-  http_target {
-    uri         = "${module.bot_api_service.uri}${each.value.path}"
-    http_method = "POST"
-
-    headers = {
-      "Content-Type" = "application/json"
-    }
-
-    body = base64encode(jsonencode({
-      dryRun = var.scheduler_dry_run
-      jobId  = "${local.name_prefix}-${each.key}"
-    }))
-
-    oidc_token {
-      service_account_email = google_service_account.scheduler_invoker.email
-      audience              = module.bot_api_service.uri
-    }
-  }
-
-  depends_on = [
-    module.bot_api_service,
-    google_service_account_iam_member.scheduler_token_creator
-  ]
-}
 
 resource "google_service_account" "github_deployer" {
   count = var.create_workload_identity ? 1 : 0

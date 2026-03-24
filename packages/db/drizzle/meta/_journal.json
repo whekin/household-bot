@@ -169,6 +169,13 @@
       "when": 1774294611532,
       "tag": "0023_huge_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1774367260609,
+      "tag": "0024_lush_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }

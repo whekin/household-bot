@@ -564,7 +564,7 @@ describe('createBotWebhookServer', () => {
 
   test('rejects scheduler request with missing secret', async () => {
     const response = await server.fetch(
-      new Request('http://localhost/jobs/reminder/utilities', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         method: 'POST',
         body: JSON.stringify({ period: '2026-03' })
       })
@@ -575,7 +575,7 @@ describe('createBotWebhookServer', () => {
 
   test('rejects non-post method for scheduler endpoint', async () => {
     const response = await server.fetch(
-      new Request('http://localhost/jobs/reminder/utilities', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         method: 'GET',
         headers: {
           'x-household-scheduler-secret': 'scheduler-secret'
@@ -588,7 +588,7 @@ describe('createBotWebhookServer', () => {
 
   test('accepts authorized scheduler request', async () => {
     const response = await server.fetch(
-      new Request('http://localhost/jobs/reminder/rent-due', {
+      new Request('http://localhost/jobs/dispatch/test-dispatch', {
         method: 'POST',
         headers: {
           'x-household-scheduler-secret': 'scheduler-secret'
@@ -600,7 +600,7 @@ describe('createBotWebhookServer', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       ok: true,
-      reminderType: 'rent-due'
+      reminderType: 'dispatch/test-dispatch'
     })
   })
 })

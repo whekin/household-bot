@@ -49,8 +49,7 @@
     "ops:deploy:smoke": "bun run scripts/ops/deploy-smoke.ts",
     "ops:aws:miniapp:publish": "bun run scripts/ops/publish-miniapp-aws.ts",
     "ops:telegram:webhook": "bun run scripts/ops/telegram-webhook.ts",
-    "ops:telegram:commands": "bun run scripts/ops/telegram-commands.ts",
-    "ops:reminder": "bun run scripts/ops/trigger-reminder.ts"
+    "ops:telegram:commands": "bun run scripts/ops/telegram-commands.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",

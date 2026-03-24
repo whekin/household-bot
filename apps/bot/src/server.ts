@@ -297,9 +297,7 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppDeletePayment?.path ?? '/api/miniapp/admin/payments/delete'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
-  const schedulerPathPrefix = options.scheduler
-    ? (options.scheduler.pathPrefix ?? '/jobs/reminder')
-    : null
+  const schedulerPathPrefix = options.scheduler ? (options.scheduler.pathPrefix ?? '/jobs') : null
 
   return {
     fetch: async (request: Request) => {

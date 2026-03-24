@@ -13,7 +13,22 @@ export interface BotRuntimeConfig {
   miniAppAuthEnabled: boolean
   schedulerSharedSecret?: string
   schedulerOidcAllowedEmails: readonly string[]
-  reminderJobsEnabled: boolean
+  scheduledDispatch?:
+    | {
+        provider: 'gcp-cloud-tasks'
+        publicBaseUrl: string
+        projectId: string
+        location: string
+        queue: string
+      }
+    | {
+        provider: 'aws-eventbridge'
+        region: string
+        targetLambdaArn: string
+        roleArn: string
+        groupName: string
+      }
+    | undefined
   openaiApiKey?: string
   purchaseParserModel: string
   assistantModel: string
@@ -86,6 +101,56 @@ function parseOptionalCsv(value: string | undefined): readonly string[] {
     .filter(Boolean)
 }
 
+function parseScheduledDispatchConfig(
+  env: NodeJS.ProcessEnv
+): BotRuntimeConfig['scheduledDispatch'] {
+  const provider = parseOptionalValue(env.SCHEDULED_DISPATCH_PROVIDER)
+  if (!provider) {
+    return undefined
+  }
+
+  if (provider === 'gcp-cloud-tasks') {
+    const publicBaseUrl = parseOptionalValue(env.SCHEDULED_DISPATCH_PUBLIC_BASE_URL)
+    const projectId = parseOptionalValue(env.GCP_SCHEDULED_DISPATCH_PROJECT_ID)
+    const location = parseOptionalValue(env.GCP_SCHEDULED_DISPATCH_LOCATION)
+    const queue = parseOptionalValue(env.GCP_SCHEDULED_DISPATCH_QUEUE)
+    if (!publicBaseUrl || !projectId || !location || !queue) {
+      throw new Error(
+        'GCP scheduled dispatch requires SCHEDULED_DISPATCH_PUBLIC_BASE_URL, GCP_SCHEDULED_DISPATCH_PROJECT_ID, GCP_SCHEDULED_DISPATCH_LOCATION, and GCP_SCHEDULED_DISPATCH_QUEUE'
+      )
+    }
+
+    return {
+      provider,
+      publicBaseUrl,
+      projectId,
+      location,
+      queue
+    }
+  }
+
+  if (provider === 'aws-eventbridge') {
+    const region = parseOptionalValue(env.AWS_SCHEDULED_DISPATCH_REGION)
+    const targetLambdaArn = parseOptionalValue(env.AWS_SCHEDULED_DISPATCH_TARGET_LAMBDA_ARN)
+    const roleArn = parseOptionalValue(env.AWS_SCHEDULED_DISPATCH_ROLE_ARN)
+    if (!region || !targetLambdaArn || !roleArn) {
+      throw new Error(
+        'AWS scheduled dispatch requires AWS_SCHEDULED_DISPATCH_REGION, AWS_SCHEDULED_DISPATCH_TARGET_LAMBDA_ARN, and AWS_SCHEDULED_DISPATCH_ROLE_ARN'
+      )
+    }
+
+    return {
+      provider,
+      region,
+      targetLambdaArn,
+      roleArn,
+      groupName: parseOptionalValue(env.AWS_SCHEDULED_DISPATCH_GROUP_NAME) ?? 'default'
+    }
+  }
+
+  throw new Error(`Invalid SCHEDULED_DISPATCH_PROVIDER value: ${provider}`)
+}
+
 function parsePositiveInteger(raw: string | undefined, fallback: number, key: string): number {
   if (raw === undefined) {
     return fallback
@@ -105,6 +170,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const schedulerOidcAllowedEmails = parseOptionalCsv(env.SCHEDULER_OIDC_ALLOWED_EMAILS)
   const miniAppAllowedOrigins = parseOptionalCsv(env.MINI_APP_ALLOWED_ORIGINS)
   const miniAppUrl = parseOptionalValue(env.MINI_APP_URL)
+  const scheduledDispatch = parseScheduledDispatchConfig(env)
 
   const purchaseTopicIngestionEnabled = databaseUrl !== undefined
 
@@ -112,9 +178,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const anonymousFeedbackEnabled = databaseUrl !== undefined
   const assistantEnabled = databaseUrl !== undefined
   const miniAppAuthEnabled = databaseUrl !== undefined
-  const hasSchedulerOidcConfig = schedulerOidcAllowedEmails.length > 0
-  const reminderJobsEnabled =
-    databaseUrl !== undefined && (schedulerSharedSecret !== undefined || hasSchedulerOidcConfig)
 
   const runtime: BotRuntimeConfig = {
     port: parsePort(env.PORT),
@@ -129,7 +192,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     miniAppAllowedOrigins,
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
-    reminderJobsEnabled,
     purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-4o-mini',
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-4o-mini',
     topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4o-mini',
@@ -175,6 +237,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   }
   if (schedulerSharedSecret !== undefined) {
     runtime.schedulerSharedSecret = schedulerSharedSecret
+  }
+  if (scheduledDispatch !== undefined) {
+    runtime.scheduledDispatch = scheduledDispatch
   }
   if (miniAppUrl !== undefined) {
     runtime.miniAppUrl = miniAppUrl

@@ -4,6 +4,8 @@ import * as pulumi from '@pulumi/pulumi'
 
 const config = new pulumi.Config()
 const awsConfig = new pulumi.Config('aws')
+const region = awsConfig.get('region') || aws.getRegionOutput().name
+const accountId = aws.getCallerIdentityOutput().accountId
 
 const appName = config.get('appName') ?? 'household'
 const environment = config.get('environment') ?? pulumi.getStack()
@@ -23,6 +25,10 @@ const logLevel = config.get('logLevel') ?? 'info'
 const purchaseParserModel = config.get('purchaseParserModel') ?? 'gpt-4o-mini'
 const assistantModel = config.get('assistantModel') ?? 'gpt-4o-mini'
 const topicProcessorModel = config.get('topicProcessorModel') ?? 'gpt-4o-mini'
+const scheduledDispatchGroupName =
+  config.get('scheduledDispatchGroupName') ?? 'scheduled-dispatches'
+const lambdaFunctionName = `${appName}-${environment}-bot`
+const scheduledDispatchTargetLambdaArn = pulumi.interpolate`arn:aws:lambda:${region}:${accountId}:function:${lambdaFunctionName}`
 
 const telegramBotToken = config.requireSecret('telegramBotToken')
 const telegramWebhookSecret = config.requireSecret('telegramWebhookSecret')
@@ -56,6 +62,18 @@ const lambdaRole = new aws.iam.Role(`${appName}-${environment}-lambda-role`, {
 new aws.iam.RolePolicyAttachment(`${appName}-${environment}-lambda-basic-exec`, {
   role: lambdaRole.name,
   policyArn: 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+})
+
+const schedulerGroup = new aws.scheduler.ScheduleGroup(`${appName}-${environment}-dispatches`, {
+  name: scheduledDispatchGroupName,
+  tags
+})
+
+const schedulerInvokeRole = new aws.iam.Role(`${appName}-${environment}-scheduler-invoke-role`, {
+  assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+    Service: 'scheduler.amazonaws.com'
+  }),
+  tags
 })
 
 const secretSpecs = [
@@ -160,6 +178,7 @@ new aws.s3.BucketPolicy(`${appName}-${environment}-miniapp-policy`, {
 })
 
 const lambda = new aws.lambda.Function(`${appName}-${environment}-bot`, {
+  name: lambdaFunctionName,
   packageType: 'Image',
   imageUri: botImage.imageUri,
   role: lambdaRole.arn,
@@ -175,6 +194,11 @@ const lambda = new aws.lambda.Function(`${appName}-${environment}-bot`, {
       TELEGRAM_WEBHOOK_PATH: config.get('telegramWebhookPath') ?? '/webhook/telegram',
       DATABASE_URL: databaseUrl ?? '',
       SCHEDULER_SHARED_SECRET: schedulerSharedSecret ?? '',
+      SCHEDULED_DISPATCH_PROVIDER: 'aws-eventbridge',
+      AWS_SCHEDULED_DISPATCH_REGION: region,
+      AWS_SCHEDULED_DISPATCH_TARGET_LAMBDA_ARN: scheduledDispatchTargetLambdaArn,
+      AWS_SCHEDULED_DISPATCH_ROLE_ARN: schedulerInvokeRole.arn,
+      AWS_SCHEDULED_DISPATCH_GROUP_NAME: schedulerGroup.name,
       OPENAI_API_KEY: openaiApiKey ?? '',
       MINI_APP_URL: miniAppUrl,
       MINI_APP_ALLOWED_ORIGINS: miniAppAllowedOrigins.join(','),
@@ -184,6 +208,43 @@ const lambda = new aws.lambda.Function(`${appName}-${environment}-bot`, {
     }
   },
   tags
+})
+
+new aws.iam.RolePolicy(`${appName}-${environment}-lambda-scheduler-policy`, {
+  role: lambdaRole.id,
+  policy: schedulerInvokeRole.arn.apply((schedulerInvokeRoleArn) =>
+    JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Action: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule', 'scheduler:GetSchedule'],
+          Resource: '*'
+        },
+        {
+          Effect: 'Allow',
+          Action: ['iam:PassRole'],
+          Resource: schedulerInvokeRoleArn
+        }
+      ]
+    })
+  )
+})
+
+new aws.iam.RolePolicy(`${appName}-${environment}-scheduler-invoke-policy`, {
+  role: schedulerInvokeRole.id,
+  policy: lambda.arn.apply((lambdaArn) =>
+    JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Action: ['lambda:InvokeFunction'],
+          Resource: lambdaArn
+        }
+      ]
+    })
+  )
 })
 
 const functionUrl = new aws.lambda.FunctionUrl(`${appName}-${environment}-bot-url`, {
@@ -198,8 +259,6 @@ const functionUrl = new aws.lambda.FunctionUrl(`${appName}-${environment}-bot-ur
     maxAge: 300
   }
 })
-
-const region = awsConfig.get('region') || aws.getRegionOutput().name
 
 export const botOriginUrl = functionUrl.functionUrl
 export const miniAppBucketName = bucket.bucket

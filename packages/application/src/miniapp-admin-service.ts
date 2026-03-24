@@ -12,6 +12,7 @@ import type {
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
 import { Money, Temporal, type CurrencyCode } from '@household/domain'
+import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= 31
@@ -339,7 +340,8 @@ function normalizeAssistantText(
 }
 
 export function createMiniAppAdminService(
-  repository: HouseholdConfigurationRepository
+  repository: HouseholdConfigurationRepository,
+  scheduledDispatchService?: ScheduledDispatchService
 ): MiniAppAdminService {
   return {
     async getSettings(input) {
@@ -529,6 +531,10 @@ export function createMiniAppAdminService(
 
       if (!household) {
         throw new Error('Failed to resolve household chat after settings update')
+      }
+
+      if (scheduledDispatchService) {
+        await scheduledDispatchService.reconcileHouseholdBuiltInDispatches(input.householdId)
       }
 
       return {

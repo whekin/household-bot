@@ -1,11 +1,4 @@
-export {
-  REMINDER_TYPES,
-  type ClaimReminderDispatchInput,
-  type ClaimReminderDispatchResult,
-  type ReminderDispatchRepository,
-  type ReminderTarget,
-  type ReminderType
-} from './reminders'
+export { REMINDER_TYPES, type ReminderTarget, type ReminderType } from './reminders'
 export {
   AD_HOC_NOTIFICATION_DELIVERY_MODES,
   AD_HOC_NOTIFICATION_STATUSES,
@@ -20,6 +13,22 @@ export {
   type CreateAdHocNotificationInput,
   type UpdateAdHocNotificationInput
 } from './notifications'
+export {
+  SCHEDULED_DISPATCH_KINDS,
+  SCHEDULED_DISPATCH_PROVIDERS,
+  SCHEDULED_DISPATCH_STATUSES,
+  type ClaimScheduledDispatchDeliveryResult,
+  type CreateScheduledDispatchInput,
+  type ScheduleOneShotDispatchInput,
+  type ScheduleOneShotDispatchResult,
+  type ScheduledDispatchKind,
+  type ScheduledDispatchProvider,
+  type ScheduledDispatchRecord,
+  type ScheduledDispatchRepository,
+  type ScheduledDispatchScheduler,
+  type ScheduledDispatchStatus,
+  type UpdateScheduledDispatchInput
+} from './scheduled-dispatches'
 export type {
   ClaimProcessedBotMessageInput,
   ClaimProcessedBotMessageResult,

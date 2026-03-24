@@ -23,11 +23,6 @@ output "mini_app_service_url" {
   value       = module.mini_app_service.uri
 }
 
-output "scheduler_job_names" {
-  description = "Cloud Scheduler jobs for reminders"
-  value       = { for name, job in google_cloud_scheduler_job.reminders : name => job.name }
-}
-
 output "runtime_secret_ids" {
   description = "Secret Manager IDs expected by runtime"
   value       = sort([for secret in google_secret_manager_secret.runtime : secret.secret_id])
