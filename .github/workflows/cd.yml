@@ -109,19 +109,16 @@ jobs:
           echo "secrets_ok=$vars_ok"            >> "$GITHUB_OUTPUT"
           echo "db_secret_ok=$db_secret_ok"     >> "$GITHUB_OUTPUT"
 
-  images:
-    name: Docker / build & push
+  image-bot:
+    name: Docker / build & push bot
     runs-on: ubuntu-latest
     needs: [detect-environment, check-secrets]
     timeout-minutes: 30
     if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok == 'true' && needs.detect-environment.outputs.target_env == 'prod' }}
     environment: Production
-    strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - bot
-          - miniapp
+    outputs:
+      image_repo: ${{ steps.image.outputs.repo }}
+      image_digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout deployment ref
         uses: actions/checkout@v4
@@ -148,13 +145,65 @@ jobs:
           ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
         run: |
           repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
-          echo "name=${repo}/${{ matrix.service }}:latest" >> "$GITHUB_OUTPUT"
+          echo "repo=${repo}/bot" >> "$GITHUB_OUTPUT"
+          echo "name=${repo}/bot:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/${{ matrix.service }}/Dockerfile
+          file: apps/bot/Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.name }}
+          platforms: linux/amd64
+          provenance: false
+
+  image-miniapp:
+    name: Docker / build & push miniapp
+    runs-on: ubuntu-latest
+    needs: [detect-environment, check-secrets]
+    timeout-minutes: 30
+    if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok == 'true' && needs.detect-environment.outputs.target_env == 'prod' }}
+    environment: Production
+    outputs:
+      image_repo: ${{ steps.image.outputs.repo }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout deployment ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-environment.outputs.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Artifact Registry auth
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION || 'europe-west1' }}-docker.pkg.dev" --quiet
+
+      - name: Resolve image name
+        id: image
+        env:
+          GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+          ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'household-bot' }}
+        run: |
+          repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
+          echo "repo=${repo}/miniapp" >> "$GITHUB_OUTPUT"
+          echo "name=${repo}/miniapp:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/miniapp/Dockerfile
           push: true
           tags: ${{ steps.image.outputs.name }}
           platforms: linux/amd64
@@ -163,7 +212,7 @@ jobs:
   deploy:
     name: Deploy Cloud Run
     runs-on: ubuntu-latest
-    needs: [detect-environment, check-secrets, images]
+    needs: [detect-environment, check-secrets, image-bot, image-miniapp]
     timeout-minutes: 30
     if: ${{ needs.check-secrets.outputs.eligible_event == 'true' && needs.check-secrets.outputs.secrets_ok == 'true' && needs.check-secrets.outputs.db_secret_ok == 'true' && needs.detect-environment.outputs.target_env == 'prod' }}
     environment: ${{ needs.detect-environment.outputs.github_environment }}
@@ -203,12 +252,11 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Resolve image tags
+      - name: Resolve image digests
         id: images
         run: |
-          repo="${GCP_REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${ARTIFACT_REPOSITORY}"
-          echo "bot_image=${repo}/bot:latest"       >> "$GITHUB_OUTPUT"
-          echo "mini_image=${repo}/miniapp:latest"  >> "$GITHUB_OUTPUT"
+          echo "bot_image=${{ needs.image-bot.outputs.image_repo }}@${{ needs.image-bot.outputs.image_digest }}" >> "$GITHUB_OUTPUT"
+          echo "mini_image=${{ needs.image-miniapp.outputs.image_repo }}@${{ needs.image-miniapp.outputs.image_digest }}" >> "$GITHUB_OUTPUT"
 
       - name: Load Telegram bot token for command sync
         id: telegram-token
