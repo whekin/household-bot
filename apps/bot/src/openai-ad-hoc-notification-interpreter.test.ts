@@ -265,6 +265,55 @@ describe('createOpenAiAdHocNotificationInterpreter', () => {
     }
   })
 
+  test('interprets draft edit cancellation requests', async () => {
+    const interpreter = createOpenAiAdHocNotificationInterpreter({
+      apiKey: 'test-key',
+      parserModel: 'gpt-5-mini',
+      rendererModel: 'gpt-5-mini',
+      timeoutMs: 5000
+    })
+    expect(interpreter).toBeDefined()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      nestedJsonResponse({
+        decision: 'cancel',
+        notificationText: null,
+        assigneeChanged: false,
+        assigneeMemberId: null,
+        resolvedLocalDate: null,
+        resolvedHour: null,
+        resolvedMinute: null,
+        resolutionMode: null,
+        deliveryMode: null,
+        dmRecipientMemberIds: null,
+        confidence: 95,
+        clarificationQuestion: null
+      })) as unknown as typeof fetch
+
+    try {
+      const result = await interpreter!.interpretDraftEdit({
+        locale: 'ru',
+        timezone: 'Asia/Tbilisi',
+        localNow: '2026-03-23 23:30',
+        text: 'А вообще, я не буду кушать',
+        members: [{ memberId: 'dima', displayName: 'Дима', status: 'active' }],
+        senderMemberId: 'dima',
+        currentNotificationText: 'покушать',
+        currentAssigneeMemberId: 'dima',
+        currentScheduledLocalDate: '2026-03-24',
+        currentScheduledHour: 11,
+        currentScheduledMinute: 0,
+        currentDeliveryMode: 'topic',
+        currentDmRecipientMemberIds: []
+      })
+
+      expect(result?.decision).toBe('cancel')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('renders the final delivery text that should be persisted', async () => {
     const interpreter = createOpenAiAdHocNotificationInterpreter({
       apiKey: 'test-key',

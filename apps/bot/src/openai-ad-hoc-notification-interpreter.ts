@@ -35,7 +35,7 @@ export interface AdHocNotificationScheduleInterpretation {
 }
 
 export interface AdHocNotificationDraftEditInterpretation {
-  decision: 'updated' | 'clarification'
+  decision: 'updated' | 'clarification' | 'cancel'
   notificationText: string | null
   assigneeChanged: boolean
   assigneeMemberId: string | null
@@ -77,7 +77,7 @@ interface ReminderDeliveryTextResult {
 }
 
 interface ReminderDraftEditResult {
-  decision: 'updated' | 'clarification'
+  decision: 'updated' | 'clarification' | 'cancel'
   notificationText: string | null
   assigneeChanged: boolean
   assigneeMemberId: string | null
@@ -520,7 +520,7 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
           properties: {
             decision: {
               type: 'string',
-              enum: ['updated', 'clarification']
+              enum: ['updated', 'clarification', 'cancel']
             },
             notificationText: {
               anyOf: [{ type: 'string' }, { type: 'null' }]
@@ -596,6 +596,7 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
         prompt: [
           'You interpret edit messages for an already prepared household reminder draft.',
           'Treat the latest message as a request to modify the existing draft, not as a brand new reminder.',
+          'If the user clearly says the reminder is no longer needed or should be dropped, return decision cancel.',
           'Only return fields that should change; keep unchanged fields as null, except assigneeChanged must explicitly say whether the assignee should change.',
           'Use notificationText only when the user changes what should be reminded.',
           'Use deliveryMode when the user changes where the reminder should be sent.',
@@ -630,7 +631,12 @@ export function createOpenAiAdHocNotificationInterpreter(input: {
       }
 
       return {
-        decision: parsed.decision === 'updated' ? 'updated' : 'clarification',
+        decision:
+          parsed.decision === 'updated' ||
+          parsed.decision === 'clarification' ||
+          parsed.decision === 'cancel'
+            ? parsed.decision
+            : 'clarification',
         notificationText: normalizeOptionalText(parsed.notificationText),
         assigneeChanged: parsed.assigneeChanged,
         assigneeMemberId: normalizeMemberId(parsed.assigneeMemberId, options.members),

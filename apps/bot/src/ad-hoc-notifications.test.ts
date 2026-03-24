@@ -258,6 +258,24 @@ describe('registerAdHocNotifications', () => {
       },
       async interpretDraftEdit() {
         draftEditCalls += 1
+        if (draftEditCalls === 2) {
+          return {
+            decision: 'cancel',
+            notificationText: null,
+            assigneeChanged: false,
+            assigneeMemberId: null,
+            resolvedLocalDate: null,
+            resolvedHour: null,
+            resolvedMinute: null,
+            resolutionMode: null,
+            deliveryMode: null,
+            dmRecipientMemberIds: null,
+            clarificationQuestion: null,
+            confidence: 95,
+            parserMode: 'llm'
+          }
+        }
+
         return {
           decision: 'updated',
           notificationText: null,
@@ -352,8 +370,7 @@ describe('registerAdHocNotifications', () => {
     )
 
     const pending = await promptRepository.getPendingAction('-10012345', '10002')
-    const proposalId = (pending?.payload as { proposalId?: string } | null)?.proposalId
-    expect(proposalId).toBeTruthy()
+    expect((pending?.payload as { proposalId?: string } | null)?.proposalId).toBeTruthy()
 
     await bot.handleUpdate(reminderMessageUpdate('Давай на 10 часов лучше') as never)
 
@@ -362,12 +379,34 @@ describe('registerAdHocNotifications', () => {
       text: `Окей, ${updatedWhen} напомню.`
     })
 
-    await bot.handleUpdate(reminderCallbackUpdate(`adhocnotif:confirm:${proposalId}`) as never)
+    await bot.handleUpdate(reminderMessageUpdate('А вообще, я не буду кушать') as never)
 
-    expect(calls[2]?.method).toBe('answerCallbackQuery')
-    expect(calls[3]?.method).toBe('editMessageText')
-    expect(calls[3]?.payload).toMatchObject({
-      text: `Окей, ${updatedWhen} напомню.`
+    expect(draftEditCalls).toBe(2)
+    expect(calls[2]?.payload).toMatchObject({
+      text: 'Окей, тогда не напоминаю.'
+    })
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+
+    const replacementPending = await promptRepository.getPendingAction('-10012345', '10002')
+    expect(replacementPending).toBeNull()
+
+    await bot.handleUpdate(
+      reminderMessageUpdate('Железяка, напомни пошпынять Георгия завтра с утра') as never
+    )
+
+    const renewedPending = await promptRepository.getPendingAction('-10012345', '10002')
+    const renewedProposalId = (renewedPending?.payload as { proposalId?: string } | null)
+      ?.proposalId
+    expect(renewedProposalId).toBeTruthy()
+
+    await bot.handleUpdate(
+      reminderCallbackUpdate(`adhocnotif:confirm:${renewedProposalId}`) as never
+    )
+
+    expect(calls[4]?.method).toBe('answerCallbackQuery')
+    expect(calls[5]?.method).toBe('editMessageText')
+    expect(calls[5]?.payload).toMatchObject({
+      text: `Окей, ${initialWhen} напомню.`
     })
 
     expect(scheduledRequests).toEqual([

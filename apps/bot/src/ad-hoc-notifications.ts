@@ -77,6 +77,10 @@ function unavailableReply(locale: BotLocale): string {
     : 'I cannot create reminders right now because the AI module is temporarily unavailable.'
 }
 
+function cancelledDraftReply(locale: BotLocale): string {
+  return locale === 'ru' ? 'Окей, тогда не напоминаю.' : 'Okay, I will drop this reminder.'
+}
+
 function localNowText(timezone: string, now = nowInstant()): string {
   const local = now.toZonedDateTimeISO(timezone)
   return [
@@ -830,6 +834,15 @@ export function registerAdHocNotifications(options: {
               ? 'Что именно поправить в напоминании?'
               : 'What should I adjust in the reminder?')
         )
+        return
+      }
+
+      if (interpretedEdit.decision === 'cancel') {
+        await options.promptRepository.clearPendingAction(
+          ctx.chat!.id.toString(),
+          ctx.from!.id.toString()
+        )
+        await replyInTopic(ctx, cancelledDraftReply(reminderContext.locale))
         return
       }
 
