@@ -78,6 +78,7 @@ Phase 1:
 
 Optional later upgrade:
 - add 1Password-backed rendering or injection without changing app runtime contracts
+- keep the runtime contract env-file-based so 1Password remains an overlay, not a hard dependency
 
 Compatibility rule:
 - do not remove existing env vars for GCP/AWS paths
@@ -123,3 +124,36 @@ These can be adjusted later without changing the deployment shape.
 5. Add GitHub Actions VPS CD
 6. Validate builds/tests where practical
 7. Push branch and open PR
+
+
+## Runtime Env Files on VPS
+
+Expected files under `/opt/household-bot/env`:
+- `bot.env`
+- `miniapp.env`
+- `caddy.env`
+
+Templates live in `deploy/vps/*.env.example`.
+
+## GitHub Actions Inputs / Secrets
+
+Recommended repository variables:
+- `VPS_HOST`
+- `VPS_USER` (default `root`)
+- `VPS_PORT` (default `22`)
+- `VPS_DEPLOY_ROOT` (default `/opt/household-bot`)
+- `VPS_BOT_URL` (default `https://household-bot.whekin.dev`)
+- `VPS_MINIAPP_URL` (default `https://household.whekin.dev`)
+
+Required repository secret:
+- `VPS_SSH_KEY`
+
+Optional for webhook sync and smoke verification:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+
+## First-Time VPS Bootstrap
+
+Use `scripts/ops/vps-bootstrap-ubuntu.sh` to install Docker Engine + Compose plugin on Ubuntu 24.04.
+
+Then place env files in `/opt/household-bot/env` before running the first deploy.
