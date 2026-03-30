@@ -141,7 +141,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       : null
   const scheduledDispatchScheduler =
     runtime.scheduledDispatch &&
-    (runtime.scheduledDispatch.provider === 'self-hosted' || runtime.schedulerSharedSecret)
+    (runtime.scheduledDispatch.provider === 'aws-eventbridge' || runtime.schedulerSharedSecret)
       ? runtime.scheduledDispatch.provider === 'gcp-cloud-tasks'
         ? createGcpScheduledDispatchScheduler({
             projectId: runtime.scheduledDispatch.projectId,

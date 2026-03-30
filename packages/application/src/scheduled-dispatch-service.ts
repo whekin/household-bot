@@ -8,6 +8,17 @@ import type {
 } from '@household/ports'
 
 const BUILT_IN_DISPATCH_KINDS = ['utilities', 'rent_warning', 'rent_due'] as const
+const DEFAULT_DUE_DISPATCH_SCAN_LIMIT = 25
+const MAX_DUE_DISPATCH_SCAN_LIMIT = 100
+
+function normalizeDueDispatchLimit(limit: number | undefined): number {
+  const value = limit ?? DEFAULT_DUE_DISPATCH_SCAN_LIMIT
+  if (!Number.isInteger(value) || value <= 0) {
+    return DEFAULT_DUE_DISPATCH_SCAN_LIMIT
+  }
+
+  return Math.min(value, MAX_DUE_DISPATCH_SCAN_LIMIT)
+}
 
 function builtInDispatchDay(
   kind: (typeof BUILT_IN_DISPATCH_KINDS)[number],
@@ -312,7 +323,7 @@ export function createScheduledDispatchService(input: {
       return input.repository.listDueScheduledDispatches({
         dueBefore: inputValue?.asOf ?? nowInstant(),
         provider: input.scheduler.provider,
-        limit: inputValue?.limit ?? 25
+        limit: normalizeDueDispatchLimit(inputValue?.limit)
       })
     },
 

@@ -38,8 +38,8 @@ class NotificationRepositoryStub implements AdHocNotificationRepository {
       sentAt: null,
       cancelledAt: null,
       cancelledByMemberId: null,
-      createdAt: Temporal.Instant.from('2026-03-23T09:00:00Z'),
-      updatedAt: Temporal.Instant.from('2026-03-23T09:00:00Z')
+      createdAt: Temporal.Instant.from('2099-03-23T09:00:00Z'),
+      updatedAt: Temporal.Instant.from('2099-03-23T09:00:00Z')
     }
     this.notifications.set(id, record)
     return record
@@ -191,7 +191,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'Напомни Георгию завтра',
       notificationText: 'пошпынять Георгия о том, позвонил ли он',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic'
     })
@@ -222,7 +222,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind everyone tomorrow',
       notificationText: 'pay rent',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'dm_all'
     })
@@ -246,7 +246,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'check rent',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: true
@@ -273,7 +273,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -282,7 +282,7 @@ describe('createAdHocNotificationService', () => {
     const result = await service.cancelNotification({
       notificationId: created.id,
       viewerMemberId: 'admin',
-      asOf: Temporal.Instant.from('2026-03-23T09:00:00Z')
+      asOf: Temporal.Instant.from('2099-03-23T09:00:00Z')
     })
 
     expect(result.status).toBe('cancelled')
@@ -306,7 +306,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -315,7 +315,7 @@ describe('createAdHocNotificationService', () => {
     const items = await service.listUpcomingNotifications({
       householdId: 'household-1',
       viewerMemberId: 'viewer',
-      asOf: Temporal.Instant.from('2026-03-23T09:00:00Z')
+      asOf: Temporal.Instant.from('2099-03-23T09:00:00Z')
     })
 
     expect(items).toHaveLength(1)
@@ -342,7 +342,7 @@ describe('createAdHocNotificationService', () => {
       originalRequestText: 'remind tomorrow',
       notificationText: 'call landlord',
       timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2026-03-25T08:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
       deliveryMode: 'topic',
       friendlyTagAssignee: false
@@ -355,7 +355,7 @@ describe('createAdHocNotificationService', () => {
       timePrecision: 'exact',
       deliveryMode: 'dm_selected',
       dmRecipientMemberIds: ['alice', 'bob'],
-      asOf: Temporal.Instant.from('2026-03-23T09:00:00Z')
+      asOf: Temporal.Instant.from('2099-03-23T09:00:00Z')
     })
 
     expect(result.status).toBe('updated')

@@ -22,6 +22,15 @@ require_var() {
   fi
 }
 
+require_positive_int() {
+  local name="$1"
+  local value="${!name:-}"
+  if [[ ! "$value" =~ ^[0-9]+$ || "$value" -le 0 ]]; then
+    echo "Invalid positive integer for $name: $value" >&2
+    exit 1
+  fi
+}
+
 require_var BOT_IMAGE
 require_var MINIAPP_IMAGE
 require_file "$COMPOSE_FILE"
@@ -38,6 +47,8 @@ export MINIAPP_IMAGE
 export ENV_DIR
 export SCHEDULER_POLL_INTERVAL_MS="${SCHEDULER_POLL_INTERVAL_MS:-60000}"
 export SCHEDULER_DUE_SCAN_LIMIT="${SCHEDULER_DUE_SCAN_LIMIT:-25}"
+require_positive_int SCHEDULER_POLL_INTERVAL_MS
+require_positive_int SCHEDULER_DUE_SCAN_LIMIT
 
 mkdir -p "$DEPLOY_ROOT"
 

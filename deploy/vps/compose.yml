@@ -5,7 +5,11 @@ services:
     env_file:
       - ${ENV_DIR:-/opt/household-bot/env}/bot.env
     healthcheck:
-      test: ['CMD', 'bun', '-e', "fetch('http://127.0.0.1:' + (process.env.PORT ?? '8080') + '/healthz').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:' + (process.env.PORT ?? '8080') + '/healthz').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -23,7 +27,9 @@ services:
   scheduler:
     image: ${BOT_IMAGE:?set BOT_IMAGE}
     restart: unless-stopped
-    command: ['bun', 'apps/bot/dist/scheduler-runner.js']
+    command:
+      - bun
+      - apps/bot/dist/scheduler-runner.js
     env_file:
       - ${ENV_DIR:-/opt/household-bot/env}/bot.env
     environment:
@@ -36,10 +42,13 @@ services:
 
   migrate:
     image: ${BOT_IMAGE:?set BOT_IMAGE}
-    profiles: ['ops']
+    profiles:
+      - ops
     env_file:
       - ${ENV_DIR:-/opt/household-bot/env}/bot.env
-    command: ['bun', 'packages/db/dist/migrate.js']
+    command:
+      - bun
+      - packages/db/dist/migrate.js
     restart: 'no'
 
   caddy:

@@ -29,13 +29,11 @@ jobs:
     outputs:
       eligible: ${{ steps.detect.outputs.eligible }}
       ref: ${{ steps.detect.outputs.ref }}
-      sha: ${{ steps.detect.outputs.sha }}
     steps:
       - id: detect
         run: |
           eligible=false
           ref=""
-          sha=""
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             eligible=true
@@ -47,7 +45,6 @@ jobs:
 
           echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "sha=${ref}" >> "$GITHUB_OUTPUT"
 
   build-bot:
     runs-on: ubuntu-latest
@@ -147,11 +144,14 @@ jobs:
           test -n "${{ secrets.VPS_SSH_KEY }}"
 
       - name: Prepare SSH
+        env:
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' '${{ secrets.VPS_SSH_KEY }}' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+          test -n "$VPS_KNOWN_HOSTS"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Upload deploy bundle
         run: |
@@ -172,14 +172,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Smoke check
-        env:
-          BOT_API_URL: ${{ vars.VPS_BOT_URL || 'https://household-bot.whekin.dev' }}
-          MINI_APP_URL: ${{ vars.VPS_MINIAPP_URL || 'https://household.whekin.dev' }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_EXPECTED_WEBHOOK_URL: ${{ vars.VPS_BOT_URL || 'https://household-bot.whekin.dev' }}/webhook/telegram
-        run: bun run ops:deploy:smoke
-
       - name: Set Telegram webhook
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -192,3 +184,11 @@ jobs:
           fi
 
           bun run ops:telegram:webhook set
+
+      - name: Smoke check
+        env:
+          BOT_API_URL: ${{ vars.VPS_BOT_URL || 'https://household-bot.whekin.dev' }}
+          MINI_APP_URL: ${{ vars.VPS_MINIAPP_URL || 'https://household.whekin.dev' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_EXPECTED_WEBHOOK_URL: ${{ vars.VPS_BOT_URL || 'https://household-bot.whekin.dev' }}/webhook/telegram
+        run: bun run ops:deploy:smoke

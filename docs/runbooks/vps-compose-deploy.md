@@ -125,7 +125,6 @@ These can be adjusted later without changing the deployment shape.
 6. Validate builds/tests where practical
 7. Push branch and open PR
 
-
 ## Runtime Env Files on VPS
 
 Expected files under `/opt/household-bot/env`:
@@ -134,6 +133,7 @@ Expected files under `/opt/household-bot/env`:
 - `caddy.env`
 
 Templates live in `deploy/vps/*.env.example`.
+- `miniapp.env` should set `VITE_BOT_API_URL` for the frontend build/runtime config.
 
 ## GitHub Actions Inputs / Secrets
 
@@ -145,8 +145,9 @@ Recommended repository variables:
 - `VPS_BOT_URL` (default `https://household-bot.whekin.dev`)
 - `VPS_MINIAPP_URL` (default `https://household.whekin.dev`)
 
-Required repository secret:
+Required repository secrets:
 - `VPS_SSH_KEY`
+- `VPS_KNOWN_HOSTS`
 
 Optional for webhook sync and smoke verification:
 - `TELEGRAM_BOT_TOKEN`

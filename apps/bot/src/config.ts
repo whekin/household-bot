@@ -248,8 +248,14 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     runtime.schedulerSharedSecret = schedulerSharedSecret
   }
   if (scheduledDispatch !== undefined) {
-    if (scheduledDispatch.provider === 'self-hosted' && schedulerSharedSecret === undefined) {
-      throw new Error('Self-hosted scheduled dispatch requires SCHEDULER_SHARED_SECRET')
+    if (
+      (scheduledDispatch.provider === 'self-hosted' ||
+        scheduledDispatch.provider === 'gcp-cloud-tasks') &&
+      schedulerSharedSecret === undefined
+    ) {
+      throw new Error(
+        `${scheduledDispatch.provider} scheduled dispatch requires SCHEDULER_SHARED_SECRET`
+      )
     }
 
     runtime.scheduledDispatch = scheduledDispatch

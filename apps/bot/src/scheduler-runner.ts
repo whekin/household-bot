@@ -20,15 +20,15 @@ function parsePositiveInteger(name: string, fallback: number): number {
   return parsed
 }
 
-async function runOnce() {
-  const baseUrl = requireEnv('BOT_INTERNAL_BASE_URL').replace(/\/$/, '')
-  const schedulerSecret = requireEnv('SCHEDULER_SHARED_SECRET')
-  const dueScanLimit = parsePositiveInteger('SCHEDULER_DUE_SCAN_LIMIT', 25)
-
-  const response = await fetch(`${baseUrl}/jobs/dispatch-due?limit=${dueScanLimit}`, {
+async function runOnce(input: {
+  baseUrl: string
+  schedulerSecret: string
+  dueScanLimit: number
+}) {
+  const response = await fetch(`${input.baseUrl}/jobs/dispatch-due?limit=${input.dueScanLimit}`, {
     method: 'POST',
     headers: {
-      'x-household-scheduler-secret': schedulerSecret
+      'x-household-scheduler-secret': input.schedulerSecret
     }
   })
 
@@ -51,6 +51,11 @@ async function runOnce() {
 
 async function main() {
   const intervalMs = parsePositiveInteger('SCHEDULER_POLL_INTERVAL_MS', 60_000)
+  const runConfig = {
+    baseUrl: requireEnv('BOT_INTERNAL_BASE_URL').replace(/\/$/, ''),
+    schedulerSecret: requireEnv('SCHEDULER_SHARED_SECRET'),
+    dueScanLimit: parsePositiveInteger('SCHEDULER_DUE_SCAN_LIMIT', 25)
+  }
   let stopping = false
 
   const stop = () => {
@@ -62,7 +67,7 @@ async function main() {
 
   while (!stopping) {
     try {
-      await runOnce()
+      await runOnce(runConfig)
     } catch (error) {
       console.error(
         JSON.stringify({
