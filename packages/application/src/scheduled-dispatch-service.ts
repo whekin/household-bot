@@ -97,7 +97,10 @@ export interface ScheduledDispatchService {
   cancelAdHocNotification(notificationId: string, cancelledAt?: Instant): Promise<void>
   reconcileHouseholdBuiltInDispatches(householdId: string, asOf?: Instant): Promise<void>
   reconcileAllBuiltInDispatches(asOf?: Instant): Promise<void>
-  listDueDispatches(input?: { asOf?: Instant; limit?: number }): Promise<readonly ScheduledDispatchRecord[]>
+  listDueDispatches(input?: {
+    asOf?: Instant
+    limit?: number
+  }): Promise<readonly ScheduledDispatchRecord[]>
   getDispatchById(dispatchId: string): Promise<ScheduledDispatchRecord | null>
   claimDispatch(dispatchId: string): Promise<boolean>
   releaseDispatch(dispatchId: string): Promise<void>

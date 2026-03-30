@@ -351,7 +351,7 @@ describe('createAdHocNotificationService', () => {
     const result = await service.updateNotification({
       notificationId: created.id,
       viewerMemberId: 'creator',
-      scheduledFor: Temporal.Instant.from('2026-03-25T09:00:00Z'),
+      scheduledFor: Temporal.Instant.from('2099-03-25T09:00:00Z'),
       timePrecision: 'exact',
       deliveryMode: 'dm_selected',
       dmRecipientMemberIds: ['alice', 'bob'],
@@ -360,7 +360,7 @@ describe('createAdHocNotificationService', () => {
 
     expect(result.status).toBe('updated')
     if (result.status === 'updated') {
-      expect(result.notification.scheduledFor.toString()).toBe('2026-03-25T09:00:00Z')
+      expect(result.notification.scheduledFor.toString()).toBe('2099-03-25T09:00:00Z')
       expect(result.notification.deliveryMode).toBe('dm_selected')
       expect(result.notification.dmRecipientMemberIds).toEqual(['alice', 'bob'])
     }

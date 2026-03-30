@@ -20,11 +20,7 @@ function parsePositiveInteger(name: string, fallback: number): number {
   return parsed
 }
 
-async function runOnce(input: {
-  baseUrl: string
-  schedulerSecret: string
-  dueScanLimit: number
-}) {
+async function runOnce(input: { baseUrl: string; schedulerSecret: string; dueScanLimit: number }) {
   const response = await fetch(`${input.baseUrl}/jobs/dispatch-due?limit=${input.dueScanLimit}`, {
     method: 'POST',
     headers: {
