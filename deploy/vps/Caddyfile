@@ -1,9 +1,0 @@
-{$BOT_DOMAIN} {
-  encode zstd gzip
-  reverse_proxy bot:8080
-}
-
-{$MINIAPP_DOMAIN} {
-  encode zstd gzip
-  reverse_proxy miniapp:8080
-}
