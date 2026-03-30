@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, lte } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import { instantFromDatabaseValue, instantToDate, nowInstant } from '@household/domain'
@@ -125,6 +125,26 @@ export function createDbScheduledDispatchRepository(databaseUrl: string): {
         .from(schema.scheduledDispatches)
         .where(eq(schema.scheduledDispatches.householdId, householdId))
         .orderBy(asc(schema.scheduledDispatches.dueAt), asc(schema.scheduledDispatches.createdAt))
+
+      return rows.map(mapScheduledDispatch)
+    },
+
+    async listDueScheduledDispatches(input) {
+      const filters = [
+        eq(schema.scheduledDispatches.status, 'scheduled'),
+        lte(schema.scheduledDispatches.dueAt, instantToDate(input.dueBefore))
+      ]
+
+      if (input.provider) {
+        filters.push(eq(schema.scheduledDispatches.provider, input.provider))
+      }
+
+      const rows = await db
+        .select(scheduledDispatchSelect())
+        .from(schema.scheduledDispatches)
+        .where(and(...filters))
+        .orderBy(asc(schema.scheduledDispatches.dueAt), asc(schema.scheduledDispatches.createdAt))
+        .limit(input.limit)
 
       return rows.map(mapScheduledDispatch)
     },

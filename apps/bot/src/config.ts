@@ -28,6 +28,9 @@ export interface BotRuntimeConfig {
         roleArn: string
         groupName: string
       }
+    | {
+        provider: 'self-hosted'
+      }
     | undefined
   openaiApiKey?: string
   purchaseParserModel: string
@@ -148,6 +151,12 @@ function parseScheduledDispatchConfig(
     }
   }
 
+  if (provider === 'self-hosted') {
+    return {
+      provider
+    }
+  }
+
   throw new Error(`Invalid SCHEDULED_DISPATCH_PROVIDER value: ${provider}`)
 }
 
@@ -239,6 +248,10 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     runtime.schedulerSharedSecret = schedulerSharedSecret
   }
   if (scheduledDispatch !== undefined) {
+    if (scheduledDispatch.provider === 'self-hosted' && schedulerSharedSecret === undefined) {
+      throw new Error('Self-hosted scheduled dispatch requires SCHEDULER_SHARED_SECRET')
+    }
+
     runtime.scheduledDispatch = scheduledDispatch
   }
   if (miniAppUrl !== undefined) {

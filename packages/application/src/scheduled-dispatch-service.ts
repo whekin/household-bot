@@ -86,6 +86,7 @@ export interface ScheduledDispatchService {
   cancelAdHocNotification(notificationId: string, cancelledAt?: Instant): Promise<void>
   reconcileHouseholdBuiltInDispatches(householdId: string, asOf?: Instant): Promise<void>
   reconcileAllBuiltInDispatches(asOf?: Instant): Promise<void>
+  listDueDispatches(input?: { asOf?: Instant; limit?: number }): Promise<readonly ScheduledDispatchRecord[]>
   getDispatchById(dispatchId: string): Promise<ScheduledDispatchRecord | null>
   claimDispatch(dispatchId: string): Promise<boolean>
   releaseDispatch(dispatchId: string): Promise<void>
@@ -305,6 +306,14 @@ export function createScheduledDispatchService(input: {
       for (const householdId of householdIds) {
         await reconcileHouseholdBuiltInDispatches(householdId, asOf)
       }
+    },
+
+    listDueDispatches(inputValue) {
+      return input.repository.listDueScheduledDispatches({
+        dueBefore: inputValue?.asOf ?? nowInstant(),
+        provider: input.scheduler.provider,
+        limit: inputValue?.limit ?? 25
+      })
     },
 
     getDispatchById(dispatchId) {
