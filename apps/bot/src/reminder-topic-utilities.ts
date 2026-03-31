@@ -186,7 +186,7 @@ function escapeHtml(raw: string): string {
   return raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-function buildTemplateText(
+export function buildTemplateText(
   locale: BotLocale,
   currency: 'GEL' | 'USD',
   categories: readonly string[]

@@ -7,7 +7,11 @@ export const SCHEDULED_DISPATCH_KINDS = [
   'rent_due'
 ] as const
 export const SCHEDULED_DISPATCH_STATUSES = ['scheduled', 'sent', 'cancelled'] as const
-export const SCHEDULED_DISPATCH_PROVIDERS = ['gcp-cloud-tasks', 'aws-eventbridge'] as const
+export const SCHEDULED_DISPATCH_PROVIDERS = [
+  'gcp-cloud-tasks',
+  'aws-eventbridge',
+  'self-hosted'
+] as const
 
 export type ScheduledDispatchKind = (typeof SCHEDULED_DISPATCH_KINDS)[number]
 export type ScheduledDispatchStatus = (typeof SCHEDULED_DISPATCH_STATUSES)[number]
@@ -64,6 +68,11 @@ export interface ScheduledDispatchRepository {
   listScheduledDispatchesForHousehold(
     householdId: string
   ): Promise<readonly ScheduledDispatchRecord[]>
+  listDueScheduledDispatches(input: {
+    dueBefore: Instant
+    provider?: ScheduledDispatchProvider
+    limit: number
+  }): Promise<readonly ScheduledDispatchRecord[]>
   updateScheduledDispatch(
     input: UpdateScheduledDispatchInput
   ): Promise<ScheduledDispatchRecord | null>

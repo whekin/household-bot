@@ -239,7 +239,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,
-    statementFailed: (message) => `Failed to generate statement: ${message}`
+    statementFailed: (message) => `Failed to generate statement: ${message}`,
+    utilitiesTopicRequired: 'This command must be used inside a topic.',
+    utilitiesNotLinked: 'This topic is not linked to a household.'
   },
   reminders: {
     utilities: (period) => `Utilities reminder for ${period}`,

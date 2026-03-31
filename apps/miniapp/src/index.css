@@ -206,7 +206,7 @@ a {
 
 .nav-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   max-width: 480px;
   margin: 0 auto;
 }
@@ -1520,6 +1520,41 @@ a {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+}
+
+.route--bills .bills-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.bills-add-form {
+  margin-top: var(--spacing-md);
+}
+
+.bills-add-form__actions {
+  margin-top: var(--spacing-sm);
+}
+
+.bills-list {
+  margin-top: var(--spacing-lg);
+}
+
+.bills-list__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+}
+
+.bills-editor-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.bills-editor-actions__save {
+  margin-left: auto;
 }
 
 /* ── Editable List (used in Ledger, Settings, etc.) ───── */

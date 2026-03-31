@@ -39,6 +39,7 @@ import { registerHouseholdSetupCommands } from './household-setup'
 import { HouseholdContextCache } from './household-context-cache'
 import { createAwsScheduledDispatchScheduler } from './aws-scheduled-dispatch-scheduler'
 import { createGcpScheduledDispatchScheduler } from './gcp-scheduled-dispatch-scheduler'
+import { createSelfHostedScheduledDispatchScheduler } from './self-hosted-scheduled-dispatch-scheduler'
 import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import {
   createMiniAppApproveMemberHandler,
@@ -139,21 +140,24 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       ? createDbScheduledDispatchRepository(runtime.databaseUrl)
       : null
   const scheduledDispatchScheduler =
-    runtime.scheduledDispatch && runtime.schedulerSharedSecret
+    runtime.scheduledDispatch &&
+    (runtime.scheduledDispatch.provider === 'aws-eventbridge' || runtime.schedulerSharedSecret)
       ? runtime.scheduledDispatch.provider === 'gcp-cloud-tasks'
         ? createGcpScheduledDispatchScheduler({
             projectId: runtime.scheduledDispatch.projectId,
             location: runtime.scheduledDispatch.location,
             queue: runtime.scheduledDispatch.queue,
             publicBaseUrl: runtime.scheduledDispatch.publicBaseUrl,
-            sharedSecret: runtime.schedulerSharedSecret
+            sharedSecret: runtime.schedulerSharedSecret!
           })
-        : createAwsScheduledDispatchScheduler({
-            region: runtime.scheduledDispatch.region,
-            targetLambdaArn: runtime.scheduledDispatch.targetLambdaArn,
-            roleArn: runtime.scheduledDispatch.roleArn,
-            groupName: runtime.scheduledDispatch.groupName
-          })
+        : runtime.scheduledDispatch.provider === 'aws-eventbridge'
+          ? createAwsScheduledDispatchScheduler({
+              region: runtime.scheduledDispatch.region,
+              targetLambdaArn: runtime.scheduledDispatch.targetLambdaArn,
+              roleArn: runtime.scheduledDispatch.roleArn,
+              groupName: runtime.scheduledDispatch.groupName
+            })
+          : createSelfHostedScheduledDispatchScheduler()
       : null
   const scheduledDispatchService =
     scheduledDispatchRepositoryClient &&
@@ -514,7 +518,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         event: 'runtime.feature_disabled',
         feature: 'scheduled-dispatch'
       },
-      'Scheduled dispatch is disabled. Configure DATABASE_URL, SCHEDULED_DISPATCH_PROVIDER, and scheduler auth to enable reminder delivery.'
+      'Scheduled dispatch is disabled. Configure DATABASE_URL and SCHEDULED_DISPATCH_PROVIDER to enable reminder delivery.'
     )
   }
 
@@ -933,6 +937,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
             }).authorize,
             handler: async (request, jobPath) => {
+              if (jobPath === 'dispatch-due') {
+                return scheduledDispatchHandler
+                  ? scheduledDispatchHandler.handleDueDispatches(request)
+                  : new Response('Not Found', { status: 404 })
+              }
+
               if (jobPath.startsWith('dispatch/')) {
                 return scheduledDispatchHandler
                   ? scheduledDispatchHandler.handle(request, jobPath.slice('dispatch/'.length))
@@ -949,6 +959,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
                 oidcAllowedEmails: runtime.schedulerOidcAllowedEmails
               }).authorize,
               handler: async (request, jobPath) => {
+                if (jobPath === 'dispatch-due') {
+                  return scheduledDispatchHandler
+                    ? scheduledDispatchHandler.handleDueDispatches(request)
+                    : new Response('Not Found', { status: 404 })
+                }
+
                 if (jobPath.startsWith('dispatch/')) {
                   return scheduledDispatchHandler
                     ? scheduledDispatchHandler.handle(request, jobPath.slice('dispatch/'.length))

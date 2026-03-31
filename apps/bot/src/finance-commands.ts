@@ -5,6 +5,7 @@ import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import { buildTemplateText } from './reminder-topic-utilities'
 
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -485,6 +486,88 @@ export function createFinanceCommandsService(options: {
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }
+    })
+
+    bot.command('utilities', async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const tf = getBotTranslations(locale).finance
+
+      const threadId =
+        ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
+          ? ctx.msg.message_thread_id.toString()
+          : null
+
+      if (!threadId) {
+        await ctx.reply(tf.utilitiesTopicRequired)
+        return
+      }
+
+      const binding =
+        await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+          telegramChatId: ctx.chat.id.toString(),
+          telegramThreadId: threadId
+        })
+
+      if (!binding) {
+        await ctx.reply(tf.utilitiesNotLinked)
+        return
+      }
+
+      const telegramUserId = ctx.from?.id?.toString()
+      if (!telegramUserId) {
+        return
+      }
+
+      const financeService = options.financeServiceForHousehold(binding.householdId)
+      const [householdLocale, member, settings, categories, _cycle] = await Promise.all([
+        resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId: binding.householdId
+        }),
+        financeService.getMemberByTelegramUserId(telegramUserId),
+        options.householdConfigurationRepository.getHouseholdBillingSettings(binding.householdId),
+        options.householdConfigurationRepository.listHouseholdUtilityCategories(
+          binding.householdId
+        ),
+        financeService.ensureExpectedCycle()
+      ])
+
+      if (!member) {
+        await ctx.reply(getBotTranslations(householdLocale).finance.notMember)
+        return
+      }
+
+      const tr = getBotTranslations(householdLocale).reminders
+      const activeCategories = categories
+        .filter((category) => category.isActive)
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((category) => category.name)
+
+      if (activeCategories.length === 0) {
+        await ctx.reply(tr.noActiveCategories)
+        return
+      }
+
+      const { text, parseMode } = buildTemplateText(
+        householdLocale,
+        settings.settlementCurrency,
+        activeCategories
+      )
+
+      await ctx.reply(text, {
+        parse_mode: parseMode,
+        reply_parameters: {
+          message_id: ctx.msg?.message_id ?? 0
+        }
+      })
     })
   }
 

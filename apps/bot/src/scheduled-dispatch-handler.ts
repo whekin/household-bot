@@ -32,6 +32,23 @@ function builtInReminderType(kind: 'utilities' | 'rent_warning' | 'rent_due'): R
   }
 }
 
+function parsePositiveInteger(
+  value: string | null,
+  fallback: number,
+  { min, max }: { min: number; max: number }
+): number {
+  if (!value) {
+    return fallback
+  }
+
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed)) {
+    return fallback
+  }
+
+  return Math.min(Math.max(parsed, min), max)
+}
+
 export function createScheduledDispatchHandler(options: {
   scheduledDispatchService: ScheduledDispatchService
   adHocNotificationRepository: Pick<
@@ -59,6 +76,7 @@ export function createScheduledDispatchHandler(options: {
   logger?: Logger
 }): {
   handle: (request: Request, dispatchId: string) => Promise<Response>
+  handleDueDispatches: (request: Request) => Promise<Response>
 } {
   async function sendAdHocNotification(dispatchId: string) {
     const dispatch = await options.scheduledDispatchService.getDispatchById(dispatchId)
@@ -236,33 +254,45 @@ export function createScheduledDispatchHandler(options: {
     }
   }
 
+  async function handleDispatch(dispatchId: string) {
+    const dispatch = await options.scheduledDispatchService.getDispatchById(dispatchId)
+    if (!dispatch) {
+      return {
+        dispatchId,
+        outcome: 'noop' as const,
+        householdId: null,
+        kind: null
+      }
+    }
+
+    const result =
+      dispatch.kind === 'ad_hoc_notification'
+        ? await sendAdHocNotification(dispatchId)
+        : await sendBuiltInReminder(dispatchId)
+
+    options.logger?.info(
+      {
+        event: 'scheduler.scheduled_dispatch.handle',
+        dispatchId,
+        householdId: dispatch.householdId,
+        kind: dispatch.kind,
+        outcome: result.outcome
+      },
+      'Scheduled dispatch handled'
+    )
+
+    return {
+      dispatchId,
+      outcome: result.outcome,
+      householdId: dispatch.householdId,
+      kind: dispatch.kind
+    }
+  }
+
   return {
     handle: async (_request, dispatchId) => {
       try {
-        const dispatch = await options.scheduledDispatchService.getDispatchById(dispatchId)
-        if (!dispatch) {
-          return json({
-            ok: true,
-            dispatchId,
-            outcome: 'noop'
-          })
-        }
-
-        const result =
-          dispatch.kind === 'ad_hoc_notification'
-            ? await sendAdHocNotification(dispatchId)
-            : await sendBuiltInReminder(dispatchId)
-
-        options.logger?.info(
-          {
-            event: 'scheduler.scheduled_dispatch.handle',
-            dispatchId,
-            householdId: dispatch.householdId,
-            kind: dispatch.kind,
-            outcome: result.outcome
-          },
-          'Scheduled dispatch handled'
-        )
+        const result = await handleDispatch(dispatchId)
 
         return json({
           ok: true,
@@ -282,6 +312,67 @@ export function createScheduledDispatchHandler(options: {
           {
             ok: false,
             dispatchId,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          },
+          500
+        )
+      }
+    },
+
+    handleDueDispatches: async (request) => {
+      const url = new URL(request.url)
+      const limit = parsePositiveInteger(url.searchParams.get('limit'), 25, {
+        min: 1,
+        max: 100
+      })
+
+      try {
+        const dueDispatches = await options.scheduledDispatchService.listDueDispatches({ limit })
+        const results: Array<{
+          dispatchId: string
+          outcome: string
+          householdId: string | null
+          kind: string | null
+        }> = []
+
+        for (const dispatch of dueDispatches) {
+          try {
+            results.push(await handleDispatch(dispatch.id))
+          } catch (error) {
+            options.logger?.error(
+              {
+                event: 'scheduler.scheduled_dispatch.bulk_failed',
+                dispatchId: dispatch.id,
+                error: error instanceof Error ? error.message : String(error)
+              },
+              'Scheduled dispatch failed during bulk run'
+            )
+            results.push({
+              dispatchId: dispatch.id,
+              outcome: 'error',
+              householdId: dispatch.householdId,
+              kind: dispatch.kind
+            })
+          }
+        }
+
+        return json({
+          ok: true,
+          scanned: dueDispatches.length,
+          results
+        })
+      } catch (error) {
+        options.logger?.error(
+          {
+            event: 'scheduler.scheduled_dispatch.bulk_scan_failed',
+            error: error instanceof Error ? error.message : String(error)
+          },
+          'Scheduled dispatch bulk scan failed'
+        )
+
+        return json(
+          {
+            ok: false,
             error: error instanceof Error ? error.message : 'Unknown error'
           },
           500

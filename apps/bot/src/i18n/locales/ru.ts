@@ -243,7 +243,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     statementTitle: (period) => `Выписка за ${period}`,
     statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
     statementTotal: (amount, currency) => `Итого: ${amount} ${currency}`,
-    statementFailed: (message) => `Не удалось построить выписку: ${message}`
+    statementFailed: (message) => `Не удалось построить выписку: ${message}`,
+    utilitiesTopicRequired: 'Эта команда должна использоваться внутри топика.',
+    utilitiesNotLinked: 'Этот топик не привязан к домохозяйству.'
   },
   reminders: {
     utilities: (period) => `Напоминание по коммунальным платежам за ${period}`,

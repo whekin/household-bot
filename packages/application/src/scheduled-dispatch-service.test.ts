@@ -68,6 +68,19 @@ class ScheduledDispatchRepositoryStub implements ScheduledDispatchRepository {
     return [...this.dispatches.values()].filter((dispatch) => dispatch.householdId === householdId)
   }
 
+  async listDueScheduledDispatches(input: {
+    dueBefore: Temporal.Instant
+    provider?: ScheduledDispatchRecord['provider']
+    limit: number
+  }): Promise<readonly ScheduledDispatchRecord[]> {
+    return [...this.dispatches.values()]
+      .filter((dispatch) => dispatch.status === 'scheduled')
+      .filter((dispatch) => dispatch.dueAt.epochMilliseconds <= input.dueBefore.epochMilliseconds)
+      .filter((dispatch) => (input.provider ? dispatch.provider === input.provider : true))
+      .sort((left, right) => left.dueAt.epochMilliseconds - right.dueAt.epochMilliseconds)
+      .slice(0, input.limit)
+  }
+
   async updateScheduledDispatch(input: {
     dispatchId: string
     dueAt?: Temporal.Instant
