@@ -21,12 +21,12 @@ export function UtilityCategorySelect(props: UtilityCategorySelectProps) {
     <Select
       value={props.value}
       options={options}
-      disabled={props.disabled}
-      class={props.class}
-      id={props.id}
+      {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
+      {...(props.class !== undefined ? { class: props.class } : {})}
+      {...(props.id !== undefined ? { id: props.id } : {})}
       ariaLabel={props.ariaLabel}
-      placeholder={props.placeholder}
-      onChange={props.onChange}
+      {...(props.placeholder !== undefined ? { placeholder: props.placeholder } : {})}
+      {...(props.onChange !== undefined ? { onChange: props.onChange } : {})}
     />
   )
 }
