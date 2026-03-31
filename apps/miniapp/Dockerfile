@@ -23,6 +23,7 @@ FROM deps AS build
 WORKDIR /app
 
 COPY apps/miniapp ./apps/miniapp
+COPY packages/domain ./packages/domain
 
 RUN bun run --filter @household/miniapp build
 
