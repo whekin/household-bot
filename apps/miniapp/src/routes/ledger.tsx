@@ -14,7 +14,6 @@ import { Field } from '../components/ui/field'
 import { Collapsible } from '../components/ui/collapsible'
 import { Toggle } from '../components/ui/toggle'
 import { Skeleton } from '../components/ui/skeleton'
-import { UtilityForm, type UtilityFormData } from '../components/utility-form'
 import {
   formatMoneyLabel,
   ledgerSecondaryAmount,
@@ -36,9 +35,6 @@ import {
   addMiniAppPayment,
   updateMiniAppPayment,
   deleteMiniAppPayment,
-  addMiniAppUtilityBill,
-  updateMiniAppUtilityBill,
-  deleteMiniAppUtilityBill,
   type MiniAppDashboard
 } from '../miniapp-api'
 
@@ -211,8 +207,7 @@ function ParticipantSplitInputs(props: ParticipantSplitInputsProps) {
 export default function LedgerRoute() {
   const { initData, refreshHouseholdData, session } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, loading, effectiveIsAdmin, purchaseLedger, utilityLedger, paymentLedger } =
-    useDashboard()
+  const { dashboard, loading, effectiveIsAdmin, purchaseLedger, paymentLedger } = useDashboard()
   const unresolvedPurchaseLedger = createMemo(() =>
     purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
   )
@@ -250,23 +245,6 @@ export default function LedgerRoute() {
     participants: []
   })
   const [addingPurchase, setAddingPurchase] = createSignal(false)
-
-  // ── Utility bill editor ──────────────────────────
-  const [editingUtility, setEditingUtility] = createSignal<
-    MiniAppDashboard['ledger'][number] | null
-  >(null)
-  const [utilityDraft, setUtilityDraft] = createSignal<UtilityFormData | null>(null)
-  const [savingUtility, setSavingUtility] = createSignal(false)
-  const [deletingUtility, setDeletingUtility] = createSignal(false)
-
-  // ── New utility bill form ────────────────────────
-  const [showAddUtility, setShowAddUtility] = createSignal(false)
-  const [newUtility, setNewUtility] = createSignal<UtilityFormData>({
-    billName: '',
-    amountMajor: '',
-    currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-  })
-  const [addingUtility, setAddingUtility] = createSignal(false)
 
   // ── Payment editor ───────────────────────────────
   const [editingPayment, setEditingPayment] = createSignal<
@@ -323,74 +301,6 @@ export default function LedgerRoute() {
   function closePaymentEditor() {
     setEditingPayment(null)
     setPaymentDraft(null)
-  }
-
-  function openUtilityEditor(entry: MiniAppDashboard['ledger'][number]) {
-    setEditingUtility(entry)
-    setUtilityDraft({
-      billName: entry.title,
-      amountMajor: entry.amountMajor,
-      currency: entry.currency as 'USD' | 'GEL'
-    })
-  }
-
-  function closeUtilityEditor() {
-    setEditingUtility(null)
-    setUtilityDraft(null)
-  }
-
-  async function handleAddUtility() {
-    const data = initData()
-    const draft = newUtility()
-    if (!data || !draft.billName.trim() || !draft.amountMajor.trim()) return
-
-    setAddingUtility(true)
-    try {
-      await addMiniAppUtilityBill(data, draft)
-      setShowAddUtility(false)
-      setNewUtility({
-        billName: '',
-        amountMajor: '',
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-      })
-      await refreshHouseholdData(true, true)
-    } finally {
-      setAddingUtility(false)
-    }
-  }
-
-  async function handleSaveUtility() {
-    const data = initData()
-    const entry = editingUtility()
-    const draft = utilityDraft()
-    if (!data || !entry || !draft) return
-
-    setSavingUtility(true)
-    try {
-      await updateMiniAppUtilityBill(data, {
-        billId: entry.id,
-        ...draft
-      })
-      closeUtilityEditor()
-      await refreshHouseholdData(true, true)
-    } finally {
-      setSavingUtility(false)
-    }
-  }
-
-  async function handleDeleteUtility() {
-    const data = initData()
-    const entry = editingUtility()
-    if (!data || !entry) return
-
-    setDeletingUtility(true)
-    try {
-      await deleteMiniAppUtilityBill(data, entry.id)
-      closeUtilityEditor()
-      await refreshHouseholdData(true, true)
-    } finally {
-      setDeletingUtility(false)
-    }
   }
 
   async function handleSavePurchase() {
@@ -788,88 +698,6 @@ export default function LedgerRoute() {
                     </Collapsible>
                   </div>
                 </Show>
-              </Collapsible>
-
-              {/* ── Utility bills ──────────────────────── */}
-              <Collapsible title={copy().utilityLedgerTitle}>
-                <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
-                  <Show when={effectiveIsAdmin()}>
-                    <div class="editable-list-actions">
-                      <Button variant="primary" size="sm" onClick={() => setShowAddUtility(true)}>
-                        <Plus size={14} />
-                        {copy().addUtilityBillAction}
-                      </Button>
-                    </div>
-                  </Show>
-                  <Show
-                    when={utilityLedger().length > 0}
-                    fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
-                  >
-                    <div class="editable-list">
-                      <For each={utilityLedger()}>
-                        {(entry) => (
-                          <button
-                            class="editable-list-row"
-                            onClick={() => effectiveIsAdmin() && openUtilityEditor(entry)}
-                            disabled={!effectiveIsAdmin()}
-                          >
-                            <div class="editable-list-row__main">
-                              <span class="editable-list-row__title">{entry.title}</span>
-                              <span class="editable-list-row__subtitle">
-                                {entry.actorDisplayName}
-                              </span>
-                            </div>
-                            <div class="editable-list-row__meta">
-                              <strong>
-                                {formatMoneyLabel(
-                                  entry.displayAmountMajor,
-                                  entry.displayCurrency,
-                                  locale()
-                                )}
-                              </strong>
-                            </div>
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <Collapsible title={copy().utilityHistoryTitle} defaultOpen={false}>
-                    <Show
-                      when={paymentPeriodSummaries().length > 0}
-                      fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
-                    >
-                      <div class="editable-list">
-                        <For each={paymentPeriodSummaries()}>
-                          {(summary) => (
-                            <div class="editable-list-row editable-list-row--static">
-                              <div class="editable-list-row__main">
-                                <span class="editable-list-row__title">
-                                  {formatCyclePeriod(summary.period, locale())}
-                                </span>
-                                <span class="editable-list-row__subtitle">
-                                  {summary.isCurrentPeriod
-                                    ? copy().currentCycleLabel
-                                    : summary.hasOverdueBalance
-                                      ? copy().overdueLabel
-                                      : copy().homeSettledTitle}
-                                </span>
-                              </div>
-                              <div class="editable-list-row__meta">
-                                <strong>
-                                  {formatMoneyLabel(
-                                    summary.utilityTotalMajor,
-                                    (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </Collapsible>
-                </div>
               </Collapsible>
 
               {/* ── Payments ───────────────────────────── */}
@@ -1432,92 +1260,6 @@ export default function LedgerRoute() {
           </Field>
         </div>
       </Modal>
-
-      {/* ──────── Add Utility Inline Form ─────────────────── */}
-      <Show when={showAddUtility()}>
-        <Card>
-          <div class="card-header">
-            <h2 class="card-title">{copy().addUtilityBillAction}</h2>
-          </div>
-          <UtilityForm
-            value={newUtility()}
-            onChange={setNewUtility}
-            currencyOptions={currencyOptions()}
-            labels={{
-              category: copy().utilityCategoryLabel,
-              amount: copy().utilityAmount,
-              currency: copy().currencyLabel
-            }}
-            disabled={addingUtility()}
-          />
-          <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
-            <Button
-              variant="ghost"
-              onClick={() => setShowAddUtility(false)}
-              disabled={addingUtility()}
-            >
-              {copy().closeEditorAction}
-            </Button>
-            <div style={{ 'margin-left': 'auto' }}>
-              <Button
-                variant="primary"
-                loading={addingUtility()}
-                disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
-                onClick={() => void handleAddUtility()}
-              >
-                {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-              </Button>
-            </div>
-          </div>
-        </Card>
-      </Show>
-
-      {/* ──────── Edit Utility Inline Form ────────────────── */}
-      <Show when={editingUtility() && utilityDraft()}>
-        {(draft) => (
-          <Card>
-            <div class="card-header">
-              <h2 class="card-title">{copy().editUtilityBillAction}</h2>
-            </div>
-            <UtilityForm
-              value={draft()}
-              onChange={(value) => setUtilityDraft(value)}
-              currencyOptions={currencyOptions()}
-              labels={{
-                category: copy().utilityCategoryLabel,
-                amount: copy().utilityAmount,
-                currency: copy().currencyLabel
-              }}
-              disabled={savingUtility() || deletingUtility()}
-            />
-            <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
-              <Button
-                variant="danger"
-                loading={deletingUtility()}
-                onClick={() => void handleDeleteUtility()}
-              >
-                {deletingUtility() ? copy().deletingUtilityBill : copy().deleteUtilityBillAction}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={closeUtilityEditor}
-                disabled={savingUtility() || deletingUtility()}
-              >
-                {copy().closeEditorAction}
-              </Button>
-              <div style={{ 'margin-left': 'auto' }}>
-                <Button
-                  variant="primary"
-                  loading={savingUtility()}
-                  onClick={() => void handleSaveUtility()}
-                >
-                  {savingUtility() ? copy().savingUtilityBill : copy().saveUtilityBillAction}
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-      </Show>
 
       {/* ──────── Edit Payment Modal ────────────────── */}
       <Modal

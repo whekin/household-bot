@@ -1,4 +1,4 @@
-import { Show, For, createSignal, Switch, Match } from 'solid-js'
+import { Show, For, createSignal, createMemo, Switch, Match } from 'solid-js'
 import { Plus } from 'lucide-solid'
 
 import { useSession } from '../contexts/session-context'
@@ -20,7 +20,7 @@ import {
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
   const { initData, refreshHouseholdData } = useSession()
-  const { dashboard, loading, utilityLedger } = useDashboard()
+  const { dashboard, loading, utilityLedger, paymentLedger } = useDashboard()
 
   const [newUtility, setNewUtility] = createSignal<UtilityFormData>({
     billName: '',
@@ -39,6 +39,14 @@ export default function BillsRoute() {
     { value: 'GEL', label: localizedCurrencyLabel(locale(), 'GEL') },
     { value: 'USD', label: 'USD' }
   ]
+
+  const rentPayments = createMemo(() =>
+    paymentLedger().filter((entry) => entry.paymentKind === 'rent')
+  )
+
+  const utilityPayments = createMemo(() =>
+    paymentLedger().filter((entry) => entry.paymentKind === 'utilities')
+  )
 
   const handleAddUtility = async () => {
     const data = initData()
@@ -109,86 +117,129 @@ export default function BillsRoute() {
 
   return (
     <div class="route route--bills">
-      <Switch>
-        <Match when={loading()}>
-          <Card>
-            <Skeleton style={{ width: '100%', height: '24px', 'margin-bottom': '12px' }} />
-            <Skeleton style={{ width: '80%', height: '48px' }} />
-          </Card>
-        </Match>
+      <div class="bills-section">
+        <Switch>
+          <Match when={loading()}>
+            <Card>
+              <Skeleton style={{ width: '100%', height: '24px', 'margin-bottom': '12px' }} />
+              <Skeleton style={{ width: '80%', height: '48px' }} />
+            </Card>
+          </Match>
 
-        <Match when={!dashboard()}>
-          <Card>
-            <p class="empty-state">{copy().emptyDashboard}</p>
-          </Card>
-        </Match>
+          <Match when={!dashboard()}>
+            <Card>
+              <p class="empty-state">{copy().emptyDashboard}</p>
+            </Card>
+          </Match>
 
-        <Match when={dashboard()}>
-          {(data) => (
-            <>
-              {/* Utilities Section */}
-              <Card>
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">{copy().utilityLedgerTitle}</h2>
-                    <p class="card-subtitle">
-                      {copy().currentCycleLabel} · {formatCyclePeriod(data().period, locale())}
-                    </p>
+          <Match when={dashboard()}>
+            {(data) => (
+              <>
+                {/* Utilities Section */}
+                <Card>
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">{copy().utilityLedgerTitle}</h2>
+                      <p class="card-subtitle">
+                        {copy().currentCycleLabel} · {formatCyclePeriod(data().period, locale())}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                {/* Add Utility Form */}
-                <div class="utility-add-form" style={{ 'margin-top': '16px' }}>
-                  <UtilityForm
-                    value={newUtility()}
-                    onChange={setNewUtility}
-                    currencyOptions={currencyOptions()}
-                    labels={{
-                      category: copy().utilityCategoryLabel,
-                      amount: copy().utilityAmount,
-                      currency: copy().currencyLabel
-                    }}
-                    disabled={addingUtility()}
-                  />
-                  <div style={{ 'margin-top': '12px' }}>
-                    <Button
-                      variant="primary"
-                      loading={addingUtility()}
-                      disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
-                      onClick={() => void handleAddUtility()}
-                    >
-                      <Plus size={16} />
-                      {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Current Cycle Utilities List */}
-                <Show
-                  when={utilityLedger().length > 0}
-                  fallback={
-                    <p class="empty-state" style={{ 'margin-top': '16px' }}>
-                      {copy().utilityLedgerEmpty}
-                    </p>
-                  }
-                >
-                  <div class="utility-list" style={{ 'margin-top': '24px' }}>
-                    <h3
-                      style={{
-                        'font-size': '14px',
-                        'font-weight': '600',
-                        'margin-bottom': '12px'
+                  {/* Add Utility Form */}
+                  <div class="utility-add-form" style={{ 'margin-top': '16px' }}>
+                    <UtilityForm
+                      value={newUtility()}
+                      onChange={setNewUtility}
+                      currencyOptions={currencyOptions()}
+                      labels={{
+                        category: copy().utilityCategoryLabel,
+                        amount: copy().utilityAmount,
+                        currency: copy().currencyLabel
                       }}
-                    >
-                      {copy().currentCycleLabel}
-                    </h3>
-                    <div class="editable-list">
-                      <For each={utilityLedger()}>
+                      disabled={addingUtility()}
+                    />
+                    <div style={{ 'margin-top': '12px' }}>
+                      <Button
+                        variant="primary"
+                        loading={addingUtility()}
+                        disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
+                        onClick={() => void handleAddUtility()}
+                      >
+                        <Plus size={16} />
+                        {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Current Cycle Utilities List */}
+                  <Show
+                    when={utilityLedger().length > 0}
+                    fallback={
+                      <p class="empty-state" style={{ 'margin-top': '16px' }}>
+                        {copy().utilityLedgerEmpty}
+                      </p>
+                    }
+                  >
+                    <div class="utility-list" style={{ 'margin-top': '24px' }}>
+                      <h3
+                        style={{
+                          'font-size': '14px',
+                          'font-weight': '600',
+                          'margin-bottom': '12px'
+                        }}
+                      >
+                        {copy().currentCycleLabel}
+                      </h3>
+                      <div class="editable-list">
+                        <For each={utilityLedger()}>
+                          {(entry) => (
+                            <button
+                              class="editable-list-row"
+                              onClick={() => openUtilityEditor(entry)}
+                            >
+                              <div class="editable-list-row__main">
+                                <span class="editable-list-row__title">{entry.title}</span>
+                                <span class="editable-list-row__subtitle">
+                                  {entry.actorDisplayName}
+                                </span>
+                              </div>
+                              <div class="editable-list-row__meta">
+                                <strong>
+                                  {formatMoneyLabel(
+                                    entry.displayAmountMajor,
+                                    entry.displayCurrency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
+                </Card>
+
+                {/* Rent Section */}
+                <Card>
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">{copy().shareRent}</h2>
+                      <p class="card-subtitle">
+                        {copy().currentCycleLabel} · {formatCyclePeriod(data().period, locale())}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Show
+                    when={rentPayments().length > 0}
+                    fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
+                  >
+                    <div class="editable-list" style={{ 'margin-top': '16px' }}>
+                      <For each={rentPayments()}>
                         {(entry) => (
-                          <button
-                            class="editable-list-row"
-                            onClick={() => openUtilityEditor(entry)}
-                          >
+                          <div class="editable-list-row editable-list-row--static">
                             <div class="editable-list-row__main">
                               <span class="editable-list-row__title">{entry.title}</span>
                               <span class="editable-list-row__subtitle">
@@ -204,79 +255,105 @@ export default function BillsRoute() {
                                 )}
                               </strong>
                             </div>
-                          </button>
+                          </div>
                         )}
                       </For>
                     </div>
-                  </div>
-                </Show>
-              </Card>
+                  </Show>
+                </Card>
 
-              {/* Rent Section - Placeholder for now */}
-              <Card>
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">{copy().shareRent}</h2>
-                    <p class="card-subtitle">{copy().currentCycleLabel}</p>
-                  </div>
-                </div>
-                <p class="empty-state">{copy().currentCycleRentLabel}</p>
-              </Card>
-
-              {/* Edit Utility Inline Form */}
-              <Show when={utilityDraft()}>
-                {(draft) => (
+                {/* Utility Payments Section */}
+                <Show when={utilityPayments().length > 0}>
                   <Card>
                     <div class="card-header">
-                      <h2 class="card-title">{copy().editEntryAction}</h2>
-                    </div>
-                    <UtilityForm
-                      value={draft()}
-                      onChange={(value) => setUtilityDraft(value)}
-                      currencyOptions={currencyOptions()}
-                      labels={{
-                        category: copy().utilityCategoryLabel,
-                        amount: copy().utilityAmount,
-                        currency: copy().currencyLabel
-                      }}
-                      disabled={savingUtility() || deletingUtility()}
-                    />
-                    <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
-                      <Button
-                        variant="danger"
-                        loading={deletingUtility()}
-                        onClick={() => void handleDeleteUtility()}
-                      >
-                        {deletingUtility()
-                          ? copy().deletingUtilityBill
-                          : copy().deleteUtilityBillAction}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={closeUtilityEditor}
-                        disabled={savingUtility() || deletingUtility()}
-                      >
-                        {copy().closeEditorAction}
-                      </Button>
-                      <div style={{ 'margin-left': 'auto' }}>
-                        <Button
-                          variant="primary"
-                          loading={savingUtility()}
-                          onClick={() => void handleSaveUtility()}
-                        >
-                          {savingUtility()
-                            ? copy().savingUtilityBill
-                            : copy().saveUtilityBillAction}
-                        </Button>
+                      <div>
+                        <h2 class="card-title">{copy().paymentsTitle}</h2>
+                        <p class="card-subtitle">
+                          {copy().shareUtilities} · {formatCyclePeriod(data().period, locale())}
+                        </p>
                       </div>
                     </div>
+                    <div class="editable-list" style={{ 'margin-top': '16px' }}>
+                      <For each={utilityPayments()}>
+                        {(entry) => (
+                          <div class="editable-list-row editable-list-row--static">
+                            <div class="editable-list-row__main">
+                              <span class="editable-list-row__title">{entry.title}</span>
+                              <span class="editable-list-row__subtitle">
+                                {entry.actorDisplayName}
+                              </span>
+                            </div>
+                            <div class="editable-list-row__meta">
+                              <strong>
+                                {formatMoneyLabel(
+                                  entry.displayAmountMajor,
+                                  entry.displayCurrency,
+                                  locale()
+                                )}
+                              </strong>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
                   </Card>
-                )}
-              </Show>
-            </>
-          )}
-        </Match>
-      </Switch>
+                </Show>
+
+                {/* Edit Utility Inline Form */}
+                <Show when={utilityDraft()}>
+                  {(draft) => (
+                    <Card>
+                      <div class="card-header">
+                        <h2 class="card-title">{copy().editEntryAction}</h2>
+                      </div>
+                      <UtilityForm
+                        value={draft()}
+                        onChange={(value) => setUtilityDraft(value)}
+                        currencyOptions={currencyOptions()}
+                        labels={{
+                          category: copy().utilityCategoryLabel,
+                          amount: copy().utilityAmount,
+                          currency: copy().currencyLabel
+                        }}
+                        disabled={savingUtility() || deletingUtility()}
+                      />
+                      <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
+                        <Button
+                          variant="danger"
+                          loading={deletingUtility()}
+                          onClick={() => void handleDeleteUtility()}
+                        >
+                          {deletingUtility()
+                            ? copy().deletingUtilityBill
+                            : copy().deleteUtilityBillAction}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={closeUtilityEditor}
+                          disabled={savingUtility() || deletingUtility()}
+                        >
+                          {copy().closeEditorAction}
+                        </Button>
+                        <div style={{ 'margin-left': 'auto' }}>
+                          <Button
+                            variant="primary"
+                            loading={savingUtility()}
+                            onClick={() => void handleSaveUtility()}
+                          >
+                            {savingUtility()
+                              ? copy().savingUtilityBill
+                              : copy().saveUtilityBillAction}
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  )}
+                </Show>
+              </>
+            )}
+          </Match>
+        </Switch>
+      </div>
     </div>
   )
 }

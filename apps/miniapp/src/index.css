@@ -206,7 +206,7 @@ a {
 
 .nav-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   max-width: 480px;
   margin: 0 auto;
 }
@@ -1517,6 +1517,12 @@ a {
 /* ── Ledger Route ─────────────────────────────────────── */
 
 .route--ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.route--bills .bills-section {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
