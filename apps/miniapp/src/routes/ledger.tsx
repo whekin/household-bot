@@ -14,6 +14,7 @@ import { Field } from '../components/ui/field'
 import { Collapsible } from '../components/ui/collapsible'
 import { Toggle } from '../components/ui/toggle'
 import { Skeleton } from '../components/ui/skeleton'
+import { UtilityForm, type UtilityFormData } from '../components/utility-form'
 import {
   formatMoneyLabel,
   ledgerSecondaryAmount,
@@ -254,17 +255,13 @@ export default function LedgerRoute() {
   const [editingUtility, setEditingUtility] = createSignal<
     MiniAppDashboard['ledger'][number] | null
   >(null)
-  const [utilityDraft, setUtilityDraft] = createSignal<{
-    billName: string
-    amountMajor: string
-    currency: 'USD' | 'GEL'
-  } | null>(null)
+  const [utilityDraft, setUtilityDraft] = createSignal<UtilityFormData | null>(null)
   const [savingUtility, setSavingUtility] = createSignal(false)
   const [deletingUtility, setDeletingUtility] = createSignal(false)
 
   // ── New utility bill form ────────────────────────
-  const [addUtilityOpen, setAddUtilityOpen] = createSignal(false)
-  const [newUtility, setNewUtility] = createSignal({
+  const [showAddUtility, setShowAddUtility] = createSignal(false)
+  const [newUtility, setNewUtility] = createSignal<UtilityFormData>({
     billName: '',
     amountMajor: '',
     currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
@@ -350,7 +347,7 @@ export default function LedgerRoute() {
     setAddingUtility(true)
     try {
       await addMiniAppUtilityBill(data, draft)
-      setAddUtilityOpen(false)
+      setShowAddUtility(false)
       setNewUtility({
         billName: '',
         amountMajor: '',
@@ -798,7 +795,7 @@ export default function LedgerRoute() {
                 <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
                   <Show when={effectiveIsAdmin()}>
                     <div class="editable-list-actions">
-                      <Button variant="primary" size="sm" onClick={() => setAddUtilityOpen(true)}>
+                      <Button variant="primary" size="sm" onClick={() => setShowAddUtility(true)}>
                         <Plus size={14} />
                         {copy().addUtilityBillAction}
                       </Button>
@@ -1436,116 +1433,91 @@ export default function LedgerRoute() {
         </div>
       </Modal>
 
-      {/* ──────── Add Utility Modal ─────────────────── */}
-      <Modal
-        open={addUtilityOpen()}
-        title={copy().addUtilityBillAction}
-        description={copy().utilityBillCreateBody}
-        closeLabel={copy().closeEditorAction}
-        onClose={() => setAddUtilityOpen(false)}
-        footer={
-          <div class="modal-action-row">
-            <Button variant="ghost" onClick={() => setAddUtilityOpen(false)}>
+      {/* ──────── Add Utility Inline Form ─────────────────── */}
+      <Show when={showAddUtility()}>
+        <Card>
+          <div class="card-header">
+            <h2 class="card-title">{copy().addUtilityBillAction}</h2>
+          </div>
+          <UtilityForm
+            value={newUtility()}
+            onChange={setNewUtility}
+            currencyOptions={currencyOptions()}
+            labels={{
+              category: copy().utilityCategoryLabel,
+              amount: copy().utilityAmount,
+              currency: copy().currencyLabel
+            }}
+            disabled={addingUtility()}
+          />
+          <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
+            <Button
+              variant="ghost"
+              onClick={() => setShowAddUtility(false)}
+              disabled={addingUtility()}
+            >
               {copy().closeEditorAction}
             </Button>
-            <Button
-              variant="primary"
-              loading={addingUtility()}
-              disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
-              onClick={() => void handleAddUtility()}
-            >
-              {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-            </Button>
-          </div>
-        }
-      >
-        <div class="editor-grid">
-          <Field label={copy().utilityCategoryLabel}>
-            <Input
-              value={newUtility().billName}
-              onInput={(e) => setNewUtility((p) => ({ ...p, billName: e.currentTarget.value }))}
-            />
-          </Field>
-          <Field label={copy().utilityAmount}>
-            <Input
-              type="number"
-              value={newUtility().amountMajor}
-              onInput={(e) => setNewUtility((p) => ({ ...p, amountMajor: e.currentTarget.value }))}
-            />
-          </Field>
-          <Field label={copy().currencyLabel}>
-            <Select
-              value={newUtility().currency}
-              ariaLabel={copy().currencyLabel}
-              options={currencyOptions()}
-              onChange={(value) =>
-                setNewUtility((p) => ({ ...p, currency: value as 'USD' | 'GEL' }))
-              }
-            />
-          </Field>
-        </div>
-      </Modal>
-
-      {/* ──────── Edit Utility Modal ────────────────── */}
-      <Modal
-        open={!!editingUtility()}
-        title={copy().editUtilityBillAction}
-        description={copy().utilityBillEditorBody}
-        closeLabel={copy().closeEditorAction}
-        onClose={closeUtilityEditor}
-        footer={
-          <div class="modal-action-row">
-            <Button
-              variant="danger"
-              loading={deletingUtility()}
-              onClick={() => void handleDeleteUtility()}
-            >
-              {deletingUtility() ? copy().deletingUtilityBill : copy().deleteUtilityBillAction}
-            </Button>
-            <Button
-              variant="primary"
-              loading={savingUtility()}
-              onClick={() => void handleSaveUtility()}
-            >
-              {savingUtility() ? copy().savingUtilityBill : copy().saveUtilityBillAction}
-            </Button>
-          </div>
-        }
-      >
-        <Show when={utilityDraft()}>
-          {(draft) => (
-            <div class="editor-grid">
-              <Field label={copy().utilityCategoryLabel}>
-                <Input
-                  value={draft().billName}
-                  onInput={(e) =>
-                    setUtilityDraft((d) => (d ? { ...d, billName: e.currentTarget.value } : d))
-                  }
-                />
-              </Field>
-              <Field label={copy().utilityAmount}>
-                <Input
-                  type="number"
-                  value={draft().amountMajor}
-                  onInput={(e) =>
-                    setUtilityDraft((d) => (d ? { ...d, amountMajor: e.currentTarget.value } : d))
-                  }
-                />
-              </Field>
-              <Field label={copy().currencyLabel}>
-                <Select
-                  value={draft().currency}
-                  ariaLabel={copy().currencyLabel}
-                  options={currencyOptions()}
-                  onChange={(value) =>
-                    setUtilityDraft((d) => (d ? { ...d, currency: value as 'USD' | 'GEL' } : d))
-                  }
-                />
-              </Field>
+            <div style={{ 'margin-left': 'auto' }}>
+              <Button
+                variant="primary"
+                loading={addingUtility()}
+                disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
+                onClick={() => void handleAddUtility()}
+              >
+                {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
+              </Button>
             </div>
-          )}
-        </Show>
-      </Modal>
+          </div>
+        </Card>
+      </Show>
+
+      {/* ──────── Edit Utility Inline Form ────────────────── */}
+      <Show when={editingUtility() && utilityDraft()}>
+        {(draft) => (
+          <Card>
+            <div class="card-header">
+              <h2 class="card-title">{copy().editUtilityBillAction}</h2>
+            </div>
+            <UtilityForm
+              value={draft()}
+              onChange={(value) => setUtilityDraft(value)}
+              currencyOptions={currencyOptions()}
+              labels={{
+                category: copy().utilityCategoryLabel,
+                amount: copy().utilityAmount,
+                currency: copy().currencyLabel
+              }}
+              disabled={savingUtility() || deletingUtility()}
+            />
+            <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
+              <Button
+                variant="danger"
+                loading={deletingUtility()}
+                onClick={() => void handleDeleteUtility()}
+              >
+                {deletingUtility() ? copy().deletingUtilityBill : copy().deleteUtilityBillAction}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={closeUtilityEditor}
+                disabled={savingUtility() || deletingUtility()}
+              >
+                {copy().closeEditorAction}
+              </Button>
+              <div style={{ 'margin-left': 'auto' }}>
+                <Button
+                  variant="primary"
+                  loading={savingUtility()}
+                  onClick={() => void handleSaveUtility()}
+                >
+                  {savingUtility() ? copy().savingUtilityBill : copy().saveUtilityBillAction}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+      </Show>
 
       {/* ──────── Edit Payment Modal ────────────────── */}
       <Modal

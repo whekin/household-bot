@@ -486,6 +486,89 @@ export function createFinanceCommandsService(options: {
         await ctx.reply(t.statementFailed((error as Error).message))
       }
     })
+
+    bot.command('utilities', async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const threadId =
+        ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
+          ? ctx.msg.message_thread_id.toString()
+          : null
+
+      if (!threadId) {
+        await ctx.reply('This command must be used in a topic.')
+        return
+      }
+
+      const binding =
+        await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+          telegramChatId: ctx.chat.id.toString(),
+          telegramThreadId: threadId
+        })
+
+      if (!binding) {
+        await ctx.reply('This chat is not linked to a household.')
+        return
+      }
+
+      const telegramUserId = ctx.from?.id?.toString()
+      if (!telegramUserId) {
+        return
+      }
+
+      const financeService = options.financeServiceForHousehold(binding.householdId)
+      const [locale, member, settings, categories, _cycle] = await Promise.all([
+        resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId: binding.householdId
+        }),
+        financeService.getMemberByTelegramUserId(telegramUserId),
+        options.householdConfigurationRepository.getHouseholdBillingSettings(binding.householdId),
+        options.householdConfigurationRepository.listHouseholdUtilityCategories(
+          binding.householdId
+        ),
+        financeService.ensureExpectedCycle()
+      ])
+
+      if (!member) {
+        await ctx.reply('You are not a member of this household.')
+        return
+      }
+
+      const t = getBotTranslations(locale).reminders
+      const activeCategories = categories
+        .filter((category) => category.isActive)
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((category) => category.name)
+
+      if (activeCategories.length === 0) {
+        await ctx.reply(t.noActiveCategories)
+        return
+      }
+
+      const templateLines = activeCategories.map((category) => `${category}: 0.00`).join('\n')
+
+      const message = [
+        t.templateIntro(settings.settlementCurrency),
+        '',
+        `<pre>${templateLines
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')}</pre>`,
+        '',
+        t.templateInstruction
+      ].join('\n')
+
+      await ctx.reply(message, {
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.msg?.message_id ?? 0
+        }
+      })
+    })
   }
 
   return {

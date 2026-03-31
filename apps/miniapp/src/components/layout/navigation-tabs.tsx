@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from '@solidjs/router'
-import { Home, Wallet, BookOpen } from 'lucide-solid'
+import { Home, Wallet, Receipt, BookOpen } from 'lucide-solid'
 import { type JSX } from 'solid-js'
 
 import { useI18n } from '../../contexts/i18n-context'
@@ -11,8 +11,7 @@ type TabItem = {
 }
 
 /**
- * Bottom navigation bar with 3 tabs (Bug #6 fix: reduced to 3 tabs,
- * settings moved to top bar gear icon).
+ * Bottom navigation bar with 4 tabs.
  */
 export function NavigationTabs(): JSX.Element {
   const navigate = useNavigate()
@@ -22,6 +21,7 @@ export function NavigationTabs(): JSX.Element {
   const tabs = (): TabItem[] => [
     { path: '/', label: copy().home, icon: <Home size={20} /> },
     { path: '/balances', label: copy().balances, icon: <Wallet size={20} /> },
+    { path: '/bills', label: 'Bills', icon: <Receipt size={20} /> },
     { path: '/ledger', label: copy().ledger, icon: <BookOpen size={20} /> }
   ]
 

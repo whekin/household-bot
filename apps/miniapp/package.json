@@ -10,6 +10,7 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
+    "@household/domain": "workspace:*",
     "@kobalte/core": "0.13.11",
     "@solidjs/router": "0.15.4",
     "@tanstack/solid-query": "5.90.23",
