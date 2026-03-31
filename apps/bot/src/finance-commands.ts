@@ -5,6 +5,7 @@ import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import { buildTemplateText } from './reminder-topic-utilities'
 
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -492,13 +493,19 @@ export function createFinanceCommandsService(options: {
         return
       }
 
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const tf = getBotTranslations(locale).finance
+
       const threadId =
         ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
           ? ctx.msg.message_thread_id.toString()
           : null
 
       if (!threadId) {
-        await ctx.reply('This command must be used in a topic.')
+        await ctx.reply(tf.utilitiesTopicRequired)
         return
       }
 
@@ -509,7 +516,7 @@ export function createFinanceCommandsService(options: {
         })
 
       if (!binding) {
-        await ctx.reply('This chat is not linked to a household.')
+        await ctx.reply(tf.utilitiesNotLinked)
         return
       }
 
@@ -519,7 +526,7 @@ export function createFinanceCommandsService(options: {
       }
 
       const financeService = options.financeServiceForHousehold(binding.householdId)
-      const [locale, member, settings, categories, _cycle] = await Promise.all([
+      const [householdLocale, member, settings, categories, _cycle] = await Promise.all([
         resolveReplyLocale({
           ctx,
           repository: options.householdConfigurationRepository,
@@ -534,36 +541,29 @@ export function createFinanceCommandsService(options: {
       ])
 
       if (!member) {
-        await ctx.reply('You are not a member of this household.')
+        await ctx.reply(getBotTranslations(householdLocale).finance.notMember)
         return
       }
 
-      const t = getBotTranslations(locale).reminders
+      const tr = getBotTranslations(householdLocale).reminders
       const activeCategories = categories
         .filter((category) => category.isActive)
         .sort((left, right) => left.sortOrder - right.sortOrder)
         .map((category) => category.name)
 
       if (activeCategories.length === 0) {
-        await ctx.reply(t.noActiveCategories)
+        await ctx.reply(tr.noActiveCategories)
         return
       }
 
-      const templateLines = activeCategories.map((category) => `${category}: 0.00`).join('\n')
+      const { text, parseMode } = buildTemplateText(
+        householdLocale,
+        settings.settlementCurrency,
+        activeCategories
+      )
 
-      const message = [
-        t.templateIntro(settings.settlementCurrency),
-        '',
-        `<pre>${templateLines
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')}</pre>`,
-        '',
-        t.templateInstruction
-      ].join('\n')
-
-      await ctx.reply(message, {
-        parse_mode: 'HTML',
+      await ctx.reply(text, {
+        parse_mode: parseMode,
         reply_parameters: {
           message_id: ctx.msg?.message_id ?? 0
         }

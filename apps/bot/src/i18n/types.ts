@@ -233,6 +233,8 @@ export interface BotTranslationCatalog {
     statementLine: (displayName: string, amount: string, currency: string) => string
     statementTotal: (amount: string, currency: string) => string
     statementFailed: (message: string) => string
+    utilitiesTopicRequired: string
+    utilitiesNotLinked: string
   }
   reminders: {
     utilities: (period: string) => string

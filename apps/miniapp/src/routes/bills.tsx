@@ -17,18 +17,15 @@ import {
   type MiniAppDashboard
 } from '../miniapp-api'
 
+const EMPTY_UTILITY: UtilityFormData = { billName: '', amountMajor: '', currency: 'GEL' }
+
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
   const { initData, refreshHouseholdData } = useSession()
-  const { dashboard, loading, utilityLedger, paymentLedger } = useDashboard()
+  const { dashboard, loading, effectiveIsAdmin, utilityLedger, paymentLedger } = useDashboard()
 
-  const [newUtility, setNewUtility] = createSignal<UtilityFormData>({
-    billName: '',
-    amountMajor: '',
-    currency: 'GEL'
-  })
-
-  const [editingUtility, setEditingUtility] = createSignal<string | null>(null)
+  const [newUtility, setNewUtility] = createSignal<UtilityFormData>(EMPTY_UTILITY)
+  const [editingUtilityId, setEditingUtilityId] = createSignal<string | null>(null)
   const [utilityDraft, setUtilityDraft] = createSignal<UtilityFormData | null>(null)
 
   const [addingUtility, setAddingUtility] = createSignal(false)
@@ -48,6 +45,12 @@ export default function BillsRoute() {
     paymentLedger().filter((entry) => entry.paymentKind === 'utilities')
   )
 
+  const utilityFormLabels = () => ({
+    category: copy().utilityCategoryLabel,
+    amount: copy().utilityAmount,
+    currency: copy().currencyLabel
+  })
+
   const handleAddUtility = async () => {
     const data = initData()
     const draft = newUtility()
@@ -57,8 +60,7 @@ export default function BillsRoute() {
     try {
       await addMiniAppUtilityBill(data, draft)
       setNewUtility({
-        billName: '',
-        amountMajor: '',
+        ...EMPTY_UTILITY,
         currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
       })
       await refreshHouseholdData(true, true)
@@ -68,7 +70,7 @@ export default function BillsRoute() {
   }
 
   const openUtilityEditor = (entry: MiniAppDashboard['ledger'][number]) => {
-    setEditingUtility(entry.id)
+    setEditingUtilityId(entry.id)
     setUtilityDraft({
       billName: entry.title,
       amountMajor: entry.amountMajor,
@@ -77,22 +79,19 @@ export default function BillsRoute() {
   }
 
   const closeUtilityEditor = () => {
-    setEditingUtility(null)
+    setEditingUtilityId(null)
     setUtilityDraft(null)
   }
 
   const handleSaveUtility = async () => {
     const data = initData()
-    const utilityId = editingUtility()
+    const utilityId = editingUtilityId()
     const draft = utilityDraft()
     if (!data || !utilityId || !draft) return
 
     setSavingUtility(true)
     try {
-      await updateMiniAppUtilityBill(data, {
-        billId: utilityId,
-        ...draft
-      })
+      await updateMiniAppUtilityBill(data, { billId: utilityId, ...draft })
       closeUtilityEditor()
       await refreshHouseholdData(true, true)
     } finally {
@@ -102,7 +101,7 @@ export default function BillsRoute() {
 
   const handleDeleteUtility = async () => {
     const data = initData()
-    const utilityId = editingUtility()
+    const utilityId = editingUtilityId()
     if (!data || !utilityId) return
 
     setDeletingUtility(true)
@@ -146,74 +145,85 @@ export default function BillsRoute() {
                     </div>
                   </div>
 
-                  {/* Add Utility Form */}
-                  <div class="utility-add-form" style={{ 'margin-top': '16px' }}>
-                    <UtilityForm
-                      value={newUtility()}
-                      onChange={setNewUtility}
-                      currencyOptions={currencyOptions()}
-                      labels={{
-                        category: copy().utilityCategoryLabel,
-                        amount: copy().utilityAmount,
-                        currency: copy().currencyLabel
-                      }}
-                      disabled={addingUtility()}
-                    />
-                    <div style={{ 'margin-top': '12px' }}>
-                      <Button
-                        variant="primary"
-                        loading={addingUtility()}
-                        disabled={!newUtility().billName.trim() || !newUtility().amountMajor.trim()}
-                        onClick={() => void handleAddUtility()}
-                      >
-                        <Plus size={16} />
-                        {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-                      </Button>
+                  {/* Add Utility Form — admin only */}
+                  <Show when={effectiveIsAdmin()}>
+                    <div class="bills-add-form">
+                      <UtilityForm
+                        value={newUtility()}
+                        onChange={setNewUtility}
+                        currencyOptions={currencyOptions()}
+                        labels={utilityFormLabels()}
+                        disabled={addingUtility()}
+                      />
+                      <div class="bills-add-form__actions">
+                        <Button
+                          variant="primary"
+                          loading={addingUtility()}
+                          disabled={
+                            !newUtility().billName.trim() || !newUtility().amountMajor.trim()
+                          }
+                          onClick={() => void handleAddUtility()}
+                        >
+                          <Plus size={16} />
+                          {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  </Show>
 
                   {/* Current Cycle Utilities List */}
                   <Show
                     when={utilityLedger().length > 0}
-                    fallback={
-                      <p class="empty-state" style={{ 'margin-top': '16px' }}>
-                        {copy().utilityLedgerEmpty}
-                      </p>
-                    }
+                    fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
                   >
-                    <div class="utility-list" style={{ 'margin-top': '24px' }}>
-                      <h3
-                        style={{
-                          'font-size': '14px',
-                          'font-weight': '600',
-                          'margin-bottom': '12px'
-                        }}
-                      >
-                        {copy().currentCycleLabel}
-                      </h3>
+                    <div class="bills-list">
+                      <p class="bills-list__title">{copy().currentCycleLabel}</p>
                       <div class="editable-list">
                         <For each={utilityLedger()}>
                           {(entry) => (
-                            <button
-                              class="editable-list-row"
-                              onClick={() => openUtilityEditor(entry)}
+                            <Show
+                              when={effectiveIsAdmin()}
+                              fallback={
+                                <div class="editable-list-row editable-list-row--static">
+                                  <div class="editable-list-row__main">
+                                    <span class="editable-list-row__title">{entry.title}</span>
+                                    <span class="editable-list-row__subtitle">
+                                      {entry.actorDisplayName}
+                                    </span>
+                                  </div>
+                                  <div class="editable-list-row__meta">
+                                    <strong>
+                                      {formatMoneyLabel(
+                                        entry.displayAmountMajor,
+                                        entry.displayCurrency,
+                                        locale()
+                                      )}
+                                    </strong>
+                                  </div>
+                                </div>
+                              }
                             >
-                              <div class="editable-list-row__main">
-                                <span class="editable-list-row__title">{entry.title}</span>
-                                <span class="editable-list-row__subtitle">
-                                  {entry.actorDisplayName}
-                                </span>
-                              </div>
-                              <div class="editable-list-row__meta">
-                                <strong>
-                                  {formatMoneyLabel(
-                                    entry.displayAmountMajor,
-                                    entry.displayCurrency,
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                            </button>
+                              <button
+                                class="editable-list-row"
+                                onClick={() => openUtilityEditor(entry)}
+                              >
+                                <div class="editable-list-row__main">
+                                  <span class="editable-list-row__title">{entry.title}</span>
+                                  <span class="editable-list-row__subtitle">
+                                    {entry.actorDisplayName}
+                                  </span>
+                                </div>
+                                <div class="editable-list-row__meta">
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      entry.displayAmountMajor,
+                                      entry.displayCurrency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                              </button>
+                            </Show>
                           )}
                         </For>
                       </div>
@@ -221,7 +231,7 @@ export default function BillsRoute() {
                   </Show>
                 </Card>
 
-                {/* Rent Section */}
+                {/* Rent Payments Section */}
                 <Card>
                   <div class="card-header">
                     <div>
@@ -231,12 +241,11 @@ export default function BillsRoute() {
                       </p>
                     </div>
                   </div>
-
                   <Show
                     when={rentPayments().length > 0}
                     fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
                   >
-                    <div class="editable-list" style={{ 'margin-top': '16px' }}>
+                    <div class="editable-list" style={{ 'margin-top': 'var(--spacing-md)' }}>
                       <For each={rentPayments()}>
                         {(entry) => (
                           <div class="editable-list-row editable-list-row--static">
@@ -273,7 +282,7 @@ export default function BillsRoute() {
                         </p>
                       </div>
                     </div>
-                    <div class="editable-list" style={{ 'margin-top': '16px' }}>
+                    <div class="editable-list" style={{ 'margin-top': 'var(--spacing-md)' }}>
                       <For each={utilityPayments()}>
                         {(entry) => (
                           <div class="editable-list-row editable-list-row--static">
@@ -299,7 +308,7 @@ export default function BillsRoute() {
                   </Card>
                 </Show>
 
-                {/* Edit Utility Inline Form */}
+                {/* Edit Utility Inline Form — admin only */}
                 <Show when={utilityDraft()}>
                   {(draft) => (
                     <Card>
@@ -308,16 +317,12 @@ export default function BillsRoute() {
                       </div>
                       <UtilityForm
                         value={draft()}
-                        onChange={(value) => setUtilityDraft(value)}
+                        onChange={setUtilityDraft}
                         currencyOptions={currencyOptions()}
-                        labels={{
-                          category: copy().utilityCategoryLabel,
-                          amount: copy().utilityAmount,
-                          currency: copy().currencyLabel
-                        }}
+                        labels={utilityFormLabels()}
                         disabled={savingUtility() || deletingUtility()}
                       />
-                      <div style={{ display: 'flex', gap: '12px', 'margin-top': '16px' }}>
+                      <div class="bills-editor-actions">
                         <Button
                           variant="danger"
                           loading={deletingUtility()}
@@ -334,7 +339,7 @@ export default function BillsRoute() {
                         >
                           {copy().closeEditorAction}
                         </Button>
-                        <div style={{ 'margin-left': 'auto' }}>
+                        <div class="bills-editor-actions__save">
                           <Button
                             variant="primary"
                             loading={savingUtility()}

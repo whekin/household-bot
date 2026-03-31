@@ -29,7 +29,7 @@ export function UtilityForm(props: UtilityFormProps) {
           value={props.value.billName}
           ariaLabel={props.labels.category}
           placeholder={props.labels.category}
-          {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
+          disabled={props.disabled}
           onChange={(value) => props.onChange({ ...props.value, billName: value })}
         />
       </Field>
@@ -37,7 +37,7 @@ export function UtilityForm(props: UtilityFormProps) {
         <Input
           type="number"
           value={props.value.amountMajor}
-          {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
+          disabled={props.disabled}
           onInput={(e) => props.onChange({ ...props.value, amountMajor: e.currentTarget.value })}
         />
       </Field>
@@ -46,7 +46,7 @@ export function UtilityForm(props: UtilityFormProps) {
           value={props.value.currency}
           ariaLabel={props.labels.currency}
           options={props.currencyOptions}
-          {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
+          disabled={props.disabled}
           onChange={(value) => props.onChange({ ...props.value, currency: value as 'USD' | 'GEL' })}
         />
       </Field>

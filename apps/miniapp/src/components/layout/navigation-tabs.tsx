@@ -21,7 +21,7 @@ export function NavigationTabs(): JSX.Element {
   const tabs = (): TabItem[] => [
     { path: '/', label: copy().home, icon: <Home size={20} /> },
     { path: '/balances', label: copy().balances, icon: <Wallet size={20} /> },
-    { path: '/bills', label: 'Bills', icon: <Receipt size={20} /> },
+    { path: '/bills', label: copy().bills, icon: <Receipt size={20} /> },
     { path: '/ledger', label: copy().ledger, icon: <BookOpen size={20} /> }
   ]
 
