@@ -329,7 +329,9 @@ describe('createMiniAppPendingMembersHandler', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      miniAppAdminService: createMiniAppAdminService(repository)
+      miniAppAdminService: createMiniAppAdminService(repository, undefined, {
+        resolveEffectiveFromPeriod: async () => '2026-03'
+      })
     })
 
     const response = await handler.handler(
@@ -1107,7 +1109,9 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      miniAppAdminService: createMiniAppAdminService(repository)
+      miniAppAdminService: createMiniAppAdminService(repository, undefined, {
+        resolveEffectiveFromPeriod: async () => '2026-03'
+      })
     })
 
     const response = await handler.handler(

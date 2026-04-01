@@ -172,7 +172,14 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const miniAppAdminService = householdConfigurationRepositoryClient
     ? createMiniAppAdminService(
         householdConfigurationRepositoryClient.repository,
-        scheduledDispatchService ?? undefined
+        scheduledDispatchService ?? undefined,
+        {
+          resolveEffectiveFromPeriod: async (householdId) => {
+            const repository = financeRepositoryForHousehold(householdId).repository
+            const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
+            return cycle?.period ?? null
+          }
+        }
       )
     : null
   const localePreferenceService = householdConfigurationRepositoryClient

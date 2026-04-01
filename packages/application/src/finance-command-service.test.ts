@@ -592,11 +592,11 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.rentSourceAmount.toMajorString()).toBe('700.00')
     expect(dashboard?.rentDisplayAmount.toMajorString()).toBe('1890.00')
     expect(dashboard?.members.map((line) => line.netDue.amountMinor)).toEqual([99000n, 102000n])
-    expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['Soap', 'Electricity', 'rent'])
-    expect(dashboard?.ledger.map((entry) => entry.kind)).toEqual(['purchase', 'utility', 'payment'])
+    expect(dashboard?.ledger.map((entry) => entry.title)).toEqual(['rent', 'Electricity', 'Soap'])
+    expect(dashboard?.ledger.map((entry) => entry.kind)).toEqual(['payment', 'utility', 'purchase'])
     expect(dashboard?.ledger.map((entry) => entry.currency)).toEqual(['GEL', 'GEL', 'GEL'])
     expect(dashboard?.ledger.map((entry) => entry.displayCurrency)).toEqual(['GEL', 'GEL', 'GEL'])
-    expect(dashboard?.ledger.map((entry) => entry.paymentKind)).toEqual([null, null, 'rent'])
+    expect(dashboard?.ledger.map((entry) => entry.paymentKind)).toEqual(['rent', null, null])
     expect(statement).toBe(
       [
         'Statement for 2026-03',

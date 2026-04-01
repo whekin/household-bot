@@ -11,7 +11,7 @@ import type {
   HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
-import { Money, Temporal, type CurrencyCode } from '@household/domain'
+import { BillingPeriod, Money, Temporal, type CurrencyCode } from '@household/domain'
 import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
@@ -272,6 +272,12 @@ function periodFromLocalDate(localDate: Temporal.PlainDate): string {
   return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
 }
 
+function expectedOpenCyclePeriod(settings: { rentDueDay: number; timezone: string }): string {
+  const localDate = localDateInTimezone(settings.timezone)
+  const currentPeriod = BillingPeriod.fromString(periodFromLocalDate(localDate))
+  return (localDate.day > settings.rentDueDay ? currentPeriod.next() : currentPeriod).toString()
+}
+
 function normalizeDisplayName(raw: string): string | null {
   const trimmed = raw.trim()
 
@@ -341,7 +347,10 @@ function normalizeAssistantText(
 
 export function createMiniAppAdminService(
   repository: HouseholdConfigurationRepository,
-  scheduledDispatchService?: ScheduledDispatchService
+  scheduledDispatchService?: ScheduledDispatchService,
+  options?: {
+    resolveEffectiveFromPeriod?: (householdId: string) => Promise<string | null>
+  }
 ): MiniAppAdminService {
   return {
     async getSettings(input) {
@@ -852,7 +861,9 @@ export function createMiniAppAdminService(
         }
       }
 
-      const effectiveFromPeriod = periodFromLocalDate(localDateInTimezone(settings.timezone))
+      const effectiveFromPeriod =
+        (await options?.resolveEffectiveFromPeriod?.(input.householdId)) ??
+        expectedOpenCyclePeriod(settings)
       const policy = await repository.upsertHouseholdMemberAbsencePolicy({
         householdId: input.householdId,
         memberId: input.memberId,

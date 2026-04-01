@@ -393,8 +393,10 @@ describe('createMiniAppAdminService', () => {
     })
   })
 
-  test('stores an away absence policy from the current local period', async () => {
-    const service = createMiniAppAdminService(repository())
+  test('stores an away absence policy from the effective billing period', async () => {
+    const service = createMiniAppAdminService(repository(), undefined, {
+      resolveEffectiveFromPeriod: async () => '2026-03'
+    })
 
     const result = await service.updateMemberAbsencePolicy({
       householdId: 'household-1',
