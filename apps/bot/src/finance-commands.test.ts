@@ -419,6 +419,7 @@ function createFinanceService(): FinanceCommandService {
     recordUtilityReimbursement: async () => null,
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => createDashboard(),
+    generateBillingAuditExport: async () => null,
     generateStatement: async () => null
   }
 }
@@ -937,5 +938,200 @@ describe('createFinanceCommandsService', () => {
     expect(payload?.text).toContain('- Cleaning: 2.50 ₾')
     expect(payload?.text).toContain('- Electricity: 83.09 ₾')
     expect(addedUtilityBills).toEqual([])
+  })
+
+  test('exports billing audit json as a document for admins', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateBillingAuditExport: async () => ({
+        meta: {
+          exportVersion: 'billing-audit/v1',
+          exportedAt: '2026-04-02T12:00:00.000Z',
+          period: '2026-04',
+          billingStage: 'utilities',
+          adjustmentPolicy: 'utilities',
+          householdId: 'household-1',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi'
+        },
+        descriptions: {
+          sections: {
+            meta: 'Meta',
+            settings: 'Settings',
+            rawInputs: 'Raw inputs',
+            derived: 'Derived',
+            utilityPlan: 'Plan',
+            rentState: 'Rent',
+            dashboard: 'Dashboard'
+          },
+          adjustmentPolicies: {
+            utilities: 'Utilities mode',
+            rent: 'Rent mode',
+            separate: 'Manual mode'
+          },
+          derivedFields: {
+            purchaseOffset: 'offset',
+            rawUtilityFairShare: 'share',
+            adjustedUtilityTarget: 'adjusted utility',
+            rawRentShare: 'rent share',
+            adjustedRentTarget: 'adjusted rent',
+            assignedThisCycle: 'assigned',
+            projectedDeltaAfterPlan: 'delta',
+            remaining: 'remaining'
+          }
+        },
+        household: {
+          householdId: 'household-1'
+        },
+        settings: {
+          settlementCurrency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentDueDay: 20,
+          rentWarningDay: 17,
+          utilitiesDueDay: 4,
+          utilitiesReminderDay: 3,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentAmount: {
+            amountMinor: '241500',
+            amountMajor: '2415.00',
+            currency: 'GEL',
+            display: '2415.00 ₾'
+          },
+          rentPaymentDestinations: null,
+          utilityCategories: []
+        },
+        cycle: {
+          openCycle: {
+            id: 'cycle-1',
+            period: '2026-04',
+            currency: 'GEL'
+          },
+          selectedCycle: {
+            id: 'cycle-1',
+            period: '2026-04',
+            currency: 'GEL'
+          },
+          rentRule: null,
+          rentFx: {
+            sourceAmount: {
+              amountMinor: '70000',
+              amountMajor: '700.00',
+              currency: 'USD',
+              display: '$700.00'
+            },
+            settlementAmount: {
+              amountMinor: '241500',
+              amountMajor: '2415.00',
+              currency: 'GEL',
+              display: '2415.00 ₾'
+            },
+            rateMicros: '3450000',
+            effectiveDate: '2026-04-01'
+          }
+        },
+        members: [],
+        absencePolicies: [],
+        rawInputs: {
+          utilityBills: [],
+          parsedPurchases: [],
+          paymentRecords: [],
+          utilityVendorPaymentFacts: [],
+          utilityReimbursementFacts: [],
+          utilityPlanVersions: [],
+          settlementSnapshotLines: []
+        },
+        derived: {
+          totals: {
+            totalDue: {
+              amountMinor: '0',
+              amountMajor: '0.00',
+              currency: 'GEL',
+              display: '0.00 ₾'
+            },
+            totalPaid: {
+              amountMinor: '0',
+              amountMajor: '0.00',
+              currency: 'GEL',
+              display: '0.00 ₾'
+            },
+            totalRemaining: {
+              amountMinor: '0',
+              amountMajor: '0.00',
+              currency: 'GEL',
+              display: '0.00 ₾'
+            }
+          },
+          members: [],
+          paymentPeriods: []
+        },
+        utilityPlan: {
+          explanation: 'Utility explanation',
+          plan: null
+        },
+        rentState: {
+          explanation: 'Rent explanation',
+          state: {
+            dueDate: '2026-04-20',
+            memberSummaries: [],
+            paymentDestinations: null
+          }
+        },
+        dashboard: {
+          snapshot: {
+            period: '2026-04'
+          }
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          document: {
+            file_id: 'doc-1',
+            file_unique_id: 'doc-unique',
+            file_name: 'billing-audit-2026-04.json',
+            file_size: 1024
+          }
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill_json', 'ru') as never)
+
+    const call = calls[0]
+    expect(call?.method).toBe('sendDocument')
+    const payload = call?.payload as { caption?: string; document?: { filename?: string } }
+    expect(payload?.caption).toContain('Аудит расчётов')
+    expect(payload?.document).toBeTruthy()
   })
 })

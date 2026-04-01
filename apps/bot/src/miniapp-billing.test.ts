@@ -264,6 +264,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
     }),
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => null,
+    generateBillingAuditExport: async () => null,
     generateStatement: async () => null
   }
 }

@@ -425,6 +425,7 @@ function createFinanceService(): FinanceCommandService {
         }
       ]
     }),
+    generateBillingAuditExport: async () => null,
     generateStatement: async () => null
   }
 }

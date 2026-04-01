@@ -14,7 +14,11 @@ export {
   type AnonymousFeedbackService,
   type AnonymousFeedbackSubmitResult
 } from './anonymous-feedback-service'
-export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
+export {
+  createFinanceCommandService,
+  type FinanceBillingAuditExport,
+  type FinanceCommandService
+} from './finance-command-service'
 export {
   computeUtilityBillingPlan,
   materializeUtilityBillingPlanRecord,

@@ -58,6 +58,17 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string | null
     createdAt: Instant
   }[] = []
+  utilityCategories: readonly {
+    id: string
+    slug: string
+    name: string
+    sortOrder: number
+    isActive: boolean
+    providerName?: string | null
+    customerNumber?: string | null
+    paymentLink?: string | null
+    note?: string | null
+  }[] = []
   utilityBillingPlans: Array<Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]> = []
   billingSettingsOverride: Partial<
     Awaited<ReturnType<HouseholdConfigurationRepository['getHouseholdBillingSettings']>>
@@ -479,7 +490,10 @@ class FinanceRepositoryStub implements FinanceRepository {
 
 const householdConfigurationRepository: Pick<
   HouseholdConfigurationRepository,
-  'getHouseholdBillingSettings' | 'listHouseholdMembers' | 'listHouseholdMemberAbsencePolicies'
+  | 'getHouseholdBillingSettings'
+  | 'listHouseholdMembers'
+  | 'listHouseholdMemberAbsencePolicies'
+  | 'listHouseholdUtilityCategories'
 > = {
   async getHouseholdBillingSettings(householdId) {
     const repository = financeRepositoryForHousehold(householdId)
@@ -521,6 +535,20 @@ const householdConfigurationRepository: Pick<
       memberId: policy.memberId,
       effectiveFromPeriod: policy.effectiveFromPeriod,
       policy: policy.policy
+    }))
+  },
+  async listHouseholdUtilityCategories(householdId) {
+    return financeRepositoryForHousehold(householdId).utilityCategories.map((category) => ({
+      householdId,
+      id: category.id,
+      slug: category.slug,
+      name: category.name,
+      sortOrder: category.sortOrder,
+      isActive: category.isActive,
+      providerName: category.providerName ?? null,
+      customerNumber: category.customerNumber ?? null,
+      paymentLink: category.paymentLink ?? null,
+      note: category.note ?? null
     }))
   }
 }
@@ -1732,6 +1760,92 @@ describe('createFinanceCommandService', () => {
         .find((kind) => kind.kind === 'utilities')
         ?.unresolvedMembers.map((member) => member.baseDue.amountMinor)
     ).toEqual([5000n, 5000n])
+  })
+
+  test('generateBillingAuditExport returns json-safe audit data with descriptions', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'rent'
+    }
+    repository.utilityCategories = [
+      {
+        id: 'cat-1',
+        slug: 'gas',
+        name: 'Gas',
+        sortOrder: 1,
+        isActive: true,
+        providerName: 'Tbilisi Gas',
+        customerNumber: 'ACC-1'
+      }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const audit = await service.generateBillingAuditExport('2026-03')
+
+    expect(audit?.meta.adjustmentPolicy).toBe('rent')
+    expect(audit?.descriptions.adjustmentPolicies.separate).toContain('Manual mode')
+    expect(audit?.settings.utilityCategories[0]).toEqual(
+      expect.objectContaining({
+        name: 'Gas',
+        providerName: 'Tbilisi Gas',
+        customerNumber: 'ACC-1'
+      })
+    )
+    expect(audit?.rawInputs.utilityBills[0]?.amount).toEqual(
+      expect.objectContaining({
+        amountMinor: '10000',
+        amountMajor: '100.00',
+        currency: 'GEL',
+        display: '100.00 ₾'
+      })
+    )
+    expect(audit?.utilityPlan.explanation).toContain('deferred to rent')
+    expect(audit?.dashboard.snapshot).toEqual(
+      expect.objectContaining({
+        period: '2026-03',
+        rentSourceAmount: expect.objectContaining({
+          currency: 'USD'
+        })
+      })
+    )
+    expect(() => JSON.stringify(audit)).not.toThrow()
   })
 
   test('recordUtilityVendorPayment marks the previous plan diverged and rebalances the remainder', async () => {

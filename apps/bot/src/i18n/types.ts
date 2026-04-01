@@ -3,6 +3,7 @@ export type BotLocale = 'en' | 'ru'
 export type TelegramCommandName =
   | 'help'
   | 'bill'
+  | 'bill_json'
   | 'household_status'
   | 'utilities'
   | 'anon'
@@ -21,6 +22,7 @@ export type TelegramCommandName =
 export interface BotCommandDescriptions {
   help: string
   bill: string
+  bill_json: string
   household_status: string
   utilities: string
   anon: string

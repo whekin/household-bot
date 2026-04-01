@@ -6,6 +6,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
   commands: {
     help: 'Показать список команд',
     bill: 'Показать текущий платежный план',
+    bill_json: 'Выгрузить расчёты по платежам в JSON',
     household_status: 'Показать текущий статус дома',
     utilities: 'Показать шаблон для ввода коммуналки в этом топике',
     anon: 'Отправить анонимное сообщение по дому',

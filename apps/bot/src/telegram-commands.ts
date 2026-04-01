@@ -24,6 +24,7 @@ const DEFAULT_COMMAND_NAMES = [
 ] as const satisfies readonly TelegramCommandName[]
 const PRIVATE_CHAT_COMMAND_NAMES = [
   ...DEFAULT_COMMAND_NAMES,
+  'bill_json',
   'anon',
   'cancel',
   'app',
@@ -37,6 +38,7 @@ const GROUP_MEMBER_COMMAND_NAMES = [
 ] as const satisfies readonly TelegramCommandName[]
 const GROUP_ADMIN_COMMAND_NAMES = [
   ...GROUP_MEMBER_COMMAND_NAMES,
+  'bill_json',
   'setup',
   'unsetup',
   'bind',

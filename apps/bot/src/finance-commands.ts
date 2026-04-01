@@ -4,7 +4,7 @@ import type {
   HouseholdConfigurationRepository,
   TelegramPendingActionRepository
 } from '@household/ports'
-import type { Bot, Context } from 'grammy'
+import { InputFile, type Bot, type Context } from 'grammy'
 
 import { getBotTranslations } from './i18n'
 import { formatUserFacingMoney } from './i18n/money'
@@ -17,6 +17,7 @@ import {
 
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
+const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
 const BILL_SHOW_PENDING_ACTION = 'bill_command'
 const BILL_PENDING_ACTION_TTL_MS = 1000 * 60 * 60
 
@@ -651,6 +652,45 @@ export function createFinanceCommandsService(options: {
     )
   }
 
+  async function replyWithBillingAuditExport(input: {
+    ctx: Context
+    service: FinanceCommandService
+    householdId: string
+    householdName?: string | null
+    requesterMemberId: string
+    requesterDisplayName: string
+    periodArg?: string
+  }) {
+    const locale = await resolveReplyLocale({
+      ctx: input.ctx,
+      repository: options.householdConfigurationRepository,
+      householdId: input.householdId
+    })
+    const audit = await input.service.generateBillingAuditExport(input.periodArg)
+    if (!audit) {
+      await input.ctx.reply(getBotTranslations(locale).finance.noStatementCycle)
+      return
+    }
+
+    const payload = {
+      ...audit,
+      household: {
+        ...audit.household,
+        householdName: input.householdName ?? null,
+        requesterMemberId: input.requesterMemberId,
+        requesterDisplayName: input.requesterDisplayName
+      }
+    }
+    const json = `${JSON.stringify(payload, null, 2)}\n`
+    const fileName = `billing-audit-${audit.meta.period}.json`
+    await input.ctx.replyWithDocument(new InputFile(Buffer.from(json, 'utf8'), fileName), {
+      caption:
+        locale === 'ru'
+          ? `Аудит расчётов за ${formatBillingPeriodLabel(locale, audit.meta.period)}`
+          : `Billing audit for ${formatBillingPeriodLabel(locale, audit.meta.period)}`
+    })
+  }
+
   function register(bot: Bot): void {
     bot.command('bill', async (ctx) => {
       const locale = await resolveReplyLocale({
@@ -753,6 +793,99 @@ export function createFinanceCommandsService(options: {
       )
     })
 
+    bot.command('bill_json', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const periodArg = commandArgs(ctx)[0]
+      const telegramUserId = ctx.from?.id?.toString()
+      if (!telegramUserId) {
+        await ctx.reply(getBotTranslations(locale).finance.unableToIdentifySender)
+        return
+      }
+
+      if (isGroupChat(ctx)) {
+        const resolved = await requireAdmin(ctx)
+        if (!resolved) {
+          return
+        }
+
+        await replyWithBillingAuditExport({
+          ctx,
+          service: resolved.service,
+          householdId: resolved.householdId,
+          requesterMemberId: resolved.member.id,
+          requesterDisplayName: resolved.member.displayName,
+          ...(periodArg ? { periodArg } : {})
+        })
+        return
+      }
+
+      const memberships =
+        await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+          telegramUserId
+        )
+      if (memberships.length === 0) {
+        await ctx.reply(getBotTranslations(locale).finance.notMember)
+        return
+      }
+
+      const adminMemberships = memberships.filter((membership) => membership.isAdmin)
+      if (adminMemberships.length === 0) {
+        await ctx.reply(getBotTranslations(locale).finance.adminOnly)
+        return
+      }
+
+      if (adminMemberships.length === 1) {
+        const membership = adminMemberships[0]!
+        const household =
+          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+            membership.householdId
+          )
+        await replyWithBillingAuditExport({
+          ctx,
+          service: options.financeServiceForHousehold(membership.householdId),
+          householdId: membership.householdId,
+          householdName: household?.householdName ?? membership.householdId,
+          requesterMemberId: membership.id,
+          requesterDisplayName: membership.displayName,
+          ...(periodArg ? { periodArg } : {})
+        })
+        return
+      }
+
+      const households = await Promise.all(
+        adminMemberships.map(async (membership) => ({
+          membership,
+          household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+            membership.householdId
+          )
+        }))
+      )
+      await storeBillPendingAction({
+        ctx,
+        payload: {
+          kind: 'json_export',
+          periodArg: periodArg ?? null,
+          choices: households.map(({ membership }) => ({
+            householdId: membership.householdId,
+            memberId: membership.id
+          }))
+        }
+      })
+      await ctx.reply(locale === 'ru' ? 'Выберите дом для JSON-экспорта:' : 'Choose a household:', {
+        reply_markup: {
+          inline_keyboard: households.map(({ membership, household }, index) => [
+            {
+              text: household?.householdName ?? membership.householdId,
+              callback_data: `${BILL_JSON_CALLBACK_PREFIX}${index}`
+            }
+          ])
+        }
+      })
+    })
+
     bot.callbackQuery(
       new RegExp(`^${BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
@@ -822,6 +955,71 @@ export function createFinanceCommandsService(options: {
             viewerMemberId: memberId
           })
         )
+        await ctx.answerCallbackQuery()
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${BILL_JSON_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const choiceIndex = Number(ctx.callbackQuery.data.slice(BILL_JSON_CALLBACK_PREFIX.length))
+        if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const pendingAction = await getBillPendingAction(ctx)
+        const choices = Array.isArray(pendingAction?.payload.choices)
+          ? pendingAction.payload.choices
+          : []
+        const choice = choices[choiceIndex]
+        const householdId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.householdId
+            : null
+        const memberId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.memberId
+            : null
+        const periodArg =
+          pendingAction?.payload.kind === 'json_export' &&
+          typeof pendingAction.payload.periodArg === 'string'
+            ? pendingAction.payload.periodArg
+            : undefined
+        if (!householdId || !memberId) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const memberships =
+          await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+            ctx.from?.id?.toString() ?? ''
+          )
+        const membership = memberships.find(
+          (member) => member.householdId === householdId && member.id === memberId && member.isAdmin
+        )
+        if (!membership) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const household =
+          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
+        await replyWithBillingAuditExport({
+          ctx,
+          service: options.financeServiceForHousehold(householdId),
+          householdId,
+          householdName: household?.householdName ?? householdId,
+          requesterMemberId: membership.id,
+          requesterDisplayName: membership.displayName,
+          ...(periodArg ? { periodArg } : {})
+        })
         await ctx.answerCallbackQuery()
       }
     )

@@ -216,6 +216,7 @@ function createFinanceService(): FinanceCommandService {
       ],
       ledger: []
     }),
+    generateBillingAuditExport: async () => null,
     generateStatement: async () => null
   }
 }

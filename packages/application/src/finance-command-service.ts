@@ -9,6 +9,7 @@ import type {
   FinancePaymentPurchaseAllocationRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  FinanceUtilityBillingPlanPayload,
   FinanceUtilityBillingPlanStatus,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
@@ -288,12 +289,229 @@ export interface FinanceCurrentBillPlan {
   rentBillingState: FinanceDashboardRentBillingState
 }
 
+export interface FinanceAuditMoney {
+  amountMinor: string
+  amountMajor: string
+  currency: CurrencyCode
+  display: string
+}
+
+export interface FinanceAuditJsonObject {
+  [key: string]: unknown
+}
+
+export interface FinanceBillingAuditExport {
+  meta: {
+    exportVersion: string
+    exportedAt: string
+    period: string
+    billingStage: 'utilities' | 'rent' | 'idle'
+    adjustmentPolicy: 'utilities' | 'rent' | 'separate'
+    householdId: string
+    currency: CurrencyCode
+    timezone: string
+  }
+  descriptions: {
+    sections: Record<string, string>
+    adjustmentPolicies: Record<'utilities' | 'rent' | 'separate', string>
+    derivedFields: Record<string, string>
+  }
+  household: {
+    householdId: string
+  }
+  settings: {
+    settlementCurrency: CurrencyCode
+    timezone: string
+    rentDueDay: number
+    rentWarningDay: number
+    utilitiesDueDay: number
+    utilitiesReminderDay: number
+    paymentBalanceAdjustmentPolicy: 'utilities' | 'rent' | 'separate'
+    rentAmount: FinanceAuditMoney | null
+    rentPaymentDestinations: readonly HouseholdRentPaymentDestination[] | null
+    utilityCategories: readonly {
+      id: string
+      slug: string
+      name: string
+      sortOrder: number
+      isActive: boolean
+      providerName: string | null
+      customerNumber: string | null
+      paymentLink: string | null
+      note: string | null
+    }[]
+  }
+  cycle: {
+    openCycle: {
+      id: string
+      period: string
+      currency: CurrencyCode
+    } | null
+    selectedCycle: {
+      id: string
+      period: string
+      currency: CurrencyCode
+    }
+    rentRule: {
+      amount: FinanceAuditMoney
+      sourceCurrency: CurrencyCode
+    } | null
+    rentFx: {
+      sourceAmount: FinanceAuditMoney
+      settlementAmount: FinanceAuditMoney
+      rateMicros: string | null
+      effectiveDate: string | null
+    }
+  }
+  members: readonly {
+    memberId: string
+    displayName: string
+    status: 'active' | 'away' | 'left'
+    isAdmin: boolean
+    rentShareWeight: number
+    preferredLocale: string | null
+    householdDefaultLocale: string
+    activeAbsencePolicy: HouseholdMemberAbsencePolicy
+    absenceIntervalStartsOn: string | null
+    absenceIntervalEndsOn: string | null
+    utilityParticipationDays: number
+  }[]
+  absencePolicies: readonly {
+    memberId: string
+    policy: HouseholdMemberAbsencePolicy
+    startsOn: string | null
+    endsOn: string | null
+    effectiveFromPeriod: string | null
+  }[]
+  rawInputs: {
+    utilityBills: readonly {
+      id: string
+      billName: string
+      amount: FinanceAuditMoney
+      createdByMemberId: string | null
+      createdAt: string
+    }[]
+    parsedPurchases: readonly {
+      id: string
+      cycleId: string | null
+      cyclePeriod: string | null
+      payerMemberId: string
+      amount: FinanceAuditMoney
+      description: string | null
+      occurredAt: string | null
+      splitMode: 'equal' | 'custom_amounts'
+      participants: readonly {
+        id?: string
+        memberId: string
+        included: boolean
+        shareAmount: FinanceAuditMoney | null
+      }[]
+    }[]
+    paymentRecords: readonly {
+      id: string
+      cycleId: string
+      cyclePeriod: string | null
+      memberId: string
+      kind: FinancePaymentKind
+      amount: FinanceAuditMoney
+      recordedAt: string
+    }[]
+    utilityVendorPaymentFacts: readonly {
+      id: string
+      cycleId: string
+      utilityBillId: string | null
+      billName: string
+      payerMemberId: string
+      amount: FinanceAuditMoney
+      plannedForMemberId: string | null
+      planVersion: number | null
+      matchedPlan: boolean
+      recordedByMemberId: string | null
+      recordedAt: string
+      createdAt: string
+    }[]
+    utilityReimbursementFacts: readonly {
+      id: string
+      cycleId: string
+      fromMemberId: string
+      toMemberId: string
+      amount: FinanceAuditMoney
+      plannedFromMemberId: string | null
+      plannedToMemberId: string | null
+      planVersion: number | null
+      matchedPlan: boolean
+      recordedByMemberId: string | null
+      recordedAt: string
+      createdAt: string
+    }[]
+    utilityPlanVersions: readonly {
+      id: string
+      version: number
+      status: FinanceUtilityBillingPlanStatus
+      dueDate: string
+      currency: CurrencyCode
+      maxCategoriesPerMemberApplied: number
+      updatedFromPlanId: string | null
+      reason: string | null
+      createdAt: string
+      payload: FinanceUtilityBillingPlanPayload
+    }[]
+    settlementSnapshotLines: readonly {
+      memberId: string
+      rentShare: FinanceAuditMoney
+      utilityShare: FinanceAuditMoney
+      purchaseOffset: FinanceAuditMoney
+      netDue: FinanceAuditMoney
+    }[]
+  }
+  derived: {
+    totals: {
+      totalDue: FinanceAuditMoney
+      totalPaid: FinanceAuditMoney
+      totalRemaining: FinanceAuditMoney
+    }
+    members: readonly {
+      memberId: string
+      displayName: string
+      rawUtilityFairShare: FinanceAuditMoney
+      adjustedUtilityTarget: FinanceAuditMoney
+      rawRentShare: FinanceAuditMoney
+      adjustedRentTarget: FinanceAuditMoney
+      purchaseOffset: FinanceAuditMoney
+      netDue: FinanceAuditMoney
+      paid: FinanceAuditMoney
+      remaining: FinanceAuditMoney
+      overduePayments: readonly {
+        kind: FinancePaymentKind
+        amountMinor: string
+        periods: readonly string[]
+      }[]
+      explanations: readonly string[]
+    }[]
+    paymentPeriods: readonly FinanceAuditJsonObject[] | undefined
+  }
+  utilityPlan: {
+    explanation: string
+    plan: FinanceAuditJsonObject | null
+  }
+  rentState: {
+    explanation: string
+    state: FinanceAuditJsonObject
+  }
+  dashboard: {
+    snapshot: FinanceAuditJsonObject
+  }
+}
+
 interface FinanceCommandServiceDependencies {
   householdId: string
   repository: FinanceRepository
   householdConfigurationRepository: Pick<
     HouseholdConfigurationRepository,
-    'getHouseholdBillingSettings' | 'listHouseholdMembers' | 'listHouseholdMemberAbsencePolicies'
+    | 'getHouseholdBillingSettings'
+    | 'listHouseholdMembers'
+    | 'listHouseholdMemberAbsencePolicies'
+    | 'listHouseholdUtilityCategories'
   >
   exchangeRateProvider: ExchangeRateProvider
 }
@@ -556,6 +774,177 @@ function actionablePaymentDueMinor(input: {
       settings: input.settings
     })
   )
+}
+
+function serializeMoney(amount: Money): FinanceAuditMoney {
+  return {
+    amountMinor: amount.amountMinor.toString(),
+    amountMajor: amount.toMajorString(),
+    currency: amount.currency,
+    display:
+      amount.currency === 'USD' ? `$${amount.toMajorString()}` : `${amount.toMajorString()} ₾`
+  }
+}
+
+function serializeOptionalMoney(amount: Money | null): FinanceAuditMoney | null {
+  return amount ? serializeMoney(amount) : null
+}
+
+function serializeBigInt(value: bigint | null): string | null {
+  return value === null ? null : value.toString()
+}
+
+function serializeDashboardUtilityBillingPlan(
+  plan: FinanceDashboardUtilityBillingPlan | null
+): FinanceAuditJsonObject | null {
+  if (!plan) {
+    return null
+  }
+
+  return {
+    version: plan.version,
+    status: plan.status,
+    dueDate: plan.dueDate,
+    updatedFromVersion: plan.updatedFromVersion,
+    reason: plan.reason,
+    categories: plan.categories.map((category) => ({
+      utilityBillId: category.utilityBillId,
+      billName: category.billName,
+      billTotal: serializeMoney(category.billTotal),
+      assignedAmount: serializeMoney(category.assignedAmount),
+      assignedMemberId: category.assignedMemberId,
+      assignedDisplayName: category.assignedDisplayName,
+      paidAmount: serializeMoney(category.paidAmount),
+      isFullAssignment: category.isFullAssignment,
+      splitGroupId: category.splitGroupId
+    })),
+    memberSummaries: plan.memberSummaries.map((summary) => ({
+      memberId: summary.memberId,
+      displayName: summary.displayName,
+      fairShare: serializeMoney(summary.fairShare),
+      vendorPaid: serializeMoney(summary.vendorPaid),
+      assignedThisCycle: serializeMoney(summary.assignedThisCycle),
+      projectedDeltaAfterPlan: serializeMoney(summary.projectedDeltaAfterPlan)
+    }))
+  }
+}
+
+function serializeDashboardRentBillingState(
+  state: FinanceDashboardRentBillingState
+): FinanceAuditJsonObject {
+  return {
+    dueDate: state.dueDate,
+    paymentDestinations: state.paymentDestinations,
+    memberSummaries: state.memberSummaries.map((summary) => ({
+      memberId: summary.memberId,
+      displayName: summary.displayName,
+      due: serializeMoney(summary.due),
+      paid: serializeMoney(summary.paid),
+      remaining: serializeMoney(summary.remaining)
+    }))
+  }
+}
+
+function serializeDashboardPaymentPeriods(
+  paymentPeriods: FinanceDashboard['paymentPeriods']
+): readonly FinanceAuditJsonObject[] | undefined {
+  return paymentPeriods?.map((period) => ({
+    period: period.period,
+    utilityTotal: serializeMoney(period.utilityTotal),
+    hasOverdueBalance: period.hasOverdueBalance,
+    isCurrentPeriod: period.isCurrentPeriod,
+    kinds: period.kinds.map((kind) => ({
+      kind: kind.kind,
+      totalDue: serializeMoney(kind.totalDue),
+      totalPaid: serializeMoney(kind.totalPaid),
+      totalRemaining: serializeMoney(kind.totalRemaining),
+      unresolvedMembers: kind.unresolvedMembers.map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName,
+        suggestedAmount: serializeMoney(member.suggestedAmount),
+        baseDue: serializeMoney(member.baseDue),
+        paid: serializeMoney(member.paid),
+        remaining: serializeMoney(member.remaining),
+        effectivelySettled: member.effectivelySettled
+      }))
+    }))
+  }))
+}
+
+function serializeDashboard(dashboard: FinanceDashboard): FinanceAuditJsonObject {
+  return {
+    period: dashboard.period,
+    currency: dashboard.currency,
+    timezone: dashboard.timezone,
+    rentWarningDay: dashboard.rentWarningDay,
+    rentDueDay: dashboard.rentDueDay,
+    utilitiesReminderDay: dashboard.utilitiesReminderDay,
+    utilitiesDueDay: dashboard.utilitiesDueDay,
+    paymentBalanceAdjustmentPolicy: dashboard.paymentBalanceAdjustmentPolicy,
+    rentPaymentDestinations: dashboard.rentPaymentDestinations,
+    totalDue: serializeMoney(dashboard.totalDue),
+    totalPaid: serializeMoney(dashboard.totalPaid),
+    totalRemaining: serializeMoney(dashboard.totalRemaining),
+    billingStage: dashboard.billingStage,
+    rentSourceAmount: serializeMoney(dashboard.rentSourceAmount),
+    rentDisplayAmount: serializeMoney(dashboard.rentDisplayAmount),
+    rentFxRateMicros: serializeBigInt(dashboard.rentFxRateMicros),
+    rentFxEffectiveDate: dashboard.rentFxEffectiveDate,
+    utilityBillingPlan: serializeDashboardUtilityBillingPlan(dashboard.utilityBillingPlan),
+    rentBillingState: serializeDashboardRentBillingState(dashboard.rentBillingState),
+    members: dashboard.members.map((member) => ({
+      memberId: member.memberId,
+      displayName: member.displayName,
+      status: member.status,
+      absencePolicy: member.absencePolicy,
+      absenceIntervalStartsOn: member.absenceIntervalStartsOn,
+      absenceIntervalEndsOn: member.absenceIntervalEndsOn,
+      utilityParticipationDays: member.utilityParticipationDays,
+      predictedUtilityShare: serializeOptionalMoney(member.predictedUtilityShare ?? null),
+      rentShare: serializeMoney(member.rentShare),
+      utilityShare: serializeMoney(member.utilityShare),
+      purchaseOffset: serializeMoney(member.purchaseOffset),
+      netDue: serializeMoney(member.netDue),
+      paid: serializeMoney(member.paid),
+      remaining: serializeMoney(member.remaining),
+      overduePayments: member.overduePayments.map((payment) => ({
+        kind: payment.kind,
+        amountMinor: payment.amountMinor.toString(),
+        periods: payment.periods
+      })),
+      explanations: member.explanations
+    })),
+    paymentPeriods: serializeDashboardPaymentPeriods(dashboard.paymentPeriods),
+    ledger: dashboard.ledger.map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      title: entry.title,
+      memberId: entry.memberId,
+      amount: serializeMoney(entry.amount),
+      currency: entry.currency,
+      displayAmount: serializeMoney(entry.displayAmount),
+      displayCurrency: entry.displayCurrency,
+      fxRateMicros: serializeBigInt(entry.fxRateMicros),
+      fxEffectiveDate: entry.fxEffectiveDate,
+      actorDisplayName: entry.actorDisplayName,
+      occurredAt: entry.occurredAt,
+      paymentKind: entry.paymentKind,
+      purchaseSplitMode: entry.purchaseSplitMode,
+      purchaseParticipants: entry.purchaseParticipants?.map((participant) => ({
+        memberId: participant.memberId,
+        included: participant.included,
+        shareAmount: serializeOptionalMoney(participant.shareAmount)
+      })),
+      payerMemberId: entry.payerMemberId,
+      originPeriod: entry.originPeriod,
+      resolutionStatus: entry.resolutionStatus,
+      resolvedAt: entry.resolvedAt,
+      outstandingByMember: entry.outstandingByMember?.map((item) => ({
+        memberId: item.memberId,
+        amount: serializeMoney(item.amount)
+      }))
+    }))
+  }
 }
 
 function utilityPlanPayloadChanged(
@@ -2058,6 +2447,7 @@ export interface FinanceCommandService {
       todayOverride?: string
     }
   ): Promise<FinanceDashboard | null>
+  generateBillingAuditExport(periodArg?: string): Promise<FinanceBillingAuditExport | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
 
@@ -2751,6 +3141,332 @@ export function createFinanceCommandService(
         : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
 
       return dashboard?.utilityBillingPlan ?? null
+    },
+
+    async generateBillingAuditExport(periodArg) {
+      const dashboard = await (periodArg
+        ? buildFinanceDashboard(dependencies, periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+      if (!dashboard) {
+        return null
+      }
+
+      const [cycle, openCycle, settings, members, absencePolicies, utilityCategories] =
+        await Promise.all([
+          repository.getCycleByPeriod(dashboard.period),
+          repository.getOpenCycle(),
+          householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+          householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
+          householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+            dependencies.householdId
+          ),
+          householdConfigurationRepository.listHouseholdUtilityCategories(dependencies.householdId)
+        ])
+      if (!cycle) {
+        return null
+      }
+
+      const [
+        rentRule,
+        utilityBills,
+        paymentRecords,
+        parsedPurchases,
+        utilityVendorPaymentFacts,
+        utilityReimbursementFacts,
+        utilityPlanVersions,
+        settlementSnapshotLines
+      ] = await Promise.all([
+        repository.getRentRuleForPeriod(cycle.period),
+        repository.listUtilityBillsForCycle(cycle.id),
+        repository.listPaymentRecordsForCycle(cycle.id),
+        repository.listParsedPurchases(),
+        repository.listUtilityVendorPaymentFactsForCycle(cycle.id),
+        repository.listUtilityReimbursementFactsForCycle(cycle.id),
+        repository.listUtilityBillingPlansForCycle(cycle.id),
+        repository.getSettlementSnapshotLines(cycle.id)
+      ])
+
+      const descriptions: FinanceBillingAuditExport['descriptions'] = {
+        sections: {
+          meta: 'Export metadata and cycle selection context.',
+          settings: 'Billing settings and category metadata that shape the calculation.',
+          rawInputs: 'Raw persisted finance facts and records used as calculation inputs.',
+          derived:
+            'Per-member derived balances, adjusted targets, and totals used for current guidance.',
+          utilityPlan: 'Current utility execution plan derived from the selected adjustment mode.',
+          rentState: 'Current rent dues and settlement routing for the selected cycle.',
+          dashboard: 'Final public read model snapshot for comparison with the app and bot.'
+        },
+        adjustmentPolicies: {
+          utilities:
+            'Purchase balance is applied through utility targets and utility payment guidance.',
+          rent: 'Utility assignments stay raw; purchase balance and residual adjustment move into rent.',
+          separate:
+            'Manual mode: rent and utilities stay raw; purchase balance is informational only.'
+        },
+        derivedFields: {
+          purchaseOffset:
+            'Net shared-purchase position for the member. Negative means the member is ahead; positive means others covered more.',
+          rawUtilityFairShare:
+            'Utility fair share before any automatic adjustment policy is applied.',
+          adjustedUtilityTarget:
+            'Utility amount after policy-based purchase-balance adjustment, if utilities mode is active.',
+          rawRentShare: 'Base rent share before automatic adjustment.',
+          adjustedRentTarget:
+            'Rent amount after policy-based purchase-balance adjustment, if rent mode is active.',
+          assignedThisCycle: 'Utility amount assigned in the current plan version for this cycle.',
+          projectedDeltaAfterPlan:
+            'Expected difference between the member target and total utility vendor payments after the plan completes.',
+          remaining: 'Current unpaid remainder after recorded payments.'
+        }
+      }
+
+      return {
+        meta: {
+          exportVersion: 'billing-audit/v1',
+          exportedAt: nowInstant().toString(),
+          period: dashboard.period,
+          billingStage: dashboard.billingStage,
+          adjustmentPolicy: dashboard.paymentBalanceAdjustmentPolicy,
+          householdId: dependencies.householdId,
+          currency: dashboard.currency,
+          timezone: dashboard.timezone
+        },
+        descriptions,
+        household: {
+          householdId: dependencies.householdId
+        },
+        settings: {
+          settlementCurrency: settings.settlementCurrency,
+          timezone: settings.timezone,
+          rentDueDay: settings.rentDueDay,
+          rentWarningDay: settings.rentWarningDay,
+          utilitiesDueDay: settings.utilitiesDueDay,
+          utilitiesReminderDay: settings.utilitiesReminderDay,
+          paymentBalanceAdjustmentPolicy: resolvedPaymentBalanceAdjustmentPolicy(settings),
+          rentAmount:
+            settings.rentAmountMinor === null
+              ? null
+              : serializeMoney(Money.fromMinor(settings.rentAmountMinor, settings.rentCurrency)),
+          rentPaymentDestinations: settings.rentPaymentDestinations ?? null,
+          utilityCategories: utilityCategories.map((category) => ({
+            id: category.id,
+            slug: category.slug,
+            name: category.name,
+            sortOrder: category.sortOrder,
+            isActive: category.isActive,
+            providerName: category.providerName ?? null,
+            customerNumber: category.customerNumber ?? null,
+            paymentLink: category.paymentLink ?? null,
+            note: category.note ?? null
+          }))
+        },
+        cycle: {
+          openCycle: openCycle
+            ? {
+                id: openCycle.id,
+                period: openCycle.period,
+                currency: openCycle.currency
+              }
+            : null,
+          selectedCycle: {
+            id: cycle.id,
+            period: cycle.period,
+            currency: cycle.currency
+          },
+          rentRule: rentRule
+            ? {
+                amount: serializeMoney(Money.fromMinor(rentRule.amountMinor, rentRule.currency)),
+                sourceCurrency: rentRule.currency
+              }
+            : null,
+          rentFx: {
+            sourceAmount: serializeMoney(dashboard.rentSourceAmount),
+            settlementAmount: serializeMoney(dashboard.rentDisplayAmount),
+            rateMicros: serializeBigInt(dashboard.rentFxRateMicros),
+            effectiveDate: dashboard.rentFxEffectiveDate
+          }
+        },
+        members: members.map((member) => {
+          const dashboardMember = dashboard.members.find((item) => item.memberId === member.id)
+          return {
+            memberId: member.id,
+            displayName: member.displayName,
+            status: member.status,
+            isAdmin: member.isAdmin,
+            rentShareWeight: member.rentShareWeight,
+            preferredLocale: member.preferredLocale ?? null,
+            householdDefaultLocale: member.householdDefaultLocale,
+            activeAbsencePolicy:
+              dashboardMember?.absencePolicy ?? defaultAbsencePolicyForMember(member),
+            absenceIntervalStartsOn: dashboardMember?.absenceIntervalStartsOn ?? null,
+            absenceIntervalEndsOn: dashboardMember?.absenceIntervalEndsOn ?? null,
+            utilityParticipationDays: dashboardMember?.utilityParticipationDays ?? 0
+          }
+        }),
+        absencePolicies: absencePolicies.map((policy) => ({
+          memberId: policy.memberId,
+          policy: policy.policy,
+          startsOn: policy.startsOn ?? null,
+          endsOn: policy.endsOn ?? null,
+          effectiveFromPeriod: policy.effectiveFromPeriod ?? null
+        })),
+        rawInputs: {
+          utilityBills: utilityBills.map((bill) => ({
+            id: bill.id,
+            billName: bill.billName,
+            amount: serializeMoney(Money.fromMinor(bill.amountMinor, bill.currency)),
+            createdByMemberId: bill.createdByMemberId ?? null,
+            createdAt: bill.createdAt.toString()
+          })),
+          parsedPurchases: parsedPurchases.map((purchase) => ({
+            id: purchase.id,
+            cycleId: purchase.cycleId ?? null,
+            cyclePeriod: purchase.cyclePeriod ?? null,
+            payerMemberId: purchase.payerMemberId,
+            amount: serializeMoney(Money.fromMinor(purchase.amountMinor, purchase.currency)),
+            description: purchase.description ?? null,
+            occurredAt: purchase.occurredAt?.toString() ?? null,
+            splitMode: purchase.splitMode ?? 'equal',
+            participants: (purchase.participants ?? []).map((participant) => ({
+              ...(participant.id === undefined ? {} : { id: participant.id }),
+              memberId: participant.memberId,
+              included: participant.included !== false,
+              shareAmount:
+                participant.shareAmountMinor === null
+                  ? null
+                  : serializeMoney(Money.fromMinor(participant.shareAmountMinor, purchase.currency))
+            }))
+          })),
+          paymentRecords: paymentRecords.map((payment) => ({
+            id: payment.id,
+            cycleId: payment.cycleId,
+            cyclePeriod: payment.cyclePeriod ?? null,
+            memberId: payment.memberId,
+            kind: payment.kind,
+            amount: serializeMoney(Money.fromMinor(payment.amountMinor, payment.currency)),
+            recordedAt: payment.recordedAt.toString()
+          })),
+          utilityVendorPaymentFacts: utilityVendorPaymentFacts.map((fact) => ({
+            id: fact.id,
+            cycleId: fact.cycleId,
+            utilityBillId: fact.utilityBillId ?? null,
+            billName: fact.billName,
+            payerMemberId: fact.payerMemberId,
+            amount: serializeMoney(Money.fromMinor(fact.amountMinor, fact.currency)),
+            plannedForMemberId: fact.plannedForMemberId ?? null,
+            planVersion: fact.planVersion ?? null,
+            matchedPlan: fact.matchedPlan,
+            recordedByMemberId: fact.recordedByMemberId ?? null,
+            recordedAt: fact.recordedAt.toString(),
+            createdAt: fact.createdAt.toString()
+          })),
+          utilityReimbursementFacts: utilityReimbursementFacts.map((fact) => ({
+            id: fact.id,
+            cycleId: fact.cycleId,
+            fromMemberId: fact.fromMemberId,
+            toMemberId: fact.toMemberId,
+            amount: serializeMoney(Money.fromMinor(fact.amountMinor, fact.currency)),
+            plannedFromMemberId: fact.plannedFromMemberId ?? null,
+            plannedToMemberId: fact.plannedToMemberId ?? null,
+            planVersion: fact.planVersion ?? null,
+            matchedPlan: fact.matchedPlan,
+            recordedByMemberId: fact.recordedByMemberId ?? null,
+            recordedAt: fact.recordedAt.toString(),
+            createdAt: fact.createdAt.toString()
+          })),
+          utilityPlanVersions: utilityPlanVersions.map((plan) => ({
+            id: plan.id,
+            version: plan.version,
+            status: plan.status,
+            dueDate: plan.dueDate,
+            currency: plan.currency,
+            maxCategoriesPerMemberApplied: plan.maxCategoriesPerMemberApplied,
+            updatedFromPlanId: plan.updatedFromPlanId ?? null,
+            reason: plan.reason ?? null,
+            createdAt: plan.createdAt.toString(),
+            payload: plan.payload
+          })),
+          settlementSnapshotLines: settlementSnapshotLines.map((line) => ({
+            memberId: line.memberId,
+            rentShare: serializeMoney(Money.fromMinor(line.rentShareMinor, dashboard.currency)),
+            utilityShare: serializeMoney(
+              Money.fromMinor(line.utilityShareMinor, dashboard.currency)
+            ),
+            purchaseOffset: serializeMoney(
+              Money.fromMinor(line.purchaseOffsetMinor, dashboard.currency)
+            ),
+            netDue: serializeMoney(Money.fromMinor(line.netDueMinor, dashboard.currency))
+          }))
+        },
+        derived: {
+          totals: {
+            totalDue: serializeMoney(dashboard.totalDue),
+            totalPaid: serializeMoney(dashboard.totalPaid),
+            totalRemaining: serializeMoney(dashboard.totalRemaining)
+          },
+          members: dashboard.members.map((member) => ({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            rawUtilityFairShare: serializeMoney(member.utilityShare),
+            adjustedUtilityTarget: serializeMoney(
+              Money.fromMinor(
+                actionablePaymentDueMinor({
+                  kind: 'utilities',
+                  baseMinor: member.utilityShare.amountMinor,
+                  purchaseOffsetMinor: member.purchaseOffset.amountMinor,
+                  settings
+                }),
+                dashboard.currency
+              )
+            ),
+            rawRentShare: serializeMoney(member.rentShare),
+            adjustedRentTarget: serializeMoney(
+              Money.fromMinor(
+                actionablePaymentDueMinor({
+                  kind: 'rent',
+                  baseMinor: member.rentShare.amountMinor,
+                  purchaseOffsetMinor: member.purchaseOffset.amountMinor,
+                  settings
+                }),
+                dashboard.currency
+              )
+            ),
+            purchaseOffset: serializeMoney(member.purchaseOffset),
+            netDue: serializeMoney(member.netDue),
+            paid: serializeMoney(member.paid),
+            remaining: serializeMoney(member.remaining),
+            overduePayments: member.overduePayments.map((overdue) => ({
+              kind: overdue.kind,
+              amountMinor: overdue.amountMinor.toString(),
+              periods: overdue.periods
+            })),
+            explanations: member.explanations
+          })),
+          paymentPeriods: serializeDashboardPaymentPeriods(dashboard.paymentPeriods)
+        },
+        utilityPlan: {
+          explanation:
+            resolvedPaymentBalanceAdjustmentPolicy(settings) === 'utilities'
+              ? 'Utility planning includes purchase-balance adjustment in the member targets.'
+              : resolvedPaymentBalanceAdjustmentPolicy(settings) === 'rent'
+                ? 'Utility planning stays raw and convenience-first; purchase-balance adjustment is deferred to rent.'
+                : 'Manual mode keeps utility planning raw with no automatic balance adjustment.',
+          plan: serializeDashboardUtilityBillingPlan(dashboard.utilityBillingPlan)
+        },
+        rentState: {
+          explanation:
+            resolvedPaymentBalanceAdjustmentPolicy(settings) === 'rent'
+              ? 'Rent dues include purchase-balance adjustment in this mode.'
+              : resolvedPaymentBalanceAdjustmentPolicy(settings) === 'utilities'
+                ? 'Rent dues stay close to raw rent share because purchase-balance adjustment happens through utilities.'
+                : 'Manual mode keeps rent dues raw with no automatic balance adjustment.',
+          state: serializeDashboardRentBillingState(dashboard.rentBillingState)
+        },
+        dashboard: {
+          snapshot: serializeDashboard(dashboard)
+        }
+      }
     },
 
     async generateStatement(periodArg) {
