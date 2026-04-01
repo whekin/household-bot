@@ -16,8 +16,8 @@ export const REMINDER_UTILITY_GUIDED_CALLBACK = 'reminder_util:guided'
 export const REMINDER_UTILITY_TEMPLATE_CALLBACK = 'reminder_util:template'
 const REMINDER_UTILITY_CONFIRM_CALLBACK_PREFIX = 'reminder_util:confirm:'
 const REMINDER_UTILITY_CANCEL_CALLBACK_PREFIX = 'reminder_util:cancel:'
-const REMINDER_UTILITY_ACTION = 'reminder_utility_entry' as const
-const REMINDER_UTILITY_ACTION_TTL_MS = 30 * 60_000
+export const REMINDER_UTILITY_ACTION = 'reminder_utility_entry' as const
+export const REMINDER_UTILITY_ACTION_TTL_MS = 30 * 60_000
 
 type ReminderUtilityEntryPayload =
   | {

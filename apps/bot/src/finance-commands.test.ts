@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import type { FinanceCommandService } from '@household/application'
-import { Money, instantFromIso } from '@household/domain'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import { Money, instantFromIso, nowInstant } from '@household/domain'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRecord,
+  TelegramPendingActionRepository
+} from '@household/ports'
 
 import { createTelegramBot } from './bot'
 import { createFinanceCommandsService } from './finance-commands'
+import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 
 function householdStatusUpdate(languageCode: string) {
   return {
@@ -60,6 +65,61 @@ function billUpdate(text: string, languageCode: string) {
           type: 'bot_command'
         }
       ]
+    }
+  }
+}
+
+function topicCommandUpdate(text: string, languageCode: string) {
+  return {
+    update_id: 9300,
+    message: {
+      message_id: 12,
+      date: Math.floor(Date.now() / 1000),
+      message_thread_id: 555,
+      is_topic_message: true,
+      chat: {
+        id: -100123456,
+        type: 'supergroup',
+        title: 'Kojori'
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: languageCode
+      },
+      text,
+      entities: [
+        {
+          offset: 0,
+          length: text.split(' ')[0]?.length ?? text.length,
+          type: 'bot_command'
+        }
+      ]
+    }
+  }
+}
+
+function topicMessageUpdate(text: string, languageCode: string) {
+  return {
+    update_id: 9301,
+    message: {
+      message_id: 13,
+      date: Math.floor(Date.now() / 1000),
+      message_thread_id: 555,
+      is_topic_message: true,
+      chat: {
+        id: -100123456,
+        type: 'supergroup',
+        title: 'Kojori'
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: languageCode
+      },
+      text
     }
   }
 }
@@ -147,6 +207,59 @@ function createRepository(): HouseholdConfigurationRepository {
     updateHouseholdMemberStatus: async () => null,
     listHouseholdMemberAbsencePolicies: async () => [],
     upsertHouseholdMemberAbsencePolicy: async () => null
+  }
+}
+
+function createPromptRepository(): TelegramPendingActionRepository & {
+  current: () => TelegramPendingActionRecord | null
+} {
+  let pending: TelegramPendingActionRecord | null = null
+
+  return {
+    current: () => pending,
+    async upsertPendingAction(input) {
+      pending = input
+      return input
+    },
+    async getPendingAction(telegramChatId, telegramUserId) {
+      if (
+        !pending ||
+        pending.telegramChatId !== telegramChatId ||
+        pending.telegramUserId !== telegramUserId
+      ) {
+        return null
+      }
+
+      if (
+        pending.expiresAt &&
+        pending.expiresAt.epochMilliseconds <= nowInstant().epochMilliseconds
+      ) {
+        pending = null
+        return null
+      }
+
+      return pending
+    },
+    async clearPendingAction(telegramChatId, telegramUserId) {
+      if (
+        pending &&
+        pending.telegramChatId === telegramChatId &&
+        pending.telegramUserId === telegramUserId
+      ) {
+        pending = null
+      }
+    },
+    async clearPendingActionsForChat(telegramChatId, action) {
+      if (!pending || pending.telegramChatId !== telegramChatId) {
+        return
+      }
+
+      if (action && pending.action !== action) {
+        return
+      }
+
+      pending = null
+    }
   }
 }
 
@@ -465,5 +578,133 @@ describe('createFinanceCommandsService', () => {
         }
       ]
     ])
+  })
+
+  test('arms the template reply flow for /utilities in the reminders topic', async () => {
+    const promptRepository = createPromptRepository()
+    const repository: HouseholdConfigurationRepository = {
+      ...createRepository(),
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: 'household-1',
+        role: 'reminders',
+        telegramThreadId: '555',
+        topicName: 'Напоминания'
+      }),
+      listHouseholdUtilityCategories: async () => [
+        {
+          id: 'cat-1',
+          householdId: 'household-1',
+          slug: 'internet',
+          name: 'Internet',
+          sortOrder: 1,
+          isActive: true
+        },
+        {
+          id: 'cat-2',
+          householdId: 'household-1',
+          slug: 'gas-water',
+          name: 'Gas (Water)',
+          sortOrder: 2,
+          isActive: true
+        },
+        {
+          id: 'cat-3',
+          householdId: 'household-1',
+          slug: 'cleaning',
+          name: 'Cleaning',
+          sortOrder: 3,
+          isActive: true
+        },
+        {
+          id: 'cat-4',
+          householdId: 'household-1',
+          slug: 'electricity',
+          name: 'Electricity',
+          sortOrder: 4,
+          isActive: true
+        }
+      ]
+    }
+    const addedUtilityBills: Array<{ billName: string; amountMajor: string }> = []
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      addUtilityBill: async (billName, amountMajor) => {
+        addedUtilityBills.push({ billName, amountMajor })
+        return null
+      }
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository
+    }).register(bot)
+    registerReminderTopicUtilities({
+      bot,
+      householdConfigurationRepository: repository,
+      promptRepository,
+      financeServiceForHousehold: () => financeService
+    })
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(topicCommandUpdate('/utilities', 'ru') as never)
+
+    const pendingPayload = promptRepository.current()?.payload as
+      | {
+          stage?: string
+          categories?: string[]
+        }
+      | undefined
+    expect(pendingPayload?.stage).toBe('template')
+    expect(pendingPayload?.categories).toEqual([
+      'Internet',
+      'Gas (Water)',
+      'Cleaning',
+      'Electricity'
+    ])
+
+    calls.length = 0
+    await bot.handleUpdate(
+      topicMessageUpdate(
+        'Internet:\nGas (Water): 321.07\nCleaning: 2.50\nElectricity: 83.09',
+        'ru'
+      ) as never
+    )
+
+    const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(payload?.text).toContain('- Gas (Water): 321.07 GEL')
+    expect(payload?.text).toContain('- Cleaning: 2.50 GEL')
+    expect(payload?.text).toContain('- Electricity: 83.09 GEL')
+    expect(addedUtilityBills).toEqual([])
   })
 })

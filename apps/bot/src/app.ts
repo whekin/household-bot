@@ -409,6 +409,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     const financeCommands = createFinanceCommandsService({
       householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
       financeServiceForHousehold,
+      ...(telegramPendingActionRepositoryClient
+        ? {
+            promptRepository: telegramPendingActionRepositoryClient.repository
+          }
+        : {}),
       ...(runtime.miniAppUrl
         ? {
             miniAppUrl: runtime.miniAppUrl,

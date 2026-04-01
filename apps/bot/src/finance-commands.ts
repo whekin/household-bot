@@ -1,11 +1,18 @@
 import type { FinanceCommandService } from '@household/application'
-import { Money } from '@household/domain'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import { Money, nowInstant } from '@household/domain'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRepository
+} from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
-import { buildTemplateText } from './reminder-topic-utilities'
+import {
+  buildTemplateText,
+  REMINDER_UTILITY_ACTION,
+  REMINDER_UTILITY_ACTION_TTL_MS
+} from './reminder-topic-utilities'
 
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
@@ -107,6 +114,7 @@ function formatAbsoluteDate(
 export function createFinanceCommandsService(options: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  promptRepository?: TelegramPendingActionRepository
   miniAppUrl?: string
   botUsername?: string
 }): {
@@ -989,6 +997,24 @@ export function createFinanceCommandsService(options: {
         settings.settlementCurrency,
         activeCategories
       )
+
+      if (options.promptRepository) {
+        await options.promptRepository.upsertPendingAction({
+          telegramUserId,
+          telegramChatId: ctx.chat.id.toString(),
+          action: REMINDER_UTILITY_ACTION,
+          payload: {
+            stage: 'template',
+            householdId: binding.householdId,
+            threadId,
+            period: _cycle.period,
+            currency: settings.settlementCurrency,
+            memberId: member.id,
+            categories: activeCategories
+          },
+          expiresAt: nowInstant().add({ milliseconds: REMINDER_UTILITY_ACTION_TTL_MS })
+        })
+      }
 
       await ctx.reply(text, {
         parse_mode: parseMode,
