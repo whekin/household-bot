@@ -34,7 +34,7 @@ function formatCalendarDate(
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
-function parsePeriod(period: string): { year: number; month: number } | null {
+export function parsePeriod(period: string): { year: number; month: number } | null {
   const [yearValue, monthValue] = period.split('-')
   const year = Number.parseInt(yearValue ?? '', 10)
   const month = Number.parseInt(monthValue ?? '', 10)
@@ -47,6 +47,20 @@ function parsePeriod(period: string): { year: number; month: number } | null {
     year,
     month
   }
+}
+
+export function normalizePeriodOverride(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return null
+  }
+
+  const parsed = parsePeriod(trimmed)
+  if (!parsed) {
+    return null
+  }
+
+  return `${parsed.year}-${String(parsed.month).padStart(2, '0')}`
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -73,6 +87,30 @@ export function parseCalendarDate(value: string): CalendarDateParts | null {
   }
 
   return { year, month, day }
+}
+
+export function calendarDateInputValue(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  const direct = parseCalendarDate(value)
+  if (direct) {
+    return `${String(direct.year).padStart(4, '0')}-${String(direct.month).padStart(2, '0')}-${String(direct.day).padStart(2, '0')}`
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+export function todayCalendarInputValue(): string {
+  const now = new Date()
+
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
 export function nextCyclePeriod(period: string): string | null {

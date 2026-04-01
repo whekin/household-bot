@@ -9,6 +9,7 @@ import type {
   FinancePaymentPurchaseAllocationRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  FinanceUtilityBillingPlanStatus,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   HouseholdMemberAbsencePolicy,
@@ -31,6 +32,12 @@ import {
 } from '@household/domain'
 
 import { calculateMonthlySettlement } from './settlement-engine'
+import {
+  computeUtilityBillingPlan,
+  materializeUtilityBillingPlanRecord,
+  serializeUtilityBillingPlanPayload,
+  type UtilityBillingPlanComputed
+} from './utilities-billing-plan'
 
 function parseCurrency(raw: string | undefined, fallback: CurrencyCode): CurrencyCode {
   if (!raw || raw.trim().length === 0) {
@@ -104,6 +111,20 @@ function expectedOpenCyclePeriod(
   const currentPeriod = periodFromLocalDate(localDate)
 
   return localDate.day > settings.rentDueDay ? currentPeriod.next() : currentPeriod
+}
+
+function purchaseOccurredAtFromDate(input: {
+  occurredOn: string
+  timezone: string
+}): Temporal.Instant {
+  const date = Temporal.PlainDate.from(input.occurredOn)
+
+  return date
+    .toZonedDateTime({
+      timeZone: input.timezone,
+      plainTime: Temporal.PlainTime.from('12:00:00')
+    })
+    .toInstant()
 }
 
 export interface FinanceDashboardMemberLine {
@@ -192,13 +213,66 @@ export interface FinanceDashboard {
   totalDue: Money
   totalPaid: Money
   totalRemaining: Money
+  billingStage: 'utilities' | 'rent' | 'idle'
   rentSourceAmount: Money
   rentDisplayAmount: Money
   rentFxRateMicros: bigint | null
   rentFxEffectiveDate: string | null
+  utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
+  rentBillingState: FinanceDashboardRentBillingState
   members: readonly FinanceDashboardMemberLine[]
   paymentPeriods?: readonly FinanceDashboardPaymentPeriodSummary[]
   ledger: readonly FinanceDashboardLedgerEntry[]
+}
+
+export interface FinanceDashboardUtilityBillingPlan {
+  version: number
+  status: FinanceUtilityBillingPlanStatus
+  dueDate: string
+  updatedFromVersion: number | null
+  reason: string | null
+  categories: readonly {
+    utilityBillId: string
+    billName: string
+    amount: Money
+    assignedMemberId: string
+    assignedDisplayName: string
+    paidAmount: Money
+    fullCategoryPayment: boolean
+    splitSourceBillId: string | null
+  }[]
+  transfers: readonly {
+    fromMemberId: string
+    fromDisplayName: string
+    toMemberId: string
+    toDisplayName: string
+    amount: Money
+    settledAmount: Money
+  }[]
+  memberSummaries: readonly {
+    memberId: string
+    displayName: string
+    fairShare: Money
+    vendorPaid: Money
+    reimbursementSent: Money
+    reimbursementReceived: Money
+    assignedVendor: Money
+    remainingTransferIn: Money
+    remainingTransferOut: Money
+    netSettled: Money
+  }[]
+}
+
+export interface FinanceDashboardRentBillingState {
+  dueDate: string
+  memberSummaries: readonly {
+    memberId: string
+    displayName: string
+    due: Money
+    paid: Money
+    remaining: Money
+  }[]
+  paymentDestinations: readonly HouseholdRentPaymentDestination[] | null
 }
 
 export interface FinanceAdminCycleState {
@@ -212,6 +286,15 @@ export interface FinanceAdminCycleState {
     createdByMemberId: string | null
     createdAt: Temporal.Instant
   }[]
+}
+
+export interface FinanceCurrentBillPlan {
+  period: string
+  currency: CurrencyCode
+  timezone: string
+  billingStage: 'utilities' | 'rent' | 'idle'
+  utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
+  rentBillingState: FinanceDashboardRentBillingState
 }
 
 interface FinanceCommandServiceDependencies {
@@ -311,6 +394,199 @@ function roundSuggestedPaymentMinor(kind: FinancePaymentKind, amountMinor: bigin
   const remainderMinor = amountMinor % 100n
 
   return (remainderMinor >= 50n ? wholeMinor + 1n : wholeMinor) * 100n
+}
+
+function utilityPlanPayloadChanged(
+  left: UtilityBillingPlanComputed,
+  right: UtilityBillingPlanComputed
+): boolean {
+  return (
+    JSON.stringify(serializeUtilityBillingPlanPayload(left)) !==
+      JSON.stringify(serializeUtilityBillingPlanPayload(right)) ||
+    left.status !== right.status ||
+    left.maxCategoriesPerMemberApplied !== right.maxCategoriesPerMemberApplied
+  )
+}
+
+async function ensureUtilityBillingPlan(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  settings: HouseholdBillingSettingsRecord
+  settlementLines: readonly {
+    memberId: string
+    utilityShare: Money
+  }[]
+  convertedUtilityBills: readonly {
+    bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
+    converted: ConvertedCycleMoney
+  }[]
+}): Promise<{
+  record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
+  computed: UtilityBillingPlanComputed
+}> {
+  const [existingPlans, vendorFacts, reimbursementFacts] = await Promise.all([
+    input.dependencies.repository.listUtilityBillingPlansForCycle(input.cycle.id),
+    input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(input.cycle.id),
+    input.dependencies.repository.listUtilityReimbursementFactsForCycle(input.cycle.id)
+  ])
+
+  const activePlan =
+    [...existingPlans]
+      .reverse()
+      .find((plan) => plan.status === 'active' || plan.status === 'settled') ?? null
+
+  const computed = computeUtilityBillingPlan({
+    currency: input.cycle.currency,
+    members: input.settlementLines
+      .filter((line) => line.utilityShare.amountMinor > 0n)
+      .map((line) => ({
+        memberId: line.memberId,
+        displayName:
+          input.members.find((member) => member.id === line.memberId)?.displayName ?? line.memberId,
+        fairShare: line.utilityShare
+      })),
+    bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
+      utilityBillId: bill.id,
+      billName: bill.billName,
+      amount: converted.settlementAmount
+    })),
+    vendorPayments: vendorFacts.map((fact) => ({
+      utilityBillId: fact.utilityBillId,
+      billName: fact.billName,
+      payerMemberId: fact.payerMemberId,
+      amount: Money.fromMinor(fact.amountMinor, fact.currency)
+    })),
+    reimbursements: reimbursementFacts.map((fact) => ({
+      fromMemberId: fact.fromMemberId,
+      toMemberId: fact.toMemberId,
+      amount: Money.fromMinor(fact.amountMinor, fact.currency)
+    }))
+  })
+
+  if (activePlan) {
+    const materialized = materializeUtilityBillingPlanRecord(activePlan)
+    if (!utilityPlanPayloadChanged(materialized, computed)) {
+      return {
+        record: activePlan,
+        computed: materialized
+      }
+    }
+
+    const hadOffPlanFact =
+      vendorFacts.some((fact) => !fact.matchedPlan) ||
+      reimbursementFacts.some((fact) => !fact.matchedPlan)
+    await input.dependencies.repository.updateUtilityBillingPlanStatus(
+      activePlan.id,
+      hadOffPlanFact ? 'diverged' : 'superseded'
+    )
+  }
+
+  const nextVersion =
+    existingPlans.reduce((max, plan) => (plan.version > max ? plan.version : max), 0) + 1
+  const dueDate = billingPeriodLockDate(
+    BillingPeriod.fromString(input.cycle.period),
+    input.settings.utilitiesDueDay
+  ).toString()
+  const record = await input.dependencies.repository.saveUtilityBillingPlan({
+    cycleId: input.cycle.id,
+    version: nextVersion,
+    status: computed.status,
+    dueDate,
+    currency: input.cycle.currency,
+    maxCategoriesPerMemberApplied: computed.maxCategoriesPerMemberApplied,
+    updatedFromPlanId: activePlan?.id ?? null,
+    reason:
+      activePlan &&
+      (vendorFacts.some((fact) => !fact.matchedPlan) ||
+        reimbursementFacts.some((fact) => !fact.matchedPlan))
+        ? 'rebalanced_after_off_plan_change'
+        : activePlan
+          ? 'rebalanced_after_cycle_change'
+          : null,
+    payload: serializeUtilityBillingPlanPayload(computed)
+  })
+
+  return {
+    record,
+    computed
+  }
+}
+
+function buildDashboardUtilityBillingPlan(input: {
+  planRecord: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
+  computed: UtilityBillingPlanComputed
+  memberNameById: ReadonlyMap<string, string>
+  priorVersionByPlanId: ReadonlyMap<string, number>
+}): FinanceDashboardUtilityBillingPlan {
+  return {
+    version: input.planRecord.version,
+    status: input.planRecord.status,
+    dueDate: input.planRecord.dueDate,
+    updatedFromVersion: input.planRecord.updatedFromPlanId
+      ? (input.priorVersionByPlanId.get(input.planRecord.updatedFromPlanId) ?? null)
+      : null,
+    reason: input.planRecord.reason,
+    categories: input.computed.categories.map((category) => ({
+      utilityBillId: category.utilityBillId,
+      billName: category.billName,
+      amount: category.amount,
+      assignedMemberId: category.assignedMemberId,
+      assignedDisplayName:
+        input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
+      paidAmount: category.paidAmount,
+      fullCategoryPayment: category.fullCategoryPayment,
+      splitSourceBillId: category.splitSourceBillId
+    })),
+    transfers: input.computed.transfers.map((transfer) => ({
+      fromMemberId: transfer.fromMemberId,
+      fromDisplayName: input.memberNameById.get(transfer.fromMemberId) ?? transfer.fromMemberId,
+      toMemberId: transfer.toMemberId,
+      toDisplayName: input.memberNameById.get(transfer.toMemberId) ?? transfer.toMemberId,
+      amount: transfer.amount,
+      settledAmount: transfer.settledAmount
+    })),
+    memberSummaries: input.computed.memberSummaries.map((summary) => ({
+      memberId: summary.memberId,
+      displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
+      fairShare: summary.fairShare,
+      vendorPaid: summary.vendorPaid,
+      reimbursementSent: summary.reimbursementSent,
+      reimbursementReceived: summary.reimbursementReceived,
+      assignedVendor: summary.assignedVendor,
+      remainingTransferIn: summary.remainingTransferIn,
+      remainingTransferOut: summary.remainingTransferOut,
+      netSettled: summary.netSettled
+    }))
+  }
+}
+
+function resolveBillingStage(input: {
+  period: string
+  settings: HouseholdBillingSettingsRecord
+  utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
+  rentBillingState: FinanceDashboardRentBillingState
+}): 'utilities' | 'rent' | 'idle' {
+  const localDate = localDateInTimezone(input.settings.timezone)
+  const period = BillingPeriod.fromString(input.period)
+  const utilitiesReminder = billingPeriodLockDate(period, input.settings.utilitiesReminderDay)
+  const rentReminder = billingPeriodLockDate(period, input.settings.rentWarningDay)
+  const utilitiesOpen =
+    input.utilityBillingPlan &&
+    input.utilityBillingPlan.status !== 'settled' &&
+    input.utilityBillingPlan.categories.length + input.utilityBillingPlan.transfers.length > 0 &&
+    Temporal.PlainDate.compare(localDate, utilitiesReminder) >= 0 &&
+    Temporal.PlainDate.compare(localDate, rentReminder) < 0
+
+  if (utilitiesOpen) {
+    return 'utilities'
+  }
+
+  const rentOpen =
+    input.rentBillingState.memberSummaries.some((member) => member.remaining.amountMinor > 0n) &&
+    Temporal.PlainDate.compare(localDate, rentReminder) >= 0
+
+  return rentOpen ? 'rent' : 'idle'
 }
 
 function periodFromInstant(instant: Temporal.Instant | null | undefined): string | null {
@@ -1183,6 +1459,61 @@ async function buildFinanceDashboard(
       })) ?? [],
     explanations: line.explanations
   }))
+  const ensuredUtilityPlan = await ensureUtilityBillingPlan({
+    dependencies,
+    cycle,
+    members,
+    settings,
+    settlementLines: settlement.lines.map((line) => ({
+      memberId: line.memberId.toString(),
+      utilityShare: line.utilityShare
+    })),
+    convertedUtilityBills
+  })
+  const utilityPlanVersions = await dependencies.repository.listUtilityBillingPlansForCycle(
+    cycle.id
+  )
+  const utilityPlanVersionById = new Map(
+    utilityPlanVersions.map((plan) => [plan.id, plan.version] as const)
+  )
+  const dashboardUtilityBillingPlan = buildDashboardUtilityBillingPlan({
+    planRecord: ensuredUtilityPlan.record,
+    computed: ensuredUtilityPlan.computed,
+    memberNameById,
+    priorVersionByPlanId: utilityPlanVersionById
+  })
+  const rentPaidByMemberId = new Map<string, Money>()
+  for (const payment of paymentRecords.filter((payment) => payment.kind === 'rent')) {
+    rentPaidByMemberId.set(
+      payment.memberId,
+      (rentPaidByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)).add(
+        Money.fromMinor(payment.amountMinor, payment.currency)
+      )
+    )
+  }
+  const rentBillingState: FinanceDashboardRentBillingState = {
+    dueDate: billingPeriodLockDate(period, settings.rentDueDay).toString(),
+    paymentDestinations: settings.rentPaymentDestinations ?? null,
+    memberSummaries: dashboardMembers.map((member) => {
+      const paid = rentPaidByMemberId.get(member.memberId) ?? Money.zero(cycle.currency)
+      return {
+        memberId: member.memberId,
+        displayName: member.displayName,
+        due: member.rentShare,
+        paid,
+        remaining: Money.fromMinor(
+          effectiveRemainingMinor(member.rentShare.amountMinor, paid.amountMinor),
+          cycle.currency
+        )
+      }
+    })
+  }
+  const billingStage = resolveBillingStage({
+    period: cycle.period,
+    settings,
+    utilityBillingPlan: dashboardUtilityBillingPlan,
+    rentBillingState
+  })
 
   const ledger: FinanceDashboardLedgerEntry[] = [
     ...convertedUtilityBills.map(({ bill, converted }) => ({
@@ -1287,6 +1618,9 @@ async function buildFinanceDashboard(
     rentDisplayAmount: convertedRent.settlementAmount,
     rentFxRateMicros: convertedRent.fxRateMicros,
     rentFxEffectiveDate: convertedRent.fxEffectiveDate,
+    billingStage,
+    utilityBillingPlan: dashboardUtilityBillingPlan,
+    rentBillingState,
     members: dashboardMembers,
     paymentPeriods,
     ledger
@@ -1437,7 +1771,8 @@ export interface FinanceCommandService {
         shareAmountMajor?: string
       }[]
     },
-    payerMemberId?: string
+    payerMemberId?: string,
+    occurredOnArg?: string
   ): Promise<{
     purchaseId: string
     amount: Money
@@ -1455,7 +1790,8 @@ export interface FinanceCommandService {
         included?: boolean
         shareAmountMajor?: string
       }[]
-    }
+    },
+    occurredOnArg?: string
   ): Promise<{
     purchaseId: string
     amount: Money
@@ -1486,6 +1822,39 @@ export interface FinanceCommandService {
     currency: CurrencyCode
   } | null>
   deletePayment(paymentId: string): Promise<boolean>
+  generateCurrentBillPlan(periodArg?: string): Promise<FinanceCurrentBillPlan | null>
+  resolveUtilityBillAsPlanned(input: {
+    memberId: string
+    actorMemberId?: string
+    periodArg?: string
+  }): Promise<{
+    period: string
+    resolvedBillIds: readonly string[]
+    plan: FinanceDashboardUtilityBillingPlan | null
+  } | null>
+  recordUtilityVendorPayment(input: {
+    utilityBillId: string
+    payerMemberId: string
+    actorMemberId?: string
+    amountArg?: string
+    currencyArg?: string
+    periodArg?: string
+  }): Promise<{
+    period: string
+    plan: FinanceDashboardUtilityBillingPlan | null
+  } | null>
+  recordUtilityReimbursement(input: {
+    fromMemberId: string
+    toMemberId: string
+    actorMemberId?: string
+    amountArg: string
+    currencyArg?: string
+    periodArg?: string
+  }): Promise<{
+    period: string
+    plan: FinanceDashboardUtilityBillingPlan | null
+  } | null>
+  rebalanceUtilityPlan(periodArg?: string): Promise<FinanceDashboardUtilityBillingPlan | null>
   generateDashboard(periodArg?: string): Promise<FinanceDashboard | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -1693,7 +2062,15 @@ export function createFinanceCommandService(
       return repository.deleteUtilityBill(billId)
     },
 
-    async updatePurchase(purchaseId, description, amountArg, currencyArg, split, payerMemberId) {
+    async updatePurchase(
+      purchaseId,
+      description,
+      amountArg,
+      currencyArg,
+      split,
+      payerMemberId,
+      occurredOnArg
+    ) {
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
@@ -1730,6 +2107,14 @@ export function createFinanceCommandService(
               payerMemberId
             }
           : {}),
+        ...(occurredOnArg
+          ? {
+              occurredAt: purchaseOccurredAtFromDate({
+                occurredOn: occurredOnArg,
+                timezone: settings.timezone
+              })
+            }
+          : {}),
         ...(split
           ? {
               splitMode: split.mode,
@@ -1756,7 +2141,7 @@ export function createFinanceCommandService(
       }
     },
 
-    async addPurchase(description, amountArg, payerMemberId, currencyArg, split) {
+    async addPurchase(description, amountArg, payerMemberId, currencyArg, split, occurredOnArg) {
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
@@ -1794,7 +2179,12 @@ export function createFinanceCommandService(
         amountMinor: amount.amountMinor,
         currency,
         description: description.trim().length > 0 ? description.trim() : null,
-        occurredAt: nowInstant(),
+        occurredAt: occurredOnArg
+          ? purchaseOccurredAtFromDate({
+              occurredOn: occurredOnArg,
+              timezone: settings.timezone
+            })
+          : nowInstant(),
         ...(split
           ? {
               splitMode: split.mode,
@@ -1993,6 +2383,179 @@ export function createFinanceCommandService(
 
     deletePayment(paymentId) {
       return repository.deletePaymentRecord(paymentId)
+    },
+
+    async generateCurrentBillPlan(periodArg) {
+      const dashboard = await (periodArg
+        ? buildFinanceDashboard(dependencies, periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+
+      if (!dashboard) {
+        return null
+      }
+
+      return {
+        period: dashboard.period,
+        currency: dashboard.currency,
+        timezone: dashboard.timezone,
+        billingStage: dashboard.billingStage,
+        utilityBillingPlan: dashboard.utilityBillingPlan,
+        rentBillingState: dashboard.rentBillingState
+      }
+    },
+
+    async resolveUtilityBillAsPlanned(input) {
+      const dashboard = await (input.periodArg
+        ? buildFinanceDashboard(dependencies, input.periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+
+      if (!dashboard?.utilityBillingPlan) {
+        return null
+      }
+
+      const categories = dashboard.utilityBillingPlan.categories.filter(
+        (category) =>
+          category.assignedMemberId === input.memberId && category.amount.amountMinor > 0n
+      )
+      if (categories.length === 0) {
+        throw new Error('No planned utility bills assigned to this member')
+      }
+
+      const cycle = await repository.getCycleByPeriod(dashboard.period)
+      if (!cycle) {
+        return null
+      }
+
+      for (const category of categories) {
+        await repository.addUtilityVendorPaymentFact({
+          cycleId: cycle.id,
+          utilityBillId: category.utilityBillId,
+          billName: category.billName,
+          payerMemberId: input.memberId,
+          amountMinor: category.amount.amountMinor,
+          currency: dashboard.currency,
+          plannedForMemberId: input.memberId,
+          planVersion: dashboard.utilityBillingPlan.version,
+          matchedPlan: true,
+          recordedByMemberId: input.actorMemberId ?? input.memberId,
+          recordedAt: nowInstant()
+        })
+      }
+
+      const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
+      return {
+        period: dashboard.period,
+        resolvedBillIds: [...new Set(categories.map((category) => category.utilityBillId))],
+        plan: nextDashboard?.utilityBillingPlan ?? null
+      }
+    },
+
+    async recordUtilityVendorPayment(input) {
+      const dashboard = await (input.periodArg
+        ? buildFinanceDashboard(dependencies, input.periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+      if (!dashboard) {
+        return null
+      }
+
+      const cycle = await repository.getCycleByPeriod(dashboard.period)
+      if (!cycle) {
+        return null
+      }
+
+      const utilityBills = await repository.listUtilityBillsForCycle(cycle.id)
+      const bill = utilityBills.find((item) => item.id === input.utilityBillId)
+      if (!bill) {
+        throw new Error('Utility bill not found')
+      }
+
+      const assignedAmounts =
+        dashboard.utilityBillingPlan?.categories.filter(
+          (category) => category.utilityBillId === bill.id
+        ) ?? []
+      const defaultMinor = assignedAmounts
+        .filter((category) => category.assignedMemberId === input.payerMemberId)
+        .reduce((sum, category) => sum + category.amount.amountMinor, 0n)
+      const currency = parseCurrency(input.currencyArg, dashboard.currency)
+      const amount = input.amountArg
+        ? Money.fromMajor(input.amountArg, currency)
+        : Money.fromMinor(defaultMinor > 0n ? defaultMinor : bill.amountMinor, currency)
+      const matchingCategory = assignedAmounts.find(
+        (category) =>
+          category.assignedMemberId === input.payerMemberId &&
+          category.amount.amountMinor === amount.amountMinor
+      )
+
+      await repository.addUtilityVendorPaymentFact({
+        cycleId: cycle.id,
+        utilityBillId: bill.id,
+        billName: bill.billName,
+        payerMemberId: input.payerMemberId,
+        amountMinor: amount.amountMinor,
+        currency,
+        plannedForMemberId: matchingCategory?.assignedMemberId ?? null,
+        planVersion: dashboard.utilityBillingPlan?.version ?? null,
+        matchedPlan: Boolean(matchingCategory),
+        recordedByMemberId: input.actorMemberId ?? input.payerMemberId,
+        recordedAt: nowInstant()
+      })
+
+      const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
+      return {
+        period: dashboard.period,
+        plan: nextDashboard?.utilityBillingPlan ?? null
+      }
+    },
+
+    async recordUtilityReimbursement(input) {
+      const dashboard = await (input.periodArg
+        ? buildFinanceDashboard(dependencies, input.periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+      if (!dashboard) {
+        return null
+      }
+
+      const cycle = await repository.getCycleByPeriod(dashboard.period)
+      if (!cycle) {
+        return null
+      }
+
+      const currency = parseCurrency(input.currencyArg, dashboard.currency)
+      const amount = Money.fromMajor(input.amountArg, currency)
+      const matchingTransfer = dashboard.utilityBillingPlan?.transfers.find(
+        (transfer) =>
+          transfer.fromMemberId === input.fromMemberId &&
+          transfer.toMemberId === input.toMemberId &&
+          transfer.amount.amountMinor === amount.amountMinor
+      )
+
+      await repository.addUtilityReimbursementFact({
+        cycleId: cycle.id,
+        fromMemberId: input.fromMemberId,
+        toMemberId: input.toMemberId,
+        amountMinor: amount.amountMinor,
+        currency,
+        plannedFromMemberId: matchingTransfer?.fromMemberId ?? null,
+        plannedToMemberId: matchingTransfer?.toMemberId ?? null,
+        planVersion: dashboard.utilityBillingPlan?.version ?? null,
+        matchedPlan: Boolean(matchingTransfer),
+        recordedByMemberId: input.actorMemberId ?? input.fromMemberId,
+        recordedAt: nowInstant()
+      })
+
+      const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
+      return {
+        period: dashboard.period,
+        plan: nextDashboard?.utilityBillingPlan ?? null
+      }
+    },
+
+    async rebalanceUtilityPlan(periodArg) {
+      const dashboard = await (periodArg
+        ? buildFinanceDashboard(dependencies, periodArg)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
+
+      return dashboard?.utilityBillingPlan ?? null
     },
 
     async generateStatement(periodArg) {

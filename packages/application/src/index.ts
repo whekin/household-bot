@@ -15,6 +15,19 @@ export {
   type AnonymousFeedbackSubmitResult
 } from './anonymous-feedback-service'
 export { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
+export {
+  computeUtilityBillingPlan,
+  materializeUtilityBillingPlanRecord,
+  serializeUtilityBillingPlanPayload,
+  type UtilityBillingBill,
+  type UtilityBillingCategoryAssignment,
+  type UtilityBillingMemberSummary,
+  type UtilityBillingPlanComputed,
+  type UtilityBillingTargetMember,
+  type UtilityBillingTransfer,
+  type UtilityReimbursementFactInput,
+  type UtilityVendorPaymentFactInput
+} from './utilities-billing-plan'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
 export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'
 export { createMiniAppAdminService, type MiniAppAdminService } from './miniapp-admin-service'

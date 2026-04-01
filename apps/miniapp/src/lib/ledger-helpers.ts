@@ -4,6 +4,7 @@
  */
 
 import { majorStringToMinor, minorToMajorString } from './money'
+import { calendarDateInputValue } from './dates'
 import type {
   MiniAppAdminCycleState,
   MiniAppDashboard,
@@ -33,6 +34,7 @@ export type PurchaseDraft = {
   description: string
   amountMajor: string
   currency: 'USD' | 'GEL'
+  occurredOn: string | null
   payerMemberId?: string
   splitMode: 'equal' | 'custom_amounts'
   splitInputMode: 'equal' | 'exact' | 'percentage'
@@ -145,6 +147,7 @@ export function purchaseDrafts(
           description: entry.title,
           amountMajor: entry.amountMajor,
           currency: entry.currency,
+          occurredOn: calendarDateInputValue(entry.occurredAt),
           ...(entry.payerMemberId !== undefined ? { payerMemberId: entry.payerMemberId } : {}),
           splitMode: entry.purchaseSplitMode ?? 'equal',
           splitInputMode: (entry.purchaseSplitMode ?? 'equal') === 'equal' ? 'equal' : 'exact',
@@ -165,6 +168,7 @@ export function purchaseDraftForEntry(entry: MiniAppDashboard['ledger'][number])
     description: entry.title,
     amountMajor: entry.amountMajor,
     currency: entry.currency,
+    occurredOn: calendarDateInputValue(entry.occurredAt),
     ...(entry.payerMemberId !== undefined ? { payerMemberId: entry.payerMemberId } : {}),
     splitMode: entry.purchaseSplitMode ?? 'equal',
     splitInputMode: (entry.purchaseSplitMode ?? 'equal') === 'equal' ? 'equal' : 'exact',

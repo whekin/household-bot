@@ -340,6 +340,11 @@ function createFinanceService(): FinanceCommandService {
     }),
     updatePayment: async () => null,
     deletePayment: async () => false,
+    generateCurrentBillPlan: async () => null,
+    resolveUtilityBillAsPlanned: async () => null,
+    recordUtilityVendorPayment: async () => null,
+    recordUtilityReimbursement: async () => null,
+    rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => ({
       period: '2026-03',
       currency: 'GEL',
@@ -353,10 +358,17 @@ function createFinanceService(): FinanceCommandService {
       totalDue: Money.fromMajor('1000.00', 'GEL'),
       totalPaid: Money.fromMajor('500.00', 'GEL'),
       totalRemaining: Money.fromMajor('500.00', 'GEL'),
+      billingStage: 'idle',
       rentSourceAmount: Money.fromMajor('700.00', 'USD'),
       rentDisplayAmount: Money.fromMajor('1890.00', 'GEL'),
       rentFxRateMicros: null,
       rentFxEffectiveDate: null,
+      utilityBillingPlan: null,
+      rentBillingState: {
+        dueDate: '2026-03-20',
+        memberSummaries: [],
+        paymentDestinations: null
+      },
       members: [
         {
           memberId: 'member-1',

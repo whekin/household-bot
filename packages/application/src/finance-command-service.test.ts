@@ -57,6 +57,13 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string | null
     createdAt: Instant
   }[] = []
+  utilityBillingPlans: Array<Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]> = []
+  utilityVendorPaymentFacts: Array<
+    Awaited<ReturnType<FinanceRepository['listUtilityVendorPaymentFactsForCycle']>>[number]
+  > = []
+  utilityReimbursementFacts: Array<
+    Awaited<ReturnType<FinanceRepository['listUtilityReimbursementFactsForCycle']>>[number]
+  > = []
   paymentRecords: readonly {
     id: string
     cycleId: string
@@ -291,6 +298,147 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listUtilityBillsForCycle(cycleId: string) {
     return this.utilityBills.filter((bill) => !bill.cycleId || bill.cycleId === cycleId)
+  }
+
+  async getActiveUtilityBillingPlan(cycleId: string) {
+    const latest = [...this.utilityBillingPlans]
+      .reverse()
+      .find(
+        (plan) =>
+          plan.cycleId === cycleId && (plan.status === 'active' || plan.status === 'settled')
+      )
+    return latest
+      ? {
+          id: `utility-plan-${latest.version}`,
+          householdId: this.householdId,
+          cycleId,
+          version: latest.version,
+          status: latest.status,
+          dueDate: latest.dueDate,
+          currency: latest.currency,
+          maxCategoriesPerMemberApplied: latest.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: latest.updatedFromPlanId,
+          reason: latest.reason,
+          payload: latest.payload,
+          createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
+        }
+      : null
+  }
+
+  async listUtilityBillingPlansForCycle(cycleId: string) {
+    return this.utilityBillingPlans
+      .filter((plan) => plan.cycleId === cycleId)
+      .map((plan) => ({
+        id: `utility-plan-${plan.version}`,
+        householdId: this.householdId,
+        cycleId,
+        version: plan.version,
+        status: plan.status,
+        dueDate: plan.dueDate,
+        currency: plan.currency,
+        maxCategoriesPerMemberApplied: plan.maxCategoriesPerMemberApplied,
+        updatedFromPlanId: plan.updatedFromPlanId,
+        reason: plan.reason,
+        payload: plan.payload,
+        createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
+      }))
+  }
+
+  async saveUtilityBillingPlan(input: Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]) {
+    this.utilityBillingPlans = [...this.utilityBillingPlans, input]
+    return {
+      id: `utility-plan-${input.version}`,
+      householdId: this.householdId,
+      cycleId: input.cycleId,
+      version: input.version,
+      status: input.status,
+      dueDate: input.dueDate,
+      currency: input.currency,
+      maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+      updatedFromPlanId: input.updatedFromPlanId,
+      reason: input.reason,
+      payload: input.payload,
+      createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
+    }
+  }
+
+  async updateUtilityBillingPlanStatus(
+    planId: string,
+    status: Parameters<FinanceRepository['updateUtilityBillingPlanStatus']>[1]
+  ) {
+    const version = Number(planId.split('-').at(-1) ?? '0')
+    const plan = this.utilityBillingPlans.find((item) => item.version === version)
+    if (!plan) {
+      return null
+    }
+
+    plan.status = status
+    return {
+      id: planId,
+      householdId: this.householdId,
+      cycleId: plan.cycleId,
+      version: plan.version,
+      status: plan.status,
+      dueDate: plan.dueDate,
+      currency: plan.currency,
+      maxCategoriesPerMemberApplied: plan.maxCategoriesPerMemberApplied,
+      updatedFromPlanId: plan.updatedFromPlanId,
+      reason: plan.reason,
+      payload: plan.payload,
+      createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
+    }
+  }
+
+  async listUtilityVendorPaymentFactsForCycle(cycleId: string) {
+    return this.utilityVendorPaymentFacts.filter((fact) => fact.cycleId === cycleId)
+  }
+
+  async addUtilityVendorPaymentFact(
+    input: Parameters<FinanceRepository['addUtilityVendorPaymentFact']>[0]
+  ) {
+    const fact = {
+      id: `utility-vendor-${this.utilityVendorPaymentFacts.length + 1}`,
+      cycleId: input.cycleId,
+      utilityBillId: input.utilityBillId ?? null,
+      billName: input.billName,
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedForMemberId: input.plannedForMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: input.recordedAt
+    }
+    this.utilityVendorPaymentFacts = [...this.utilityVendorPaymentFacts, fact]
+    return fact
+  }
+
+  async listUtilityReimbursementFactsForCycle(cycleId: string) {
+    return this.utilityReimbursementFacts.filter((fact) => fact.cycleId === cycleId)
+  }
+
+  async addUtilityReimbursementFact(
+    input: Parameters<FinanceRepository['addUtilityReimbursementFact']>[0]
+  ) {
+    const fact = {
+      id: `utility-reimbursement-${this.utilityReimbursementFacts.length + 1}`,
+      cycleId: input.cycleId,
+      fromMemberId: input.fromMemberId,
+      toMemberId: input.toMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedFromMemberId: input.plannedFromMemberId ?? null,
+      plannedToMemberId: input.plannedToMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: input.recordedAt
+    }
+    this.utilityReimbursementFacts = [...this.utilityReimbursementFacts, fact]
+    return fact
   }
 
   async listPaymentRecordsForCycle(cycleId: string) {
@@ -1340,5 +1488,106 @@ describe('createFinanceCommandService', () => {
     await expect(service.addPayment('alice', 'rent', '10.00', 'GEL', '2026-03')).rejects.toThrow(
       'Payment period is already settled'
     )
+  })
+
+  test('recordUtilityVendorPayment marks the previous plan diverged and rebalances the remainder', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:01:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialPlan = await service.generateCurrentBillPlan('2026-04')
+
+    expect(initialPlan?.utilityBillingPlan?.version).toBe(1)
+    expect(
+      initialPlan?.utilityBillingPlan?.categories.map((category) => ({
+        bill: category.billName,
+        assigned: category.assignedMemberId
+      }))
+    ).toEqual([
+      {
+        bill: 'Electricity',
+        assigned: 'alice'
+      },
+      {
+        bill: 'Gas',
+        assigned: 'bob'
+      }
+    ])
+
+    const result = await service.recordUtilityVendorPayment({
+      utilityBillId: 'bill-gas',
+      payerMemberId: 'alice',
+      actorMemberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(1)
+    expect(repository.utilityVendorPaymentFacts[0]).toMatchObject({
+      utilityBillId: 'bill-gas',
+      payerMemberId: 'alice',
+      matchedPlan: false,
+      plannedForMemberId: null,
+      planVersion: 1
+    })
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'diverged',
+      'active'
+    ])
+    expect(result?.plan?.version).toBe(2)
+    expect(result?.plan?.reason).toBe('rebalanced_after_off_plan_change')
+    expect(
+      result?.plan?.categories.map((category) => ({
+        bill: category.billName,
+        assigned: category.assignedMemberId,
+        amountMinor: category.amount.amountMinor
+      }))
+    ).toEqual([
+      {
+        bill: 'Electricity',
+        assigned: 'bob',
+        amountMinor: 10000n
+      }
+    ])
+    expect(result?.plan?.transfers).toEqual([])
   })
 })

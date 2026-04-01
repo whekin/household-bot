@@ -120,11 +120,64 @@ export function createMiniAppDashboardHandler(options: {
               totalDueMajor: dashboard.totalDue.toMajorString(),
               totalPaidMajor: dashboard.totalPaid.toMajorString(),
               totalRemainingMajor: dashboard.totalRemaining.toMajorString(),
+              billingStage: dashboard.billingStage,
               rentSourceAmountMajor: dashboard.rentSourceAmount.toMajorString(),
               rentSourceCurrency: dashboard.rentSourceAmount.currency,
               rentDisplayAmountMajor: dashboard.rentDisplayAmount.toMajorString(),
               rentFxRateMicros: dashboard.rentFxRateMicros?.toString() ?? null,
               rentFxEffectiveDate: dashboard.rentFxEffectiveDate,
+              utilityBillingPlan: dashboard.utilityBillingPlan
+                ? {
+                    version: dashboard.utilityBillingPlan.version,
+                    status: dashboard.utilityBillingPlan.status,
+                    dueDate: dashboard.utilityBillingPlan.dueDate,
+                    updatedFromVersion: dashboard.utilityBillingPlan.updatedFromVersion,
+                    reason: dashboard.utilityBillingPlan.reason,
+                    categories: dashboard.utilityBillingPlan.categories.map((category) => ({
+                      utilityBillId: category.utilityBillId,
+                      billName: category.billName,
+                      amountMajor: category.amount.toMajorString(),
+                      assignedMemberId: category.assignedMemberId,
+                      assignedDisplayName: category.assignedDisplayName,
+                      paidAmountMajor: category.paidAmount.toMajorString(),
+                      fullCategoryPayment: category.fullCategoryPayment,
+                      splitSourceBillId: category.splitSourceBillId
+                    })),
+                    transfers: dashboard.utilityBillingPlan.transfers.map((transfer) => ({
+                      fromMemberId: transfer.fromMemberId,
+                      fromDisplayName: transfer.fromDisplayName,
+                      toMemberId: transfer.toMemberId,
+                      toDisplayName: transfer.toDisplayName,
+                      amountMajor: transfer.amount.toMajorString(),
+                      settledAmountMajor: transfer.settledAmount.toMajorString()
+                    })),
+                    memberSummaries: dashboard.utilityBillingPlan.memberSummaries.map(
+                      (summary) => ({
+                        memberId: summary.memberId,
+                        displayName: summary.displayName,
+                        fairShareMajor: summary.fairShare.toMajorString(),
+                        vendorPaidMajor: summary.vendorPaid.toMajorString(),
+                        reimbursementSentMajor: summary.reimbursementSent.toMajorString(),
+                        reimbursementReceivedMajor: summary.reimbursementReceived.toMajorString(),
+                        assignedVendorMajor: summary.assignedVendor.toMajorString(),
+                        remainingTransferInMajor: summary.remainingTransferIn.toMajorString(),
+                        remainingTransferOutMajor: summary.remainingTransferOut.toMajorString(),
+                        netSettledMajor: summary.netSettled.toMajorString()
+                      })
+                    )
+                  }
+                : null,
+              rentBillingState: {
+                dueDate: dashboard.rentBillingState.dueDate,
+                paymentDestinations: dashboard.rentBillingState.paymentDestinations,
+                memberSummaries: dashboard.rentBillingState.memberSummaries.map((summary) => ({
+                  memberId: summary.memberId,
+                  displayName: summary.displayName,
+                  dueMajor: summary.due.toMajorString(),
+                  paidMajor: summary.paid.toMajorString(),
+                  remainingMajor: summary.remaining.toMajorString()
+                }))
+              },
               utilityCategories: utilityCategories
                 .filter((category) => category.isActive)
                 .sort((left, right) => left.sortOrder - right.sortOrder)

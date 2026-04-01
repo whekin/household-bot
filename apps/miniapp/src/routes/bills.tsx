@@ -16,6 +16,9 @@ import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
+  recordMiniAppUtilityReimbursement,
+  recordMiniAppUtilityVendorPayment,
+  resolveMiniAppUtilityPlan,
   updateMiniAppCycleRent,
   updateMiniAppUtilityBill
 } from '../miniapp-api'
@@ -44,7 +47,7 @@ function sameCategory(left: string, right: string): boolean {
 
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
-  const { initData, refreshHouseholdData } = useSession()
+  const { initData, refreshHouseholdData, readySession } = useSession()
   const { adminSettings, cycleState, dashboard, effectiveIsAdmin, loading, utilityLedger } =
     useDashboard()
 
@@ -56,6 +59,7 @@ export default function BillsRoute() {
     fxRate: ''
   })
   const [savingRent, setSavingRent] = createSignal(false)
+  const [utilityActionKey, setUtilityActionKey] = createSignal<string | null>(null)
 
   const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
 
@@ -100,6 +104,19 @@ export default function BillsRoute() {
     )
   )
   const hasRentOverride = createMemo(() => Boolean(cycleState()?.rentRule))
+  const currentMemberId = createMemo(() =>
+    readySession()?.status === 'ready' ? readySession()!.member.id : null
+  )
+  const currentMemberIsAdmin = createMemo(
+    () => readySession()?.status === 'ready' && readySession()!.member.isAdmin
+  )
+  const utilityBillingPlan = createMemo(() => dashboard()?.utilityBillingPlan ?? null)
+  const visibleUtilityTransfers = createMemo(
+    () =>
+      utilityBillingPlan()?.transfers.filter(
+        (transfer) => majorStringToMinor(transfer.amountMajor) > 0n
+      ) ?? []
+  )
 
   createEffect(() => {
     const categories = utilityCategories()
@@ -180,6 +197,57 @@ export default function BillsRoute() {
     }
   }
 
+  async function runUtilityAction(key: string, action: () => Promise<void>) {
+    if (utilityActionKey()) return
+    setUtilityActionKey(key)
+    try {
+      await action()
+      await refreshHouseholdData(true, true)
+    } finally {
+      setUtilityActionKey(null)
+    }
+  }
+
+  async function handleResolvePlanned(memberId: string) {
+    const data = initData()
+    if (!data) return
+    await runUtilityAction(`resolve:${memberId}`, () =>
+      resolveMiniAppUtilityPlan(data, {
+        memberId,
+        ...(dashboard()?.period ? { period: dashboard()!.period } : {})
+      })
+    )
+  }
+
+  async function handleRecordVendorPayment(utilityBillId: string, payerMemberId: string) {
+    const data = initData()
+    if (!data) return
+    await runUtilityAction(`vendor:${utilityBillId}:${payerMemberId}`, () =>
+      recordMiniAppUtilityVendorPayment(data, {
+        utilityBillId,
+        payerMemberId,
+        ...(dashboard()?.period ? { period: dashboard()!.period } : {})
+      })
+    )
+  }
+
+  async function handleRecordReimbursement(
+    fromMemberId: string,
+    toMemberId: string,
+    amountMajor: string
+  ) {
+    const data = initData()
+    if (!data) return
+    await runUtilityAction(`transfer:${fromMemberId}:${toMemberId}:${amountMajor}`, () =>
+      recordMiniAppUtilityReimbursement(data, {
+        fromMemberId,
+        toMemberId,
+        amountMajor,
+        ...(dashboard()?.period ? { period: dashboard()!.period } : {})
+      })
+    )
+  }
+
   return (
     <div class="route route--bills">
       <div class="bills-section">
@@ -200,6 +268,210 @@ export default function BillsRoute() {
           <Match when={dashboard()}>
             {(data) => (
               <>
+                <Card>
+                  <Show when={utilityBillingPlan()}>
+                    {(plan) => (
+                      <div class="statement-section-heading">
+                        <div>
+                          <strong>
+                            {locale() === 'ru' ? 'План по коммуналке' : 'Utilities plan'}
+                          </strong>
+                          <p>
+                            {(locale() === 'ru' ? 'Версия' : 'Version') + ` ${plan().version}`} ·{' '}
+                            {locale() === 'ru' ? 'Срок' : 'Due'} {plan().dueDate}
+                          </p>
+                        </div>
+                        <span
+                          class={`ui-badge ${
+                            plan().status === 'settled'
+                              ? 'ui-badge--accent'
+                              : plan().status === 'active'
+                                ? 'ui-badge--accent'
+                                : 'ui-badge--muted'
+                          }`}
+                        >
+                          {plan().status === 'active'
+                            ? locale() === 'ru'
+                              ? 'По плану'
+                              : 'On track'
+                            : plan().status === 'settled'
+                              ? locale() === 'ru'
+                                ? 'Закрыто'
+                                : 'Settled'
+                              : locale() === 'ru'
+                                ? 'Пересчитано'
+                                : 'Rebalanced'}
+                        </span>
+                      </div>
+                    )}
+                  </Show>
+                  <Show
+                    when={utilityBillingPlan()?.categories.length}
+                    fallback={
+                      <p class="empty-state">
+                        {locale() === 'ru'
+                          ? 'Активных назначений нет.'
+                          : 'No active utility assignments.'}
+                      </p>
+                    }
+                  >
+                    <div class="statement-list">
+                      <For each={utilityBillingPlan()?.categories ?? []}>
+                        {(category) => (
+                          <div class="statement-list__item">
+                            <div>
+                              <strong>
+                                {category.fullCategoryPayment
+                                  ? `${locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL'} · ${category.billName}`
+                                  : category.billName}
+                              </strong>
+                              <span>
+                                {category.assignedDisplayName} ·{' '}
+                                {formatMoneyLabel(category.amountMajor, data().currency, locale())}
+                              </span>
+                            </div>
+                            <div class="statement-actions">
+                              <Show when={currentMemberId() === category.assignedMemberId}>
+                                <Button
+                                  variant="primary"
+                                  loading={
+                                    utilityActionKey() === `resolve:${category.assignedMemberId}`
+                                  }
+                                  onClick={() =>
+                                    void handleResolvePlanned(category.assignedMemberId)
+                                  }
+                                >
+                                  {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve as planned'}
+                                </Button>
+                              </Show>
+                              <Show
+                                when={
+                                  currentMemberId() &&
+                                  currentMemberId() !== category.assignedMemberId
+                                }
+                              >
+                                <Button
+                                  variant="ghost"
+                                  loading={
+                                    utilityActionKey() ===
+                                    `vendor:${category.utilityBillId}:${currentMemberId()}`
+                                  }
+                                  onClick={() =>
+                                    currentMemberId() &&
+                                    void handleRecordVendorPayment(
+                                      category.utilityBillId,
+                                      currentMemberId()!
+                                    )
+                                  }
+                                >
+                                  {locale() === 'ru'
+                                    ? 'Я оплатил вместо этого'
+                                    : 'I paid this instead'}
+                                </Button>
+                              </Show>
+                              <Show
+                                when={
+                                  currentMemberIsAdmin() &&
+                                  currentMemberId() !== category.assignedMemberId
+                                }
+                              >
+                                <Button
+                                  variant="ghost"
+                                  loading={
+                                    utilityActionKey() === `resolve:${category.assignedMemberId}`
+                                  }
+                                  onClick={() =>
+                                    void handleResolvePlanned(category.assignedMemberId)
+                                  }
+                                >
+                                  {locale() === 'ru'
+                                    ? `Записать за ${category.assignedDisplayName}`
+                                    : `Record for ${category.assignedDisplayName}`}
+                                </Button>
+                              </Show>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <Show when={visibleUtilityTransfers().length > 0}>
+                    <div class="statement-section-heading">
+                      <div>
+                        <strong>
+                          {locale() === 'ru' ? 'Взаиморасчеты' : 'Settle between members'}
+                        </strong>
+                        <p>
+                          {locale() === 'ru'
+                            ? 'После оплаты счетов закройте переводы между соседями.'
+                            : 'After vendor bills are paid, settle the remaining reimbursements.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div class="statement-list">
+                      <For each={visibleUtilityTransfers()}>
+                        {(transfer) => (
+                          <div class="statement-list__item">
+                            <div>
+                              <strong>
+                                {transfer.fromDisplayName} → {transfer.toDisplayName}
+                              </strong>
+                              <span>
+                                {formatMoneyLabel(transfer.amountMajor, data().currency, locale())}
+                              </span>
+                            </div>
+                            <div class="statement-actions">
+                              <Show when={currentMemberId() === transfer.fromMemberId}>
+                                <Button
+                                  variant="primary"
+                                  loading={
+                                    utilityActionKey() ===
+                                    `transfer:${transfer.fromMemberId}:${transfer.toMemberId}:${transfer.amountMajor}`
+                                  }
+                                  onClick={() =>
+                                    void handleRecordReimbursement(
+                                      transfer.fromMemberId,
+                                      transfer.toMemberId,
+                                      transfer.amountMajor
+                                    )
+                                  }
+                                >
+                                  {locale() === 'ru' ? 'Перевел' : 'Mark paid'}
+                                </Button>
+                              </Show>
+                              <Show
+                                when={
+                                  currentMemberIsAdmin() &&
+                                  currentMemberId() !== transfer.fromMemberId
+                                }
+                              >
+                                <Button
+                                  variant="ghost"
+                                  loading={
+                                    utilityActionKey() ===
+                                    `transfer:${transfer.fromMemberId}:${transfer.toMemberId}:${transfer.amountMajor}`
+                                  }
+                                  onClick={() =>
+                                    void handleRecordReimbursement(
+                                      transfer.fromMemberId,
+                                      transfer.toMemberId,
+                                      transfer.amountMajor
+                                    )
+                                  }
+                                >
+                                  {locale() === 'ru'
+                                    ? `Записать за ${transfer.fromDisplayName}`
+                                    : `Record for ${transfer.fromDisplayName}`}
+                                </Button>
+                              </Show>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </Card>
+
                 <Card>
                   <div class="statement-header">
                     <div>

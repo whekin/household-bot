@@ -10,7 +10,9 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
+    "@ark-ui/solid": "5.35.0",
     "@household/domain": "workspace:*",
+    "@internationalized/date": "3.12.0",
     "@kobalte/core": "0.13.11",
     "@solidjs/router": "0.15.4",
     "@tanstack/solid-query": "5.90.23",

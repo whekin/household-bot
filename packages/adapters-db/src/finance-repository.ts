@@ -1,7 +1,11 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
-import type { FinanceRepository } from '@household/ports'
+import type {
+  FinanceRepository,
+  FinanceUtilityBillingPlanPayload,
+  FinanceUtilityBillingPlanRecord
+} from '@household/ports'
 import {
   instantFromDatabaseValue,
   instantToDate,
@@ -18,6 +22,88 @@ function toCurrencyCode(raw: string): CurrencyCode {
   }
 
   return normalized
+}
+
+function mapUtilityBillingPlanPayload(raw: unknown): FinanceUtilityBillingPlanPayload {
+  const payload =
+    raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+
+  const arrayOfObjects = (value: unknown): Record<string, unknown>[] =>
+    Array.isArray(value)
+      ? value.filter(
+          (item): item is Record<string, unknown> =>
+            Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+        )
+      : []
+
+  return {
+    fairShareByMember: arrayOfObjects(payload.fairShareByMember).map((entry) => ({
+      memberId: String(entry.memberId ?? ''),
+      amountMinor: String(entry.amountMinor ?? '0')
+    })),
+    categories: arrayOfObjects(payload.categories).map((entry) => ({
+      utilityBillId: String(entry.utilityBillId ?? ''),
+      billName: String(entry.billName ?? ''),
+      amountMinor: String(entry.amountMinor ?? '0'),
+      assignedMemberId: String(entry.assignedMemberId ?? ''),
+      paidAmountMinor: String(entry.paidAmountMinor ?? '0'),
+      fullCategoryPayment: entry.fullCategoryPayment === true,
+      splitSourceBillId:
+        entry.splitSourceBillId === null || entry.splitSourceBillId === undefined
+          ? null
+          : String(entry.splitSourceBillId)
+    })),
+    transfers: arrayOfObjects(payload.transfers).map((entry) => ({
+      fromMemberId: String(entry.fromMemberId ?? ''),
+      toMemberId: String(entry.toMemberId ?? ''),
+      amountMinor: String(entry.amountMinor ?? '0'),
+      settledAmountMinor: String(entry.settledAmountMinor ?? '0')
+    })),
+    memberSummaries: arrayOfObjects(payload.memberSummaries).map((entry) => ({
+      memberId: String(entry.memberId ?? ''),
+      fairShareMinor: String(entry.fairShareMinor ?? '0'),
+      vendorPaidMinor: String(entry.vendorPaidMinor ?? '0'),
+      reimbursementSentMinor: String(entry.reimbursementSentMinor ?? '0'),
+      reimbursementReceivedMinor: String(entry.reimbursementReceivedMinor ?? '0'),
+      assignedVendorMinor: String(entry.assignedVendorMinor ?? '0'),
+      remainingTransferInMinor: String(entry.remainingTransferInMinor ?? '0'),
+      remainingTransferOutMinor: String(entry.remainingTransferOutMinor ?? '0'),
+      netSettledMinor: String(entry.netSettledMinor ?? '0')
+    }))
+  }
+}
+
+function mapUtilityBillingPlanRecord(row: {
+  id: string
+  householdId: string
+  cycleId: string
+  version: number
+  status: string
+  dueDate: string
+  currency: string
+  maxCategoriesPerMemberApplied: number
+  updatedFromPlanId: string | null
+  reason: string | null
+  payload: unknown
+  createdAt: Date | string
+}): FinanceUtilityBillingPlanRecord {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    cycleId: row.cycleId,
+    version: row.version,
+    status:
+      row.status === 'diverged' || row.status === 'superseded' || row.status === 'settled'
+        ? row.status
+        : 'active',
+    dueDate: row.dueDate,
+    currency: toCurrencyCode(row.currency),
+    maxCategoriesPerMemberApplied: row.maxCategoriesPerMemberApplied,
+    updatedFromPlanId: row.updatedFromPlanId,
+    reason: row.reason,
+    payload: mapUtilityBillingPlanPayload(row.payload),
+    createdAt: instantFromDatabaseValue(row.createdAt)!
+  }
 }
 
 export function createDbFinanceRepository(
@@ -823,6 +909,283 @@ export function createDbFinanceRepository(
         currency: toCurrencyCode(row.currency),
         createdAt: instantFromDatabaseValue(row.createdAt)!
       }))
+    },
+
+    async getActiveUtilityBillingPlan(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.utilityBillingPlans.id,
+          householdId: schema.utilityBillingPlans.householdId,
+          cycleId: schema.utilityBillingPlans.cycleId,
+          version: schema.utilityBillingPlans.version,
+          status: schema.utilityBillingPlans.status,
+          dueDate: schema.utilityBillingPlans.dueDate,
+          currency: schema.utilityBillingPlans.currency,
+          maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+          reason: schema.utilityBillingPlans.reason,
+          payload: schema.utilityBillingPlans.payload,
+          createdAt: schema.utilityBillingPlans.createdAt
+        })
+        .from(schema.utilityBillingPlans)
+        .where(
+          and(
+            eq(schema.utilityBillingPlans.cycleId, cycleId),
+            or(
+              eq(schema.utilityBillingPlans.status, 'active'),
+              eq(schema.utilityBillingPlans.status, 'settled')
+            )
+          )
+        )
+        .orderBy(desc(schema.utilityBillingPlans.version))
+        .limit(1)
+
+      const row = rows[0]
+      return row ? mapUtilityBillingPlanRecord(row) : null
+    },
+
+    async listUtilityBillingPlansForCycle(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.utilityBillingPlans.id,
+          householdId: schema.utilityBillingPlans.householdId,
+          cycleId: schema.utilityBillingPlans.cycleId,
+          version: schema.utilityBillingPlans.version,
+          status: schema.utilityBillingPlans.status,
+          dueDate: schema.utilityBillingPlans.dueDate,
+          currency: schema.utilityBillingPlans.currency,
+          maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+          reason: schema.utilityBillingPlans.reason,
+          payload: schema.utilityBillingPlans.payload,
+          createdAt: schema.utilityBillingPlans.createdAt
+        })
+        .from(schema.utilityBillingPlans)
+        .where(eq(schema.utilityBillingPlans.cycleId, cycleId))
+        .orderBy(schema.utilityBillingPlans.version)
+
+      return rows.map(mapUtilityBillingPlanRecord)
+    },
+
+    async saveUtilityBillingPlan(input) {
+      const rows = await db
+        .insert(schema.utilityBillingPlans)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          version: input.version,
+          status: input.status,
+          dueDate: input.dueDate,
+          currency: input.currency,
+          maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: input.updatedFromPlanId,
+          reason: input.reason,
+          payload: input.payload
+        })
+        .returning({
+          id: schema.utilityBillingPlans.id,
+          householdId: schema.utilityBillingPlans.householdId,
+          cycleId: schema.utilityBillingPlans.cycleId,
+          version: schema.utilityBillingPlans.version,
+          status: schema.utilityBillingPlans.status,
+          dueDate: schema.utilityBillingPlans.dueDate,
+          currency: schema.utilityBillingPlans.currency,
+          maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+          reason: schema.utilityBillingPlans.reason,
+          payload: schema.utilityBillingPlans.payload,
+          createdAt: schema.utilityBillingPlans.createdAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Utility billing plan insert did not return a row')
+      }
+
+      return mapUtilityBillingPlanRecord(row)
+    },
+
+    async updateUtilityBillingPlanStatus(planId, status) {
+      const rows = await db
+        .update(schema.utilityBillingPlans)
+        .set({ status })
+        .where(
+          and(
+            eq(schema.utilityBillingPlans.id, planId),
+            eq(schema.utilityBillingPlans.householdId, householdId)
+          )
+        )
+        .returning({
+          id: schema.utilityBillingPlans.id,
+          householdId: schema.utilityBillingPlans.householdId,
+          cycleId: schema.utilityBillingPlans.cycleId,
+          version: schema.utilityBillingPlans.version,
+          status: schema.utilityBillingPlans.status,
+          dueDate: schema.utilityBillingPlans.dueDate,
+          currency: schema.utilityBillingPlans.currency,
+          maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+          updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+          reason: schema.utilityBillingPlans.reason,
+          payload: schema.utilityBillingPlans.payload,
+          createdAt: schema.utilityBillingPlans.createdAt
+        })
+
+      const row = rows[0]
+      return row ? mapUtilityBillingPlanRecord(row) : null
+    },
+
+    async listUtilityVendorPaymentFactsForCycle(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.utilityVendorPaymentFacts.id,
+          cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+          billName: schema.utilityVendorPaymentFacts.billName,
+          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+          currency: schema.utilityVendorPaymentFacts.currency,
+          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+          planVersion: schema.utilityVendorPaymentFacts.planVersion,
+          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+          createdAt: schema.utilityVendorPaymentFacts.createdAt
+        })
+        .from(schema.utilityVendorPaymentFacts)
+        .where(eq(schema.utilityVendorPaymentFacts.cycleId, cycleId))
+        .orderBy(schema.utilityVendorPaymentFacts.recordedAt, schema.utilityVendorPaymentFacts.id)
+
+      return rows.map((row) => ({
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }))
+    },
+
+    async addUtilityVendorPaymentFact(input) {
+      const rows = await db
+        .insert(schema.utilityVendorPaymentFacts)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          utilityBillId: input.utilityBillId ?? null,
+          billName: input.billName,
+          payerMemberId: input.payerMemberId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          plannedForMemberId: input.plannedForMemberId ?? null,
+          planVersion: input.planVersion ?? null,
+          matchedPlan: input.matchedPlan ? 1 : 0,
+          recordedByMemberId: input.recordedByMemberId ?? null,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .returning({
+          id: schema.utilityVendorPaymentFacts.id,
+          cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+          billName: schema.utilityVendorPaymentFacts.billName,
+          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+          currency: schema.utilityVendorPaymentFacts.currency,
+          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+          planVersion: schema.utilityVendorPaymentFacts.planVersion,
+          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+          createdAt: schema.utilityVendorPaymentFacts.createdAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Utility vendor payment fact insert did not return a row')
+      }
+
+      return {
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
+    },
+
+    async listUtilityReimbursementFactsForCycle(cycleId) {
+      const rows = await db
+        .select({
+          id: schema.utilityReimbursementFacts.id,
+          cycleId: schema.utilityReimbursementFacts.cycleId,
+          fromMemberId: schema.utilityReimbursementFacts.fromMemberId,
+          toMemberId: schema.utilityReimbursementFacts.toMemberId,
+          amountMinor: schema.utilityReimbursementFacts.amountMinor,
+          currency: schema.utilityReimbursementFacts.currency,
+          plannedFromMemberId: schema.utilityReimbursementFacts.plannedFromMemberId,
+          plannedToMemberId: schema.utilityReimbursementFacts.plannedToMemberId,
+          planVersion: schema.utilityReimbursementFacts.planVersion,
+          matchedPlan: schema.utilityReimbursementFacts.matchedPlan,
+          recordedByMemberId: schema.utilityReimbursementFacts.recordedByMemberId,
+          recordedAt: schema.utilityReimbursementFacts.recordedAt,
+          createdAt: schema.utilityReimbursementFacts.createdAt
+        })
+        .from(schema.utilityReimbursementFacts)
+        .where(eq(schema.utilityReimbursementFacts.cycleId, cycleId))
+        .orderBy(schema.utilityReimbursementFacts.recordedAt, schema.utilityReimbursementFacts.id)
+
+      return rows.map((row) => ({
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }))
+    },
+
+    async addUtilityReimbursementFact(input) {
+      const rows = await db
+        .insert(schema.utilityReimbursementFacts)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          fromMemberId: input.fromMemberId,
+          toMemberId: input.toMemberId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          plannedFromMemberId: input.plannedFromMemberId ?? null,
+          plannedToMemberId: input.plannedToMemberId ?? null,
+          planVersion: input.planVersion ?? null,
+          matchedPlan: input.matchedPlan ? 1 : 0,
+          recordedByMemberId: input.recordedByMemberId ?? null,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .returning({
+          id: schema.utilityReimbursementFacts.id,
+          cycleId: schema.utilityReimbursementFacts.cycleId,
+          fromMemberId: schema.utilityReimbursementFacts.fromMemberId,
+          toMemberId: schema.utilityReimbursementFacts.toMemberId,
+          amountMinor: schema.utilityReimbursementFacts.amountMinor,
+          currency: schema.utilityReimbursementFacts.currency,
+          plannedFromMemberId: schema.utilityReimbursementFacts.plannedFromMemberId,
+          plannedToMemberId: schema.utilityReimbursementFacts.plannedToMemberId,
+          planVersion: schema.utilityReimbursementFacts.planVersion,
+          matchedPlan: schema.utilityReimbursementFacts.matchedPlan,
+          recordedByMemberId: schema.utilityReimbursementFacts.recordedByMemberId,
+          recordedAt: schema.utilityReimbursementFacts.recordedAt,
+          createdAt: schema.utilityReimbursementFacts.createdAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Utility reimbursement fact insert did not return a row')
+      }
+
+      return {
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
     },
 
     async listPaymentRecordsForCycle(cycleId) {

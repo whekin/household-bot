@@ -5,19 +5,18 @@ import { Settings } from 'lucide-solid'
 import { useSession } from '../../contexts/session-context'
 import { useI18n } from '../../contexts/i18n-context'
 import { useDashboard } from '../../contexts/dashboard-context'
-import { formatCyclePeriod } from '../../lib/dates'
+import { formatCyclePeriod, formatFriendlyDate } from '../../lib/dates'
 import { NavigationTabs } from './navigation-tabs'
 import { Badge } from '../ui/badge'
 import { Button, IconButton } from '../ui/button'
+import { DatePickerField } from '../ui/date-picker'
 import { Modal } from '../ui/dialog'
 import { Field } from '../ui/field'
-import { Input } from '../ui/input'
 
 export function AppShell(props: ParentProps) {
   const { readySession } = useSession()
   const { copy, locale, setLocale } = useI18n()
   const {
-    dashboard,
     effectiveIsAdmin,
     testingRolePreview,
     setTestingRolePreview,
@@ -27,6 +26,8 @@ export function AppShell(props: ParentProps) {
     setTestingPeriodOverride,
     testingTodayOverride,
     setTestingTodayOverride,
+    effectivePeriod,
+    testingOverridesActive,
     applyDemoState
   } = useDashboard()
   const navigate = useNavigate()
@@ -145,6 +146,11 @@ export function AppShell(props: ParentProps) {
               </Badge>
             )}
           </Show>
+          <Show when={testingOverridesActive()}>
+            <Badge variant="accent">
+              {locale() === 'ru' ? 'Тестовая дата активна' : 'Test date active'}
+            </Badge>
+          </Show>
         </div>
       </section>
 
@@ -236,30 +242,38 @@ export function AppShell(props: ParentProps) {
           <article class="testing-card__section">
             <span>{copy().testingPeriodCurrentLabel ?? ''}</span>
             <strong>
-              {dashboard()?.period ? formatCyclePeriod(dashboard()!.period, locale()) : '—'}
+              {effectivePeriod() ? formatCyclePeriod(effectivePeriod()!, locale()) : '—'}
             </strong>
           </article>
           <div class="testing-card__actions testing-card__actions--stack">
             <Field label={copy().testingPeriodOverrideLabel ?? ''} wide>
-              <Input
+              <DatePickerField
+                mode="month"
+                locale={locale()}
+                portal={false}
                 placeholder={copy().testingPeriodOverridePlaceholder ?? ''}
                 value={testingPeriodOverride() ?? ''}
-                onInput={(e) => {
-                  const next = e.currentTarget.value.trim()
-                  setTestingPeriodOverride(next.length > 0 ? next : null)
-                }}
+                onChange={(value) => setTestingPeriodOverride(value)}
               />
             </Field>
             <Field label={copy().testingTodayOverrideLabel ?? ''} wide>
-              <Input
+              <DatePickerField
+                mode="date"
+                locale={locale()}
+                portal={false}
                 placeholder={copy().testingTodayOverridePlaceholder ?? ''}
                 value={testingTodayOverride() ?? ''}
-                onInput={(e) => {
-                  const next = e.currentTarget.value.trim()
-                  setTestingTodayOverride(next.length > 0 ? next : null)
-                }}
+                onChange={(value) => setTestingTodayOverride(value)}
               />
             </Field>
+            <Show when={testingTodayOverride()}>
+              {(override) => (
+                <article class="testing-card__section testing-card__section--stack">
+                  <span>{locale() === 'ru' ? 'Симулируем сегодня' : 'Simulated today'}</span>
+                  <strong>{formatFriendlyDate(override(), locale())}</strong>
+                </article>
+              )}
+            </Show>
             <div class="modal-action-row">
               <Button
                 variant="ghost"

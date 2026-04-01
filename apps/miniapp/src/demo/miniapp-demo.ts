@@ -443,11 +443,24 @@ function createDashboard(state: {
     totalDueMajor: state.totalDueMajor,
     totalPaidMajor: state.totalPaidMajor,
     totalRemainingMajor: state.totalRemainingMajor,
+    billingStage: 'rent',
     rentSourceAmountMajor: '875.00',
     rentSourceCurrency: 'USD',
     rentDisplayAmountMajor: '2415.00',
     rentFxRateMicros: '2760000',
     rentFxEffectiveDate: '2026-03-17',
+    utilityBillingPlan: null,
+    rentBillingState: {
+      dueDate: '2026-03-20',
+      paymentDestinations: rentPaymentDestinations,
+      memberSummaries: state.members.map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName,
+        dueMajor: member.rentShareMajor,
+        paidMajor: '0.00',
+        remainingMajor: member.rentShareMajor
+      }))
+    },
     members: state.members,
     paymentPeriods,
     ledger: state.ledger ?? baseLedger(),

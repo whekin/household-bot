@@ -7,12 +7,13 @@ import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
 import { CurrencyToggle } from '../components/ui/currency-toggle'
+import { DatePickerField } from '../components/ui/date-picker'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
 import { Skeleton } from '../components/ui/skeleton'
-import { Toggle } from '../components/ui/toggle'
 import {
   formatMoneyLabel,
   ledgerSecondaryAmount,
@@ -21,7 +22,7 @@ import {
   validatePurchaseDraft,
   type PurchaseDraft
 } from '../lib/ledger-helpers'
-import { formatCyclePeriod, formatFriendlyDate } from '../lib/dates'
+import { formatCyclePeriod, formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppPurchase,
@@ -51,6 +52,7 @@ function buildEmptyPurchaseDraft(
     description: '',
     amountMajor: '',
     currency: (data?.currency as 'USD' | 'GEL') ?? 'GEL',
+    occurredOn: todayCalendarInputValue(),
     ...(currentMemberId ? { payerMemberId: currentMemberId } : {}),
     splitMode: 'equal',
     splitInputMode: 'equal',
@@ -80,8 +82,10 @@ function ParticipantSplitInputs(props: {
 
           return (
             <div class="purchase-split-editor__row">
-              <Toggle
+              <Checkbox
                 checked={participant().included}
+                class="purchase-split-editor__checkbox"
+                labelClass="purchase-split-editor__checkbox-label"
                 onChange={(checked) => {
                   props.updateDraft((draft) => {
                     const participants = draft.participants.map((entry, entryIndex) =>
@@ -97,10 +101,16 @@ function ParticipantSplitInputs(props: {
                     return rebalancePurchaseSplit({ ...draft, participants }, null, null)
                   })
                 }}
-              />
-              <span class="purchase-split-editor__member">
-                {member()?.displayName ?? participant().memberId}
-              </span>
+              >
+                <span class="purchase-split-editor__member-pill">
+                  <span class="purchase-split-editor__member-avatar" aria-hidden="true">
+                    {initialsForName(member()?.displayName ?? participant().memberId)}
+                  </span>
+                  <span class="purchase-split-editor__member">
+                    {member()?.displayName ?? participant().memberId}
+                  </span>
+                </span>
+              </Checkbox>
               <Show when={participant().included && props.draft.splitInputMode === 'exact'}>
                 <Input
                   type="number"
@@ -217,6 +227,7 @@ function PurchaseDraftFields(props: {
   splitModeOptions: { value: string; label: string }[]
   memberOptions: { value: string; label: string }[]
   copy: ReturnType<typeof useI18n>['copy']
+  locale: ReturnType<typeof useI18n>['locale']
 }) {
   return (
     <div class="editor-grid">
@@ -244,6 +255,19 @@ function PurchaseDraftFields(props: {
           ariaLabel={props.copy().currencyLabel}
           onChange={(value) =>
             props.setDraft((draft) => ({ ...draft, currency: value as 'USD' | 'GEL' }))
+          }
+        />
+      </Field>
+      <Field label={props.copy().purchaseDateLabel}>
+        <DatePickerField
+          locale={props.locale()}
+          value={props.draft.occurredOn}
+          placeholder={props.copy().purchaseDateLabel}
+          onChange={(value) =>
+            props.setDraft((draft) => ({
+              ...draft,
+              occurredOn: value
+            }))
           }
         />
       </Field>
@@ -395,6 +419,7 @@ export default function PurchasesRoute() {
         description: draft.description,
         amountMajor: draft.amountMajor,
         currency: draft.currency,
+        ...(draft.occurredOn ? { occurredOn: draft.occurredOn } : {}),
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
         ...(draft.participants.length > 0
           ? {
@@ -431,6 +456,7 @@ export default function PurchasesRoute() {
         description: draft.description,
         amountMajor: draft.amountMajor,
         currency: draft.currency,
+        ...(draft.occurredOn ? { occurredOn: draft.occurredOn } : {}),
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
         split: {
           mode: draft.splitMode,
@@ -541,7 +567,7 @@ export default function PurchasesRoute() {
         <Match when={dashboard()}>
           {(_data) => (
             <>
-              <Card>
+              <Card class="ui-card--overflow-visible">
                 <div class="statement-section-heading">
                   <div>
                     <strong>{copy().purchasesTitle}</strong>
@@ -581,6 +607,7 @@ export default function PurchasesRoute() {
                           splitModeOptions={splitModeOptions()}
                           memberOptions={memberOptions()}
                           copy={copy}
+                          locale={locale}
                         />
                         <div class="purchase-inline-editor__actions">
                           <Button variant="ghost" onClick={closeComposer}>
@@ -617,7 +644,7 @@ export default function PurchasesRoute() {
                 </Show>
               </Card>
 
-              <Card>
+              <Card class="ui-card--overflow-visible">
                 <div class="statement-section-heading">
                   <div>
                     <strong>{copy().unresolvedPurchasesTitle}</strong>
@@ -756,6 +783,7 @@ export default function PurchasesRoute() {
                                   splitModeOptions={splitModeOptions()}
                                   memberOptions={memberOptions()}
                                   copy={copy}
+                                  locale={locale}
                                 />
                                 <div class="purchase-inline-editor__actions">
                                   <Button
@@ -815,7 +843,7 @@ export default function PurchasesRoute() {
                 </Show>
               </Card>
 
-              <Card>
+              <Card class="ui-card--overflow-visible">
                 <div class="statement-section-heading">
                   <div>
                     <strong>{copy().resolvedPurchasesTitle}</strong>
@@ -946,6 +974,7 @@ export default function PurchasesRoute() {
                                   splitModeOptions={splitModeOptions()}
                                   memberOptions={memberOptions()}
                                   copy={copy}
+                                  locale={locale}
                                 />
                                 <div class="purchase-inline-editor__actions">
                                   <Button

@@ -4,6 +4,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
   commands: {
     help: 'Показать список команд',
+    bill: 'Показать текущий платежный план',
     household_status: 'Показать текущий статус дома',
     utilities: 'Показать шаблон для ввода коммуналки в этом топике',
     anon: 'Отправить анонимное сообщение по дому',

@@ -71,6 +71,95 @@ export interface FinanceUtilityBillRecord {
 }
 
 export type FinancePaymentKind = 'rent' | 'utilities'
+export type FinanceUtilityBillingPlanStatus = 'active' | 'diverged' | 'superseded' | 'settled'
+
+export interface FinanceUtilityBillingPlanMemberPayload {
+  memberId: string
+  amountMinor: string
+}
+
+export interface FinanceUtilityBillingPlanCategoryPayload {
+  utilityBillId: string
+  billName: string
+  amountMinor: string
+  assignedMemberId: string
+  paidAmountMinor: string
+  fullCategoryPayment: boolean
+  splitSourceBillId: string | null
+}
+
+export interface FinanceUtilityBillingPlanTransferPayload {
+  fromMemberId: string
+  toMemberId: string
+  amountMinor: string
+  settledAmountMinor: string
+}
+
+export interface FinanceUtilityBillingPlanMemberSummaryPayload {
+  memberId: string
+  fairShareMinor: string
+  vendorPaidMinor: string
+  reimbursementSentMinor: string
+  reimbursementReceivedMinor: string
+  assignedVendorMinor: string
+  remainingTransferInMinor: string
+  remainingTransferOutMinor: string
+  netSettledMinor: string
+}
+
+export interface FinanceUtilityBillingPlanPayload {
+  fairShareByMember: readonly FinanceUtilityBillingPlanMemberPayload[]
+  categories: readonly FinanceUtilityBillingPlanCategoryPayload[]
+  transfers: readonly FinanceUtilityBillingPlanTransferPayload[]
+  memberSummaries: readonly FinanceUtilityBillingPlanMemberSummaryPayload[]
+}
+
+export interface FinanceUtilityBillingPlanRecord {
+  id: string
+  householdId: string
+  cycleId: string
+  version: number
+  status: FinanceUtilityBillingPlanStatus
+  dueDate: string
+  currency: CurrencyCode
+  maxCategoriesPerMemberApplied: number
+  updatedFromPlanId: string | null
+  reason: string | null
+  payload: FinanceUtilityBillingPlanPayload
+  createdAt: Instant
+}
+
+export interface FinanceUtilityVendorPaymentFactRecord {
+  id: string
+  cycleId: string
+  utilityBillId: string | null
+  billName: string
+  payerMemberId: string
+  amountMinor: bigint
+  currency: CurrencyCode
+  plannedForMemberId: string | null
+  planVersion: number | null
+  matchedPlan: boolean
+  recordedByMemberId: string | null
+  recordedAt: Instant
+  createdAt: Instant
+}
+
+export interface FinanceUtilityReimbursementFactRecord {
+  id: string
+  cycleId: string
+  fromMemberId: string
+  toMemberId: string
+  amountMinor: bigint
+  currency: CurrencyCode
+  plannedFromMemberId: string | null
+  plannedToMemberId: string | null
+  planVersion: number | null
+  matchedPlan: boolean
+  recordedByMemberId: string | null
+  recordedAt: Instant
+  createdAt: Instant
+}
 
 export interface FinancePaymentRecord {
   id: string
@@ -255,6 +344,57 @@ export interface FinanceRepository {
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
+  getActiveUtilityBillingPlan(cycleId: string): Promise<FinanceUtilityBillingPlanRecord | null>
+  listUtilityBillingPlansForCycle(
+    cycleId: string
+  ): Promise<readonly FinanceUtilityBillingPlanRecord[]>
+  saveUtilityBillingPlan(input: {
+    cycleId: string
+    version: number
+    status: FinanceUtilityBillingPlanStatus
+    dueDate: string
+    currency: CurrencyCode
+    maxCategoriesPerMemberApplied: number
+    updatedFromPlanId: string | null
+    reason: string | null
+    payload: FinanceUtilityBillingPlanPayload
+  }): Promise<FinanceUtilityBillingPlanRecord>
+  updateUtilityBillingPlanStatus(
+    planId: string,
+    status: FinanceUtilityBillingPlanStatus
+  ): Promise<FinanceUtilityBillingPlanRecord | null>
+  listUtilityVendorPaymentFactsForCycle(
+    cycleId: string
+  ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
+  addUtilityVendorPaymentFact(input: {
+    cycleId: string
+    utilityBillId?: string | null
+    billName: string
+    payerMemberId: string
+    amountMinor: bigint
+    currency: CurrencyCode
+    plannedForMemberId?: string | null
+    planVersion?: number | null
+    matchedPlan: boolean
+    recordedByMemberId?: string | null
+    recordedAt: Instant
+  }): Promise<FinanceUtilityVendorPaymentFactRecord>
+  listUtilityReimbursementFactsForCycle(
+    cycleId: string
+  ): Promise<readonly FinanceUtilityReimbursementFactRecord[]>
+  addUtilityReimbursementFact(input: {
+    cycleId: string
+    fromMemberId: string
+    toMemberId: string
+    amountMinor: bigint
+    currency: CurrencyCode
+    plannedFromMemberId?: string | null
+    plannedToMemberId?: string | null
+    planVersion?: number | null
+    matchedPlan: boolean
+    recordedByMemberId?: string | null
+    recordedAt: Instant
+  }): Promise<FinanceUtilityReimbursementFactRecord>
   listPaymentRecordsForCycle(cycleId: string): Promise<readonly FinancePaymentRecord[]>
   listParsedPurchasesForRange(
     start: Instant,
