@@ -1,1 +1,0 @@
-ALTER TABLE "household_billing_settings" ADD COLUMN "rent_payment_destinations" jsonb;
