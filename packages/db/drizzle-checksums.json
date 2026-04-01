@@ -27,6 +27,7 @@
     "0022_carry_purchase_history.sql": "f031c9736e43e71eec3263a323332c29de9324c6409db034b0760051c8a9f074",
     "0023_huge_vision.sql": "9a682e8b62fc6c54711ccd7bb912dd7192e278f546d5853670bea6a0a4585c1c",
     "0024_lush_lucky_pierre.sql": "35d111486df774fde5add5cc98f2bf8bcb16d5bae8c4dd4df01fedb661a297d6",
-    "0025_sturdy_bill_plan.sql": "39d749b22b16c8197e864467a41d0834fa248e0ceeefdad6fbea0c2cd5c7a4eb"
+    "0025_sturdy_bill_plan.sql": "39d749b22b16c8197e864467a41d0834fa248e0ceeefdad6fbea0c2cd5c7a4eb",
+    "0026_exact_absence_and_utility_destinations.sql": "8754e29177749c7d0d873f9b9c9b82f6a65420ce0c91dd79e43e4d893e821ae1"
   }
 }

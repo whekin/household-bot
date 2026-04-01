@@ -244,6 +244,24 @@ export default function HomeRoute() {
 
   const activeHouseholdMembers = createMemo(() => dashboard()?.members ?? [])
   const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
+  const utilityCategoryByName = createMemo(
+    () =>
+      new Map(utilityCategories().map((category) => [category.name.trim().toLowerCase(), category]))
+  )
+  const currentMemberId = createMemo(() =>
+    readySession()?.status === 'ready' ? readySession()!.member.id : null
+  )
+  const currentUtilityAssignments = createMemo(() =>
+    (dashboard()?.utilityBillingPlan?.categories ?? []).filter(
+      (category) => category.assignedMemberId === currentMemberId()
+    )
+  )
+  const currentUtilityCarryover = createMemo(
+    () =>
+      (dashboard()?.utilityBillingPlan?.memberSummaries ?? []).find(
+        (summary) => summary.memberId === currentMemberId()
+      ) ?? null
+  )
   const latestActivity = createMemo(() => {
     const entries = [...(dashboard()?.ledger ?? [])]
     return entries.sort((left, right) => {
@@ -958,6 +976,118 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
+                      <Show when={modes().includes('utilities') && dashboard()?.utilityBillingPlan}>
+                        <Card>
+                          <div class="balance-card">
+                            <div class="balance-card__header">
+                              <span class="balance-card__label">
+                                {locale() === 'ru'
+                                  ? 'Что оплатить по коммуналке'
+                                  : 'Your utility payment plan'}
+                              </span>
+                            </div>
+                            <Show
+                              when={currentUtilityAssignments().length > 0}
+                              fallback={
+                                <p class="empty-state">
+                                  {currentUtilityCarryover()?.carryoverAfterMajor &&
+                                  majorStringToMinor(
+                                    currentUtilityCarryover()!.carryoverAfterMajor
+                                  ) !== 0n
+                                    ? locale() === 'ru'
+                                      ? `Новых счетов на вас нет. Перенос на следующий цикл: ${formatMoneyLabel(currentUtilityCarryover()!.carryoverAfterMajor, data().currency, locale())}.`
+                                      : `No new bills are assigned to you. Carryover to the next utility cycle: ${formatMoneyLabel(currentUtilityCarryover()!.carryoverAfterMajor, data().currency, locale())}.`
+                                    : locale() === 'ru'
+                                      ? 'На вас нет назначенных коммунальных платежей.'
+                                      : 'No utility bills are assigned to you right now.'}
+                                </p>
+                              }
+                            >
+                              <div class="inline-editor-list">
+                                <For each={currentUtilityAssignments()}>
+                                  {(category) => {
+                                    const details = () =>
+                                      utilityCategoryByName().get(
+                                        category.billName.trim().toLowerCase()
+                                      )
+
+                                    return (
+                                      <div class="inline-editor-row">
+                                        <div class="inline-editor-row__label">
+                                          <strong>
+                                            {category.fullCategoryPayment
+                                              ? `${locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL'} · ${category.billName}`
+                                              : category.billName}
+                                          </strong>
+                                          <span>
+                                            {details()?.providerName ??
+                                              (locale() === 'ru'
+                                                ? 'Провайдер не указан'
+                                                : 'Provider not set')}
+                                          </span>
+                                        </div>
+                                        <div class="inline-editor-row__value">
+                                          <strong>
+                                            {formatMoneyLabel(
+                                              category.amountMajor,
+                                              data().currency,
+                                              locale()
+                                            )}
+                                          </strong>
+                                        </div>
+                                        <div
+                                          class="balance-card__amounts"
+                                          style={{ 'grid-column': '1 / -1' }}
+                                        >
+                                          <Show when={details()?.customerNumber}>
+                                            {(value) => (
+                                              <div class="balance-card__row">
+                                                <span>
+                                                  {locale() === 'ru' ? 'Счёт' : 'Account'}
+                                                </span>
+                                                <strong>{value()}</strong>
+                                              </div>
+                                            )}
+                                          </Show>
+                                          <Show when={details()?.paymentLink}>
+                                            {(value) => (
+                                              <div class="balance-card__row">
+                                                <span>{locale() === 'ru' ? 'Ссылка' : 'Link'}</span>
+                                                <strong>
+                                                  <a
+                                                    href={value()}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                  >
+                                                    {locale() === 'ru'
+                                                      ? 'Открыть оплату'
+                                                      : 'Open payment'}
+                                                  </a>
+                                                </strong>
+                                              </div>
+                                            )}
+                                          </Show>
+                                          <Show when={details()?.note}>
+                                            {(value) => (
+                                              <div class="balance-card__row">
+                                                <span>
+                                                  {locale() === 'ru' ? 'Примечание' : 'Note'}
+                                                </span>
+                                                <strong>{value()}</strong>
+                                              </div>
+                                            )}
+                                          </Show>
+                                        </div>
+                                      </div>
+                                    )
+                                  }}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        </Card>
+                      </Show>
+
                       <Show when={modes().includes('utilities') && utilityLedger().length === 0}>
                         <Card>
                           <div class="balance-card">
@@ -977,7 +1107,8 @@ export default function HomeRoute() {
                                         <span>{copy().utilityCategoryLabel}</span>
                                       </div>
                                       <Input
-                                        type="number"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={utilityAmounts()[category.name] ?? ''}
                                         onInput={(e) =>
                                           setUtilityAmounts((prev) => ({

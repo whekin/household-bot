@@ -24,8 +24,6 @@ export {
   type UtilityBillingMemberSummary,
   type UtilityBillingPlanComputed,
   type UtilityBillingTargetMember,
-  type UtilityBillingTransfer,
-  type UtilityReimbursementFactInput,
   type UtilityVendorPaymentFactInput
 } from './utilities-billing-plan'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'

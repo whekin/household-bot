@@ -620,47 +620,6 @@ async function readUtilityVendorPaymentPayload(request: Request): Promise<{
   }
 }
 
-async function readUtilityReimbursementPayload(request: Request): Promise<{
-  initData: string
-  fromMemberId?: string
-  toMemberId: string
-  amountMajor: string
-  currency?: string
-  period?: string
-}> {
-  const parsed = await parseJsonBody<{
-    initData?: string
-    fromMemberId?: string
-    toMemberId?: string
-    amountMajor?: string
-    currency?: string
-    period?: string
-  }>(request)
-  const initData = parsed.initData?.trim()
-  const toMemberId = parsed.toMemberId?.trim()
-  const amountMajor = parsed.amountMajor?.trim()
-  if (!initData) {
-    throw new Error('Missing initData')
-  }
-  if (!toMemberId) {
-    throw new Error('Missing reimbursement recipient')
-  }
-  if (!amountMajor) {
-    throw new Error('Missing reimbursement amount')
-  }
-
-  return {
-    initData,
-    toMemberId,
-    amountMajor,
-    ...(parsed.fromMemberId?.trim() ? { fromMemberId: parsed.fromMemberId.trim() } : {}),
-    ...(parsed.currency?.trim() ? { currency: parsed.currency.trim() } : {}),
-    ...(parsed.period?.trim()
-      ? { period: BillingPeriod.fromString(parsed.period.trim()).toString() }
-      : {})
-  }
-}
-
 export function createMiniAppBillingCycleHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
@@ -1744,64 +1703,6 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
           payerMemberId,
           actorMemberId: auth.member.id,
           ...(payload.amountMajor ? { amountArg: payload.amountMajor } : {}),
-          ...(payload.currency ? { currencyArg: payload.currency } : {}),
-          ...(payload.period ? { periodArg: payload.period } : {})
-        })
-
-        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
-      } catch (error) {
-        return miniAppErrorResponse(error, origin, options.logger)
-      }
-    }
-  }
-}
-
-export function createMiniAppRecordUtilityReimbursementHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  logger?: Logger
-}): {
-  handler: (request: Request) => Promise<Response>
-} {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
-
-  return {
-    handler: async (request) => {
-      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
-      if (request.method === 'OPTIONS') {
-        return miniAppJsonResponse({ ok: true }, 204, origin)
-      }
-      if (request.method !== 'POST') {
-        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
-      }
-
-      try {
-        const auth = await authenticateMemberSession(
-          request.clone() as Request,
-          sessionService,
-          origin
-        )
-        if (auth instanceof Response) {
-          return auth
-        }
-
-        const payload = await readUtilityReimbursementPayload(request)
-        const fromMemberId = payload.fromMemberId ?? auth.member.id
-        if (!auth.member.isAdmin && fromMemberId !== auth.member.id) {
-          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
-        }
-
-        const service = options.financeServiceForHousehold(auth.member.householdId)
-        await service.recordUtilityReimbursement({
-          fromMemberId,
-          toMemberId: payload.toMemberId,
-          actorMemberId: auth.member.id,
-          amountArg: payload.amountMajor,
           ...(payload.currency ? { currencyArg: payload.currency } : {}),
           ...(payload.period ? { periodArg: payload.period } : {})
         })

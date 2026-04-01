@@ -14,7 +14,6 @@ import {
   createMiniAppBillingCycleHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
-  createMiniAppRecordUtilityReimbursementHandler,
   createMiniAppRecordUtilityVendorPaymentHandler,
   createMiniAppRentUpdateHandler,
   createMiniAppResolveUtilityPlanHandler,
@@ -158,19 +157,10 @@ function createFinanceServiceStub(): FinanceCommandService & {
     currencyArg?: string
     periodArg?: string
   }>
-  utilityReimbursements: Array<{
-    fromMemberId: string
-    toMemberId: string
-    amountArg: string
-    actorMemberId?: string
-    currencyArg?: string
-    periodArg?: string
-  }>
 } {
   return {
     resolvedUtilityPlans: [],
     utilityVendorPayments: [],
-    utilityReimbursements: [],
     getMemberByTelegramUserId: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-2026-03',
@@ -268,13 +258,10 @@ function createFinanceServiceStub(): FinanceCommandService & {
         plan: null
       }
     },
-    recordUtilityReimbursement: async function (input) {
-      this.utilityReimbursements.push(input)
-      return {
-        period: input.periodArg ?? '2026-03',
-        plan: null
-      }
-    },
+    recordUtilityReimbursement: async () => ({
+      period: '2026-03',
+      plan: null
+    }),
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => null,
     generateStatement: async () => null
@@ -765,50 +752,6 @@ describe('utility billing action handlers', () => {
         payerMemberId: 'member-999',
         actorMemberId: 'member-123456',
         amountArg: '45.50',
-        currencyArg: 'GEL',
-        periodArg: '2026-03'
-      }
-    ])
-  })
-
-  test('custom reimbursement supports admin acting for another member', async () => {
-    const repository = onboardingRepository()
-    const financeService = createFinanceServiceStub()
-    const handler = createMiniAppRecordUtilityReimbursementHandler({
-      allowedOrigins: ['http://localhost:5173'],
-      botToken: 'test-bot-token',
-      onboardingService: createHouseholdOnboardingService({
-        repository
-      }),
-      financeServiceForHousehold: () => financeService
-    })
-
-    const response = await handler.handler(
-      new Request('http://localhost/api/miniapp/billing/utilities/reimbursement', {
-        method: 'POST',
-        headers: {
-          origin: 'http://localhost:5173',
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          initData: initData(),
-          fromMemberId: 'member-999',
-          toMemberId: 'member-123456',
-          amountMajor: '12.25',
-          currency: 'GEL',
-          period: '2026-03'
-        })
-      })
-    )
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, authorized: true })
-    expect(financeService.utilityReimbursements).toEqual([
-      {
-        fromMemberId: 'member-999',
-        toMemberId: 'member-123456',
-        amountArg: '12.25',
-        actorMemberId: 'member-123456',
         currencyArg: 'GEL',
         periodArg: '2026-03'
       }

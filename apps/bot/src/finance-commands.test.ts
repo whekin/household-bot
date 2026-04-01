@@ -510,7 +510,6 @@ describe('createFinanceCommandsService', () => {
               splitSourceBillId: null
             }
           ],
-          transfers: [],
           memberSummaries: []
         },
         rentBillingState: {

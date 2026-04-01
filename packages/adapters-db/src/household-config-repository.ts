@@ -300,6 +300,10 @@ function toHouseholdUtilityCategoryRecord(row: {
   name: string
   sortOrder: number
   isActive: number
+  providerName: string | null
+  customerNumber: string | null
+  paymentLink: string | null
+  note: string | null
 }): HouseholdUtilityCategoryRecord {
   return {
     id: row.id,
@@ -307,20 +311,26 @@ function toHouseholdUtilityCategoryRecord(row: {
     slug: row.slug,
     name: row.name,
     sortOrder: row.sortOrder,
-    isActive: row.isActive === 1
+    isActive: row.isActive === 1,
+    providerName: row.providerName,
+    customerNumber: row.customerNumber,
+    paymentLink: row.paymentLink,
+    note: row.note
   }
 }
 
 function toHouseholdMemberAbsencePolicyRecord(row: {
   householdId: string
   memberId: string
-  effectiveFromPeriod: string
+  startsOn: string
+  endsOn: string | null
   policy: string
 }): HouseholdMemberAbsencePolicyRecord {
   return {
     householdId: row.householdId,
     memberId: row.memberId,
-    effectiveFromPeriod: row.effectiveFromPeriod,
+    startsOn: row.startsOn,
+    endsOn: row.endsOn,
     policy: normalizeMemberAbsencePolicy(row.policy)
   }
 }
@@ -1147,7 +1157,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           slug: schema.householdUtilityCategories.slug,
           name: schema.householdUtilityCategories.name,
           sortOrder: schema.householdUtilityCategories.sortOrder,
-          isActive: schema.householdUtilityCategories.isActive
+          isActive: schema.householdUtilityCategories.isActive,
+          providerName: schema.householdUtilityCategories.providerName,
+          customerNumber: schema.householdUtilityCategories.customerNumber,
+          paymentLink: schema.householdUtilityCategories.paymentLink,
+          note: schema.householdUtilityCategories.note
         })
         .from(schema.householdUtilityCategories)
         .where(eq(schema.householdUtilityCategories.householdId, householdId))
@@ -1172,7 +1186,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           slug,
           name: input.name.trim(),
           sortOrder: input.sortOrder,
-          isActive: input.isActive ? 1 : 0
+          isActive: input.isActive ? 1 : 0,
+          providerName: normalizeOptionalString(input.providerName),
+          customerNumber: normalizeOptionalString(input.customerNumber),
+          paymentLink: normalizeOptionalString(input.paymentLink),
+          note: normalizeOptionalString(input.note)
         })
         .onConflictDoUpdate({
           target: [
@@ -1183,6 +1201,10 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
             name: input.name.trim(),
             sortOrder: input.sortOrder,
             isActive: input.isActive ? 1 : 0,
+            providerName: normalizeOptionalString(input.providerName),
+            customerNumber: normalizeOptionalString(input.customerNumber),
+            paymentLink: normalizeOptionalString(input.paymentLink),
+            note: normalizeOptionalString(input.note),
             updatedAt: instantToDate(nowInstant())
           }
         })
@@ -1192,7 +1214,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           slug: schema.householdUtilityCategories.slug,
           name: schema.householdUtilityCategories.name,
           sortOrder: schema.householdUtilityCategories.sortOrder,
-          isActive: schema.householdUtilityCategories.isActive
+          isActive: schema.householdUtilityCategories.isActive,
+          providerName: schema.householdUtilityCategories.providerName,
+          customerNumber: schema.householdUtilityCategories.customerNumber,
+          paymentLink: schema.householdUtilityCategories.paymentLink,
+          note: schema.householdUtilityCategories.note
         })
 
       const row = rows[0]
@@ -1619,14 +1645,15 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .select({
           householdId: schema.memberAbsencePolicies.householdId,
           memberId: schema.memberAbsencePolicies.memberId,
-          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          startsOn: schema.memberAbsencePolicies.startsOn,
+          endsOn: schema.memberAbsencePolicies.endsOn,
           policy: schema.memberAbsencePolicies.policy
         })
         .from(schema.memberAbsencePolicies)
         .where(eq(schema.memberAbsencePolicies.householdId, householdId))
         .orderBy(
           asc(schema.memberAbsencePolicies.memberId),
-          asc(schema.memberAbsencePolicies.effectiveFromPeriod)
+          asc(schema.memberAbsencePolicies.startsOn)
         )
 
       return rows.map(toHouseholdMemberAbsencePolicyRecord)
@@ -1638,16 +1665,18 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .values({
           householdId: input.householdId,
           memberId: input.memberId,
-          effectiveFromPeriod: input.effectiveFromPeriod,
+          startsOn: input.startsOn,
+          endsOn: input.endsOn ?? null,
           policy: input.policy
         })
         .onConflictDoUpdate({
           target: [
             schema.memberAbsencePolicies.householdId,
             schema.memberAbsencePolicies.memberId,
-            schema.memberAbsencePolicies.effectiveFromPeriod
+            schema.memberAbsencePolicies.startsOn
           ],
           set: {
+            endsOn: input.endsOn ?? null,
             policy: input.policy,
             updatedAt: instantToDate(nowInstant())
           }
@@ -1655,7 +1684,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
         .returning({
           householdId: schema.memberAbsencePolicies.householdId,
           memberId: schema.memberAbsencePolicies.memberId,
-          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          startsOn: schema.memberAbsencePolicies.startsOn,
+          endsOn: schema.memberAbsencePolicies.endsOn,
           policy: schema.memberAbsencePolicies.policy
         })
 

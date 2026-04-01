@@ -288,8 +288,21 @@ export function createFinanceCommandsService(options: {
       Awaited<ReturnType<FinanceCommandService['generateCurrentBillPlan']>>
     >['utilityBillingPlan']
     currency: 'USD' | 'GEL'
+    utilityCategories: readonly {
+      name: string
+      providerName: string | null
+      customerNumber: string | null
+      paymentLink: string | null
+      note: string | null
+    }[]
     viewerMemberId?: string | null
   }): string {
+    const categoryDetailsByName = new Map(
+      (input.utilityCategories ?? []).map((category) => [
+        category.name.trim().toLowerCase(),
+        category
+      ])
+    )
     const viewerCategories = input.viewerMemberId
       ? (input.plan?.categories.filter(
           (category) => category.assignedMemberId === input.viewerMemberId
@@ -299,17 +312,6 @@ export function createFinanceCommandsService(options: {
       input.viewerMemberId && viewerCategories.length > 0
         ? viewerCategories
         : (input.plan?.categories ?? [])
-    const viewerTransfers = input.viewerMemberId
-      ? (input.plan?.transfers.filter(
-          (transfer) =>
-            transfer.fromMemberId === input.viewerMemberId ||
-            transfer.toMemberId === input.viewerMemberId
-        ) ?? [])
-      : []
-    const visibleTransfers =
-      input.viewerMemberId && viewerTransfers.length > 0
-        ? viewerTransfers
-        : (input.plan?.transfers ?? [])
     const statusText =
       input.plan?.status === 'settled'
         ? input.locale === 'ru'
@@ -331,25 +333,45 @@ export function createFinanceCommandsService(options: {
       '',
       visibleCategories.length > 0
         ? `${input.locale === 'ru' ? 'Счета:' : 'Bills:'}\n${visibleCategories
-            .map(
-              (category) =>
-                `- ${category.fullCategoryPayment ? 'FULL · ' : ''}${category.billName}: ${category.amount.toMajorString()} ${input.currency} — ${category.assignedDisplayName}`
-            )
+            .map((category) => {
+              const details = categoryDetailsByName.get(category.billName.trim().toLowerCase())
+              const detailParts = [
+                details?.providerName
+                  ? `${input.locale === 'ru' ? 'провайдер' : 'provider'}: ${details.providerName}`
+                  : null,
+                details?.customerNumber
+                  ? `${input.locale === 'ru' ? 'счёт' : 'account'}: ${details.customerNumber}`
+                  : null,
+                details?.paymentLink
+                  ? `${input.locale === 'ru' ? 'ссылка' : 'link'}: ${details.paymentLink}`
+                  : null,
+                details?.note
+                  ? `${input.locale === 'ru' ? 'примечание' : 'note'}: ${details.note}`
+                  : null
+              ].filter(Boolean)
+
+              return `- ${category.fullCategoryPayment ? 'FULL · ' : ''}${category.billName}: ${category.amount.toMajorString()} ${input.currency} — ${category.assignedDisplayName}${detailParts.length > 0 ? `\n  ${detailParts.join('\n  ')}` : ''}`
+            })
             .join('\n')}`
         : input.locale === 'ru'
           ? 'Активных назначений по коммуналке нет.'
           : 'No active utility assignments.',
       '',
-      visibleTransfers.length > 0
-        ? `${input.locale === 'ru' ? 'Переводы:' : 'Transfers:'}\n${visibleTransfers
-            .map(
-              (transfer) =>
-                `- ${transfer.fromDisplayName} → ${transfer.toDisplayName}: ${transfer.amount.toMajorString()} ${input.currency}`
-            )
-            .join('\n')}`
-        : input.locale === 'ru'
-          ? 'Дополнительных переводов нет.'
-          : 'No reimbursements remaining.'
+      `${input.locale === 'ru' ? 'Переносы:' : 'Carryover:'}\n${
+        (input.plan?.memberSummaries ?? [])
+          .filter((summary) => {
+            if (!input.viewerMemberId) {
+              return summary.carryoverAfter.amountMinor !== 0n
+            }
+
+            return summary.memberId === input.viewerMemberId
+          })
+          .map(
+            (summary) =>
+              `- ${summary.displayName}: ${summary.carryoverAfter.toMajorString()} ${input.currency}`
+          )
+          .join('\n') || (input.locale === 'ru' ? '- Нет переноса' : '- No carryover')
+      }`
     ].join('\n')
   }
 
@@ -397,6 +419,13 @@ export function createFinanceCommandsService(options: {
     locale: Parameters<typeof getBotTranslations>[0]
     householdName?: string | null | undefined
     plan: NonNullable<Awaited<ReturnType<FinanceCommandService['generateCurrentBillPlan']>>>
+    utilityCategories: readonly {
+      name: string
+      providerName: string | null
+      customerNumber: string | null
+      paymentLink: string | null
+      note: string | null
+    }[]
     forcedMode?: 'utilities' | 'rent' | null
     viewerMemberId?: string | null
   }): string {
@@ -409,6 +438,7 @@ export function createFinanceCommandsService(options: {
         period: input.plan.period,
         plan: input.plan.utilityBillingPlan,
         currency: input.plan.currency,
+        utilityCategories: input.utilityCategories,
         ...(input.viewerMemberId === undefined
           ? {}
           : {
@@ -452,7 +482,10 @@ export function createFinanceCommandsService(options: {
       repository: options.householdConfigurationRepository,
       householdId: input.householdId
     })
-    const plan = await input.service.generateCurrentBillPlan()
+    const [plan, utilityCategories] = await Promise.all([
+      input.service.generateCurrentBillPlan(),
+      options.householdConfigurationRepository.listHouseholdUtilityCategories(input.householdId)
+    ])
     if (!plan) {
       await input.ctx.reply(getBotTranslations(locale).finance.noStatementCycle)
       return
@@ -480,6 +513,15 @@ export function createFinanceCommandsService(options: {
         locale,
         householdName: input.householdName,
         plan,
+        utilityCategories: utilityCategories
+          .filter((category) => category.isActive)
+          .map((category) => ({
+            name: category.name,
+            providerName: category.providerName ?? null,
+            customerNumber: category.customerNumber ?? null,
+            paymentLink: category.paymentLink ?? null,
+            note: category.note ?? null
+          })),
         ...(input.forcedMode === undefined
           ? {}
           : {
@@ -599,9 +641,11 @@ export function createFinanceCommandsService(options: {
           repository: options.householdConfigurationRepository,
           householdId
         })
-        const household =
-          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
-        const plan = await options.financeServiceForHousehold(householdId).generateCurrentBillPlan()
+        const [household, plan, utilityCategories] = await Promise.all([
+          options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId),
+          options.financeServiceForHousehold(householdId).generateCurrentBillPlan(),
+          options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId)
+        ])
         if (!plan) {
           await ctx.answerCallbackQuery()
           return
@@ -612,6 +656,15 @@ export function createFinanceCommandsService(options: {
             locale,
             householdName: household?.householdName ?? householdId,
             plan,
+            utilityCategories: utilityCategories
+              .filter((category) => category.isActive)
+              .map((category) => ({
+                name: category.name,
+                providerName: category.providerName ?? null,
+                customerNumber: category.customerNumber ?? null,
+                paymentLink: category.paymentLink ?? null,
+                note: category.note ?? null
+              })),
             forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
             viewerMemberId: membership.id
           })
@@ -649,7 +702,10 @@ export function createFinanceCommandsService(options: {
           memberId,
           actorMemberId: actingMember.id
         })
-        const plan = await service.generateCurrentBillPlan()
+        const [plan, utilityCategories] = await Promise.all([
+          service.generateCurrentBillPlan(),
+          options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId)
+        ])
         if (!plan) {
           await ctx.answerCallbackQuery()
           return
@@ -660,6 +716,15 @@ export function createFinanceCommandsService(options: {
             locale,
             householdName: household?.householdName ?? householdId,
             plan,
+            utilityCategories: utilityCategories
+              .filter((category) => category.isActive)
+              .map((category) => ({
+                name: category.name,
+                providerName: category.providerName ?? null,
+                customerNumber: category.customerNumber ?? null,
+                paymentLink: category.paymentLink ?? null,
+                note: category.note ?? null
+              })),
             forcedMode: 'utilities',
             viewerMemberId: actingMember.id
           })

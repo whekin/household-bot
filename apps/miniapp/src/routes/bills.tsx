@@ -16,7 +16,6 @@ import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
-  recordMiniAppUtilityReimbursement,
   recordMiniAppUtilityVendorPayment,
   resolveMiniAppUtilityPlan,
   updateMiniAppCycleRent,
@@ -111,11 +110,9 @@ export default function BillsRoute() {
     () => readySession()?.status === 'ready' && readySession()!.member.isAdmin
   )
   const utilityBillingPlan = createMemo(() => dashboard()?.utilityBillingPlan ?? null)
-  const visibleUtilityTransfers = createMemo(
+  const utilityCategoryByName = createMemo(
     () =>
-      utilityBillingPlan()?.transfers.filter(
-        (transfer) => majorStringToMinor(transfer.amountMajor) > 0n
-      ) ?? []
+      new Map(utilityCategories().map((category) => [category.name.trim().toLowerCase(), category]))
   )
 
   createEffect(() => {
@@ -231,23 +228,6 @@ export default function BillsRoute() {
     )
   }
 
-  async function handleRecordReimbursement(
-    fromMemberId: string,
-    toMemberId: string,
-    amountMajor: string
-  ) {
-    const data = initData()
-    if (!data) return
-    await runUtilityAction(`transfer:${fromMemberId}:${toMemberId}:${amountMajor}`, () =>
-      recordMiniAppUtilityReimbursement(data, {
-        fromMemberId,
-        toMemberId,
-        amountMajor,
-        ...(dashboard()?.period ? { period: dashboard()!.period } : {})
-      })
-    )
-  }
-
   return (
     <div class="route route--bills">
       <div class="bills-section">
@@ -329,6 +309,19 @@ export default function BillsRoute() {
                                 {category.assignedDisplayName} ·{' '}
                                 {formatMoneyLabel(category.amountMajor, data().currency, locale())}
                               </span>
+                              <Show
+                                when={utilityCategoryByName().get(
+                                  category.billName.trim().toLowerCase()
+                                )}
+                              >
+                                {(details) => (
+                                  <span>
+                                    {[details().providerName, details().customerNumber]
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                  </span>
+                                )}
+                              </Show>
                             </div>
                             <div class="statement-actions">
                               <Show when={currentMemberId() === category.assignedMemberId}>
@@ -395,76 +388,43 @@ export default function BillsRoute() {
                       </For>
                     </div>
                   </Show>
-                  <Show when={visibleUtilityTransfers().length > 0}>
+                  <Show when={utilityBillingPlan()?.memberSummaries.length}>
                     <div class="statement-section-heading">
                       <div>
                         <strong>
-                          {locale() === 'ru' ? 'Взаиморасчеты' : 'Settle between members'}
+                          {locale() === 'ru' ? 'Перенос по коммуналке' : 'Utility carryover'}
                         </strong>
                         <p>
                           {locale() === 'ru'
-                            ? 'После оплаты счетов закройте переводы между соседями.'
-                            : 'After vendor bills are paid, settle the remaining reimbursements.'}
+                            ? 'Остаток переносится на следующий коммунальный цикл, без переводов между соседями.'
+                            : 'Any mismatch stays inside future utility cycles instead of creating bank transfers.'}
                         </p>
                       </div>
                     </div>
-                    <div class="statement-list">
-                      <For each={visibleUtilityTransfers()}>
-                        {(transfer) => (
-                          <div class="statement-list__item">
-                            <div>
-                              <strong>
-                                {transfer.fromDisplayName} → {transfer.toDisplayName}
-                              </strong>
-                              <span>
-                                {formatMoneyLabel(transfer.amountMajor, data().currency, locale())}
-                              </span>
-                            </div>
-                            <div class="statement-actions">
-                              <Show when={currentMemberId() === transfer.fromMemberId}>
-                                <Button
-                                  variant="primary"
-                                  loading={
-                                    utilityActionKey() ===
-                                    `transfer:${transfer.fromMemberId}:${transfer.toMemberId}:${transfer.amountMajor}`
-                                  }
-                                  onClick={() =>
-                                    void handleRecordReimbursement(
-                                      transfer.fromMemberId,
-                                      transfer.toMemberId,
-                                      transfer.amountMajor
-                                    )
-                                  }
-                                >
-                                  {locale() === 'ru' ? 'Перевел' : 'Mark paid'}
-                                </Button>
-                              </Show>
-                              <Show
-                                when={
-                                  currentMemberIsAdmin() &&
-                                  currentMemberId() !== transfer.fromMemberId
-                                }
-                              >
-                                <Button
-                                  variant="ghost"
-                                  loading={
-                                    utilityActionKey() ===
-                                    `transfer:${transfer.fromMemberId}:${transfer.toMemberId}:${transfer.amountMajor}`
-                                  }
-                                  onClick={() =>
-                                    void handleRecordReimbursement(
-                                      transfer.fromMemberId,
-                                      transfer.toMemberId,
-                                      transfer.amountMajor
-                                    )
-                                  }
-                                >
-                                  {locale() === 'ru'
-                                    ? `Записать за ${transfer.fromDisplayName}`
-                                    : `Record for ${transfer.fromDisplayName}`}
-                                </Button>
-                              </Show>
-                            </div>
+                    <div class="statement-rows">
+                      <div class="statement-row statement-row--header">
+                        <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
+                        <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
+                        <span>{locale() === 'ru' ? 'После плана' : 'Carryover after plan'}</span>
+                      </div>
+                      <For each={utilityBillingPlan()?.memberSummaries ?? []}>
+                        {(summary) => (
+                          <div class="statement-row">
+                            <strong>{summary.displayName}</strong>
+                            <span>
+                              {formatMoneyLabel(
+                                summary.effectiveTargetMajor,
+                                data().currency,
+                                locale()
+                              )}
+                            </span>
+                            <span>
+                              {formatMoneyLabel(
+                                summary.carryoverAfterMajor,
+                                data().currency,
+                                locale()
+                              )}
+                            </span>
                           </div>
                         )}
                       </For>

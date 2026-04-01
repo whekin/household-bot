@@ -132,7 +132,9 @@ export interface FinanceDashboardMemberLine {
   displayName: string
   status?: 'active' | 'away' | 'left'
   absencePolicy?: HouseholdMemberAbsencePolicy
-  absencePolicyEffectiveFromPeriod?: string | null
+  absenceIntervalStartsOn?: string | null
+  absenceIntervalEndsOn?: string | null
+  utilityParticipationDays?: number
   predictedUtilityShare?: Money | null
   rentShare: Money
   utilityShare: Money
@@ -241,25 +243,15 @@ export interface FinanceDashboardUtilityBillingPlan {
     fullCategoryPayment: boolean
     splitSourceBillId: string | null
   }[]
-  transfers: readonly {
-    fromMemberId: string
-    fromDisplayName: string
-    toMemberId: string
-    toDisplayName: string
-    amount: Money
-    settledAmount: Money
-  }[]
   memberSummaries: readonly {
     memberId: string
     displayName: string
     fairShare: Money
     vendorPaid: Money
-    reimbursementSent: Money
-    reimbursementReceived: Money
     assignedVendor: Money
-    remainingTransferIn: Money
-    remainingTransferOut: Money
-    netSettled: Money
+    effectiveTarget: Money
+    carryoverBefore: Money
+    carryoverAfter: Money
   }[]
 }
 
@@ -310,31 +302,161 @@ interface FinanceCommandServiceDependencies {
 interface ResolvedMemberAbsencePolicy {
   memberId: string
   policy: HouseholdMemberAbsencePolicy
-  effectiveFromPeriod: string | null
+  startsOn: string | null
+  endsOn: string | null
+  utilityParticipationDays: number
+}
+
+function cycleDateRange(period: BillingPeriod): {
+  start: Temporal.PlainDate
+  endExclusive: Temporal.PlainDate
+  daysInMonth: number
+} {
+  const start = Temporal.PlainDate.from({
+    year: period.year,
+    month: period.month,
+    day: 1
+  })
+
+  return {
+    start,
+    endExclusive: start.add({ months: 1 }),
+    daysInMonth: start.daysInMonth
+  }
+}
+
+function defaultAbsencePolicyForMember(
+  member: HouseholdMemberRecord
+): HouseholdMemberAbsencePolicy {
+  return member.status === 'left' ? 'inactive' : 'resident'
+}
+
+function policyParticipatesInRent(policy: HouseholdMemberAbsencePolicy): boolean {
+  return policy !== 'inactive'
+}
+
+function policyParticipatesInUtilities(policy: HouseholdMemberAbsencePolicy): boolean {
+  return policy === 'resident' || policy === 'away_rent_and_utilities'
+}
+
+function policyParticipatesInPurchases(policy: HouseholdMemberAbsencePolicy): boolean {
+  return policy !== 'inactive'
+}
+
+function intervalContainsDate(
+  interval: HouseholdMemberAbsencePolicyRecord,
+  date: Temporal.PlainDate
+): boolean {
+  const startsOn = absencePolicyStartsOn(interval)
+  const endsOn = absencePolicyEndsOn(interval)
+
+  return (
+    Temporal.PlainDate.compare(startsOn, date) <= 0 &&
+    (!endsOn || Temporal.PlainDate.compare(date, endsOn) <= 0)
+  )
+}
+
+function intervalOverlapsCycle(
+  interval: HouseholdMemberAbsencePolicyRecord,
+  period: BillingPeriod
+): boolean {
+  const { start, endExclusive } = cycleDateRange(period)
+  const startsOn = absencePolicyStartsOn(interval)
+  const endsOn = absencePolicyEndsOn(interval)
+
+  return (
+    Temporal.PlainDate.compare(startsOn, endExclusive) < 0 &&
+    (!endsOn || Temporal.PlainDate.compare(endsOn, start) >= 0)
+  )
+}
+
+function absencePolicyStartsOn(interval: HouseholdMemberAbsencePolicyRecord): Temporal.PlainDate {
+  if (interval.startsOn) {
+    return Temporal.PlainDate.from(interval.startsOn)
+  }
+
+  if (interval.effectiveFromPeriod) {
+    return Temporal.PlainDate.from(`${interval.effectiveFromPeriod}-01`)
+  }
+
+  throw new Error(`Absence policy record is missing startsOn for member ${interval.memberId}`)
+}
+
+function absencePolicyEndsOn(
+  interval: HouseholdMemberAbsencePolicyRecord
+): Temporal.PlainDate | null {
+  return interval.endsOn ? Temporal.PlainDate.from(interval.endsOn) : null
+}
+
+function latestPolicyForDate(input: {
+  member: HouseholdMemberRecord
+  policies: readonly HouseholdMemberAbsencePolicyRecord[]
+  date: Temporal.PlainDate
+}): HouseholdMemberAbsencePolicy {
+  const applicable = input.policies
+    .filter(
+      (policy) => policy.memberId === input.member.id && intervalContainsDate(policy, input.date)
+    )
+    .sort((left, right) =>
+      absencePolicyStartsOn(left).toString().localeCompare(absencePolicyStartsOn(right).toString())
+    )
+    .at(-1)
+
+  return applicable?.policy ?? defaultAbsencePolicyForMember(input.member)
 }
 
 function resolveMemberAbsencePolicies(input: {
   members: readonly HouseholdMemberRecord[]
   policies: readonly HouseholdMemberAbsencePolicyRecord[]
   period: string
+  today?: Temporal.PlainDate
 }): ReadonlyMap<string, ResolvedMemberAbsencePolicy> {
+  const period = BillingPeriod.fromString(input.period)
+  const { start, daysInMonth } = cycleDateRange(period)
+  const cycleToday =
+    input.today && input.today.year === period.year && input.today.month === period.month
+      ? input.today
+      : start
   const resolved = new Map<string, ResolvedMemberAbsencePolicy>()
 
   for (const member of input.members) {
-    const applicable = input.policies
-      .filter(
-        (policy) =>
-          policy.memberId === member.id &&
-          policy.effectiveFromPeriod.localeCompare(input.period) <= 0
+    const overlapping = input.policies
+      .filter((policy) => policy.memberId === member.id && intervalOverlapsCycle(policy, period))
+      .sort((left, right) =>
+        absencePolicyStartsOn(left)
+          .toString()
+          .localeCompare(absencePolicyStartsOn(right).toString())
       )
-      .sort((left, right) => left.effectiveFromPeriod.localeCompare(right.effectiveFromPeriod))
-      .at(-1)
+    const activeInterval =
+      overlapping.find((interval) => intervalContainsDate(interval, cycleToday)) ??
+      overlapping.at(-1) ??
+      null
+
+    let utilityParticipationDays = 0
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const currentDate = Temporal.PlainDate.from({
+        year: period.year,
+        month: period.month,
+        day
+      })
+      const policy = latestPolicyForDate({
+        member,
+        policies: input.policies,
+        date: currentDate
+      })
+      if (member.status !== 'left' && policyParticipatesInUtilities(policy)) {
+        utilityParticipationDays += 1
+      }
+    }
 
     resolved.set(member.id, {
       memberId: member.id,
-      policy:
-        applicable?.policy ?? (member.status === 'away' ? 'away_rent_and_utilities' : 'resident'),
-      effectiveFromPeriod: applicable?.effectiveFromPeriod ?? null
+      policy: activeInterval?.policy ?? defaultAbsencePolicyForMember(member),
+      startsOn:
+        activeInterval?.startsOn ??
+        (activeInterval?.effectiveFromPeriod ? `${activeInterval.effectiveFromPeriod}-01` : null),
+      endsOn: activeInterval?.endsOn ?? null,
+      utilityParticipationDays
     })
   }
 
@@ -408,6 +530,46 @@ function utilityPlanPayloadChanged(
   )
 }
 
+async function computePriorUtilityCarryoverByMemberId(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+}): Promise<ReadonlyMap<string, bigint>> {
+  const carryoverByMemberId = new Map<string, bigint>(
+    input.members.map((member) => [member.id, 0n] as const)
+  )
+  const priorCycles = (await input.dependencies.repository.listCycles()).filter(
+    (candidate) => candidate.period.localeCompare(input.cycle.period) < 0
+  )
+
+  for (const priorCycle of priorCycles) {
+    const [settlementLines, vendorFacts] = await Promise.all([
+      input.dependencies.repository.getSettlementSnapshotLines(priorCycle.id),
+      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(priorCycle.id)
+    ])
+
+    const vendorPaidByMemberId = new Map<string, bigint>()
+    for (const fact of vendorFacts) {
+      vendorPaidByMemberId.set(
+        fact.payerMemberId,
+        (vendorPaidByMemberId.get(fact.payerMemberId) ?? 0n) + fact.amountMinor
+      )
+    }
+
+    for (const member of input.members) {
+      const fairShareMinor =
+        settlementLines.find((line) => line.memberId === member.id)?.utilityShareMinor ?? 0n
+      const vendorPaidMinor = vendorPaidByMemberId.get(member.id) ?? 0n
+      carryoverByMemberId.set(
+        member.id,
+        (carryoverByMemberId.get(member.id) ?? 0n) + fairShareMinor - vendorPaidMinor
+      )
+    }
+  }
+
+  return carryoverByMemberId
+}
+
 async function ensureUtilityBillingPlan(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -425,10 +587,14 @@ async function ensureUtilityBillingPlan(input: {
   record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
   computed: UtilityBillingPlanComputed
 }> {
-  const [existingPlans, vendorFacts, reimbursementFacts] = await Promise.all([
+  const [existingPlans, vendorFacts, carryoverBeforeByMemberId] = await Promise.all([
     input.dependencies.repository.listUtilityBillingPlansForCycle(input.cycle.id),
     input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(input.cycle.id),
-    input.dependencies.repository.listUtilityReimbursementFactsForCycle(input.cycle.id)
+    computePriorUtilityCarryoverByMemberId({
+      dependencies: input.dependencies,
+      cycle: input.cycle,
+      members: input.members
+    })
   ])
 
   const activePlan =
@@ -438,14 +604,16 @@ async function ensureUtilityBillingPlan(input: {
 
   const computed = computeUtilityBillingPlan({
     currency: input.cycle.currency,
-    members: input.settlementLines
-      .filter((line) => line.utilityShare.amountMinor > 0n)
-      .map((line) => ({
-        memberId: line.memberId,
-        displayName:
-          input.members.find((member) => member.id === line.memberId)?.displayName ?? line.memberId,
-        fairShare: line.utilityShare
-      })),
+    members: input.settlementLines.map((line) => ({
+      memberId: line.memberId,
+      displayName:
+        input.members.find((member) => member.id === line.memberId)?.displayName ?? line.memberId,
+      fairShare: line.utilityShare,
+      carryoverBefore: Money.fromMinor(
+        carryoverBeforeByMemberId.get(line.memberId) ?? 0n,
+        input.cycle.currency
+      )
+    })),
     bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
       utilityBillId: bill.id,
       billName: bill.billName,
@@ -455,11 +623,6 @@ async function ensureUtilityBillingPlan(input: {
       utilityBillId: fact.utilityBillId,
       billName: fact.billName,
       payerMemberId: fact.payerMemberId,
-      amount: Money.fromMinor(fact.amountMinor, fact.currency)
-    })),
-    reimbursements: reimbursementFacts.map((fact) => ({
-      fromMemberId: fact.fromMemberId,
-      toMemberId: fact.toMemberId,
       amount: Money.fromMinor(fact.amountMinor, fact.currency)
     }))
   })
@@ -473,9 +636,7 @@ async function ensureUtilityBillingPlan(input: {
       }
     }
 
-    const hadOffPlanFact =
-      vendorFacts.some((fact) => !fact.matchedPlan) ||
-      reimbursementFacts.some((fact) => !fact.matchedPlan)
+    const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
     await input.dependencies.repository.updateUtilityBillingPlanStatus(
       activePlan.id,
       hadOffPlanFact ? 'diverged' : 'superseded'
@@ -497,9 +658,7 @@ async function ensureUtilityBillingPlan(input: {
     maxCategoriesPerMemberApplied: computed.maxCategoriesPerMemberApplied,
     updatedFromPlanId: activePlan?.id ?? null,
     reason:
-      activePlan &&
-      (vendorFacts.some((fact) => !fact.matchedPlan) ||
-        reimbursementFacts.some((fact) => !fact.matchedPlan))
+      activePlan && vendorFacts.some((fact) => !fact.matchedPlan)
         ? 'rebalanced_after_off_plan_change'
         : activePlan
           ? 'rebalanced_after_cycle_change'
@@ -538,25 +697,15 @@ function buildDashboardUtilityBillingPlan(input: {
       fullCategoryPayment: category.fullCategoryPayment,
       splitSourceBillId: category.splitSourceBillId
     })),
-    transfers: input.computed.transfers.map((transfer) => ({
-      fromMemberId: transfer.fromMemberId,
-      fromDisplayName: input.memberNameById.get(transfer.fromMemberId) ?? transfer.fromMemberId,
-      toMemberId: transfer.toMemberId,
-      toDisplayName: input.memberNameById.get(transfer.toMemberId) ?? transfer.toMemberId,
-      amount: transfer.amount,
-      settledAmount: transfer.settledAmount
-    })),
     memberSummaries: input.computed.memberSummaries.map((summary) => ({
       memberId: summary.memberId,
       displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
       fairShare: summary.fairShare,
       vendorPaid: summary.vendorPaid,
-      reimbursementSent: summary.reimbursementSent,
-      reimbursementReceived: summary.reimbursementReceived,
       assignedVendor: summary.assignedVendor,
-      remainingTransferIn: summary.remainingTransferIn,
-      remainingTransferOut: summary.remainingTransferOut,
-      netSettled: summary.netSettled
+      effectiveTarget: summary.effectiveTarget,
+      carryoverBefore: summary.carryoverBefore,
+      carryoverAfter: summary.carryoverAfter
     }))
   }
 }
@@ -574,7 +723,7 @@ function resolveBillingStage(input: {
   const utilitiesOpen =
     input.utilityBillingPlan &&
     input.utilityBillingPlan.status !== 'settled' &&
-    input.utilityBillingPlan.categories.length + input.utilityBillingPlan.transfers.length > 0 &&
+    input.utilityBillingPlan.categories.length > 0 &&
     Temporal.PlainDate.compare(localDate, utilitiesReminder) >= 0 &&
     Temporal.PlainDate.compare(localDate, rentReminder) < 0
 
@@ -770,22 +919,25 @@ async function buildCycleBaseMemberLines(input: {
     period,
     rent: convertedRent.settlementAmount,
     utilities,
-    utilitySplitMode: 'equal',
-    members: input.members.map((member) => ({
-      memberId: MemberId.from(member.id),
-      active: member.status !== 'left',
-      participatesInRent:
-        member.status === 'left'
-          ? false
-          : (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') !== 'inactive',
-      participatesInUtilities:
-        member.status === 'away'
-          ? (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') ===
-            'away_rent_and_utilities'
-          : member.status !== 'left',
-      participatesInPurchases: member.status === 'active',
-      rentWeight: member.rentShareWeight
-    })),
+    utilitySplitMode: 'weighted_by_days',
+    members: input.members.map((member) => {
+      const resolvedPolicy = resolvedAbsencePolicies.get(member.id)
+
+      return {
+        memberId: MemberId.from(member.id),
+        active: member.status !== 'left',
+        participatesInRent:
+          member.status !== 'left' &&
+          policyParticipatesInRent(resolvedPolicy?.policy ?? 'resident'),
+        participatesInUtilities:
+          member.status !== 'left' && (resolvedPolicy?.utilityParticipationDays ?? 0) > 0,
+        participatesInPurchases:
+          member.status !== 'left' &&
+          policyParticipatesInPurchases(resolvedPolicy?.policy ?? 'resident'),
+        rentWeight: member.rentShareWeight,
+        utilityDays: Math.max(resolvedPolicy?.utilityParticipationDays ?? 0, 1)
+      }
+    }),
     purchases: []
   })
 
@@ -1270,7 +1422,11 @@ async function buildFinanceDashboard(
   )
 
   const activePurchaseParticipantIds = members
-    .filter((member) => member.status === 'active')
+    .filter(
+      (member) =>
+        member.status !== 'left' &&
+        policyParticipatesInPurchases(resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident')
+    )
     .map((member) => member.id)
 
   const purchaseHistory: PurchaseHistoryState[] = convertedPurchases.map(
@@ -1332,22 +1488,25 @@ async function buildFinanceDashboard(
     period,
     rent: convertedRent.settlementAmount,
     utilities,
-    utilitySplitMode: 'equal',
-    members: members.map((member) => ({
-      memberId: MemberId.from(member.id),
-      active: member.status !== 'left',
-      participatesInRent:
-        member.status === 'left'
-          ? false
-          : (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') !== 'inactive',
-      participatesInUtilities:
-        member.status === 'away'
-          ? (resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident') ===
-            'away_rent_and_utilities'
-          : member.status !== 'left',
-      participatesInPurchases: member.status === 'active',
-      rentWeight: member.rentShareWeight
-    })),
+    utilitySplitMode: 'weighted_by_days',
+    members: members.map((member) => {
+      const resolvedPolicy = resolvedAbsencePolicies.get(member.id)
+
+      return {
+        memberId: MemberId.from(member.id),
+        active: member.status !== 'left',
+        participatesInRent:
+          member.status !== 'left' &&
+          policyParticipatesInRent(resolvedPolicy?.policy ?? 'resident'),
+        participatesInUtilities:
+          member.status !== 'left' && (resolvedPolicy?.utilityParticipationDays ?? 0) > 0,
+        participatesInPurchases:
+          member.status !== 'left' &&
+          policyParticipatesInPurchases(resolvedPolicy?.policy ?? 'resident'),
+        rentWeight: member.rentShareWeight,
+        utilityDays: Math.max(resolvedPolicy?.utilityParticipationDays ?? 0, 1)
+      }
+    }),
     purchases: purchaseHistory
       .filter(
         ({ purchase, outstandingTotal }) =>
@@ -1440,8 +1599,11 @@ async function buildFinanceDashboard(
     displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
     status: members.find((member) => member.id === line.memberId.toString())?.status ?? 'active',
     absencePolicy: resolvedAbsencePolicies.get(line.memberId.toString())?.policy ?? 'resident',
-    absencePolicyEffectiveFromPeriod:
-      resolvedAbsencePolicies.get(line.memberId.toString())?.effectiveFromPeriod ?? null,
+    absenceIntervalStartsOn:
+      resolvedAbsencePolicies.get(line.memberId.toString())?.startsOn ?? null,
+    absenceIntervalEndsOn: resolvedAbsencePolicies.get(line.memberId.toString())?.endsOn ?? null,
+    utilityParticipationDays:
+      resolvedAbsencePolicies.get(line.memberId.toString())?.utilityParticipationDays ?? 0,
     predictedUtilityShare: previousUtilityShareByMemberId.get(line.memberId.toString()) ?? null,
     rentShare: line.rentShare,
     utilityShare: line.utilityShare,
@@ -2522,23 +2684,16 @@ export function createFinanceCommandService(
 
       const currency = parseCurrency(input.currencyArg, dashboard.currency)
       const amount = Money.fromMajor(input.amountArg, currency)
-      const matchingTransfer = dashboard.utilityBillingPlan?.transfers.find(
-        (transfer) =>
-          transfer.fromMemberId === input.fromMemberId &&
-          transfer.toMemberId === input.toMemberId &&
-          transfer.amount.amountMinor === amount.amountMinor
-      )
-
       await repository.addUtilityReimbursementFact({
         cycleId: cycle.id,
         fromMemberId: input.fromMemberId,
         toMemberId: input.toMemberId,
         amountMinor: amount.amountMinor,
         currency,
-        plannedFromMemberId: matchingTransfer?.fromMemberId ?? null,
-        plannedToMemberId: matchingTransfer?.toMemberId ?? null,
+        plannedFromMemberId: null,
+        plannedToMemberId: null,
         planVersion: dashboard.utilityBillingPlan?.version ?? null,
-        matchedPlan: Boolean(matchingTransfer),
+        matchedPlan: false,
         recordedByMemberId: input.actorMemberId ?? input.fromMemberId,
         recordedAt: nowInstant()
       })

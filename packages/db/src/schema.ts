@@ -61,6 +61,10 @@ export const householdUtilityCategories = pgTable(
     name: text('name').notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     isActive: integer('is_active').default(1).notNull(),
+    providerName: text('provider_name'),
+    customerNumber: text('customer_number'),
+    paymentLink: text('payment_link'),
+    note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -225,18 +229,24 @@ export const memberAbsencePolicies = pgTable(
     memberId: uuid('member_id')
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
-    effectiveFromPeriod: text('effective_from_period').notNull(),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on'),
     policy: text('policy').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
-    householdMemberPeriodUnique: uniqueIndex(
-      'member_absence_policies_household_member_period_unique'
-    ).on(table.householdId, table.memberId, table.effectiveFromPeriod),
+    householdMemberStartUnique: uniqueIndex(
+      'member_absence_policies_household_member_start_unique'
+    ).on(table.householdId, table.memberId, table.startsOn),
     householdMemberIdx: index('member_absence_policies_household_member_idx').on(
       table.householdId,
       table.memberId
+    ),
+    householdRangeIdx: index('member_absence_policies_household_range_idx').on(
+      table.householdId,
+      table.startsOn,
+      table.endsOn
     )
   })
 )

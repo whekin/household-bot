@@ -106,7 +106,11 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       slug: 'electricity',
       name: 'Electricity',
       sortOrder: 0,
-      isActive: true
+      isActive: true,
+      providerName: 'Telasi',
+      customerNumber: '00012345',
+      paymentLink: null,
+      note: null
     },
     {
       id: 'cat-internet',
@@ -114,7 +118,11 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       slug: 'internet',
       name: 'Internet',
       sortOrder: 1,
-      isActive: true
+      isActive: true,
+      providerName: 'Magti',
+      customerNumber: 'KOJORI-88',
+      paymentLink: null,
+      note: null
     },
     {
       id: 'cat-water',
@@ -122,7 +130,11 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       slug: 'water',
       name: 'Water',
       sortOrder: 2,
-      isActive: true
+      isActive: true,
+      providerName: 'GWP',
+      customerNumber: '998877',
+      paymentLink: null,
+      note: null
     },
     {
       id: 'cat-gas',
@@ -130,7 +142,11 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       slug: 'gas',
       name: 'Gas',
       sortOrder: 3,
-      isActive: false
+      isActive: false,
+      providerName: 'Tbilisi Energy',
+      customerNumber: '445566',
+      paymentLink: null,
+      note: null
     }
   ],
   members: [
@@ -147,7 +163,8 @@ const adminSettings: MiniAppAdminSettingsPayload = {
   memberAbsencePolicies: [
     {
       memberId: 'member-el',
-      effectiveFromPeriod: '2026-03',
+      startsOn: '2026-03-01',
+      endsOn: '2026-03-31',
       policy: 'away_rent_only'
     }
   ]

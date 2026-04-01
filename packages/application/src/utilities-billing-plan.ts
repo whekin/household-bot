@@ -9,6 +9,7 @@ export interface UtilityBillingTargetMember {
   memberId: string
   displayName: string
   fairShare: Money
+  carryoverBefore?: Money
 }
 
 export interface UtilityBillingBill {
@@ -24,12 +25,6 @@ export interface UtilityVendorPaymentFactInput {
   amount: Money
 }
 
-export interface UtilityReimbursementFactInput {
-  fromMemberId: string
-  toMemberId: string
-  amount: Money
-}
-
 export interface UtilityBillingCategoryAssignment {
   utilityBillId: string
   billName: string
@@ -40,30 +35,20 @@ export interface UtilityBillingCategoryAssignment {
   splitSourceBillId: string | null
 }
 
-export interface UtilityBillingTransfer {
-  fromMemberId: string
-  toMemberId: string
-  amount: Money
-  settledAmount: Money
-}
-
 export interface UtilityBillingMemberSummary {
   memberId: string
   fairShare: Money
   vendorPaid: Money
-  reimbursementSent: Money
-  reimbursementReceived: Money
   assignedVendor: Money
-  remainingTransferIn: Money
-  remainingTransferOut: Money
-  netSettled: Money
+  effectiveTarget: Money
+  carryoverBefore: Money
+  carryoverAfter: Money
 }
 
 export interface UtilityBillingPlanComputed {
   status: FinanceUtilityBillingPlanStatus
   maxCategoriesPerMemberApplied: number
   categories: readonly UtilityBillingCategoryAssignment[]
-  transfers: readonly UtilityBillingTransfer[]
   memberSummaries: readonly UtilityBillingMemberSummary[]
   fairShareByMember: readonly {
     memberId: string
@@ -85,7 +70,6 @@ interface SearchResult {
     assignedMemberId: string
   }[]
   maxCategoriesPerMemberApplied: number
-  transfers: readonly UtilityBillingTransfer[]
   memberSummaries: readonly UtilityBillingMemberSummary[]
 }
 
@@ -119,130 +103,29 @@ function candidatePaidByBill(
   return amounts
 }
 
-function createTransfers(input: {
-  currency: CurrencyCode
-  members: readonly UtilityBillingTargetMember[]
-  burdensByMemberId: ReadonlyMap<string, bigint>
-}): readonly UtilityBillingTransfer[] {
-  const deficits: Array<{ memberId: string; amountMinor: bigint }> = []
-  const surpluses: Array<{ memberId: string; amountMinor: bigint }> = []
-
-  for (const member of input.members) {
-    const burdenMinor = input.burdensByMemberId.get(member.memberId) ?? 0n
-    const deltaMinor = burdenMinor - member.fairShare.amountMinor
-
-    if (deltaMinor > 0n) {
-      surpluses.push({ memberId: member.memberId, amountMinor: deltaMinor })
-    } else if (deltaMinor < 0n) {
-      deficits.push({ memberId: member.memberId, amountMinor: -deltaMinor })
-    }
-  }
-
-  surpluses.sort((left, right) => {
-    if (left.amountMinor === right.amountMinor) {
-      return left.memberId.localeCompare(right.memberId)
-    }
-
-    return left.amountMinor > right.amountMinor ? -1 : 1
-  })
-  deficits.sort((left, right) => {
-    if (left.amountMinor === right.amountMinor) {
-      return left.memberId.localeCompare(right.memberId)
-    }
-
-    return left.amountMinor > right.amountMinor ? -1 : 1
-  })
-
-  const transfers: UtilityBillingTransfer[] = []
-  let deficitIndex = 0
-  let surplusIndex = 0
-
-  while (deficitIndex < deficits.length && surplusIndex < surpluses.length) {
-    const deficit = deficits[deficitIndex]!
-    const surplus = surpluses[surplusIndex]!
-    const amountMinor =
-      deficit.amountMinor < surplus.amountMinor ? deficit.amountMinor : surplus.amountMinor
-
-    if (amountMinor > 0n) {
-      transfers.push({
-        fromMemberId: deficit.memberId,
-        toMemberId: surplus.memberId,
-        amount: Money.fromMinor(amountMinor, input.currency),
-        settledAmount: Money.zero(input.currency)
-      })
-    }
-
-    deficit.amountMinor -= amountMinor
-    surplus.amountMinor -= amountMinor
-
-    if (deficit.amountMinor === 0n) {
-      deficitIndex += 1
-    }
-    if (surplus.amountMinor === 0n) {
-      surplusIndex += 1
-    }
-  }
-
-  return transfers
-}
-
 function summarizeMembers(input: {
   currency: CurrencyCode
   members: readonly UtilityBillingTargetMember[]
   vendorPaidByMemberId: ReadonlyMap<string, bigint>
-  reimbursementSentByMemberId: ReadonlyMap<string, bigint>
-  reimbursementReceivedByMemberId: ReadonlyMap<string, bigint>
-  assignedVendorByMemberId: ReadonlyMap<string, bigint>
-  transfers: readonly UtilityBillingTransfer[]
+  assignedRemainingByMemberId: ReadonlyMap<string, bigint>
 }): readonly UtilityBillingMemberSummary[] {
-  const transferInByMemberId = new Map<string, bigint>()
-  const transferOutByMemberId = new Map<string, bigint>()
+  return input.members.map((member) => {
+    const vendorPaidMinor = input.vendorPaidByMemberId.get(member.memberId) ?? 0n
+    const assignedRemainingMinor = input.assignedRemainingByMemberId.get(member.memberId) ?? 0n
+    const assignedVendorMinor = vendorPaidMinor + assignedRemainingMinor
+    const carryoverBefore = member.carryoverBefore ?? Money.zero(input.currency)
+    const effectiveTargetMinor = member.fairShare.amountMinor + carryoverBefore.amountMinor
 
-  for (const transfer of input.transfers) {
-    transferOutByMemberId.set(
-      transfer.fromMemberId,
-      (transferOutByMemberId.get(transfer.fromMemberId) ?? 0n) + transfer.amount.amountMinor
-    )
-    transferInByMemberId.set(
-      transfer.toMemberId,
-      (transferInByMemberId.get(transfer.toMemberId) ?? 0n) + transfer.amount.amountMinor
-    )
-  }
-
-  return input.members.map((member) => ({
-    memberId: member.memberId,
-    fairShare: member.fairShare,
-    vendorPaid: Money.fromMinor(
-      input.vendorPaidByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    reimbursementSent: Money.fromMinor(
-      input.reimbursementSentByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    reimbursementReceived: Money.fromMinor(
-      input.reimbursementReceivedByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    assignedVendor: Money.fromMinor(
-      input.assignedVendorByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    remainingTransferIn: Money.fromMinor(
-      transferInByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    remainingTransferOut: Money.fromMinor(
-      transferOutByMemberId.get(member.memberId) ?? 0n,
-      input.currency
-    ),
-    netSettled: Money.fromMinor(
-      (input.vendorPaidByMemberId.get(member.memberId) ?? 0n) +
-        (input.reimbursementSentByMemberId.get(member.memberId) ?? 0n) -
-        (input.reimbursementReceivedByMemberId.get(member.memberId) ?? 0n),
-      input.currency
-    )
-  }))
+    return {
+      memberId: member.memberId,
+      fairShare: member.fairShare,
+      vendorPaid: Money.fromMinor(vendorPaidMinor, input.currency),
+      assignedVendor: Money.fromMinor(assignedVendorMinor, input.currency),
+      effectiveTarget: Money.fromMinor(effectiveTargetMinor, input.currency),
+      carryoverBefore,
+      carryoverAfter: Money.fromMinor(effectiveTargetMinor - assignedVendorMinor, input.currency)
+    }
+  })
 }
 
 function buildSearchParts(input: {
@@ -294,19 +177,15 @@ function assignmentLexicalKey(
 function searchAssignments(input: {
   currency: CurrencyCode
   members: readonly UtilityBillingTargetMember[]
-  fixedBurdenByMemberId: ReadonlyMap<string, bigint>
   vendorPaidByMemberId: ReadonlyMap<string, bigint>
-  reimbursementSentByMemberId: ReadonlyMap<string, bigint>
-  reimbursementReceivedByMemberId: ReadonlyMap<string, bigint>
   parts: readonly SearchBillPart[]
   maxCategoriesPerMemberApplied: number
 }): SearchResult | null {
-  const eligibleMembers = input.members.filter((member) => member.fairShare.amountMinor > 0n)
-  if (eligibleMembers.length === 0) {
+  if (input.members.length === 0) {
     return null
   }
 
-  let bestScore: readonly [number, bigint, number, string] | null = null
+  let bestScore: readonly [number, bigint, string] | null = null
   let bestResult: SearchResult | null = null
 
   const assignedCount = new Map<string, number>()
@@ -314,63 +193,35 @@ function searchAssignments(input: {
   const assignments: Array<{ part: SearchBillPart; assignedMemberId: string }> = []
 
   const finalize = () => {
-    const burdens = new Map<string, bigint>(input.fixedBurdenByMemberId)
-    for (const member of input.members) {
-      burdens.set(
-        member.memberId,
-        (burdens.get(member.memberId) ?? 0n) + (assignedMinor.get(member.memberId) ?? 0n)
-      )
-    }
-
-    const transfers = createTransfers({
-      currency: input.currency,
-      members: input.members,
-      burdensByMemberId: burdens
-    })
-
-    const deviationMinor = input.members.reduce((sum, member) => {
-      const burdenMinor = burdens.get(member.memberId) ?? 0n
-      return sum + absMinor(burdenMinor - member.fairShare.amountMinor)
-    }, 0n)
     const splitCategoryCount = new Set(
       assignments
         .filter((assignment) => !assignment.part.fullCategoryPayment)
         .map((assignment) => assignment.part.splitSourceBillId ?? assignment.part.utilityBillId)
     ).size
 
-    const lexical = assignmentLexicalKey(assignments)
     const memberSummaries = summarizeMembers({
       currency: input.currency,
       members: input.members,
       vendorPaidByMemberId: input.vendorPaidByMemberId,
-      reimbursementSentByMemberId: input.reimbursementSentByMemberId,
-      reimbursementReceivedByMemberId: input.reimbursementReceivedByMemberId,
-      assignedVendorByMemberId: assignedMinor,
-      transfers
+      assignedRemainingByMemberId: assignedMinor
     })
-
+    const deviationMinor = memberSummaries.reduce(
+      (sum, summary) => sum + absMinor(summary.carryoverAfter.amountMinor),
+      0n
+    )
+    const lexical = assignmentLexicalKey(assignments)
     const result: SearchResult = {
       assignments: [...assignments],
       maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
-      transfers,
       memberSummaries
     }
+    const score: readonly [number, bigint, string] = [splitCategoryCount, deviationMinor, lexical]
 
-    const score: readonly [number, bigint, number, string] = [
-      splitCategoryCount,
-      deviationMinor,
-      transfers.length,
-      lexical
-    ]
     if (
       !bestScore ||
       score[0] < bestScore[0] ||
       (score[0] === bestScore[0] && score[1] < bestScore[1]) ||
-      (score[0] === bestScore[0] && score[1] === bestScore[1] && score[2] < bestScore[2]) ||
-      (score[0] === bestScore[0] &&
-        score[1] === bestScore[1] &&
-        score[2] === bestScore[2] &&
-        score[3] < bestScore[3])
+      (score[0] === bestScore[0] && score[1] === bestScore[1] && score[2] < bestScore[2])
     ) {
       bestScore = score
       bestResult = result
@@ -385,7 +236,7 @@ function searchAssignments(input: {
 
     const part = input.parts[index]!
 
-    for (const member of eligibleMembers) {
+    for (const member of input.members) {
       const nextCount = (assignedCount.get(member.memberId) ?? 0) + 1
       if (nextCount > input.maxCategoriesPerMemberApplied) {
         continue
@@ -414,12 +265,13 @@ function searchAssignments(input: {
       return
     }
 
-    for (let leftIndex = 0; leftIndex < eligibleMembers.length; leftIndex += 1) {
-      const leftMember = eligibleMembers[leftIndex]!
-      for (let rightIndex = leftIndex + 1; rightIndex < eligibleMembers.length; rightIndex += 1) {
-        const rightMember = eligibleMembers[rightIndex]!
+    for (let leftIndex = 0; leftIndex < input.members.length; leftIndex += 1) {
+      const leftMember = input.members[leftIndex]!
+      for (let rightIndex = leftIndex + 1; rightIndex < input.members.length; rightIndex += 1) {
+        const rightMember = input.members[rightIndex]!
         const leftCount = (assignedCount.get(leftMember.memberId) ?? 0) + 1
         const rightCount = (assignedCount.get(rightMember.memberId) ?? 0) + 1
+
         if (
           leftCount > input.maxCategoriesPerMemberApplied ||
           rightCount > input.maxCategoriesPerMemberApplied
@@ -427,18 +279,21 @@ function searchAssignments(input: {
           continue
         }
 
-        const currentLeftBurden =
-          (input.fixedBurdenByMemberId.get(leftMember.memberId) ?? 0n) +
+        const leftCurrentMinor =
+          (input.vendorPaidByMemberId.get(leftMember.memberId) ?? 0n) +
           (assignedMinor.get(leftMember.memberId) ?? 0n)
-        const desiredLeftMinor = leftMember.fairShare.amountMinor - currentLeftBurden
-        const clampedLeftMinor =
+        const leftTargetMinor =
+          leftMember.fairShare.amountMinor +
+          (leftMember.carryoverBefore ?? Money.zero(input.currency)).amountMinor
+        const desiredLeftMinor = leftTargetMinor - leftCurrentMinor
+        const leftPartMinor =
           desiredLeftMinor <= 0n
             ? 1n
             : desiredLeftMinor >= part.amountMinor
               ? part.amountMinor - 1n
               : desiredLeftMinor
 
-        if (clampedLeftMinor <= 0n || clampedLeftMinor >= part.amountMinor) {
+        if (leftPartMinor <= 0n || leftPartMinor >= part.amountMinor) {
           continue
         }
 
@@ -446,14 +301,14 @@ function searchAssignments(input: {
           utilityBillId: part.utilityBillId,
           billName: part.billName,
           splitSourceBillId: part.utilityBillId,
-          amountMinor: clampedLeftMinor,
+          amountMinor: leftPartMinor,
           fullCategoryPayment: false
         }
         const rightPart: SearchBillPart = {
           utilityBillId: part.utilityBillId,
           billName: part.billName,
           splitSourceBillId: part.utilityBillId,
-          amountMinor: part.amountMinor - clampedLeftMinor,
+          amountMinor: part.amountMinor - leftPartMinor,
           fullCategoryPayment: false
         }
 
@@ -503,12 +358,9 @@ export function computeUtilityBillingPlan(input: {
   members: readonly UtilityBillingTargetMember[]
   bills: readonly UtilityBillingBill[]
   vendorPayments: readonly UtilityVendorPaymentFactInput[]
-  reimbursements: readonly UtilityReimbursementFactInput[]
 }): UtilityBillingPlanComputed {
   const paidByBillId = candidatePaidByBill(input.bills, input.vendorPayments)
   const vendorPaidByMemberId = new Map<string, bigint>()
-  const reimbursementSentByMemberId = new Map<string, bigint>()
-  const reimbursementReceivedByMemberId = new Map<string, bigint>()
 
   for (const fact of input.vendorPayments) {
     vendorPaidByMemberId.set(
@@ -516,48 +368,38 @@ export function computeUtilityBillingPlan(input: {
       (vendorPaidByMemberId.get(fact.payerMemberId) ?? 0n) + fact.amount.amountMinor
     )
   }
-  for (const reimbursement of input.reimbursements) {
-    reimbursementSentByMemberId.set(
-      reimbursement.fromMemberId,
-      (reimbursementSentByMemberId.get(reimbursement.fromMemberId) ?? 0n) +
-        reimbursement.amount.amountMinor
-    )
-    reimbursementReceivedByMemberId.set(
-      reimbursement.toMemberId,
-      (reimbursementReceivedByMemberId.get(reimbursement.toMemberId) ?? 0n) +
-        reimbursement.amount.amountMinor
-    )
-  }
-
-  const fixedBurdenByMemberId = new Map<string, bigint>()
-  for (const member of input.members) {
-    fixedBurdenByMemberId.set(
-      member.memberId,
-      (vendorPaidByMemberId.get(member.memberId) ?? 0n) +
-        (reimbursementSentByMemberId.get(member.memberId) ?? 0n) -
-        (reimbursementReceivedByMemberId.get(member.memberId) ?? 0n)
-    )
-  }
 
   const searchParts = buildSearchParts({
     bills: input.bills,
     paidByBillId
   })
+  const emptySummary = summarizeMembers({
+    currency: input.currency,
+    members: input.members,
+    vendorPaidByMemberId,
+    assignedRemainingByMemberId: new Map<string, bigint>()
+  })
 
-  const maxCap = Math.max(
-    2,
-    ...input.members.map((member) => (member.fairShare.amountMinor > 0n ? 1 : 0))
-  )
+  if (searchParts.length === 0) {
+    return {
+      status: 'settled',
+      maxCategoriesPerMemberApplied: 0,
+      categories: [],
+      memberSummaries: emptySummary,
+      fairShareByMember: input.members.map((member) => ({
+        memberId: member.memberId,
+        amount: member.fairShare
+      }))
+    }
+  }
 
   let best: SearchResult | null = null
-  for (let cap = 2; cap <= Math.max(maxCap, searchParts.length || 2); cap += 1) {
+  const maxCap = Math.max(2, input.members.length, searchParts.length)
+  for (let cap = 2; cap <= maxCap; cap += 1) {
     best = searchAssignments({
       currency: input.currency,
       members: input.members,
-      fixedBurdenByMemberId,
       vendorPaidByMemberId,
-      reimbursementSentByMemberId,
-      reimbursementReceivedByMemberId,
       parts: searchParts,
       maxCategoriesPerMemberApplied: cap
     })
@@ -566,22 +408,11 @@ export function computeUtilityBillingPlan(input: {
     }
   }
 
-  const emptySummary = summarizeMembers({
-    currency: input.currency,
-    members: input.members,
-    vendorPaidByMemberId,
-    reimbursementSentByMemberId,
-    reimbursementReceivedByMemberId,
-    assignedVendorByMemberId: new Map<string, bigint>(),
-    transfers: []
-  })
-
   if (!best) {
     return {
       status: 'settled',
       maxCategoriesPerMemberApplied: 0,
       categories: [],
-      transfers: [],
       memberSummaries: emptySummary,
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
@@ -602,13 +433,11 @@ export function computeUtilityBillingPlan(input: {
     fullCategoryPayment: assignment.part.fullCategoryPayment,
     splitSourceBillId: assignment.part.splitSourceBillId
   }))
-  const status = categories.length === 0 && best.transfers.length === 0 ? 'settled' : 'active'
 
   return {
-    status,
+    status: categories.length === 0 ? 'settled' : 'active',
     maxCategoriesPerMemberApplied: best.maxCategoriesPerMemberApplied,
     categories,
-    transfers: best.transfers,
     memberSummaries: best.memberSummaries,
     fairShareByMember: input.members.map((member) => ({
       memberId: member.memberId,
@@ -634,22 +463,14 @@ export function serializeUtilityBillingPlanPayload(
       fullCategoryPayment: category.fullCategoryPayment,
       splitSourceBillId: category.splitSourceBillId
     })),
-    transfers: plan.transfers.map((transfer) => ({
-      fromMemberId: transfer.fromMemberId,
-      toMemberId: transfer.toMemberId,
-      amountMinor: toMinorString(transfer.amount),
-      settledAmountMinor: toMinorString(transfer.settledAmount)
-    })),
     memberSummaries: plan.memberSummaries.map((summary) => ({
       memberId: summary.memberId,
       fairShareMinor: toMinorString(summary.fairShare),
       vendorPaidMinor: toMinorString(summary.vendorPaid),
-      reimbursementSentMinor: toMinorString(summary.reimbursementSent),
-      reimbursementReceivedMinor: toMinorString(summary.reimbursementReceived),
       assignedVendorMinor: toMinorString(summary.assignedVendor),
-      remainingTransferInMinor: toMinorString(summary.remainingTransferIn),
-      remainingTransferOutMinor: toMinorString(summary.remainingTransferOut),
-      netSettledMinor: toMinorString(summary.netSettled)
+      effectiveTargetMinor: toMinorString(summary.effectiveTarget),
+      carryoverBeforeMinor: toMinorString(summary.carryoverBefore),
+      carryoverAfterMinor: toMinorString(summary.carryoverAfter)
     }))
   }
 }
@@ -671,22 +492,14 @@ export function materializeUtilityBillingPlanRecord(
       fullCategoryPayment: category.fullCategoryPayment,
       splitSourceBillId: category.splitSourceBillId
     })),
-    transfers: record.payload.transfers.map((transfer) => ({
-      fromMemberId: transfer.fromMemberId,
-      toMemberId: transfer.toMemberId,
-      amount: Money.fromMinor(transfer.amountMinor, currency),
-      settledAmount: Money.fromMinor(transfer.settledAmountMinor, currency)
-    })),
     memberSummaries: record.payload.memberSummaries.map((summary) => ({
       memberId: summary.memberId,
       fairShare: Money.fromMinor(summary.fairShareMinor, currency),
       vendorPaid: Money.fromMinor(summary.vendorPaidMinor, currency),
-      reimbursementSent: Money.fromMinor(summary.reimbursementSentMinor, currency),
-      reimbursementReceived: Money.fromMinor(summary.reimbursementReceivedMinor, currency),
       assignedVendor: Money.fromMinor(summary.assignedVendorMinor, currency),
-      remainingTransferIn: Money.fromMinor(summary.remainingTransferInMinor, currency),
-      remainingTransferOut: Money.fromMinor(summary.remainingTransferOutMinor, currency),
-      netSettled: Money.fromMinor(summary.netSettledMinor, currency)
+      effectiveTarget: Money.fromMinor(summary.effectiveTargetMinor, currency),
+      carryoverBefore: Money.fromMinor(summary.carryoverBeforeMinor, currency),
+      carryoverAfter: Money.fromMinor(summary.carryoverAfterMinor, currency)
     })),
     fairShareByMember: record.payload.fairShareByMember.map((member) => ({
       memberId: member.memberId,

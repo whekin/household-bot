@@ -16,9 +16,11 @@ import { Modal } from '../components/ui/dialog'
 import { Collapsible } from '../components/ui/collapsible'
 import { Field } from '../components/ui/field'
 import { Toggle } from '../components/ui/toggle'
+import { DatePickerField } from '../components/ui/date-picker'
 import {
   updateMiniAppBillingSettings,
   updateMiniAppMemberDisplayName,
+  updateMiniAppMemberAbsencePolicy,
   updateMiniAppMemberRentWeight,
   updateMiniAppMemberStatus,
   demoteMiniAppMember,
@@ -29,6 +31,7 @@ import {
   type MiniAppUtilityCategory
 } from '../miniapp-api'
 import { minorToMajorString } from '../lib/money'
+import { formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
 
 const NEW_CATEGORY_SLUG = '__new__'
 
@@ -91,7 +94,11 @@ export default function SettingsRoute() {
   const [categoryForm, setCategoryForm] = createSignal({
     name: '',
     sortOrder: 0,
-    isActive: true
+    isActive: true,
+    providerName: '',
+    customerNumber: '',
+    paymentLink: '',
+    note: ''
   })
   const [savingSettings, setSavingSettings] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal<BillingFormState>({
@@ -119,8 +126,20 @@ export default function SettingsRoute() {
     displayName: '',
     rentShareWeight: 1,
     status: 'active' as 'active' | 'away' | 'left',
-    isAdmin: false
+    isAdmin: false,
+    absencePolicy: 'resident' as
+      | 'resident'
+      | 'away_rent_and_utilities'
+      | 'away_rent_only'
+      | 'inactive',
+    absenceStartsOn: todayCalendarInputValue(),
+    absenceEndsOn: null as string | null,
+    absenceDirty: false
   })
+
+  const editingMember = createMemo(
+    () => adminSettings()?.members.find((member) => member.id === editMemberId()) ?? null
+  )
 
   function buildBillingFormValue(): BillingFormState {
     const settings = adminSettings()
@@ -187,12 +206,25 @@ export default function SettingsRoute() {
     return copy().paymentBalanceAdjustmentUtilities
   }
 
+  function absencePolicyLabel(
+    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+  ) {
+    if (policy === 'away_rent_and_utilities') return copy().absencePolicyAwayRentAndUtilities
+    if (policy === 'away_rent_only') return copy().absencePolicyAwayRentOnly
+    if (policy === 'inactive') return copy().absencePolicyInactive
+    return copy().absencePolicyResident
+  }
+
   function openAddCategory() {
     setEditingCategorySlug(NEW_CATEGORY_SLUG)
     setCategoryForm({
       name: '',
       sortOrder: sortedCategories().length,
-      isActive: true
+      isActive: true,
+      providerName: '',
+      customerNumber: '',
+      paymentLink: '',
+      note: ''
     })
   }
 
@@ -201,7 +233,11 @@ export default function SettingsRoute() {
     setCategoryForm({
       name: category.name,
       sortOrder: category.sortOrder,
-      isActive: category.isActive
+      isActive: category.isActive,
+      providerName: category.providerName ?? '',
+      customerNumber: category.customerNumber ?? '',
+      paymentLink: category.paymentLink ?? '',
+      note: category.note ?? ''
     })
   }
 
@@ -210,7 +246,11 @@ export default function SettingsRoute() {
     setCategoryForm({
       name: '',
       sortOrder: 0,
-      isActive: true
+      isActive: true,
+      providerName: '',
+      customerNumber: '',
+      paymentLink: '',
+      note: ''
     })
   }
 
@@ -274,7 +314,11 @@ export default function SettingsRoute() {
         ...(currentSlug !== NEW_CATEGORY_SLUG ? { slug: currentSlug } : {}),
         name: form.name,
         sortOrder: form.sortOrder,
-        isActive: form.isActive
+        isActive: form.isActive,
+        providerName: form.providerName.trim() || null,
+        customerNumber: form.customerNumber.trim() || null,
+        paymentLink: form.paymentLink.trim() || null,
+        note: form.note.trim() || null
       })
 
       setAdminSettings((prev) => {
@@ -306,7 +350,11 @@ export default function SettingsRoute() {
       displayName: member.displayName,
       rentShareWeight: member.rentShareWeight,
       status: member.status,
-      isAdmin: member.isAdmin
+      isAdmin: member.isAdmin,
+      absencePolicy: member.absencePolicy ?? 'resident',
+      absenceStartsOn: member.absenceIntervalStartsOn ?? todayCalendarInputValue(),
+      absenceEndsOn: member.absenceIntervalEndsOn ?? null,
+      absenceDirty: false
     })
   }
 
@@ -332,6 +380,21 @@ export default function SettingsRoute() {
       }
       if (form.status !== currentMember.status) {
         updatedMember = await updateMiniAppMemberStatus(data, memberId, form.status)
+      }
+      if (form.absenceDirty) {
+        const updatedAbsence = await updateMiniAppMemberAbsencePolicy(
+          data,
+          memberId,
+          form.absencePolicy,
+          form.absenceStartsOn,
+          form.absenceEndsOn
+        )
+        updatedMember = {
+          ...updatedMember,
+          absencePolicy: updatedAbsence.policy,
+          absenceIntervalStartsOn: updatedAbsence.startsOn,
+          absenceIntervalEndsOn: updatedAbsence.endsOn
+        }
       }
       if (form.isAdmin && !currentMember.isAdmin) {
         updatedMember = await promoteMiniAppMember(data, memberId)
@@ -945,6 +1008,47 @@ export default function SettingsRoute() {
                       }
                     />
                   </Field>
+                  <Field label="Provider" wide>
+                    <Input
+                      value={categoryForm().providerName}
+                      onInput={(e) =>
+                        setCategoryForm((form) => ({
+                          ...form,
+                          providerName: e.currentTarget.value
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Customer / account number" wide>
+                    <Input
+                      value={categoryForm().customerNumber}
+                      onInput={(e) =>
+                        setCategoryForm((form) => ({
+                          ...form,
+                          customerNumber: e.currentTarget.value
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Payment link" wide>
+                    <Input
+                      value={categoryForm().paymentLink}
+                      onInput={(e) =>
+                        setCategoryForm((form) => ({
+                          ...form,
+                          paymentLink: e.currentTarget.value
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Note" wide>
+                    <Textarea
+                      value={categoryForm().note}
+                      onInput={(e) =>
+                        setCategoryForm((form) => ({ ...form, note: e.currentTarget.value }))
+                      }
+                    />
+                  </Field>
                 </div>
                 <div class="settings-category-row__controls">
                   <Toggle
@@ -986,7 +1090,7 @@ export default function SettingsRoute() {
                           <>
                             <div class="settings-category-row__copy">
                               <strong>{category.name}</strong>
-                              <span>{copy().utilityCategoryName}</span>
+                              <span>{category.providerName || copy().utilityCategoryName}</span>
                             </div>
                             <div class="settings-category-row__actions">
                               <Badge variant={category.isActive ? 'accent' : 'muted'}>
@@ -1012,6 +1116,50 @@ export default function SettingsRoute() {
                                 setCategoryForm((form) => ({
                                   ...form,
                                   name: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label="Provider" wide>
+                            <Input
+                              value={categoryForm().providerName}
+                              onInput={(e) =>
+                                setCategoryForm((form) => ({
+                                  ...form,
+                                  providerName: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label="Customer / account number" wide>
+                            <Input
+                              value={categoryForm().customerNumber}
+                              onInput={(e) =>
+                                setCategoryForm((form) => ({
+                                  ...form,
+                                  customerNumber: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label="Payment link" wide>
+                            <Input
+                              value={categoryForm().paymentLink}
+                              onInput={(e) =>
+                                setCategoryForm((form) => ({
+                                  ...form,
+                                  paymentLink: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label="Note" wide>
+                            <Textarea
+                              value={categoryForm().note}
+                              onInput={(e) =>
+                                setCategoryForm((form) => ({
+                                  ...form,
+                                  note: e.currentTarget.value
                                 }))
                               }
                             />
@@ -1109,6 +1257,25 @@ export default function SettingsRoute() {
                         <span class="editable-list-row__subtitle">
                           {copy().rentWeightLabel}: {member.rentShareWeight}
                         </span>
+                        <Show when={member.absencePolicy}>
+                          <span class="editable-list-row__subtitle">
+                            {absencePolicyLabel(member.absencePolicy!)}
+                            <Show when={member.absenceIntervalStartsOn}>
+                              {(startsOn) => (
+                                <>
+                                  {' · '}
+                                  {formatFriendlyDate(startsOn(), locale())}
+                                  <Show when={member.absenceIntervalEndsOn}>
+                                    {(endsOn) => ` → ${formatFriendlyDate(endsOn(), locale())}`}
+                                  </Show>
+                                </>
+                              )}
+                            </Show>
+                            <Show when={member.utilityParticipationDays !== undefined}>
+                              {` · ${copy().utilityParticipationDaysLabel}: ${member.utilityParticipationDays ?? 0}`}
+                            </Show>
+                          </span>
+                        </Show>
                       </div>
                       <div class="editable-list-row__meta">
                         <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
@@ -1240,6 +1407,90 @@ export default function SettingsRoute() {
               }
             />
           </Field>
+          <Field label={copy().absencePolicyLabel} hint={copy().absencePolicyHint} wide>
+            <Select
+              value={editMemberForm().absencePolicy}
+              ariaLabel={copy().absencePolicyLabel}
+              options={[
+                { value: 'resident', label: copy().absencePolicyResident },
+                {
+                  value: 'away_rent_and_utilities',
+                  label: copy().absencePolicyAwayRentAndUtilities
+                },
+                { value: 'away_rent_only', label: copy().absencePolicyAwayRentOnly },
+                { value: 'inactive', label: copy().absencePolicyInactive }
+              ]}
+              onChange={(value) =>
+                setEditMemberForm((form) => ({
+                  ...form,
+                  absencePolicy: value as
+                    | 'resident'
+                    | 'away_rent_and_utilities'
+                    | 'away_rent_only'
+                    | 'inactive',
+                  absenceDirty: true
+                }))
+              }
+            />
+          </Field>
+          <Field label={copy().absenceStartDateLabel}>
+            <DatePickerField
+              value={editMemberForm().absenceStartsOn}
+              placeholder={copy().absenceStartDateLabel}
+              locale={locale()}
+              onChange={(value) =>
+                setEditMemberForm((form) => ({
+                  ...form,
+                  absenceStartsOn: value ?? todayCalendarInputValue(),
+                  absenceDirty: true
+                }))
+              }
+            />
+          </Field>
+          <Field label={copy().absenceEndDateLabel} hint={copy().absenceEndDateHint}>
+            <DatePickerField
+              value={editMemberForm().absenceEndsOn}
+              placeholder={copy().absenceEndDateLabel}
+              locale={locale()}
+              onChange={(value) =>
+                setEditMemberForm((form) => ({
+                  ...form,
+                  absenceEndsOn: value,
+                  absenceDirty: true
+                }))
+              }
+            />
+          </Field>
+          <Show when={editingMember()}>
+            {(member) => (
+              <Field label={copy().absenceIntervalSummaryLabel} wide>
+                <div class="settings-summary-list">
+                  <div class="settings-summary-row">
+                    <span>{copy().absencePolicyLabel}</span>
+                    <strong>{absencePolicyLabel(editMemberForm().absencePolicy)}</strong>
+                  </div>
+                  <div class="settings-summary-row">
+                    <span>{copy().absenceStartDateLabel}</span>
+                    <strong>
+                      {formatFriendlyDate(editMemberForm().absenceStartsOn, locale())}
+                    </strong>
+                  </div>
+                  <div class="settings-summary-row">
+                    <span>{copy().absenceEndDateLabel}</span>
+                    <strong>
+                      {editMemberForm().absenceEndsOn
+                        ? formatFriendlyDate(editMemberForm().absenceEndsOn!, locale())
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div class="settings-summary-row">
+                    <span>{copy().utilityParticipationDaysLabel}</span>
+                    <strong>{member().utilityParticipationDays ?? 0}</strong>
+                  </div>
+                </div>
+              </Field>
+            )}
+          </Show>
         </div>
       </Modal>
     </div>

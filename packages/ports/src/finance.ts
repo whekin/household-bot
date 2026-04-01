@@ -99,18 +99,15 @@ export interface FinanceUtilityBillingPlanMemberSummaryPayload {
   memberId: string
   fairShareMinor: string
   vendorPaidMinor: string
-  reimbursementSentMinor: string
-  reimbursementReceivedMinor: string
   assignedVendorMinor: string
-  remainingTransferInMinor: string
-  remainingTransferOutMinor: string
-  netSettledMinor: string
+  effectiveTargetMinor: string
+  carryoverBeforeMinor: string
+  carryoverAfterMinor: string
 }
 
 export interface FinanceUtilityBillingPlanPayload {
   fairShareByMember: readonly FinanceUtilityBillingPlanMemberPayload[]
   categories: readonly FinanceUtilityBillingPlanCategoryPayload[]
-  transfers: readonly FinanceUtilityBillingPlanTransferPayload[]
   memberSummaries: readonly FinanceUtilityBillingPlanMemberSummaryPayload[]
 }
 

@@ -212,12 +212,6 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
-  miniAppRecordUtilityReimbursement?:
-    | {
-        path?: string
-        handler: (request: Request) => Promise<Response>
-      }
-    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -318,9 +312,6 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppRecordUtilityVendorPaymentPath =
     options.miniAppRecordUtilityVendorPayment?.path ??
     '/api/miniapp/billing/utilities/vendor-payment'
-  const miniAppRecordUtilityReimbursementPath =
-    options.miniAppRecordUtilityReimbursement?.path ??
-    '/api/miniapp/billing/utilities/reimbursement'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler ? (options.scheduler.pathPrefix ?? '/jobs') : null
@@ -486,13 +477,6 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
         url.pathname === miniAppRecordUtilityVendorPaymentPath
       ) {
         return await options.miniAppRecordUtilityVendorPayment.handler(request)
-      }
-
-      if (
-        options.miniAppRecordUtilityReimbursement &&
-        url.pathname === miniAppRecordUtilityReimbursementPath
-      ) {
-        return await options.miniAppRecordUtilityReimbursement.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {

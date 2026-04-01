@@ -8,7 +8,9 @@ function repository(): HouseholdConfigurationRepository {
   let memberAbsencePolicies: {
     householdId: string
     memberId: string
-    effectiveFromPeriod: string
+    startsOn?: string | null
+    endsOn?: string | null
+    effectiveFromPeriod?: string | null
     policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
   }[] = []
 
@@ -262,7 +264,8 @@ function repository(): HouseholdConfigurationRepository {
       const next = {
         householdId: input.householdId,
         memberId: input.memberId,
-        effectiveFromPeriod: input.effectiveFromPeriod,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn ?? null,
         policy: input.policy
       }
       memberAbsencePolicies = [
@@ -271,7 +274,7 @@ function repository(): HouseholdConfigurationRepository {
             !(
               entry.householdId === input.householdId &&
               entry.memberId === input.memberId &&
-              entry.effectiveFromPeriod === input.effectiveFromPeriod
+              (entry.startsOn ?? entry.effectiveFromPeriod) === input.startsOn
             )
         ),
         next
@@ -393,15 +396,13 @@ describe('createMiniAppAdminService', () => {
     })
   })
 
-  test('stores an away absence policy from the effective billing period', async () => {
-    const service = createMiniAppAdminService(repository(), undefined, {
-      resolveEffectiveFromPeriod: async () => '2026-03'
-    })
-
+  test('stores an away absence policy from the provided start date', async () => {
+    const service = createMiniAppAdminService(repository())
     const result = await service.updateMemberAbsencePolicy({
       householdId: 'household-1',
       actorIsAdmin: true,
       memberId: 'member-123456',
+      startsOn: '2026-03-01',
       policy: 'away_rent_only'
     })
 
@@ -410,7 +411,8 @@ describe('createMiniAppAdminService', () => {
       policy: {
         householdId: 'household-1',
         memberId: 'member-123456',
-        effectiveFromPeriod: '2026-03',
+        startsOn: '2026-03-01',
+        endsOn: null,
         policy: 'away_rent_only'
       }
     })

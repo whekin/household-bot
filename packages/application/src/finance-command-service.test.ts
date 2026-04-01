@@ -798,7 +798,7 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.period).toBe('2026-03')
   })
 
-  test('generateDashboard excludes away members from purchases and utilities based on absence policy', async () => {
+  test('generateDashboard excludes away members from utilities but keeps them in default purchase splits', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -873,9 +873,9 @@ describe('createFinanceCommandService', () => {
         purchaseOffset: line.purchaseOffset.amountMinor
       }))
     ).toEqual([
-      { memberId: 'alice', utility: 6000n, purchaseOffset: -1500n },
-      { memberId: 'bob', utility: 6000n, purchaseOffset: 1500n },
-      { memberId: 'carol', utility: 0n, purchaseOffset: 0n }
+      { memberId: 'alice', utility: 6000n, purchaseOffset: -2000n },
+      { memberId: 'bob', utility: 6000n, purchaseOffset: 1000n },
+      { memberId: 'carol', utility: 0n, purchaseOffset: 1000n }
     ])
   })
 
@@ -1588,6 +1588,8 @@ describe('createFinanceCommandService', () => {
         amountMinor: 10000n
       }
     ])
-    expect(result?.plan?.transfers).toEqual([])
+    expect(
+      result?.plan?.memberSummaries.every((summary) => summary.carryoverAfter.amountMinor === 0n)
+    ).toBe(true)
   })
 })

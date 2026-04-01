@@ -413,13 +413,14 @@ export function resolvedMemberAbsencePolicy(
 ): MiniAppMemberAbsencePolicyRecord {
   const current = settings?.memberAbsencePolicies
     .filter((policy) => policy.memberId === memberId)
-    .sort((left, right) => left.effectiveFromPeriod.localeCompare(right.effectiveFromPeriod))
+    .sort((left, right) => left.startsOn.localeCompare(right.startsOn))
     .at(-1)
 
   return (
     current ?? {
       memberId,
-      effectiveFromPeriod: '',
+      startsOn: '',
+      endsOn: null,
       policy: defaultAbsencePolicyForStatus(status)
     }
   )

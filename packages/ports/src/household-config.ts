@@ -75,7 +75,9 @@ export interface HouseholdMemberRecord {
 export interface HouseholdMemberAbsencePolicyRecord {
   householdId: string
   memberId: string
-  effectiveFromPeriod: string
+  startsOn?: string | null
+  endsOn?: string | null
+  effectiveFromPeriod?: string | null
   policy: HouseholdMemberAbsencePolicy
 }
 
@@ -115,6 +117,10 @@ export interface HouseholdUtilityCategoryRecord {
   name: string
   sortOrder: number
   isActive: boolean
+  providerName?: string | null
+  customerNumber?: string | null
+  paymentLink?: string | null
+  note?: string | null
 }
 
 export interface RegisterTelegramHouseholdChatInput {
@@ -216,6 +222,10 @@ export interface HouseholdConfigurationRepository {
     name: string
     sortOrder: number
     isActive: boolean
+    providerName?: string | null
+    customerNumber?: string | null
+    paymentLink?: string | null
+    note?: string | null
   }): Promise<HouseholdUtilityCategoryRecord>
   listHouseholdMembersByTelegramUserId(
     telegramUserId: string
@@ -269,7 +279,8 @@ export interface HouseholdConfigurationRepository {
   upsertHouseholdMemberAbsencePolicy(input: {
     householdId: string
     memberId: string
-    effectiveFromPeriod: string
+    startsOn: string
+    endsOn?: string | null
     policy: HouseholdMemberAbsencePolicy
   }): Promise<HouseholdMemberAbsencePolicyRecord | null>
 }

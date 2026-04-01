@@ -309,11 +309,6 @@ interface StoredPurchaseParticipantRow {
 const CLARIFICATION_CONTEXT_MAX_AGE_MS = 30 * 60_000
 const MAX_CLARIFICATION_CONTEXT_MESSAGES = 3
 
-function periodFromInstant(instant: Instant, timezone: string): string {
-  const localDate = instant.toZonedDateTimeISO(timezone).toPlainDate()
-  return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
-}
-
 function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
   const replyAuthor = ctx.msg?.reply_to_message?.from
   if (!replyAuthor?.is_bot) {
@@ -482,7 +477,9 @@ export function resolveProposalParticipantSelection(input: {
   policyByMemberId: ReadonlyMap<
     string,
     {
-      effectiveFromPeriod: string
+      startsOn?: string | null
+      endsOn?: string | null
+      effectiveFromPeriod?: string | null
       policy: string
     }
   >
@@ -517,10 +514,7 @@ export function resolveProposalParticipantSelection(input: {
 
   const participants = eligibleMembers.map((member) => {
     const policy = input.policyByMemberId.get(member.memberId)?.policy ?? 'resident'
-    const included =
-      member.lifecycleStatus === 'away'
-        ? policy === 'resident'
-        : member.lifecycleStatus === 'active'
+    const included = member.lifecycleStatus !== 'left' && policy !== 'inactive'
 
     return {
       memberId: member.memberId,
@@ -1169,7 +1163,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       db
         .select({
           memberId: schema.memberAbsencePolicies.memberId,
-          effectiveFromPeriod: schema.memberAbsencePolicies.effectiveFromPeriod,
+          startsOn: schema.memberAbsencePolicies.startsOn,
+          endsOn: schema.memberAbsencePolicies.endsOn,
           policy: schema.memberAbsencePolicies.policy
         })
         .from(schema.memberAbsencePolicies)
@@ -1177,24 +1172,31 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     ])
 
     const timezone = settingsRows[0]?.timezone ?? 'Asia/Tbilisi'
-    const period = periodFromInstant(input.messageSentAt, timezone)
+    const localDate = input.messageSentAt.toZonedDateTimeISO(timezone).toPlainDate().toString()
     const policyByMemberId = new Map<
       string,
       {
-        effectiveFromPeriod: string
+        startsOn?: string | null
+        endsOn?: string | null
+        effectiveFromPeriod?: string | null
         policy: string
       }
     >()
 
     for (const row of policyRows) {
-      if (row.effectiveFromPeriod.localeCompare(period) > 0) {
+      if (row.startsOn.localeCompare(localDate) > 0) {
+        continue
+      }
+      if (row.endsOn && row.endsOn.localeCompare(localDate) < 0) {
         continue
       }
 
       const current = policyByMemberId.get(row.memberId)
-      if (!current || current.effectiveFromPeriod.localeCompare(row.effectiveFromPeriod) < 0) {
+      const currentStartsOn = current?.startsOn ?? current?.effectiveFromPeriod ?? ''
+      if (!current || currentStartsOn.localeCompare(row.startsOn) < 0) {
         policyByMemberId.set(row.memberId, {
-          effectiveFromPeriod: row.effectiveFromPeriod,
+          startsOn: row.startsOn,
+          endsOn: row.endsOn,
           policy: row.policy
         })
       }

@@ -143,26 +143,16 @@ export function createMiniAppDashboardHandler(options: {
                       fullCategoryPayment: category.fullCategoryPayment,
                       splitSourceBillId: category.splitSourceBillId
                     })),
-                    transfers: dashboard.utilityBillingPlan.transfers.map((transfer) => ({
-                      fromMemberId: transfer.fromMemberId,
-                      fromDisplayName: transfer.fromDisplayName,
-                      toMemberId: transfer.toMemberId,
-                      toDisplayName: transfer.toDisplayName,
-                      amountMajor: transfer.amount.toMajorString(),
-                      settledAmountMajor: transfer.settledAmount.toMajorString()
-                    })),
                     memberSummaries: dashboard.utilityBillingPlan.memberSummaries.map(
                       (summary) => ({
                         memberId: summary.memberId,
                         displayName: summary.displayName,
                         fairShareMajor: summary.fairShare.toMajorString(),
                         vendorPaidMajor: summary.vendorPaid.toMajorString(),
-                        reimbursementSentMajor: summary.reimbursementSent.toMajorString(),
-                        reimbursementReceivedMajor: summary.reimbursementReceived.toMajorString(),
                         assignedVendorMajor: summary.assignedVendor.toMajorString(),
-                        remainingTransferInMajor: summary.remainingTransferIn.toMajorString(),
-                        remainingTransferOutMajor: summary.remainingTransferOut.toMajorString(),
-                        netSettledMajor: summary.netSettled.toMajorString()
+                        effectiveTargetMajor: summary.effectiveTarget.toMajorString(),
+                        carryoverBeforeMajor: summary.carryoverBefore.toMajorString(),
+                        carryoverAfterMajor: summary.carryoverAfter.toMajorString()
                       })
                     )
                   }
@@ -183,11 +173,20 @@ export function createMiniAppDashboardHandler(options: {
                 .sort((left, right) => left.sortOrder - right.sortOrder)
                 .map((category) => ({
                   slug: category.slug,
-                  name: category.name
+                  name: category.name,
+                  providerName: category.providerName,
+                  customerNumber: category.customerNumber,
+                  paymentLink: category.paymentLink,
+                  note: category.note
                 })),
               members: dashboard.members.map((line) => ({
                 memberId: line.memberId,
                 displayName: line.displayName,
+                status: line.status,
+                absencePolicy: line.absencePolicy,
+                absenceIntervalStartsOn: line.absenceIntervalStartsOn ?? null,
+                absenceIntervalEndsOn: line.absenceIntervalEndsOn ?? null,
+                utilityParticipationDays: line.utilityParticipationDays ?? 0,
                 predictedUtilityShareMajor: line.predictedUtilityShare?.toMajorString() ?? null,
                 rentShareMajor: line.rentShare.toMajorString(),
                 utilityShareMajor: line.utilityShare.toMajorString(),

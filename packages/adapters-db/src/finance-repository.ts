@@ -53,22 +53,14 @@ function mapUtilityBillingPlanPayload(raw: unknown): FinanceUtilityBillingPlanPa
           ? null
           : String(entry.splitSourceBillId)
     })),
-    transfers: arrayOfObjects(payload.transfers).map((entry) => ({
-      fromMemberId: String(entry.fromMemberId ?? ''),
-      toMemberId: String(entry.toMemberId ?? ''),
-      amountMinor: String(entry.amountMinor ?? '0'),
-      settledAmountMinor: String(entry.settledAmountMinor ?? '0')
-    })),
     memberSummaries: arrayOfObjects(payload.memberSummaries).map((entry) => ({
       memberId: String(entry.memberId ?? ''),
       fairShareMinor: String(entry.fairShareMinor ?? '0'),
       vendorPaidMinor: String(entry.vendorPaidMinor ?? '0'),
-      reimbursementSentMinor: String(entry.reimbursementSentMinor ?? '0'),
-      reimbursementReceivedMinor: String(entry.reimbursementReceivedMinor ?? '0'),
       assignedVendorMinor: String(entry.assignedVendorMinor ?? '0'),
-      remainingTransferInMinor: String(entry.remainingTransferInMinor ?? '0'),
-      remainingTransferOutMinor: String(entry.remainingTransferOutMinor ?? '0'),
-      netSettledMinor: String(entry.netSettledMinor ?? '0')
+      effectiveTargetMinor: String(entry.effectiveTargetMinor ?? '0'),
+      carryoverBeforeMinor: String(entry.carryoverBeforeMinor ?? '0'),
+      carryoverAfterMinor: String(entry.carryoverAfterMinor ?? '0')
     }))
   }
 }

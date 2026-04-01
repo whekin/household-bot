@@ -46,7 +46,8 @@ export type MiniAppMemberAbsencePolicy =
 
 export interface MiniAppMemberAbsencePolicyRecord {
   memberId: string
-  effectiveFromPeriod: string
+  startsOn: string
+  endsOn: string | null
   policy: MiniAppMemberAbsencePolicy
 }
 
@@ -56,6 +57,10 @@ export interface MiniAppMember {
   status: 'active' | 'away' | 'left'
   rentShareWeight: number
   isAdmin: boolean
+  absencePolicy?: MiniAppMemberAbsencePolicy
+  absenceIntervalStartsOn?: string | null
+  absenceIntervalEndsOn?: string | null
+  utilityParticipationDays?: number
 }
 
 export interface MiniAppBillingSettings {
@@ -94,6 +99,10 @@ export interface MiniAppUtilityCategory {
   name: string
   sortOrder: number
   isActive: boolean
+  providerName: string | null
+  customerNumber: string | null
+  paymentLink: string | null
+  note: string | null
 }
 
 export interface MiniAppTopicBinding {
@@ -137,25 +146,15 @@ export interface MiniAppDashboard {
       fullCategoryPayment: boolean
       splitSourceBillId: string | null
     }[]
-    transfers: readonly {
-      fromMemberId: string
-      fromDisplayName: string
-      toMemberId: string
-      toDisplayName: string
-      amountMajor: string
-      settledAmountMajor: string
-    }[]
     memberSummaries: readonly {
       memberId: string
       displayName: string
       fairShareMajor: string
       vendorPaidMajor: string
-      reimbursementSentMajor: string
-      reimbursementReceivedMajor: string
       assignedVendorMajor: string
-      remainingTransferInMajor: string
-      remainingTransferOutMajor: string
-      netSettledMajor: string
+      effectiveTargetMajor: string
+      carryoverBeforeMajor: string
+      carryoverAfterMajor: string
     }[]
   } | null
   rentBillingState: {
@@ -172,10 +171,19 @@ export interface MiniAppDashboard {
   utilityCategories?: readonly {
     slug: string
     name: string
+    providerName: string | null
+    customerNumber: string | null
+    paymentLink: string | null
+    note: string | null
   }[]
   members: {
     memberId: string
     displayName: string
+    status?: 'active' | 'away' | 'left'
+    absencePolicy?: MiniAppMemberAbsencePolicy
+    absenceIntervalStartsOn?: string | null
+    absenceIntervalEndsOn?: string | null
+    utilityParticipationDays?: number
     predictedUtilityShareMajor: string | null
     rentShareMajor: string
     utilityShareMajor: string
@@ -692,6 +700,10 @@ export async function upsertMiniAppUtilityCategory(
     name: string
     sortOrder: number
     isActive: boolean
+    providerName?: string | null
+    customerNumber?: string | null
+    paymentLink?: string | null
+    note?: string | null
   }
 ): Promise<MiniAppUtilityCategory> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/utility-categories/upsert`, {
@@ -902,7 +914,9 @@ export async function demoteMiniAppMember(
 export async function updateMiniAppMemberAbsencePolicy(
   initData: string,
   memberId: string,
-  policy: MiniAppMemberAbsencePolicy
+  policy: MiniAppMemberAbsencePolicy,
+  startsOn: string,
+  endsOn?: string | null
 ): Promise<MiniAppMemberAbsencePolicyRecord> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/absence-policy`, {
     method: 'POST',
@@ -912,7 +926,9 @@ export async function updateMiniAppMemberAbsencePolicy(
     body: JSON.stringify({
       initData,
       memberId,
-      policy
+      policy,
+      startsOn,
+      ...(endsOn !== undefined ? { endsOn } : {})
     })
   })
 
@@ -1344,33 +1360,6 @@ export async function recordMiniAppUtilityVendorPayment(
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
     throw new Error(payload.error ?? 'Failed to record utility vendor payment')
-  }
-}
-
-export async function recordMiniAppUtilityReimbursement(
-  initData: string,
-  input: {
-    fromMemberId?: string
-    toMemberId: string
-    amountMajor: string
-    currency?: 'USD' | 'GEL'
-    period?: string
-  }
-): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/miniapp/billing/utilities/reimbursement`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      initData,
-      ...input
-    })
-  })
-
-  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
-  if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to record utility reimbursement')
   }
 }
 

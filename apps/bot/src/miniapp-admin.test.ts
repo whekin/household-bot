@@ -33,7 +33,9 @@ function onboardingRepository(): HouseholdConfigurationRepository {
   let memberAbsencePolicies: {
     householdId: string
     memberId: string
-    effectiveFromPeriod: string
+    startsOn?: string | null
+    endsOn?: string | null
+    effectiveFromPeriod?: string | null
     policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
   }[] = []
 
@@ -286,7 +288,8 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       const next = {
         householdId: input.householdId,
         memberId: input.memberId,
-        effectiveFromPeriod: input.effectiveFromPeriod,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn ?? null,
         policy: input.policy
       }
       memberAbsencePolicies = [
@@ -295,7 +298,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             !(
               entry.householdId === input.householdId &&
               entry.memberId === input.memberId &&
-              entry.effectiveFromPeriod === input.effectiveFromPeriod
+              (entry.startsOn ?? entry.effectiveFromPeriod) === input.startsOn
             )
         ),
         next
@@ -1129,6 +1132,7 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
             language_code: 'ru'
           }),
           memberId: 'member-123456',
+          startsOn: '2026-03-01',
           policy: 'away_rent_only'
         })
       })
@@ -1141,7 +1145,8 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
       policy: {
         householdId: 'household-1',
         memberId: 'member-123456',
-        effectiveFromPeriod: '2026-03',
+        startsOn: '2026-03-01',
+        endsOn: null,
         policy: 'away_rent_only'
       }
     })

@@ -48,8 +48,7 @@ describe('computeUtilityBillingPlan', () => {
         bill('internet', 'Internet', '80.00'),
         bill('cleaning', 'Cleaning', '20.00')
       ],
-      vendorPayments: [],
-      reimbursements: []
+      vendorPayments: []
     })
 
     expect(plan.maxCategoriesPerMemberApplied).toBe(2)
@@ -80,8 +79,7 @@ describe('computeUtilityBillingPlan', () => {
         bill('bill-4', 'Bill 4', '20.00'),
         bill('bill-5', 'Bill 5', '20.00')
       ],
-      vendorPayments: [],
-      reimbursements: []
+      vendorPayments: []
     })
 
     const counts = [
@@ -104,8 +102,7 @@ describe('computeUtilityBillingPlan', () => {
       currency: 'GEL',
       members: [member('alice', 'Alice', '50.00'), member('bob', 'Bob', '50.00')],
       bills: [bill('bill-a', 'A bill', '50.00'), bill('bill-b', 'B bill', '50.00')],
-      vendorPayments: [],
-      reimbursements: []
+      vendorPayments: []
     })
 
     expect(
@@ -128,8 +125,7 @@ describe('computeUtilityBillingPlan', () => {
         bill('small-1', 'Small bill 1', '10.00'),
         bill('small-2', 'Small bill 2', '10.00')
       ],
-      vendorPayments: [],
-      reimbursements: []
+      vendorPayments: []
     })
 
     expect(plan.maxCategoriesPerMemberApplied).toBe(2)

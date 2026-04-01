@@ -157,6 +157,10 @@ async function readUtilityCategoryPayload(request: Request): Promise<{
   name: string
   sortOrder: number
   isActive: boolean
+  providerName?: string | null
+  customerNumber?: string | null
+  paymentLink?: string | null
+  note?: string | null
 }> {
   const clonedRequest = request.clone()
   const payload = await readMiniAppRequestPayload(request)
@@ -170,6 +174,10 @@ async function readUtilityCategoryPayload(request: Request): Promise<{
     name?: string
     sortOrder?: number
     isActive?: boolean
+    providerName?: string | null
+    customerNumber?: string | null
+    paymentLink?: string | null
+    note?: string | null
   }
   try {
     parsed = JSON.parse(text)
@@ -194,7 +202,19 @@ async function readUtilityCategoryPayload(request: Request): Promise<{
       : {}),
     name: parsed.name,
     sortOrder: parsed.sortOrder,
-    isActive: parsed.isActive
+    isActive: parsed.isActive,
+    ...(typeof parsed.providerName === 'string' || parsed.providerName === null
+      ? { providerName: parsed.providerName ?? null }
+      : {}),
+    ...(typeof parsed.customerNumber === 'string' || parsed.customerNumber === null
+      ? { customerNumber: parsed.customerNumber ?? null }
+      : {}),
+    ...(typeof parsed.paymentLink === 'string' || parsed.paymentLink === null
+      ? { paymentLink: parsed.paymentLink ?? null }
+      : {}),
+    ...(typeof parsed.note === 'string' || parsed.note === null
+      ? { note: parsed.note ?? null }
+      : {})
   }
 }
 
@@ -333,6 +353,8 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
   initData: string
   memberId: string
   policy: HouseholdMemberAbsencePolicy
+  startsOn: string
+  endsOn?: string | null
 }> {
   const clonedRequest = request.clone()
   const payload = await readMiniAppRequestPayload(request)
@@ -341,7 +363,7 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
   }
 
   const text = await clonedRequest.text()
-  let parsed: { memberId?: string; policy?: string }
+  let parsed: { memberId?: string; policy?: string; startsOn?: string; endsOn?: string | null }
   try {
     parsed = JSON.parse(text)
   } catch {
@@ -350,7 +372,8 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
 
   const memberId = parsed.memberId?.trim()
   const policy = parsed.policy?.trim().toLowerCase()
-  if (!memberId || !policy) {
+  const startsOn = parsed.startsOn?.trim()
+  if (!memberId || !policy || !startsOn) {
     throw new Error('Missing member absence policy fields')
   }
 
@@ -361,7 +384,15 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
   return {
     initData: payload.initData,
     memberId,
-    policy: policy as HouseholdMemberAbsencePolicy
+    policy: policy as HouseholdMemberAbsencePolicy,
+    startsOn,
+    ...(typeof parsed.endsOn === 'string'
+      ? {
+          endsOn: parsed.endsOn.trim() || null
+        }
+      : parsed.endsOn === null
+        ? { endsOn: null }
+        : {})
   }
 }
 
@@ -778,7 +809,13 @@ export function createMiniAppUpsertUtilityCategoryHandler(options: {
             : {}),
           name: payload.name,
           sortOrder: payload.sortOrder,
-          isActive: payload.isActive
+          isActive: payload.isActive,
+          ...(payload.providerName !== undefined ? { providerName: payload.providerName } : {}),
+          ...(payload.customerNumber !== undefined
+            ? { customerNumber: payload.customerNumber }
+            : {}),
+          ...(payload.paymentLink !== undefined ? { paymentLink: payload.paymentLink } : {}),
+          ...(payload.note !== undefined ? { note: payload.note } : {})
         })
 
         if (result.status === 'rejected') {
@@ -1382,6 +1419,8 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
+          startsOn: payload.startsOn,
+          ...(payload.endsOn !== undefined ? { endsOn: payload.endsOn } : {}),
           policy: payload.policy
         })
 

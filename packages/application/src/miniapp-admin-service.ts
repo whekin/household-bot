@@ -11,7 +11,7 @@ import type {
   HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
-import { BillingPeriod, Money, Temporal, type CurrencyCode } from '@household/domain'
+import { Money, type CurrencyCode } from '@household/domain'
 import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
@@ -113,6 +113,10 @@ export interface MiniAppAdminService {
     name: string
     sortOrder: number
     isActive: boolean
+    providerName?: string | null
+    customerNumber?: string | null
+    paymentLink?: string | null
+    note?: string | null
   }): Promise<
     | {
         status: 'ok'
@@ -251,6 +255,8 @@ export interface MiniAppAdminService {
     householdId: string
     actorIsAdmin: boolean
     memberId: string
+    startsOn?: string
+    endsOn?: string | null
     policy: HouseholdMemberAbsencePolicy
   }): Promise<
     | {
@@ -262,20 +268,6 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
-}
-
-function localDateInTimezone(timezone: string) {
-  return Temporal.Now.instant().toZonedDateTimeISO(timezone).toPlainDate()
-}
-
-function periodFromLocalDate(localDate: Temporal.PlainDate): string {
-  return `${localDate.year}-${String(localDate.month).padStart(2, '0')}`
-}
-
-function expectedOpenCyclePeriod(settings: { rentDueDay: number; timezone: string }): string {
-  const localDate = localDateInTimezone(settings.timezone)
-  const currentPeriod = BillingPeriod.fromString(periodFromLocalDate(localDate))
-  return (localDate.day > settings.rentDueDay ? currentPeriod.next() : currentPeriod).toString()
 }
 
 function normalizeDisplayName(raw: string): string | null {
@@ -348,7 +340,7 @@ function normalizeAssistantText(
 export function createMiniAppAdminService(
   repository: HouseholdConfigurationRepository,
   scheduledDispatchService?: ScheduledDispatchService,
-  options?: {
+  _options?: {
     resolveEffectiveFromPeriod?: (householdId: string) => Promise<string | null>
   }
 ): MiniAppAdminService {
@@ -582,7 +574,11 @@ export function createMiniAppAdminService(
           : {}),
         name: input.name.trim(),
         sortOrder: input.sortOrder,
-        isActive: input.isActive
+        isActive: input.isActive,
+        providerName: normalizeOptionalString(input.providerName),
+        customerNumber: normalizeOptionalString(input.customerNumber),
+        paymentLink: normalizeOptionalString(input.paymentLink),
+        note: normalizeOptionalString(input.note)
       })
 
       return {
@@ -849,10 +845,7 @@ export function createMiniAppAdminService(
         }
       }
 
-      const [member, settings] = await Promise.all([
-        repository.listHouseholdMembers(input.householdId),
-        repository.getHouseholdBillingSettings(input.householdId)
-      ])
+      const member = await repository.listHouseholdMembers(input.householdId)
       const target = member.find((candidate) => candidate.id === input.memberId)
       if (!target) {
         return {
@@ -861,13 +854,11 @@ export function createMiniAppAdminService(
         }
       }
 
-      const effectiveFromPeriod =
-        (await options?.resolveEffectiveFromPeriod?.(input.householdId)) ??
-        expectedOpenCyclePeriod(settings)
       const policy = await repository.upsertHouseholdMemberAbsencePolicy({
         householdId: input.householdId,
         memberId: input.memberId,
-        effectiveFromPeriod,
+        startsOn: input.startsOn ?? new Date().toISOString().slice(0, 10),
+        endsOn: input.endsOn ?? null,
         policy: input.policy
       })
 
