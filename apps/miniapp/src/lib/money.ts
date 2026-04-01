@@ -1,5 +1,5 @@
 export function majorStringToMinor(value: string): bigint {
-  const trimmed = value.trim()
+  const trimmed = value.trim().replace(',', '.')
   const negative = trimmed.startsWith('-')
   const normalized = negative ? trimmed.slice(1) : trimmed
   const [whole = '0', fraction = ''] = normalized.split('.')

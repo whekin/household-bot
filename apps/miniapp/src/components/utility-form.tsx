@@ -37,7 +37,8 @@ export function UtilityForm(props: UtilityFormProps) {
       </Field>
       <Field label={props.labels.amount}>
         <Input
-          type="number"
+          type="text"
+          inputMode="decimal"
           value={props.value.amountMajor}
           {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
           onInput={(e) => props.onChange({ ...props.value, amountMajor: e.currentTarget.value })}

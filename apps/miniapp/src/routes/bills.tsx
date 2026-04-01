@@ -678,7 +678,8 @@ export default function BillsRoute() {
                                 </span>
                               </div>
                               <Input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 value={currentAmount()}
                                 onInput={(e) =>
                                   setUtilityAmounts((prev) => ({
