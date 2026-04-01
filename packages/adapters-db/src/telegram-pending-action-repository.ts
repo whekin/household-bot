@@ -21,6 +21,10 @@ function parsePendingActionType(raw: string): TelegramPendingActionType {
     return raw
   }
 
+  if (raw === 'bill_command') {
+    return raw
+  }
+
   if (raw === 'household_group_invite') {
     return raw
   }

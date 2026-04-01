@@ -17,6 +17,8 @@ import {
 
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
+const BILL_SHOW_PENDING_ACTION = 'bill_command'
+const BILL_PENDING_ACTION_TTL_MS = 1000 * 60 * 60
 
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -121,6 +123,36 @@ export function createFinanceCommandsService(options: {
 }): {
   register: (bot: Bot) => void
 } {
+  async function storeBillPendingAction(input: { ctx: Context; payload: Record<string, unknown> }) {
+    if (!options.promptRepository || !input.ctx.from?.id || !input.ctx.chat?.id) {
+      return
+    }
+
+    await options.promptRepository.upsertPendingAction({
+      telegramUserId: input.ctx.from.id.toString(),
+      telegramChatId: input.ctx.chat.id.toString(),
+      action: BILL_SHOW_PENDING_ACTION,
+      payload: input.payload,
+      expiresAt: nowInstant().add({ milliseconds: BILL_PENDING_ACTION_TTL_MS })
+    })
+  }
+
+  async function getBillPendingAction(ctx: Context) {
+    if (!options.promptRepository || !ctx.from?.id || !ctx.chat?.id) {
+      return null
+    }
+
+    const action = await options.promptRepository.getPendingAction(
+      ctx.chat.id.toString(),
+      ctx.from.id.toString()
+    )
+    if (!action || action.action !== BILL_SHOW_PENDING_ACTION) {
+      return null
+    }
+
+    return action
+  }
+
   function formatStatement(
     locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
@@ -507,10 +539,18 @@ export function createFinanceCommandsService(options: {
         (category) => category.assignedMemberId === input.viewerMemberId
       )
     ) {
+      await storeBillPendingAction({
+        ctx: input.ctx,
+        payload: {
+          kind: 'resolve',
+          householdId: input.householdId,
+          viewerMemberId: input.viewerMemberId
+        }
+      })
       keyboard.push([
         {
           text: locale === 'ru' ? 'Оплатил по плану' : 'Resolve my planned bills',
-          callback_data: `${BILL_RESOLVE_CALLBACK_PREFIX}${input.householdId}:${input.viewerMemberId}`
+          callback_data: `${BILL_RESOLVE_CALLBACK_PREFIX}current`
         }
       ])
     }
@@ -607,14 +647,24 @@ export function createFinanceCommandsService(options: {
           )
         }))
       )
+      await storeBillPendingAction({
+        ctx,
+        payload: {
+          kind: 'show',
+          choices: households.map(({ membership }) => ({
+            householdId: membership.householdId,
+            memberId: membership.id
+          }))
+        }
+      })
       await ctx.reply(
         locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
         {
           reply_markup: {
-            inline_keyboard: households.map(({ membership, household }) => [
+            inline_keyboard: households.map(({ membership, household }, index) => [
               {
                 text: household?.householdName ?? membership.householdId,
-                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${membership.householdId}:${forcedMode ?? 'auto'}`
+                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${forcedMode ?? 'auto'}`
               }
             ])
           }
@@ -626,19 +676,34 @@ export function createFinanceCommandsService(options: {
       new RegExp(`^${BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
         const payload = ctx.callbackQuery.data.slice(BILL_SHOW_CALLBACK_PREFIX.length)
-        const [householdId, modeRaw] = payload.split(':')
+        const [choiceIndexRaw, modeRaw] = payload.split(':')
         const telegramUserId = ctx.from?.id?.toString()
-        if (!householdId || !telegramUserId) {
+        const choiceIndex = Number(choiceIndexRaw)
+        if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || !telegramUserId) {
           await ctx.answerCallbackQuery()
           return
         }
 
-        const memberships =
-          await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
-            telegramUserId
-          )
-        const membership = memberships.find((member) => member.householdId === householdId)
-        if (!membership) {
+        const pendingAction = await getBillPendingAction(ctx)
+        const choices = Array.isArray(pendingAction?.payload.choices)
+          ? pendingAction.payload.choices
+          : []
+        const choice = choices[choiceIndex]
+        const householdId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.householdId
+            : null
+        const memberId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.memberId
+            : null
+        if (!householdId || !memberId) {
           await ctx.answerCallbackQuery()
           return
         }
@@ -673,7 +738,7 @@ export function createFinanceCommandsService(options: {
                 note: category.note ?? null
               })),
             forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
-            viewerMemberId: membership.id
+            viewerMemberId: memberId
           })
         )
         await ctx.answerCallbackQuery()
@@ -683,8 +748,17 @@ export function createFinanceCommandsService(options: {
     bot.callbackQuery(
       new RegExp(`^${BILL_RESOLVE_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
-        const payload = ctx.callbackQuery.data.slice(BILL_RESOLVE_CALLBACK_PREFIX.length)
-        const [householdId, memberId] = payload.split(':')
+        const pendingAction = await getBillPendingAction(ctx)
+        const householdId =
+          pendingAction?.payload.kind === 'resolve' &&
+          typeof pendingAction.payload.householdId === 'string'
+            ? pendingAction.payload.householdId
+            : null
+        const memberId =
+          pendingAction?.payload.kind === 'resolve' &&
+          typeof pendingAction.payload.viewerMemberId === 'string'
+            ? pendingAction.payload.viewerMemberId
+            : null
         const telegramUserId = ctx.from?.id?.toString()
         if (!householdId || !memberId || !telegramUserId) {
           await ctx.answerCallbackQuery()

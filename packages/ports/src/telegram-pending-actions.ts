@@ -4,6 +4,7 @@ export const TELEGRAM_PENDING_ACTION_TYPES = [
   'ad_hoc_notification',
   'anonymous_feedback',
   'assistant_payment_confirmation',
+  'bill_command',
   'household_group_invite',
   'payment_topic_clarification',
   'payment_topic_confirmation',
