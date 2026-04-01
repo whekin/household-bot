@@ -6,6 +6,7 @@ type InputProps = {
   value?: string
   placeholder?: string
   type?: 'text' | 'number' | 'email' | 'datetime-local'
+  inputMode?: JSX.InputHTMLAttributes<HTMLInputElement>['inputMode']
   min?: string | number
   max?: string | number
   step?: string | number
@@ -27,6 +28,7 @@ export function Input(props: InputProps) {
       type={props.type ?? 'text'}
       value={props.value ?? ''}
       placeholder={props.placeholder}
+      inputMode={props.inputMode}
       min={props.min}
       max={props.max}
       step={props.step}
