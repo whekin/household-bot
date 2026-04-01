@@ -94,6 +94,30 @@ function parseBillMode(raw: string | undefined): 'utilities' | 'rent' | null {
   return null
 }
 
+function hasAllFlag(args: readonly string[]): boolean {
+  return args.some((arg) => arg.trim().toLowerCase() === 'all')
+}
+
+function sortCurrentMemberFirst<T extends { memberId: string }>(
+  items: readonly T[],
+  currentMemberId?: string | null
+): T[] {
+  if (!currentMemberId) {
+    return [...items]
+  }
+
+  return [...items].sort((left, right) => {
+    if (left.memberId === currentMemberId && right.memberId !== currentMemberId) {
+      return -1
+    }
+    if (right.memberId === currentMemberId && left.memberId !== currentMemberId) {
+      return 1
+    }
+
+    return 0
+  })
+}
+
 function formatAbsoluteDate(
   locale: Parameters<typeof getBotTranslations>[0],
   rawDate: string
@@ -329,6 +353,7 @@ export function createFinanceCommandsService(options: {
       note: string | null
     }[]
     viewerMemberId?: string | null
+    orderMemberId?: string | null
   }): string {
     const categoryDetailsByName = new Map(
       (input.utilityCategories ?? []).map((category) => [
@@ -345,6 +370,25 @@ export function createFinanceCommandsService(options: {
       input.viewerMemberId && viewerCategories.length > 0
         ? viewerCategories
         : (input.plan?.categories ?? [])
+    const orderedCategories =
+      input.orderMemberId && !input.viewerMemberId
+        ? [...visibleCategories].sort((left, right) => {
+            if (
+              left.assignedMemberId === input.orderMemberId &&
+              right.assignedMemberId !== input.orderMemberId
+            ) {
+              return -1
+            }
+            if (
+              right.assignedMemberId === input.orderMemberId &&
+              left.assignedMemberId !== input.orderMemberId
+            ) {
+              return 1
+            }
+
+            return 0
+          })
+        : visibleCategories
     const statusText =
       input.plan?.status === 'settled'
         ? input.locale === 'ru'
@@ -364,8 +408,8 @@ export function createFinanceCommandsService(options: {
       `${input.locale === 'ru' ? 'Статус' : 'Status'}: ${statusText}`,
       `${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan?.dueDate ?? input.period)}`,
       '',
-      visibleCategories.length > 0
-        ? `${input.locale === 'ru' ? 'Счета:' : 'Bills:'}\n${visibleCategories
+      orderedCategories.length > 0
+        ? `${input.locale === 'ru' ? 'Счета:' : 'Bills:'}\n${orderedCategories
             .map((category) => {
               const details = categoryDetailsByName.get(category.billName.trim().toLowerCase())
               const detailParts = [
@@ -397,14 +441,16 @@ export function createFinanceCommandsService(options: {
           : 'No active utility assignments.',
       '',
       `${input.locale === 'ru' ? 'Сводка:' : 'Summary:'}\n${
-        (input.plan?.memberSummaries ?? [])
-          .filter((summary) => {
+        sortCurrentMemberFirst(
+          (input.plan?.memberSummaries ?? []).filter((summary) => {
             if (!input.viewerMemberId) {
               return true
             }
 
             return summary.memberId === input.viewerMemberId
-          })
+          }),
+          input.orderMemberId ?? input.viewerMemberId
+        )
           .map(
             (summary) =>
               `- ${summary.displayName}: ${input.locale === 'ru' ? 'цель' : 'fair share'} ${formatUserFacingMoney(summary.fairShare.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'уже оплачено' : 'paid'} ${formatUserFacingMoney(summary.vendorPaid.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'назначено сейчас' : 'assigned now'} ${formatUserFacingMoney(summary.assignedThisCycle.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'итоговое отклонение' : 'projected delta'} ${formatUserFacingMoney(summary.projectedDeltaAfterPlan.toMajorString(), input.currency)}`
@@ -423,10 +469,14 @@ export function createFinanceCommandsService(options: {
     >['rentBillingState']
     currency: 'USD' | 'GEL'
     viewerMemberId?: string | null
+    orderMemberId?: string | null
   }): string {
-    const visibleMembers = input.viewerMemberId
-      ? input.state.memberSummaries.filter((member) => member.memberId === input.viewerMemberId)
-      : input.state.memberSummaries
+    const visibleMembers = sortCurrentMemberFirst(
+      input.viewerMemberId
+        ? input.state.memberSummaries.filter((member) => member.memberId === input.viewerMemberId)
+        : input.state.memberSummaries,
+      input.orderMemberId ?? input.viewerMemberId
+    )
     return [
       `${input.locale === 'ru' ? 'Аренда' : 'Rent state'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
       ...(input.householdName ? [input.householdName] : []),
@@ -467,6 +517,7 @@ export function createFinanceCommandsService(options: {
     }[]
     forcedMode?: 'utilities' | 'rent' | null
     viewerMemberId?: string | null
+    orderMemberId?: string | null
   }): string {
     const mode = input.forcedMode ?? input.plan.billingStage
 
@@ -478,6 +529,11 @@ export function createFinanceCommandsService(options: {
         plan: input.plan.utilityBillingPlan,
         currency: input.plan.currency,
         utilityCategories: input.utilityCategories,
+        ...(input.orderMemberId === undefined
+          ? {}
+          : {
+              orderMemberId: input.orderMemberId
+            }),
         ...(input.viewerMemberId === undefined
           ? {}
           : {
@@ -493,6 +549,11 @@ export function createFinanceCommandsService(options: {
         period: input.plan.period,
         state: input.plan.rentBillingState,
         currency: input.plan.currency,
+        ...(input.orderMemberId === undefined
+          ? {}
+          : {
+              orderMemberId: input.orderMemberId
+            }),
         ...(input.viewerMemberId === undefined
           ? {}
           : {
@@ -515,6 +576,7 @@ export function createFinanceCommandsService(options: {
     householdName?: string | null
     viewerMemberId?: string | null
     forcedMode?: 'utilities' | 'rent' | null
+    orderMemberId?: string | null
   }) {
     const locale = await resolveReplyLocale({
       ctx: input.ctx,
@@ -578,6 +640,11 @@ export function createFinanceCommandsService(options: {
           ? {}
           : {
               viewerMemberId: input.viewerMemberId
+            }),
+        ...(input.orderMemberId === undefined
+          ? {}
+          : {
+              orderMemberId: input.orderMemberId
             })
       }),
       keyboard.length > 0 ? { reply_markup: { inline_keyboard: keyboard } } : {}
@@ -590,7 +657,9 @@ export function createFinanceCommandsService(options: {
         ctx,
         repository: options.householdConfigurationRepository
       })
-      const forcedMode = parseBillMode(commandArgs(ctx)[0])
+      const args = commandArgs(ctx)
+      const forcedMode = parseBillMode(args.find((arg) => parseBillMode(arg) !== null))
+      const showAll = hasAllFlag(args)
       const telegramUserId = ctx.from?.id?.toString()
       if (!telegramUserId) {
         await ctx.reply(getBotTranslations(locale).finance.unableToIdentifySender)
@@ -598,7 +667,7 @@ export function createFinanceCommandsService(options: {
       }
 
       if (isGroupChat(ctx)) {
-        const resolved = await requireMember(ctx)
+        const resolved = showAll ? await requireAdmin(ctx) : await requireMember(ctx)
         if (!resolved) {
           return
         }
@@ -607,7 +676,13 @@ export function createFinanceCommandsService(options: {
           ctx,
           service: resolved.service,
           householdId: resolved.householdId,
-          viewerMemberId: resolved.member.id,
+          ...(showAll
+            ? {
+                orderMemberId: resolved.member.id
+              }
+            : {
+                viewerMemberId: resolved.member.id
+              }),
           forcedMode
         })
         return
@@ -633,7 +708,13 @@ export function createFinanceCommandsService(options: {
           service: options.financeServiceForHousehold(membership.householdId),
           householdId: membership.householdId,
           householdName: household?.householdName ?? membership.householdId,
-          viewerMemberId: membership.id,
+          ...(showAll
+            ? {
+                orderMemberId: membership.id
+              }
+            : {
+                viewerMemberId: membership.id
+              }),
           forcedMode
         })
         return

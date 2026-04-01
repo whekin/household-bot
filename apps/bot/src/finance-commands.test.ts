@@ -584,6 +584,119 @@ describe('createFinanceCommandsService', () => {
     expect(promptRepository.current()?.action).toBe('bill_command')
   })
 
+  test('renders /bill all for group admins with the current member first', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-04',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        utilityBillingPlan: {
+          version: 1,
+          status: 'active',
+          dueDate: '2026-04-04',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'utility-internet',
+              billName: 'Internet',
+              billTotal: Money.fromMajor('80', 'GEL'),
+              assignedAmount: Money.fromMajor('80', 'GEL'),
+              assignedMemberId: 'member-2',
+              assignedDisplayName: 'Ион',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: true,
+              splitGroupId: null
+            },
+            {
+              utilityBillId: 'utility-gas',
+              billName: 'Gas',
+              billTotal: Money.fromMajor('300', 'GEL'),
+              assignedAmount: Money.fromMajor('300', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Стас',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-2',
+              displayName: 'Ион',
+              fairShare: Money.fromMajor('95', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('80', 'GEL'),
+              projectedDeltaAfterPlan: Money.fromMajor('-15', 'GEL')
+            },
+            {
+              memberId: 'member-1',
+              displayName: 'Стас',
+              fairShare: Money.fromMajor('95', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('300', 'GEL'),
+              projectedDeltaAfterPlan: Money.fromMajor('205', 'GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-04-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill all', 'ru') as never)
+
+    const payload = calls[0]?.payload as { text?: string } | undefined
+    const text = payload?.text ?? ''
+    expect(text).toContain('Коммуналка')
+    expect(text.indexOf('Gas: 300.00 ₾ — Стас')).toBeLessThan(
+      text.indexOf('Internet: 80.00 ₾ — Ион')
+    )
+    expect(text.indexOf('- Стас: цель 95.00 ₾')).toBeLessThan(text.indexOf('- Ион: цель 95.00 ₾'))
+  })
+
   test('uses short callback data for /bill quick actions with long ids', async () => {
     const promptRepository = createPromptRepository()
     const repository: HouseholdConfigurationRepository = {
