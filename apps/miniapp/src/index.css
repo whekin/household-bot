@@ -215,6 +215,7 @@ a {
   flex-direction: column;
   gap: var(--spacing-md);
   padding-bottom: var(--spacing-xl);
+  container-type: inline-size;
 }
 
 /* ── Bottom Nav ───────────────────────────────────────── */
@@ -1067,9 +1068,7 @@ a {
 /* ── Card ─────────────────────────────────────────────── */
 
 .ui-card {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
-    color-mix(in srgb, var(--bg-surface-glass) 96%, transparent);
+  background: color-mix(in srgb, var(--bg-root) 82%, transparent);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
@@ -1511,6 +1510,597 @@ a {
 
 .balance-card__row strong {
   font-weight: 600;
+}
+
+.home-payment-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.home-payment-card__rail {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.home-payment-card__title-group {
+  display: grid;
+  gap: 4px;
+}
+
+.home-payment-card__title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.home-payment-card__deadline {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.home-payment-card__hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: calc(var(--radius-lg) - 4px);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 52%
+    ),
+    color-mix(in srgb, var(--bg-surface) 82%, var(--bg-secondary));
+}
+
+.home-payment-card--rent .home-payment-card__hero {
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--status-due) 12%, transparent),
+      transparent 52%
+    ),
+    color-mix(in srgb, var(--bg-surface) 84%, var(--bg-secondary));
+}
+
+.home-payment-card__hero-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.home-payment-card__amount {
+  font-size: clamp(2rem, 6vw, 2.9rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-payment-card__hero-note {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 32ch;
+}
+
+.home-payment-card__body {
+  display: grid;
+  gap: 12px;
+}
+
+.home-payment-card__item {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: calc(var(--radius-lg) - 6px);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.home-payment-card__item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.home-payment-card__item-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.home-payment-card__item-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-payment-card__item-kicker strong {
+  font-size: var(--text-lg);
+  line-height: 1.1;
+}
+
+.home-payment-card__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-root) 38%, var(--bg-elevated));
+}
+
+.home-payment-card__pill.is-full {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: color-mix(in srgb, var(--accent) 62%, white);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.home-payment-card__pill.is-split {
+  border-color: color-mix(in srgb, var(--status-due) 34%, transparent);
+  color: color-mix(in srgb, var(--status-due) 72%, white);
+  background: color-mix(in srgb, var(--status-due) 14%, transparent);
+}
+
+.home-payment-card__item-subtle {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.home-payment-card__item-value {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.home-payment-card__item-value strong {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-payment-card__item-note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.home-payment-card__details {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.home-payment-card__detail-row,
+.home-payment-card__meta-row,
+.home-payment-card__context-head,
+.home-payment-card__context-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.home-payment-card__detail-row span,
+.home-payment-card__meta-row span,
+.home-payment-card__context-head span,
+.home-payment-card__context-row span {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.home-payment-card__detail-row strong,
+.home-payment-card__meta-row strong,
+.home-payment-card__context-head strong,
+.home-payment-card__context-row strong {
+  text-align: right;
+  font-weight: 600;
+}
+
+.home-payment-card__meta {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.home-payment-card__context {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 76%, var(--bg-root));
+  border-radius: calc(var(--radius-lg) - 6px);
+}
+
+.home-payment-card__context-list {
+  display: grid;
+  gap: 8px;
+}
+
+.home-payment-card__empty {
+  padding: 16px 18px;
+  border-radius: calc(var(--radius-lg) - 6px);
+  background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-root));
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.home-overview-card {
+  display: grid;
+  gap: 18px;
+}
+
+.home-overview-card__rail {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.home-overview-card__title-group {
+  display: grid;
+  gap: 6px;
+}
+
+.home-overview-card__title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.home-overview-card__body {
+  margin: 0;
+  max-width: 38ch;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.home-overview-card__hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.7fr) minmax(240px, 1fr);
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: calc(var(--radius-lg) - 2px);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 54%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--bg-surface) 82%, var(--bg-secondary)),
+      color-mix(in srgb, var(--bg-root) 80%, var(--bg-surface))
+    );
+}
+
+.home-overview-card__hero-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.home-overview-card__hero-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 62%, white);
+}
+
+.home-overview-card__amount {
+  display: block;
+  font-size: clamp(2.1rem, 6vw, 3.15rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-wrap: nowrap;
+}
+
+.home-overview-card__amount.is-credit {
+  color: var(--status-credit);
+}
+
+.home-overview-card__amount.is-debit {
+  color: color-mix(in srgb, var(--status-due) 78%, white);
+}
+
+.home-overview-card__hero-note {
+  max-width: 36ch;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.home-overview-card__balance {
+  display: grid;
+  align-content: start;
+  justify-items: end;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: calc(var(--radius-lg) - 8px);
+  background: color-mix(in srgb, var(--bg-root) 38%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  text-align: right;
+}
+
+.home-overview-card__balance--explain {
+  justify-items: start;
+  text-align: left;
+}
+
+.home-overview-card__balance span,
+.home-overview-card__balance small {
+  color: var(--text-muted);
+}
+
+.home-overview-card__balance strong {
+  font-size: var(--text-lg);
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.home-overview-card__comparison,
+.home-overview-card__timing,
+.home-overview-card__purchases,
+.home-overview-card__footer {
+  display: grid;
+  gap: 12px;
+}
+
+.home-overview-card__footer-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.home-overview-card__section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-overview-card__section-title,
+.home-overview-card__section-title-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.home-overview-card__section-title svg {
+  color: color-mix(in srgb, var(--accent) 65%, white);
+}
+
+.home-overview-card__timing-list,
+.home-overview-card__comparison-list,
+.home-overview-card__purchase-list {
+  display: grid;
+  gap: 10px;
+}
+
+.home-overview-card__timing-row,
+.home-overview-card__purchase-row,
+.home-overview-card__meta-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.home-overview-card__timing-row,
+.home-overview-card__purchase-row {
+  padding: 14px 16px;
+  border-radius: calc(var(--radius-lg) - 8px);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg-surface));
+}
+
+.home-overview-card__comparison-row {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: calc(var(--radius-lg) - 8px);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg-surface));
+}
+
+.home-overview-card__comparison-row.is-current {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.home-overview-card__comparison-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-overview-card__comparison-head strong {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.home-overview-card__comparison-head span {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-overview-card__comparison-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-root) 38%, var(--bg-surface));
+  overflow: hidden;
+}
+
+.home-overview-card__comparison-zero {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(50% - 1px);
+  width: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.home-overview-card__comparison-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+}
+
+.home-overview-card__comparison-bar.is-left {
+  right: 50%;
+  background: color-mix(in srgb, var(--status-credit) 84%, white);
+}
+
+.home-overview-card__comparison-bar.is-right {
+  left: 50%;
+  background: color-mix(in srgb, var(--status-due) 78%, white);
+}
+
+.home-overview-card__timing-copy,
+.home-overview-card__purchase-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.home-overview-card__timing-copy strong,
+.home-overview-card__purchase-head strong {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.home-overview-card__timing-copy span,
+.home-overview-card__purchase-meta,
+.home-overview-card__meta-row span {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.home-overview-card__purchase-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-overview-card__purchase-values {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.home-overview-card__purchase-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-root) 30%, var(--bg-elevated));
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.home-overview-card__purchase-status.is-open {
+  border-color: color-mix(in srgb, var(--status-due) 35%, transparent);
+  color: color-mix(in srgb, var(--status-due) 72%, white);
+  background: color-mix(in srgb, var(--status-due) 12%, transparent);
+}
+
+.home-overview-card__purchase-status.is-settled {
+  border-color: color-mix(in srgb, var(--status-credit) 26%, transparent);
+  color: color-mix(in srgb, var(--status-credit) 70%, white);
+  background: color-mix(in srgb, var(--status-credit) 10%, transparent);
+}
+
+.home-overview-card__purchase-status.is-covered {
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-root) 22%, var(--bg-elevated));
+}
+
+.home-overview-card__purchase-amount,
+.home-overview-card__meta-row strong {
+  text-align: right;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-overview-card__purchase-total {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.home-overview-card__purchase-value-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.home-overview-card__purchase-row.is-muted {
+  background: color-mix(in srgb, var(--bg-surface) 88%, var(--bg-root));
+}
+
+.home-overview-card__meta-block {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.home-overview-card__meta-block-title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.home-overview-card__empty {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: calc(var(--radius-lg) - 8px);
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--bg-root));
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 .copyable-detail {
@@ -3347,6 +3937,20 @@ a {
   font-size: var(--text-sm);
 }
 
+.inline-editor-row__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  text-align: right;
+}
+
+.inline-editor-row__value strong,
+.inline-editor-row__value span {
+  display: block;
+}
+
 .category-visual-row {
   gap: 12px;
 }
@@ -3406,7 +4010,7 @@ a {
   color: inherit;
 }
 
-@media (max-width: 640px) {
+@container (max-width: 480px) {
   .statement-chip-grid,
   .statement-row,
   .inline-editor-row {
@@ -3429,5 +4033,57 @@ a {
   .rent-block__meta {
     text-align: left;
     max-width: none;
+  }
+
+  .home-payment-card__rail,
+  .home-payment-card__hero,
+  .home-payment-card__item-head,
+  .home-payment-card__detail-row,
+  .home-payment-card__meta-row,
+  .home-payment-card__context-head,
+  .home-payment-card__context-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .home-payment-card__hero,
+  .home-payment-card__rail {
+    align-items: flex-start;
+  }
+
+  .home-payment-card__item-value,
+  .home-payment-card__detail-row strong,
+  .home-payment-card__meta-row strong,
+  .home-payment-card__context-head strong,
+  .home-payment-card__context-row strong {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .home-payment-card__hero-note {
+    max-width: none;
+  }
+
+  .home-overview-card__rail,
+  .home-overview-card__hero,
+  .home-overview-card__comparison-head,
+  .home-overview-card__timing-row,
+  .home-overview-card__purchase-row,
+  .home-overview-card__meta-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .home-overview-card__rail,
+  .home-overview-card__section-head {
+    align-items: flex-start;
+  }
+
+  .home-overview-card__balance,
+  .home-overview-card__purchase-values,
+  .home-overview-card__purchase-amount,
+  .home-overview-card__meta-row strong {
+    justify-items: start;
+    text-align: left;
   }
 }

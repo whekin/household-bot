@@ -2,10 +2,11 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   type AdHocNotificationService,
+  type FinanceCommandService,
   createFinanceCommandService,
   createHouseholdOnboardingService
 } from '@household/application'
-import { instantFromIso } from '@household/domain'
+import { Money, instantFromIso } from '@household/domain'
 import type {
   ExchangeRateProvider,
   FinanceRepository,
@@ -399,6 +400,95 @@ function notificationService(
 }
 
 describe('createMiniAppDashboardHandler', () => {
+  test('forwards QA period and today overrides to dashboard generation', async () => {
+    const authDate = Math.floor(Date.now() / 1000)
+    const householdRepository = onboardingRepository()
+    let capturedPeriodArg: string | undefined
+    let capturedTodayOverride: string | undefined
+    const financeService = {
+      generateDashboard: async (periodArg?: string, options?: { todayOverride?: string }) => {
+        capturedPeriodArg = periodArg
+        capturedTodayOverride = options?.todayOverride
+        return {
+          period: '2026-04',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentWarningDay: 17,
+          rentDueDay: 20,
+          utilitiesReminderDay: 3,
+          utilitiesDueDay: 4,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentPaymentDestinations: null,
+          totalDue: Money.zero('GEL'),
+          totalPaid: Money.zero('GEL'),
+          totalRemaining: Money.zero('GEL'),
+          billingStage: 'utilities' as const,
+          rentSourceAmount: Money.zero('GEL'),
+          rentDisplayAmount: Money.zero('GEL'),
+          rentFxRateMicros: null,
+          rentFxEffectiveDate: null,
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-04-20',
+            memberSummaries: [],
+            paymentDestinations: null
+          },
+          members: [],
+          paymentPeriods: [],
+          ledger: []
+        }
+      }
+    } satisfies Pick<FinanceCommandService, 'generateDashboard'>
+
+    householdRepository.listHouseholdMembersByTelegramUserId = async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+
+    const dashboard = createMiniAppDashboardHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      financeServiceForHousehold: () => financeService as unknown as FinanceCommandService,
+      adHocNotificationService: notificationService(),
+      onboardingService: createHouseholdOnboardingService({
+        repository: householdRepository
+      })
+    })
+
+    const response = await dashboard.handler(
+      new Request('http://localhost/api/miniapp/dashboard', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: buildMiniAppInitData('test-bot-token', authDate, {
+            id: 123456,
+            first_name: 'Stan',
+            username: 'stanislav',
+            language_code: 'ru'
+          }),
+          periodOverride: '2026-04',
+          todayOverride: '2026-04-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(capturedPeriodArg).toBe('2026-04')
+    expect(capturedTodayOverride).toBe('2026-04-03')
+  })
+
   test('returns a dashboard for an authenticated household member', async () => {
     const authDate = Math.floor(Date.now() / 1000)
     const householdRepository = onboardingRepository()

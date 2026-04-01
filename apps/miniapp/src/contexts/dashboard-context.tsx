@@ -1,5 +1,6 @@
 import {
   createContext,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
@@ -23,7 +24,11 @@ import type {
   MiniAppDashboard,
   MiniAppPendingMember
 } from '../miniapp-api'
-import { getDemoScenarioState, type DemoScenarioId } from '../demo/miniapp-demo'
+import {
+  getDemoScenarioDefaultToday,
+  getDemoScenarioState,
+  type DemoScenarioId
+} from '../demo/miniapp-demo'
 import { useSession } from './session-context'
 import { useI18n } from './i18n-context'
 
@@ -112,8 +117,18 @@ type DashboardContextValue = {
   effectivePeriod: () => string | null
   effectiveTodayOverride: () => CalendarDateParts | null
   testingOverridesActive: () => boolean
-  loadDashboardData: (initData: string, isAdmin: boolean) => Promise<void>
-  applyDemoState: () => void
+  loadDashboardData: (
+    initData: string,
+    isAdmin: boolean,
+    overrides?: {
+      periodOverride?: string | null
+      todayOverride?: string | null
+    }
+  ) => Promise<void>
+  applyDemoState: (overrides?: {
+    periodOverride?: string | null
+    todayOverride?: string | null
+  }) => void
 }
 
 const DashboardContext = createContext<DashboardContextValue>()
@@ -287,10 +302,17 @@ function computeMemberUtilityBalanceVisuals(data: MiniAppDashboard | null): Memb
     })
 }
 
+function periodFromCalendarValue(value: string | null | undefined): string | null {
+  const parsed = value ? parseCalendarDate(value) : null
+  if (!parsed) return null
+
+  return `${String(parsed.year).padStart(4, '0')}-${String(parsed.month).padStart(2, '0')}`
+}
+
 /* ── Provider ───────────────────────────────────────── */
 
 export function DashboardProvider(props: ParentProps) {
-  const { readySession, registerRefreshListener } = useSession()
+  const { initData, readySession, registerRefreshListener } = useSession()
   const { copy } = useI18n()
 
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
@@ -302,19 +324,34 @@ export function DashboardProvider(props: ParentProps) {
   const [demoScenario, setDemoScenarioSignal] = createSignal<DemoScenarioId>('current-cycle')
   const [testingPeriodOverride, setTestingPeriodOverride] = createSignal<string | null>(null)
   const [testingTodayOverride, setTestingTodayOverride] = createSignal<string | null>(null)
+  const derivedTestingPeriodOverride = createMemo(
+    () =>
+      normalizePeriodOverride(testingPeriodOverride()) ??
+      periodFromCalendarValue(testingTodayOverride())
+  )
+  const demoDefaultTodayOverride = createMemo(() => {
+    if (readySession()?.mode !== 'demo') return null
+    return getDemoScenarioDefaultToday(demoScenario(), derivedTestingPeriodOverride())
+  })
+  const demoDefaultPeriodOverride = createMemo(() =>
+    readySession()?.mode === 'demo' ? periodFromCalendarValue(demoDefaultTodayOverride()) : null
+  )
   const effectiveTodayOverride = createMemo(() => {
     const raw = testingTodayOverride()
-    if (!raw) return null
-    return parseCalendarDate(raw)
+    const fallback = demoDefaultTodayOverride()
+    if (!raw && !fallback) return null
+    const value = raw || fallback
+    if (!value) return null
+    return parseCalendarDate(value)
   })
   const effectivePeriod = createMemo(() => {
     const data = dashboard()
     if (!data) return null
 
-    return normalizePeriodOverride(testingPeriodOverride()) ?? data.period
+    return derivedTestingPeriodOverride() ?? demoDefaultPeriodOverride() ?? data.period
   })
   const testingOverridesActive = createMemo(() =>
-    Boolean(normalizePeriodOverride(testingPeriodOverride()) ?? effectiveTodayOverride())
+    Boolean(normalizePeriodOverride(testingPeriodOverride()) ?? testingTodayOverride())
   )
 
   const effectiveIsAdmin = createMemo(() => {
@@ -370,17 +407,49 @@ export function DashboardProvider(props: ParentProps) {
   const unregisterDashboardRefreshListener = registerRefreshListener(loadDashboardData)
   onCleanup(unregisterDashboardRefreshListener)
 
-  async function loadDashboardData(initData: string, isAdmin: boolean) {
+  createEffect(() => {
+    const current = readySession()
+    const data = initData()
+    const normalizedPeriodOverride = derivedTestingPeriodOverride() ?? demoDefaultPeriodOverride()
+    const normalizedTodayOverride = testingTodayOverride()
+    if (!current) return
+
+    void loadDashboardData(data ?? '', current.member.isAdmin, {
+      periodOverride: normalizedPeriodOverride,
+      todayOverride: normalizedTodayOverride
+    })
+  })
+
+  async function loadDashboardData(
+    initData: string,
+    isAdmin: boolean,
+    overrides: {
+      periodOverride?: string | null
+      todayOverride?: string | null
+    } = {}
+  ) {
     setLoading(true)
+    const resolvedPeriodOverride =
+      overrides.periodOverride === undefined
+        ? (derivedTestingPeriodOverride() ?? demoDefaultPeriodOverride())
+        : overrides.periodOverride
+    const resolvedTodayOverride =
+      overrides.todayOverride === undefined ? testingTodayOverride() : overrides.todayOverride
 
     if (!initData) {
-      applyDemoState()
+      applyDemoState({
+        periodOverride: resolvedPeriodOverride,
+        todayOverride: resolvedTodayOverride
+      })
       setLoading(false)
       return
     }
 
     try {
-      const nextDashboard = await fetchDashboardQuery(initData)
+      const nextDashboard = await fetchDashboardQuery(initData, {
+        periodOverride: resolvedPeriodOverride,
+        todayOverride: resolvedTodayOverride
+      })
       setDashboard(nextDashboard)
     } catch (error) {
       if (import.meta.env.DEV) {
@@ -413,8 +482,13 @@ export function DashboardProvider(props: ParentProps) {
     setLoading(false)
   }
 
-  function applyDemoState() {
-    const state = getDemoScenarioState(demoScenario())
+  function applyDemoState(
+    overrides: {
+      periodOverride?: string | null
+      todayOverride?: string | null
+    } = {}
+  ) {
+    const state = getDemoScenarioState(demoScenario(), overrides)
     setDashboard(state.dashboard)
     setPendingMembers(state.pendingMembers)
     setAdminSettings(state.adminSettings)
@@ -424,7 +498,10 @@ export function DashboardProvider(props: ParentProps) {
   function setDemoScenario(value: DemoScenarioId) {
     setDemoScenarioSignal(value)
     if (readySession()?.mode === 'demo') {
-      const state = getDemoScenarioState(value)
+      const state = getDemoScenarioState(value, {
+        periodOverride: derivedTestingPeriodOverride(),
+        todayOverride: testingTodayOverride()
+      })
       setDashboard(state.dashboard)
       setPendingMembers(state.pendingMembers)
       setAdminSettings(state.adminSettings)

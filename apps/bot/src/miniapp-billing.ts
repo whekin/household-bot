@@ -3,6 +3,7 @@ import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
+import { formatUserFacingMoney } from './i18n/money'
 
 import {
   allowedMiniAppOrigin,
@@ -1048,7 +1049,7 @@ export function createMiniAppSubmitPaymentHandler(options: {
       body: JSON.stringify({
         chat_id: chat.telegramChatId,
         message_thread_id: threadId,
-        text: `${input.memberName} recorded a ${input.kind} payment: ${input.amountMajor} ${input.currency} (${input.period})`
+        text: `${input.memberName} recorded a ${input.kind} payment: ${formatUserFacingMoney(input.amountMajor, input.currency)} (${input.period})`
       })
     })
 

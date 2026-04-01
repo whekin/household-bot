@@ -6,6 +6,7 @@ import type {
 } from '@household/ports'
 
 import type { BotLocale } from './i18n'
+import { formatUserFacingMoney } from './i18n/money'
 
 type MemberBalanceMetric = 'purchase' | 'utilities' | 'rent'
 
@@ -207,32 +208,32 @@ function memberMetricReply(input: {
     switch (input.metric) {
       case 'purchase':
         return isCurrentMember
-          ? `Твой баланс по общим покупкам: ${input.values.purchase} ${input.currency}.`
-          : `Баланс ${input.targetMember.displayName} по общим покупкам: ${input.values.purchase} ${input.currency}.`
+          ? `Твой баланс по общим покупкам: ${formatUserFacingMoney(input.values.purchase, input.currency)}.`
+          : `Баланс ${input.targetMember.displayName} по общим покупкам: ${formatUserFacingMoney(input.values.purchase, input.currency)}.`
       case 'utilities':
         return isCurrentMember
-          ? `Твоя коммуналка к оплате: ${input.values.utilities} ${input.currency}.`
-          : `Коммуналка ${input.targetMember.displayName} к оплате: ${input.values.utilities} ${input.currency}.`
+          ? `Твоя коммуналка к оплате: ${formatUserFacingMoney(input.values.utilities, input.currency)}.`
+          : `Коммуналка ${input.targetMember.displayName} к оплате: ${formatUserFacingMoney(input.values.utilities, input.currency)}.`
       case 'rent':
         return isCurrentMember
-          ? `Твоя аренда к оплате: ${input.values.rent} ${input.currency}.`
-          : `Аренда ${input.targetMember.displayName} к оплате: ${input.values.rent} ${input.currency}.`
+          ? `Твоя аренда к оплате: ${formatUserFacingMoney(input.values.rent, input.currency)}.`
+          : `Аренда ${input.targetMember.displayName} к оплате: ${formatUserFacingMoney(input.values.rent, input.currency)}.`
     }
   }
 
   switch (input.metric) {
     case 'purchase':
       return isCurrentMember
-        ? `Your shared purchase balance is ${input.values.purchase} ${input.currency}.`
-        : `${input.targetMember.displayName}'s shared purchase balance is ${input.values.purchase} ${input.currency}.`
+        ? `Your shared purchase balance is ${formatUserFacingMoney(input.values.purchase, input.currency)}.`
+        : `${input.targetMember.displayName}'s shared purchase balance is ${formatUserFacingMoney(input.values.purchase, input.currency)}.`
     case 'utilities':
       return isCurrentMember
-        ? `Your utilities due is ${input.values.utilities} ${input.currency}.`
-        : `${input.targetMember.displayName}'s utilities due is ${input.values.utilities} ${input.currency}.`
+        ? `Your utilities due is ${formatUserFacingMoney(input.values.utilities, input.currency)}.`
+        : `${input.targetMember.displayName}'s utilities due is ${formatUserFacingMoney(input.values.utilities, input.currency)}.`
     case 'rent':
       return isCurrentMember
-        ? `Your rent due is ${input.values.rent} ${input.currency}.`
-        : `${input.targetMember.displayName}'s rent due is ${input.values.rent} ${input.currency}.`
+        ? `Your rent due is ${formatUserFacingMoney(input.values.rent, input.currency)}.`
+        : `${input.targetMember.displayName}'s rent due is ${formatUserFacingMoney(input.values.rent, input.currency)}.`
   }
 }
 

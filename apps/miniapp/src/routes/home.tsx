@@ -33,6 +33,58 @@ import {
 } from '../miniapp-api'
 import type { MiniAppDashboard } from '../miniapp-api'
 
+function entryOccurredAtSortValue(entry: MiniAppDashboard['ledger'][number]): string {
+  return entry.occurredAt ?? ''
+}
+
+function purchaseResolutionRank(entry: MiniAppDashboard['ledger'][number]): number {
+  return entry.resolutionStatus === 'unresolved' ? 0 : 1
+}
+
+function splitEvenlyShareMinor(amountMajor: string, includedCount: number, index: number): bigint {
+  if (includedCount <= 0) {
+    return 0n
+  }
+
+  const amountMinor = majorStringToMinor(amountMajor)
+  const base = amountMinor / BigInt(includedCount)
+  const leftover = amountMinor % BigInt(includedCount)
+
+  return base + (BigInt(index) < leftover ? 1n : 0n)
+}
+
+function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
+  if (maxMinor <= 0n) return '0%'
+  return `${Math.max((Number(valueMinor) / Number(maxMinor)) * 100, 6)}%`
+}
+
+function purchaseShareForMember(
+  entry: MiniAppDashboard['ledger'][number],
+  memberId: string
+): string | null {
+  const participant = (entry.purchaseParticipants ?? []).find(
+    (item) => item.memberId === memberId && item.included
+  )
+  if (!participant) {
+    return null
+  }
+
+  if (participant.shareAmountMajor) {
+    return participant.shareAmountMajor
+  }
+
+  const includedParticipants = (entry.purchaseParticipants ?? []).filter((item) => item.included)
+  const participantIndex = includedParticipants.findIndex((item) => item.memberId === memberId)
+
+  if (participantIndex === -1) {
+    return null
+  }
+
+  return minorToMajorString(
+    splitEvenlyShareMinor(entry.displayAmountMajor, includedParticipants.length, participantIndex)
+  )
+}
+
 function sumMemberPaymentsByKind(
   data: MiniAppDashboard,
   memberId: string,
@@ -81,6 +133,16 @@ function paymentRemainingMinor(
   const remainingMinor = proposalMinor - paidMinor
 
   return remainingMinor > 0n ? remainingMinor : 0n
+}
+
+function utilityPlanAssignedMinor(data: MiniAppDashboard, memberId: string): bigint {
+  if (!data.utilityBillingPlan) {
+    return 0n
+  }
+
+  return data.utilityBillingPlan.categories
+    .filter((category) => category.assignedMemberId === memberId)
+    .reduce((sum, category) => sum + majorStringToMinor(category.assignedAmountMajor), 0n)
 }
 
 function zonedDateTimeParts(date: Date, timeZone: string) {
@@ -256,7 +318,7 @@ export default function HomeRoute() {
       (category) => category.assignedMemberId === currentMemberId()
     )
   )
-  const currentUtilityCarryover = createMemo(
+  const currentUtilitySummary = createMemo(
     () =>
       (dashboard()?.utilityBillingPlan?.memberSummaries ?? []).find(
         (summary) => summary.memberId === currentMemberId()
@@ -270,6 +332,65 @@ export default function HomeRoute() {
       }
       return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
     })
+  })
+  const currentPurchaseEntries = createMemo(() => {
+    const memberId = currentMemberId()
+    if (!memberId) return [] as MiniAppDashboard['ledger']
+
+    return [...latestActivity()]
+      .filter(
+        (entry) =>
+          entry.kind === 'purchase' &&
+          (entry.purchaseParticipants?.some(
+            (participant) => participant.memberId === memberId && participant.included
+          ) ??
+            false)
+      )
+      .sort((left, right) => {
+        const resolutionDelta = purchaseResolutionRank(left) - purchaseResolutionRank(right)
+        if (resolutionDelta !== 0) {
+          return resolutionDelta
+        }
+
+        const occurredAtDelta = entryOccurredAtSortValue(right).localeCompare(
+          entryOccurredAtSortValue(left)
+        )
+        if (occurredAtDelta !== 0) {
+          return occurredAtDelta
+        }
+
+        return left.title.localeCompare(right.title)
+      })
+  })
+  const otherPurchaseEntries = createMemo(() => {
+    const memberId = currentMemberId()
+    if (!memberId) return [] as MiniAppDashboard['ledger']
+
+    return [...latestActivity()]
+      .filter(
+        (entry) =>
+          entry.kind === 'purchase' &&
+          !(
+            entry.purchaseParticipants?.some(
+              (participant) => participant.memberId === memberId && participant.included
+            ) ?? false
+          )
+      )
+      .sort((left, right) => {
+        const resolutionDelta = purchaseResolutionRank(left) - purchaseResolutionRank(right)
+        if (resolutionDelta !== 0) {
+          return resolutionDelta
+        }
+
+        const occurredAtDelta = entryOccurredAtSortValue(right).localeCompare(
+          entryOccurredAtSortValue(left)
+        )
+        if (occurredAtDelta !== 0) {
+          return occurredAtDelta
+        }
+
+        return left.title.localeCompare(right.title)
+      })
   })
 
   createEffect(() => {
@@ -309,15 +430,6 @@ export default function HomeRoute() {
         }
       }, 1400)
     }
-  }
-
-  function dueStatusBadge() {
-    const data = dashboard()
-    if (!data) return null
-
-    const remaining = majorStringToMinor(data.totalRemainingMajor)
-    if (remaining <= 0n) return { label: copy().homeSettledTitle, variant: 'accent' as const }
-    return { label: copy().homeDueTitle, variant: 'danger' as const }
   }
 
   function paymentWindowStatus(input: {
@@ -383,9 +495,12 @@ export default function HomeRoute() {
       dueDay: data.rentDueDay,
       todayOverride: today
     })
-    const utilitiesDueMinor = paymentRemainingMinor(data, member, 'utilities')
+    const utilitiesDueMinor = data.utilityBillingPlan
+      ? utilityPlanAssignedMinor(data, member.memberId)
+      : paymentRemainingMinor(data, member, 'utilities')
     const rentDueMinor = paymentRemainingMinor(data, member, 'rent')
-    const utilitiesActive = utilities.active && utilitiesDueMinor > 0n
+    const utilitiesActive =
+      utilities.active && (Boolean(data.utilityBillingPlan) || utilitiesDueMinor > 0n)
     const rentActive = rent.active && rentDueMinor > 0n
 
     const modes: ('rent' | 'utilities')[] = []
@@ -446,7 +561,11 @@ export default function HomeRoute() {
     const amount =
       context === 'overdue'
         ? (overduePaymentFor(type)?.amountMajor ?? '0.00')
-        : minorToMajorString(paymentRemainingMinor(data, member, type))
+        : minorToMajorString(
+            type === 'utilities' && data.utilityBillingPlan
+              ? utilityPlanAssignedMinor(data, member.memberId)
+              : paymentRemainingMinor(data, member, type)
+          )
 
     setQuickPaymentType(type)
     setQuickPaymentContext(context)
@@ -628,7 +747,9 @@ export default function HomeRoute() {
                   const policy = () => data().paymentBalanceAdjustmentPolicy
                   const rentRemainingMinor = () => paymentRemainingMinor(data(), member(), 'rent')
                   const utilitiesRemainingMinor = () =>
-                    paymentRemainingMinor(data(), member(), 'utilities')
+                    data().utilityBillingPlan
+                      ? utilityPlanAssignedMinor(data(), member().memberId)
+                      : paymentRemainingMinor(data(), member(), 'utilities')
 
                   const modes = () => currentPaymentModes()
                   const formatMajorAmount = (
@@ -680,11 +801,72 @@ export default function HomeRoute() {
 
                   const rentUpcoming = () => upcomingDay(data().rentWarningDay)
                   const utilitiesUpcoming = () => upcomingDay(data().utilitiesReminderDay)
-
-                  const focusBadge = () => {
-                    const badge = dueStatusBadge()
-                    return badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null
+                  const rentDestinations = () =>
+                    data().rentBillingState.paymentDestinations ??
+                    data().rentPaymentDestinations ??
+                    []
+                  const idlePurchases = () => currentPurchaseEntries().slice(0, 3)
+                  const hasMoreIdlePurchases = () => currentPurchaseEntries().length > 3
+                  const coveredPurchases = () => otherPurchaseEntries().slice(0, 2)
+                  const purchaseBalanceMinor = () =>
+                    majorStringToMinor(member().purchaseOffsetMajor)
+                  const purchaseBalanceTone = () => {
+                    const balanceMinor = purchaseBalanceMinor()
+                    if (balanceMinor < 0n) {
+                      return 'is-credit'
+                    }
+                    if (balanceMinor > 0n) {
+                      return 'is-debit'
+                    }
+                    return 'is-neutral'
                   }
+                  const purchaseBalanceSummary = () => {
+                    const balanceMinor = purchaseBalanceMinor()
+                    if (balanceMinor < 0n) {
+                      return locale() === 'ru'
+                        ? 'По общим покупкам ты сейчас впереди.'
+                        : 'You are currently ahead on shared purchases.'
+                    }
+                    if (balanceMinor > 0n) {
+                      return locale() === 'ru'
+                        ? 'Сейчас по общим покупкам впереди другие.'
+                        : 'Others are currently ahead on shared purchases.'
+                    }
+                    return locale() === 'ru'
+                      ? 'По общим покупкам у тебя сейчас ровный баланс.'
+                      : 'Your shared-purchases balance is even right now.'
+                  }
+                  const purchaseComparisonRows = () => {
+                    const rows = data().members.map((line) => ({
+                      memberId: line.memberId,
+                      displayName: line.displayName,
+                      balanceMinor: majorStringToMinor(line.purchaseOffsetMajor),
+                      balanceMajor: line.purchaseOffsetMajor,
+                      isCurrent: line.memberId === member().memberId
+                    }))
+                    const maxBalanceMinor = rows.reduce((max, row) => {
+                      const absolute = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor
+                      return absolute > max ? absolute : max
+                    }, 0n)
+
+                    return rows.map((row) => ({
+                      ...row,
+                      width: normalizedWidth(
+                        row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor,
+                        maxBalanceMinor
+                      ),
+                      side:
+                        row.balanceMinor < 0n ? 'left' : row.balanceMinor > 0n ? 'right' : 'none'
+                    }))
+                  }
+                  const latestClosedPeriod = () =>
+                    [...(data().paymentPeriods ?? [])]
+                      .filter((summary) => !summary.isCurrentPeriod && !summary.hasOverdueBalance)
+                      .sort((left, right) => right.period.localeCompare(left.period))[0] ?? null
+                  const latestClosedRent = () =>
+                    latestClosedPeriod()?.kinds.find((kind) => kind.kind === 'rent') ?? null
+                  const latestClosedUtilities = () =>
+                    latestClosedPeriod()?.kinds.find((kind) => kind.kind === 'utilities') ?? null
 
                   const dueBadge = (days: number | null) => {
                     if (days === null) return null
@@ -820,11 +1002,35 @@ export default function HomeRoute() {
 
                       <Show when={modes().includes('utilities')}>
                         <Card accent>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">{copy().homeUtilitiesTitle}</span>
-                              <div style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}>
-                                {focusBadge()}
+                          <div class="home-payment-card home-payment-card--utilities">
+                            <div class="home-payment-card__rail">
+                              <div class="home-payment-card__title-group">
+                                <span class="home-payment-card__title">
+                                  {copy().homeUtilitiesTitle}
+                                </span>
+                                <span class="home-payment-card__deadline">
+                                  {copy().dueOnLabel.replace('{date}', utilitiesDueDate())}
+                                </span>
+                              </div>
+                              {dueBadge(utilitiesDaysUntilDue())}
+                            </div>
+
+                            <div class="home-payment-card__hero">
+                              <div class="home-payment-card__hero-copy">
+                                <strong class="home-payment-card__amount">
+                                  {formatMajorAmount(minorToMajorString(utilitiesRemainingMinor()))}
+                                </strong>
+                                <span class="home-payment-card__hero-note">
+                                  {currentUtilityAssignments().length > 0
+                                    ? locale() === 'ru'
+                                      ? 'Ваши назначенные коммунальные платежи на этот цикл'
+                                      : 'Your assigned utility payments for this cycle'
+                                    : locale() === 'ru'
+                                      ? 'На этот цикл новых коммунальных оплат на вас не назначено'
+                                      : 'No new utility payments are assigned to you this cycle'}
+                                </span>
+                              </div>
+                              <Show when={utilitiesRemainingMinor() > 0n}>
                                 <Button
                                   variant="primary"
                                   size="sm"
@@ -833,177 +1039,27 @@ export default function HomeRoute() {
                                   <CreditCard size={14} />
                                   {copy().quickPaymentSubmitAction}
                                 </Button>
-                              </div>
-                            </div>
-                            <div class="balance-card__amounts">
-                              <div class="balance-card__row balance-card__row--subtotal">
-                                <span>{copy().finalDue}</span>
-                                <strong>
-                                  {formatMajorAmount(minorToMajorString(utilitiesRemainingMinor()))}
-                                </strong>
-                              </div>
-                              <div class="balance-card__row">
-                                <span>
-                                  {copy().dueOnLabel.replace('{date}', utilitiesDueDate())}
-                                </span>
-                                {dueBadge(utilitiesDaysUntilDue())}
-                              </div>
-                              <div class="balance-card__row">
-                                <span>{copy().baseDue}</span>
-                                <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
-                              </div>
-                              <Show when={policy() === 'utilities'}>
-                                <div class="balance-card__row">
-                                  <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
-                                </div>
-                              </Show>
-                              <Show when={utilityLedger().length > 0}>
-                                <div class="balance-card__row balance-card__row--subtotal">
-                                  <span>{copy().homeUtilitiesBillsTitle}</span>
-                                  <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
-                                </div>
-                                <For each={utilityLedger()}>
-                                  {(entry) => (
-                                    <div class="balance-card__row">
-                                      <span>{entry.title}</span>
-                                      <strong>
-                                        {formatMoneyLabel(
-                                          entry.displayAmountMajor,
-                                          entry.displayCurrency,
-                                          locale()
-                                        )}
-                                      </strong>
-                                    </div>
-                                  )}
-                                </For>
                               </Show>
                             </div>
-                          </div>
-                        </Card>
-                      </Show>
 
-                      <Show when={modes().includes('rent')}>
-                        <Card accent>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">{copy().homeRentTitle}</span>
-                              <div style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}>
-                                {focusBadge()}
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => openQuickPayment('rent', 'current')}
-                                >
-                                  <CreditCard size={14} />
-                                  {copy().quickPaymentSubmitAction}
-                                </Button>
-                              </div>
-                            </div>
-                            <div class="balance-card__amounts">
-                              <div class="balance-card__row balance-card__row--subtotal">
-                                <span>{copy().finalDue}</span>
-                                <strong>
-                                  {formatMajorAmount(minorToMajorString(rentRemainingMinor()))}
-                                </strong>
-                              </div>
-                              <div class="balance-card__row">
-                                <span>{copy().dueOnLabel.replace('{date}', rentDueDate())}</span>
-                                {dueBadge(rentDaysUntilDue())}
-                              </div>
-                              <div class="balance-card__row">
-                                <span>{copy().baseDue}</span>
-                                <strong>{formatMajorAmount(member().rentShareMajor)}</strong>
-                              </div>
-                              <Show when={policy() === 'rent'}>
-                                <div class="balance-card__row">
-                                  <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
-                                </div>
-                              </Show>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show
-                        when={
-                          modes().length === 0 &&
-                          !overduePaymentFor('utilities') &&
-                          !overduePaymentFor('rent')
-                        }
-                      >
-                        <Card muted>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">{copy().homeNoPaymentTitle}</span>
-                            </div>
-                            <div class="balance-card__amounts">
-                              <div class="balance-card__row">
-                                <span>
-                                  {copy().homeUtilitiesUpcomingLabel.replace(
-                                    '{date}',
-                                    utilitiesUpcoming().dateLabel
-                                  )}
-                                </span>
-                                <strong>
-                                  {utilitiesUpcoming().daysUntil !== null
-                                    ? copy().daysLeftLabel.replace(
-                                        '{count}',
-                                        String(utilitiesUpcoming().daysUntil)
-                                      )
-                                    : '—'}
-                                </strong>
-                              </div>
-                              <div class="balance-card__row">
-                                <span>
-                                  {copy().homeRentUpcomingLabel.replace(
-                                    '{date}',
-                                    rentUpcoming().dateLabel
-                                  )}
-                                </span>
-                                <strong>
-                                  {rentUpcoming().daysUntil !== null
-                                    ? copy().daysLeftLabel.replace(
-                                        '{count}',
-                                        String(rentUpcoming().daysUntil)
-                                      )
-                                    : '—'}
-                                </strong>
-                              </div>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show when={modes().includes('utilities') && dashboard()?.utilityBillingPlan}>
-                        <Card>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">
-                                {locale() === 'ru'
-                                  ? 'Что оплатить по коммуналке'
-                                  : 'Your utility payment plan'}
-                              </span>
-                            </div>
                             <Show
                               when={currentUtilityAssignments().length > 0}
                               fallback={
-                                <p class="empty-state">
-                                  {currentUtilityCarryover()?.carryoverAfterMajor &&
+                                <div class="home-payment-card__empty">
+                                  {currentUtilitySummary()?.projectedDeltaAfterPlanMajor &&
                                   majorStringToMinor(
-                                    currentUtilityCarryover()!.carryoverAfterMajor
+                                    currentUtilitySummary()!.projectedDeltaAfterPlanMajor
                                   ) !== 0n
                                     ? locale() === 'ru'
-                                      ? `Новых счетов на вас нет. Перенос на следующий цикл: ${formatMoneyLabel(currentUtilityCarryover()!.carryoverAfterMajor, data().currency, locale())}.`
-                                      : `No new bills are assigned to you. Carryover to the next utility cycle: ${formatMoneyLabel(currentUtilityCarryover()!.carryoverAfterMajor, data().currency, locale())}.`
+                                      ? `Новых счетов на вас нет. Итоговое отклонение после текущего плана: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
+                                      : `No new bills are assigned to you. Projected delta after the current utility plan: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
                                     : locale() === 'ru'
                                       ? 'На вас нет назначенных коммунальных платежей.'
                                       : 'No utility bills are assigned to you right now.'}
-                                </p>
+                                </div>
                               }
                             >
-                              <div class="inline-editor-list">
+                              <div class="home-payment-card__body">
                                 <For each={currentUtilityAssignments()}>
                                   {(category) => {
                                     const details = () =>
@@ -1012,36 +1068,56 @@ export default function HomeRoute() {
                                       )
 
                                     return (
-                                      <div class="inline-editor-row">
-                                        <div class="inline-editor-row__label">
-                                          <strong>
-                                            {category.fullCategoryPayment
-                                              ? `${locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL'} · ${category.billName}`
-                                              : category.billName}
-                                          </strong>
-                                          <span>
-                                            {details()?.providerName ??
-                                              (locale() === 'ru'
-                                                ? 'Провайдер не указан'
-                                                : 'Provider not set')}
-                                          </span>
+                                      <div class="home-payment-card__item">
+                                        <div class="home-payment-card__item-head">
+                                          <div class="home-payment-card__item-copy">
+                                            <div class="home-payment-card__item-kicker">
+                                              <span
+                                                class="home-payment-card__pill"
+                                                classList={{
+                                                  'is-full': category.isFullAssignment,
+                                                  'is-split': !category.isFullAssignment
+                                                }}
+                                              >
+                                                {category.isFullAssignment
+                                                  ? locale() === 'ru'
+                                                    ? 'ПОЛНОСТЬЮ'
+                                                    : 'FULL'
+                                                  : locale() === 'ru'
+                                                    ? 'ЧАСТЬ'
+                                                    : 'SPLIT'}
+                                              </span>
+                                              <strong>{category.billName}</strong>
+                                            </div>
+                                            <span class="home-payment-card__item-subtle">
+                                              {details()?.providerName ??
+                                                (locale() === 'ru'
+                                                  ? 'Провайдер не указан'
+                                                  : 'Provider not set')}
+                                            </span>
+                                          </div>
+                                          <div class="home-payment-card__item-value">
+                                            <strong>
+                                              {formatMoneyLabel(
+                                                category.assignedAmountMajor,
+                                                data().currency,
+                                                locale()
+                                              )}
+                                            </strong>
+                                            <Show when={!category.isFullAssignment}>
+                                              <span class="home-payment-card__item-note">
+                                                {locale() === 'ru'
+                                                  ? `Из счета ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                                  : `Of bill total ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                              </span>
+                                            </Show>
+                                          </div>
                                         </div>
-                                        <div class="inline-editor-row__value">
-                                          <strong>
-                                            {formatMoneyLabel(
-                                              category.amountMajor,
-                                              data().currency,
-                                              locale()
-                                            )}
-                                          </strong>
-                                        </div>
-                                        <div
-                                          class="balance-card__amounts"
-                                          style={{ 'grid-column': '1 / -1' }}
-                                        >
+
+                                        <div class="home-payment-card__details">
                                           <Show when={details()?.customerNumber}>
                                             {(value) => (
-                                              <div class="balance-card__row">
+                                              <div class="home-payment-card__detail-row">
                                                 <span>
                                                   {locale() === 'ru' ? 'Счёт' : 'Account'}
                                                 </span>
@@ -1051,7 +1127,7 @@ export default function HomeRoute() {
                                           </Show>
                                           <Show when={details()?.paymentLink}>
                                             {(value) => (
-                                              <div class="balance-card__row">
+                                              <div class="home-payment-card__detail-row">
                                                 <span>{locale() === 'ru' ? 'Ссылка' : 'Link'}</span>
                                                 <strong>
                                                   <a
@@ -1069,7 +1145,7 @@ export default function HomeRoute() {
                                           </Show>
                                           <Show when={details()?.note}>
                                             {(value) => (
-                                              <div class="balance-card__row">
+                                              <div class="home-payment-card__detail-row">
                                                 <span>
                                                   {locale() === 'ru' ? 'Примечание' : 'Note'}
                                                 </span>
@@ -1084,6 +1160,525 @@ export default function HomeRoute() {
                                 </For>
                               </div>
                             </Show>
+
+                            <div class="home-payment-card__meta">
+                              <div class="home-payment-card__meta-row">
+                                <span>{copy().baseDue}</span>
+                                <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
+                              </div>
+                              <Show when={policy() === 'utilities'}>
+                                <div class="home-payment-card__meta-row">
+                                  <span>{copy().balanceAdjustmentLabel}</span>
+                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
+                                </div>
+                              </Show>
+                            </div>
+
+                            <Show when={utilityLedger().length > 0}>
+                              <div class="home-payment-card__context">
+                                <div class="home-payment-card__context-head">
+                                  <span>{copy().homeUtilitiesBillsTitle}</span>
+                                  <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
+                                </div>
+                                <div class="home-payment-card__context-list">
+                                  <For each={utilityLedger()}>
+                                    {(entry) => (
+                                      <div class="home-payment-card__context-row">
+                                        <span>{entry.title}</span>
+                                        <strong>
+                                          {formatMoneyLabel(
+                                            entry.displayAmountMajor,
+                                            entry.displayCurrency,
+                                            locale()
+                                          )}
+                                        </strong>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </div>
+                            </Show>
+                          </div>
+                        </Card>
+                      </Show>
+
+                      <Show when={modes().includes('rent')}>
+                        <Card accent>
+                          <div class="home-payment-card home-payment-card--rent">
+                            <div class="home-payment-card__rail">
+                              <div class="home-payment-card__title-group">
+                                <span class="home-payment-card__title">{copy().homeRentTitle}</span>
+                                <span class="home-payment-card__deadline">
+                                  {copy().dueOnLabel.replace('{date}', rentDueDate())}
+                                </span>
+                              </div>
+                              {dueBadge(rentDaysUntilDue())}
+                            </div>
+
+                            <div class="home-payment-card__hero">
+                              <div class="home-payment-card__hero-copy">
+                                <strong class="home-payment-card__amount">
+                                  {formatMajorAmount(minorToMajorString(rentRemainingMinor()))}
+                                </strong>
+                                <span class="home-payment-card__hero-note">
+                                  {rentDestinations().length > 0
+                                    ? locale() === 'ru'
+                                      ? 'Выберите удобные реквизиты и сохраните оплату'
+                                      : 'Use one of the saved payment destinations and record the payment'
+                                    : locale() === 'ru'
+                                      ? 'Реквизиты для оплаты аренды пока не добавлены'
+                                      : 'No rent payment destinations are saved yet'}
+                                </span>
+                              </div>
+                              <Show when={rentRemainingMinor() > 0n}>
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => openQuickPayment('rent', 'current')}
+                                >
+                                  <CreditCard size={14} />
+                                  {copy().quickPaymentSubmitAction}
+                                </Button>
+                              </Show>
+                            </div>
+
+                            <Show
+                              when={rentDestinations().length > 0}
+                              fallback={
+                                <div class="home-payment-card__empty">
+                                  {copy().rentPaymentDestinationsEmpty}
+                                </div>
+                              }
+                            >
+                              <div class="home-payment-card__body">
+                                <For each={rentDestinations()}>
+                                  {(destination) => (
+                                    <div class="home-payment-card__item">
+                                      <div class="home-payment-card__item-head">
+                                        <div class="home-payment-card__item-copy">
+                                          <div class="home-payment-card__item-kicker">
+                                            <strong>{destination.label}</strong>
+                                          </div>
+                                          <span class="home-payment-card__item-subtle">
+                                            {[destination.recipientName, destination.bankName]
+                                              .filter(Boolean)
+                                              .join(' · ') ||
+                                              (locale() === 'ru'
+                                                ? 'Реквизиты для перевода'
+                                                : 'Payment destination')}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div class="home-payment-card__details">
+                                        <div class="home-payment-card__detail-row">
+                                          <span>{copy().rentPaymentDestinationAccount}</span>
+                                          <strong>
+                                            <button
+                                              class="copyable-detail"
+                                              classList={{
+                                                'is-copied': copiedValue() === destination.account
+                                              }}
+                                              type="button"
+                                              onClick={() => void handleCopy(destination.account)}
+                                            >
+                                              <span>{destination.account}</span>
+                                              {copiedValue() === destination.account ? (
+                                                <Check size={14} />
+                                              ) : (
+                                                <Copy size={14} />
+                                              )}
+                                            </button>
+                                          </strong>
+                                        </div>
+                                        <Show when={destination.note}>
+                                          {(value) => (
+                                            <div class="home-payment-card__detail-row">
+                                              <span>{copy().rentPaymentDestinationNote}</span>
+                                              <strong>
+                                                <button
+                                                  class="copyable-detail"
+                                                  classList={{
+                                                    'is-copied': copiedValue() === value()
+                                                  }}
+                                                  type="button"
+                                                  onClick={() => void handleCopy(value())}
+                                                >
+                                                  <span>{value()}</span>
+                                                  {copiedValue() === value() ? (
+                                                    <Check size={14} />
+                                                  ) : (
+                                                    <Copy size={14} />
+                                                  )}
+                                                </button>
+                                              </strong>
+                                            </div>
+                                          )}
+                                        </Show>
+                                        <Show when={destination.link}>
+                                          {(value) => (
+                                            <div class="home-payment-card__detail-row">
+                                              <span>{copy().rentPaymentDestinationLink}</span>
+                                              <strong>
+                                                <a href={value()} target="_blank" rel="noreferrer">
+                                                  {locale() === 'ru'
+                                                    ? 'Открыть реквизиты'
+                                                    : 'Open payment details'}
+                                                </a>
+                                              </strong>
+                                            </div>
+                                          )}
+                                        </Show>
+                                      </div>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+
+                            <div class="home-payment-card__meta">
+                              <div class="home-payment-card__meta-row">
+                                <span>{copy().baseDue}</span>
+                                <strong>{formatMajorAmount(member().rentShareMajor)}</strong>
+                              </div>
+                              <Show when={policy() === 'rent'}>
+                                <div class="home-payment-card__meta-row">
+                                  <span>{copy().balanceAdjustmentLabel}</span>
+                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
+                                </div>
+                              </Show>
+                            </div>
+                          </div>
+                        </Card>
+                      </Show>
+
+                      <Show
+                        when={
+                          modes().length === 0 &&
+                          !overduePaymentFor('utilities') &&
+                          !overduePaymentFor('rent')
+                        }
+                      >
+                        <Card muted>
+                          <div class="home-overview-card">
+                            <div class="home-overview-card__rail">
+                              <div class="home-overview-card__title-group">
+                                <span class="home-overview-card__title">
+                                  {copy().homeIdleTitle}
+                                </span>
+                                <p class="home-overview-card__body">{copy().homeIdleBody}</p>
+                              </div>
+                              <Badge variant="accent">{copy().homeIdleBadge}</Badge>
+                            </div>
+
+                            <div class="home-overview-card__hero">
+                              <div class="home-overview-card__hero-copy">
+                                <span class="home-overview-card__hero-label">
+                                  {copy().homeIdlePurchaseBalanceLabel}
+                                </span>
+                                <strong
+                                  class="home-overview-card__amount"
+                                  classList={{
+                                    'is-credit': purchaseBalanceTone() === 'is-credit',
+                                    'is-debit': purchaseBalanceTone() === 'is-debit',
+                                    'is-neutral': purchaseBalanceTone() === 'is-neutral'
+                                  }}
+                                >
+                                  {formatMajorAmount(member().purchaseOffsetMajor)}
+                                </strong>
+                                <span class="home-overview-card__hero-note">
+                                  {purchaseBalanceSummary()}
+                                </span>
+                              </div>
+                              <div class="home-overview-card__balance home-overview-card__balance--explain">
+                                <span>{copy().homeIdlePurchaseBalanceExplainLabel}</span>
+                                <strong>{copy().homeIdlePurchaseBalanceExplainValue}</strong>
+                                <small>{copy().homeIdlePurchaseBalanceExplainBody}</small>
+                              </div>
+                            </div>
+
+                            <div class="home-overview-card__comparison">
+                              <div class="home-overview-card__section-head">
+                                <span class="home-overview-card__section-title-text">
+                                  {copy().homeIdleComparisonTitle}
+                                </span>
+                              </div>
+                              <div class="home-overview-card__comparison-list">
+                                <For each={purchaseComparisonRows()}>
+                                  {(row) => (
+                                    <div
+                                      class="home-overview-card__comparison-row"
+                                      classList={{ 'is-current': row.isCurrent }}
+                                    >
+                                      <div class="home-overview-card__comparison-head">
+                                        <strong>{row.displayName}</strong>
+                                        <span>{formatMajorAmount(row.balanceMajor)}</span>
+                                      </div>
+                                      <div class="home-overview-card__comparison-track">
+                                        <div class="home-overview-card__comparison-zero" />
+                                        <Show when={row.side === 'left'}>
+                                          <div
+                                            class="home-overview-card__comparison-bar is-left"
+                                            style={{ width: row.width }}
+                                          />
+                                        </Show>
+                                        <Show when={row.side === 'right'}>
+                                          <div
+                                            class="home-overview-card__comparison-bar is-right"
+                                            style={{ width: row.width }}
+                                          />
+                                        </Show>
+                                      </div>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </div>
+
+                            <div class="home-overview-card__timing">
+                              <div class="home-overview-card__section-head">
+                                <div class="home-overview-card__section-title">
+                                  <Clock size={14} />
+                                  <span>{copy().homeIdleNextTitle}</span>
+                                </div>
+                              </div>
+                              <div class="home-overview-card__timing-list">
+                                <div class="home-overview-card__timing-row">
+                                  <div class="home-overview-card__timing-copy">
+                                    <strong>{copy().homeUtilitiesTitle}</strong>
+                                    <span>
+                                      {copy().homeUtilitiesUpcomingLabel.replace(
+                                        '{date}',
+                                        utilitiesUpcoming().dateLabel
+                                      )}
+                                    </span>
+                                  </div>
+                                  <Badge variant="muted">
+                                    {utilitiesUpcoming().daysUntil !== null
+                                      ? copy().daysLeftLabel.replace(
+                                          '{count}',
+                                          String(utilitiesUpcoming().daysUntil)
+                                        )
+                                      : '—'}
+                                  </Badge>
+                                </div>
+                                <div class="home-overview-card__timing-row">
+                                  <div class="home-overview-card__timing-copy">
+                                    <strong>{copy().homeRentTitle}</strong>
+                                    <span>
+                                      {copy().homeRentUpcomingLabel.replace(
+                                        '{date}',
+                                        rentUpcoming().dateLabel
+                                      )}
+                                    </span>
+                                  </div>
+                                  <Badge variant="muted">
+                                    {rentUpcoming().daysUntil !== null
+                                      ? copy().daysLeftLabel.replace(
+                                          '{count}',
+                                          String(rentUpcoming().daysUntil)
+                                        )
+                                      : '—'}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div class="home-overview-card__purchases">
+                              <div class="home-overview-card__section-head">
+                                <span class="home-overview-card__section-title-text">
+                                  {copy().homeIdlePurchasesTitle}
+                                </span>
+                                <Show when={hasMoreIdlePurchases()}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => navigate('/purchases')}
+                                  >
+                                    {copy().homeIdleViewPurchasesAction}
+                                  </Button>
+                                </Show>
+                              </div>
+                              <Show
+                                when={idlePurchases().length > 0}
+                                fallback={
+                                  <p class="home-overview-card__empty">
+                                    {copy().homeIdlePurchasesEmpty}
+                                  </p>
+                                }
+                              >
+                                <div class="home-overview-card__purchase-list">
+                                  <For each={idlePurchases()}>
+                                    {(entry) => {
+                                      const myShare = () =>
+                                        purchaseShareForMember(entry, member().memberId)
+
+                                      return (
+                                        <div class="home-overview-card__purchase-row">
+                                          <div class="home-overview-card__purchase-copy">
+                                            <div class="home-overview-card__purchase-head">
+                                              <strong>{entry.title}</strong>
+                                              <span
+                                                class="home-overview-card__purchase-status"
+                                                classList={{
+                                                  'is-open':
+                                                    entry.resolutionStatus === 'unresolved',
+                                                  'is-settled':
+                                                    entry.resolutionStatus === 'resolved'
+                                                }}
+                                              >
+                                                {entry.resolutionStatus === 'unresolved'
+                                                  ? copy().purchaseStatusOpen
+                                                  : copy().purchaseStatusSettled}
+                                              </span>
+                                            </div>
+                                            <span class="home-overview-card__purchase-meta">
+                                              {entry.occurredAt
+                                                ? formatFriendlyDate(entry.occurredAt, locale())
+                                                : formatCyclePeriod(
+                                                    entry.originPeriod ?? data().period,
+                                                    locale()
+                                                  )}
+                                            </span>
+                                          </div>
+                                          <div class="home-overview-card__purchase-values">
+                                            <span class="home-overview-card__purchase-value-label">
+                                              {copy().homeIdleYourShareLabel}
+                                            </span>
+                                            <strong class="home-overview-card__purchase-amount">
+                                              {myShare()
+                                                ? formatMoneyLabel(
+                                                    myShare()!,
+                                                    entry.displayCurrency,
+                                                    locale()
+                                                  )
+                                                : '—'}
+                                            </strong>
+                                            <span class="home-overview-card__purchase-total">
+                                              {copy().homeIdlePurchaseTotalLabel.replace(
+                                                '{amount}',
+                                                formatMoneyLabel(
+                                                  entry.displayAmountMajor,
+                                                  entry.displayCurrency,
+                                                  locale()
+                                                )
+                                              )}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )
+                                    }}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+
+                            <Show when={coveredPurchases().length > 0}>
+                              <div class="home-overview-card__purchases">
+                                <div class="home-overview-card__section-head">
+                                  <span class="home-overview-card__section-title-text">
+                                    {copy().homeIdleOtherPurchasesTitle}
+                                  </span>
+                                </div>
+                                <div class="home-overview-card__purchase-list">
+                                  <For each={coveredPurchases()}>
+                                    {(entry) => (
+                                      <div class="home-overview-card__purchase-row is-muted">
+                                        <div class="home-overview-card__purchase-copy">
+                                          <div class="home-overview-card__purchase-head">
+                                            <strong>{entry.title}</strong>
+                                            <span class="home-overview-card__purchase-status is-covered">
+                                              {copy().homeIdleCoveredElsewhereLabel}
+                                            </span>
+                                          </div>
+                                          <span class="home-overview-card__purchase-meta">
+                                            {entry.occurredAt
+                                              ? formatFriendlyDate(entry.occurredAt, locale())
+                                              : formatCyclePeriod(
+                                                  entry.originPeriod ?? data().period,
+                                                  locale()
+                                                )}
+                                          </span>
+                                        </div>
+                                        <strong class="home-overview-card__purchase-amount">
+                                          {formatMoneyLabel(
+                                            entry.displayAmountMajor,
+                                            entry.displayCurrency,
+                                            locale()
+                                          )}
+                                        </strong>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </div>
+                            </Show>
+
+                            <div class="home-overview-card__footer">
+                              <p class="home-overview-card__footer-note">
+                                {copy().homeIdlePurchaseBalanceFooter}
+                              </p>
+                              <div class="home-overview-card__meta-row">
+                                <span>{copy().homeIdlePurchaseBalanceHint}</span>
+                                <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
+                              </div>
+                              <div class="home-overview-card__meta-row">
+                                <span>{copy().homeIdleRentTariffLabel}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    data().rentSourceAmountMajor,
+                                    data().rentSourceCurrency,
+                                    locale()
+                                  )}{' '}
+                                  ·{' '}
+                                  {formatMoneyLabel(
+                                    data().rentDisplayAmountMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <Show when={latestClosedPeriod()}>
+                                {(periodSummary) => (
+                                  <div class="home-overview-card__meta-block">
+                                    <span class="home-overview-card__meta-block-title">
+                                      {copy().homeIdleLastPaidLabel.replace(
+                                        '{period}',
+                                        formatCyclePeriod(periodSummary().period, locale())
+                                      )}
+                                    </span>
+                                    <Show when={latestClosedUtilities()}>
+                                      {(utilities) => (
+                                        <div class="home-overview-card__meta-row">
+                                          <span>{copy().shareUtilities}</span>
+                                          <strong>
+                                            {formatMoneyLabel(
+                                              utilities().totalPaidMajor,
+                                              data().currency,
+                                              locale()
+                                            )}
+                                          </strong>
+                                        </div>
+                                      )}
+                                    </Show>
+                                    <Show when={latestClosedRent()}>
+                                      {(rent) => (
+                                        <div class="home-overview-card__meta-row">
+                                          <span>{copy().shareRent}</span>
+                                          <strong>
+                                            {formatMoneyLabel(
+                                              rent().totalPaidMajor,
+                                              data().currency,
+                                              locale()
+                                            )}
+                                          </strong>
+                                        </div>
+                                      )}
+                                    </Show>
+                                  </div>
+                                )}
+                              </Show>
+                            </div>
                           </div>
                         </Card>
                       </Show>
@@ -1145,154 +1740,35 @@ export default function HomeRoute() {
                           </div>
                         </Card>
                       </Show>
-
-                      <Show
-                        when={modes().includes('rent') && data().rentPaymentDestinations?.length}
-                      >
-                        <div style={{ display: 'grid', gap: '12px' }}>
-                          <For each={data().rentPaymentDestinations ?? []}>
-                            {(destination) => (
-                              <Card>
-                                <div class="balance-card">
-                                  <div class="balance-card__header">
-                                    <span class="balance-card__label">{destination.label}</span>
-                                  </div>
-                                  <div class="balance-card__amounts">
-                                    <Show when={destination.recipientName}>
-                                      {(value) => (
-                                        <div class="balance-card__row">
-                                          <span>{copy().rentPaymentDestinationRecipient}</span>
-                                          <strong>
-                                            <button
-                                              class="copyable-detail"
-                                              classList={{ 'is-copied': copiedValue() === value() }}
-                                              type="button"
-                                              onClick={() => void handleCopy(value())}
-                                            >
-                                              <span>{value()}</span>
-                                              {copiedValue() === value() ? (
-                                                <Check size={14} />
-                                              ) : (
-                                                <Copy size={14} />
-                                              )}
-                                            </button>
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                    <Show when={destination.bankName}>
-                                      {(value) => (
-                                        <div class="balance-card__row">
-                                          <span>{copy().rentPaymentDestinationBank}</span>
-                                          <strong>
-                                            <button
-                                              class="copyable-detail"
-                                              classList={{ 'is-copied': copiedValue() === value() }}
-                                              type="button"
-                                              onClick={() => void handleCopy(value())}
-                                            >
-                                              <span>{value()}</span>
-                                              {copiedValue() === value() ? (
-                                                <Check size={14} />
-                                              ) : (
-                                                <Copy size={14} />
-                                              )}
-                                            </button>
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                    <div class="balance-card__row">
-                                      <span>{copy().rentPaymentDestinationAccount}</span>
-                                      <strong>
-                                        <button
-                                          class="copyable-detail"
-                                          classList={{
-                                            'is-copied': copiedValue() === destination.account
-                                          }}
-                                          type="button"
-                                          onClick={() => void handleCopy(destination.account)}
-                                        >
-                                          <span>{destination.account}</span>
-                                          {copiedValue() === destination.account ? (
-                                            <Check size={14} />
-                                          ) : (
-                                            <Copy size={14} />
-                                          )}
-                                        </button>
-                                      </strong>
-                                    </div>
-                                    <Show when={destination.link}>
-                                      {(value) => (
-                                        <div class="balance-card__row">
-                                          <span>{copy().rentPaymentDestinationLink}</span>
-                                          <strong>
-                                            <button
-                                              class="copyable-detail"
-                                              classList={{ 'is-copied': copiedValue() === value() }}
-                                              type="button"
-                                              onClick={() => void handleCopy(value())}
-                                            >
-                                              <span>{value()}</span>
-                                              {copiedValue() === value() ? (
-                                                <Check size={14} />
-                                              ) : (
-                                                <Copy size={14} />
-                                              )}
-                                            </button>
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                    <Show when={destination.note}>
-                                      {(value) => (
-                                        <div class="balance-card__row">
-                                          <span>{copy().rentPaymentDestinationNote}</span>
-                                          <strong>
-                                            <button
-                                              class="copyable-detail"
-                                              classList={{ 'is-copied': copiedValue() === value() }}
-                                              type="button"
-                                              onClick={() => void handleCopy(value())}
-                                            >
-                                              <span>{value()}</span>
-                                              {copiedValue() === value() ? (
-                                                <Check size={14} />
-                                              ) : (
-                                                <Copy size={14} />
-                                              )}
-                                            </button>
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                  </div>
-                                </div>
-                              </Card>
-                            )}
-                          </For>
-                        </div>
-                      </Show>
                     </>
                   )
                 }}
               </Show>
 
-              {/* Rent FX card */}
-              <Show when={data().rentSourceCurrency !== data().currency}>
+              <Show
+                when={
+                  currentMemberLine() &&
+                  data().rentSourceCurrency !== data().currency &&
+                  (currentPaymentModes().includes('rent') || Boolean(overduePaymentFor('rent')))
+                }
+              >
                 <Card muted>
                   <div class="fx-card">
                     <strong class="fx-card__title">{copy().rentFxTitle}</strong>
                     <div class="fx-card__row">
                       <span>{copy().sourceAmountLabel}</span>
                       <strong>
-                        {data().rentSourceAmountMajor} {data().rentSourceCurrency}
+                        {formatMoneyLabel(
+                          data().rentSourceAmountMajor,
+                          data().rentSourceCurrency,
+                          locale()
+                        )}
                       </strong>
                     </div>
                     <div class="fx-card__row">
                       <span>{copy().settlementAmountLabel}</span>
                       <strong>
-                        {data().rentDisplayAmountMajor} {data().currency}
+                        {formatMoneyLabel(data().rentDisplayAmountMajor, data().currency, locale())}
                       </strong>
                     </div>
                     <Show when={data().rentFxEffectiveDate}>
@@ -1305,7 +1781,7 @@ export default function HomeRoute() {
                 </Card>
               </Show>
 
-              <Card>
+              <Card muted>
                 <div class="balance-card">
                   <div class="balance-card__header">
                     <span class="balance-card__label">
@@ -1405,7 +1881,7 @@ export default function HomeRoute() {
               </Card>
 
               {/* Latest activity */}
-              <Card>
+              <Card muted>
                 <div class="activity-card">
                   <div class="activity-card__header">
                     <Clock size={16} />

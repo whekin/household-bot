@@ -139,22 +139,21 @@ export interface MiniAppDashboard {
     categories: readonly {
       utilityBillId: string
       billName: string
-      amountMajor: string
+      billTotalMajor: string
+      assignedAmountMajor: string
       assignedMemberId: string
       assignedDisplayName: string
       paidAmountMajor: string
-      fullCategoryPayment: boolean
-      splitSourceBillId: string | null
+      isFullAssignment: boolean
+      splitGroupId: string | null
     }[]
     memberSummaries: readonly {
       memberId: string
       displayName: string
       fairShareMajor: string
       vendorPaidMajor: string
-      assignedVendorMajor: string
-      effectiveTargetMajor: string
-      carryoverBeforeMajor: string
-      carryoverAfterMajor: string
+      assignedThisCycleMajor: string
+      projectedDeltaAfterPlanMajor: string
     }[]
   } | null
   rentBillingState: {
@@ -390,14 +389,22 @@ export async function joinMiniAppHousehold(
   }
 }
 
-export async function fetchMiniAppDashboard(initData: string): Promise<MiniAppDashboard> {
+export async function fetchMiniAppDashboard(
+  initData: string,
+  options: {
+    periodOverride?: string | null
+    todayOverride?: string | null
+  } = {}
+): Promise<MiniAppDashboard> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/dashboard`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      initData
+      initData,
+      ...(options.periodOverride ? { periodOverride: options.periodOverride } : {}),
+      ...(options.todayOverride ? { todayOverride: options.todayOverride } : {})
     })
   })
 

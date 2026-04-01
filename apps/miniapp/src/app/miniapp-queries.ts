@@ -15,7 +15,8 @@ import {
 export const miniAppQueryKeys = {
   session: (initData: string, joinToken?: string) =>
     ['miniapp', 'session', initData, joinToken ?? null] as const,
-  dashboard: (initData: string) => ['miniapp', 'dashboard', initData] as const,
+  dashboard: (initData: string, periodOverride?: string | null, todayOverride?: string | null) =>
+    ['miniapp', 'dashboard', initData, periodOverride ?? null, todayOverride ?? null] as const,
   pendingMembers: (initData: string) => ['miniapp', 'pending-members', initData] as const,
   adminSettings: (initData: string) => ['miniapp', 'admin-settings', initData] as const,
   billingCycle: (initData: string) => ['miniapp', 'billing-cycle', initData] as const
@@ -28,10 +29,20 @@ export function fetchSessionQuery(initData: string, joinToken?: string): Promise
   })
 }
 
-export function fetchDashboardQuery(initData: string): Promise<MiniAppDashboard> {
+export function fetchDashboardQuery(
+  initData: string,
+  options: {
+    periodOverride?: string | null
+    todayOverride?: string | null
+  } = {}
+): Promise<MiniAppDashboard> {
   return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.dashboard(initData),
-    queryFn: () => fetchMiniAppDashboard(initData)
+    queryKey: miniAppQueryKeys.dashboard(initData, options.periodOverride, options.todayOverride),
+    queryFn: () =>
+      fetchMiniAppDashboard(initData, {
+        ...(options.periodOverride === undefined ? {} : { periodOverride: options.periodOverride }),
+        ...(options.todayOverride === undefined ? {} : { todayOverride: options.todayOverride })
+      })
   })
 }
 
@@ -61,7 +72,7 @@ export function fetchBillingCycleQuery(initData: string): Promise<MiniAppAdminCy
 export async function invalidateHouseholdQueries(initData: string) {
   await Promise.all([
     miniAppQueryClient.invalidateQueries({
-      queryKey: miniAppQueryKeys.dashboard(initData)
+      queryKey: ['miniapp', 'dashboard', initData]
     }),
     miniAppQueryClient.invalidateQueries({
       queryKey: miniAppQueryKeys.pendingMembers(initData)

@@ -1579,7 +1579,7 @@ describe('createFinanceCommandService', () => {
       result?.plan?.categories.map((category) => ({
         bill: category.billName,
         assigned: category.assignedMemberId,
-        amountMinor: category.amount.amountMinor
+        amountMinor: category.assignedAmount.amountMinor
       }))
     ).toEqual([
       {
@@ -1589,7 +1589,9 @@ describe('createFinanceCommandService', () => {
       }
     ])
     expect(
-      result?.plan?.memberSummaries.every((summary) => summary.carryoverAfter.amountMinor === 0n)
+      result?.plan?.memberSummaries.every(
+        (summary) => summary.projectedDeltaAfterPlan.amountMinor === 0n
+      )
     ).toBe(true)
   })
 })

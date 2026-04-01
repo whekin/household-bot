@@ -1,4 +1,5 @@
 import type { BotTranslationCatalog } from '../types'
+import { formatUserFacingMoney } from '../money'
 
 export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
@@ -181,7 +182,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     hour: (count) => `${count} ${count === 1 ? 'час' : count < 5 ? 'часа' : 'часов'}`,
     minute: (count) => `${count} ${count === 1 ? 'минуту' : count < 5 ? 'минуты' : 'минут'}`,
     paymentProposal: (kind, amount, currency) =>
-      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${amount} ${currency}. Подтвердите или отмените ниже.`,
+      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
     paymentClarification:
       'Я могу помочь записать эту оплату, но сообщение нужно уточнить. Укажите, это аренда или коммуналка, и добавьте сумму, если вы оплатили не весь текущий остаток.',
     paymentUnsupportedCurrency:
@@ -190,7 +191,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     paymentConfirmButton: 'Подтвердить оплату',
     paymentCancelButton: 'Отменить',
     paymentConfirmed: (kind, amount, currency) =>
-      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${amount} ${currency}`,
+      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
     paymentCancelled: 'Предложение оплаты отменено.',
     paymentAlreadyHandled: 'Это предложение оплаты уже было обработано.',
     paymentUnavailable: 'Это предложение оплаты уже недоступно.'
@@ -210,41 +211,47 @@ export const ruBotTranslations: BotTranslationCatalog = {
     rentSetUsage: 'Использование: /rent_set <amount> [USD|GEL] [YYYY-MM]',
     rentNoPeriod: 'Период не указан и открытый цикл не найден.',
     rentSaved: (amount, currency, period) =>
-      `Правило аренды сохранено: ${amount} ${currency}, начиная с ${period}`,
+      `Правило аренды сохранено: ${formatUserFacingMoney(amount, currency)}, начиная с ${period}`,
     rentSaveFailed: (message) => `Не удалось сохранить правило аренды: ${message}`,
     utilityAddUsage: 'Использование: /utility_add <name> <amount> [USD|GEL]',
     utilityNoOpenCycle: 'Открытый период не найден. Сначала выполните /cycle_open.',
     utilityAdded: (name, amount, currency, period) =>
-      `Коммунальный счёт добавлен: ${name} ${amount} ${currency} за ${period}`,
+      `Коммунальный счёт добавлен: ${name} ${formatUserFacingMoney(amount, currency)} за ${period}`,
     utilityAddFailed: (message) => `Не удалось добавить коммунальный счёт: ${message}`,
     paymentAddUsage: 'Использование: /payment_add <rent|utilities> [amount] [USD|GEL]',
     paymentNoCycle: 'Биллинг-цикл пока не готов.',
     paymentNoBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
     paymentAdded: (kind, amount, currency, period) =>
-      `Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${amount} ${currency} за ${period}`,
+      `Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${formatUserFacingMoney(amount, currency)} за ${period}`,
     paymentAddFailed: (message) => `Не удалось сохранить оплату: ${message}`,
     noStatementCycle: 'Для выписки период не найден.',
     householdStatusTitle: (period) => `Статус на ${period}`,
     householdStatusDueDate: (dueDate) => `Срок оплаты аренды: до ${dueDate}`,
     householdStatusChargesHeading: 'Начисления',
-    householdStatusRentDirect: (amount, currency) => `Аренда: ${amount} ${currency}`,
+    householdStatusRentDirect: (amount, currency) =>
+      `Аренда: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
-      `Аренда: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
-    householdStatusUtilities: (amount, currency) => `Коммуналка: ${amount} ${currency}`,
-    householdStatusPurchases: (amount, currency) => `Общие покупки: ${amount} ${currency}`,
+      `Аренда: ${formatUserFacingMoney(sourceAmount, sourceCurrency)} (~${formatUserFacingMoney(displayAmount, displayCurrency)})`,
+    householdStatusUtilities: (amount, currency) =>
+      `Коммуналка: ${formatUserFacingMoney(amount, currency)}`,
+    householdStatusPurchases: (amount, currency) =>
+      `Общие покупки: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusSettlementHeading: 'Расчёты',
-    householdStatusSettlementBalance: (amount, currency) => `Общий баланс: ${amount} ${currency}`,
-    householdStatusSettlementPaid: (amount, currency) => `Уже оплачено: ${amount} ${currency}`,
+    householdStatusSettlementBalance: (amount, currency) =>
+      `Общий баланс: ${formatUserFacingMoney(amount, currency)}`,
+    householdStatusSettlementPaid: (amount, currency) =>
+      `Уже оплачено: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusSettlementRemaining: (amount, currency) =>
-      `Осталось оплатить: ${amount} ${currency}`,
+      `Осталось оплатить: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusMembersHeading: 'Участники',
     householdStatusMemberCompact: (displayName, remaining, currency) =>
-      `- ${displayName}: остаток ${remaining} ${currency}`,
+      `- ${displayName}: остаток ${formatUserFacingMoney(remaining, currency)}`,
     householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
-      `- ${displayName}: остаток ${remaining} ${currency} (${balance} баланс, ${paid} оплачено)`,
+      `- ${displayName}: остаток ${formatUserFacingMoney(remaining, currency)} (${formatUserFacingMoney(balance, currency)} баланс, ${formatUserFacingMoney(paid, currency)} оплачено)`,
     statementTitle: (period) => `Выписка за ${period}`,
-    statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
-    statementTotal: (amount, currency) => `Итого: ${amount} ${currency}`,
+    statementLine: (displayName, amount, currency) =>
+      `- ${displayName}: ${formatUserFacingMoney(amount, currency)}`,
+    statementTotal: (amount, currency) => `Итого: ${formatUserFacingMoney(amount, currency)}`,
     statementFailed: (message) => `Не удалось построить выписку: ${message}`,
     utilitiesTopicRequired: 'Эта команда должна использоваться внутри топика.',
     utilitiesNotLinked: 'Этот топик не привязан к домохозяйству.'
@@ -271,7 +278,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     templateInvalid:
       'Не удалось распознать ни одной суммы в этом шаблоне. Отправьте заполненный шаблон хотя бы с одной суммой.',
     summaryTitle: (period) => `Коммунальные начисления за ${period}`,
-    summaryLine: (categoryName, amount, currency) => `- ${categoryName}: ${amount} ${currency}`,
+    summaryLine: (categoryName, amount, currency) =>
+      `- ${categoryName}: ${formatUserFacingMoney(amount, currency)}`,
     confirmPrompt: 'Подтвердите или отмените ниже.',
     confirmButton: 'Сохранить коммуналку',
     cancelButton: 'Отменить',
@@ -340,21 +348,22 @@ export const ruBotTranslations: BotTranslationCatalog = {
     balanceReply: (kind) =>
       kind === 'rent' ? 'Текущая сводка по аренде:' : 'Текущая сводка по коммуналке:',
     proposal: (kind, amount, currency) =>
-      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${amount} ${currency}. Подтвердите или отмените ниже.`,
+      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
     clarification:
       'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
     unsupportedCurrency:
       'Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
     noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
     breakdownBase: (kind, amount, currency) =>
-      `${kind === 'rent' ? 'Аренда к оплате' : 'Коммуналка к оплате'}: ${amount} ${currency}`,
+      `${kind === 'rent' ? 'Аренда к оплате' : 'Коммуналка к оплате'}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownPurchaseBalance: (amount, currency) =>
-      `Баланс по общим покупкам: ${amount} ${currency}`,
+      `Баланс по общим покупкам: ${formatUserFacingMoney(amount, currency)}`,
     breakdownSuggestedTotal: (amount, currency, policy) =>
-      `Рекомендуемая сумма по политике «${policy}»: ${amount} ${currency}`,
+      `Рекомендуемая сумма по политике «${policy}»: ${formatUserFacingMoney(amount, currency)}`,
     breakdownRecordingAmount: (amount, currency) =>
-      `Сумма из вашего сообщения: ${amount} ${currency}`,
-    breakdownRemaining: (amount, currency) => `Общий остаток: ${amount} ${currency}`,
+      `Сумма из вашего сообщения: ${formatUserFacingMoney(amount, currency)}`,
+    breakdownRemaining: (amount, currency) =>
+      `Общий остаток: ${formatUserFacingMoney(amount, currency)}`,
     adjustmentPolicy: (policy) =>
       policy === 'utilities'
         ? 'зачёт через коммуналку'
@@ -368,7 +377,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     confirmButton: 'Подтвердить оплату',
     cancelButton: 'Отменить',
     recorded: (kind, amount, currency) =>
-      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${amount} ${currency}`,
+      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
     cancelled: 'Предложение оплаты отменено.',
     proposalUnavailable: 'Это предложение оплаты уже недоступно.',
     notYourProposal: 'Подтвердить или отменить эту оплату может только отправитель сообщения.',

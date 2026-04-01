@@ -7,6 +7,8 @@ import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
 export interface MiniAppRequestPayload {
   initData: string | null
   joinToken?: string
+  periodOverride?: string
+  todayOverride?: string
 }
 
 export function miniAppJsonResponse(body: object, status = 200, origin?: string): Response {
@@ -59,7 +61,12 @@ export async function readMiniAppRequestPayload(request: {
     }
   }
 
-  let parsed: { initData?: string; joinToken?: string }
+  let parsed: {
+    initData?: string
+    joinToken?: string
+    periodOverride?: string
+    todayOverride?: string
+  }
   try {
     parsed = JSON.parse(text) as { initData?: string; joinToken?: string }
   } catch {
@@ -68,12 +75,24 @@ export async function readMiniAppRequestPayload(request: {
 
   const initData = parsed.initData?.trim()
   const joinToken = parsed.joinToken?.trim()
+  const periodOverride = parsed.periodOverride?.trim()
+  const todayOverride = parsed.todayOverride?.trim()
 
   return {
     initData: initData && initData.length > 0 ? initData : null,
     ...(joinToken && joinToken.length > 0
       ? {
           joinToken
+        }
+      : {}),
+    ...(periodOverride && /^\d{4}-\d{2}$/.test(periodOverride)
+      ? {
+          periodOverride
+        }
+      : {}),
+    ...(todayOverride && /^\d{4}-\d{2}-\d{2}$/.test(todayOverride)
+      ? {
+          todayOverride
         }
       : {})
   }

@@ -864,7 +864,7 @@ describe('registerDmAssistant', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: expect.stringContaining('I can record this rent payment: 700.00 GEL.'),
+      text: expect.stringContaining('I can record this rent payment: 700.00 ₾.'),
       reply_markup: {
         inline_keyboard: [
           [
@@ -925,9 +925,9 @@ describe('registerDmAssistant', () => {
     expect(replyCall).toBeDefined()
     const replyText = String((replyCall?.payload as { text?: unknown } | undefined)?.text ?? '')
     expect(replyText).toContain('Current utilities payment guidance:')
-    expect(replyText).toContain('Utilities due: 100.00 GEL')
-    expect(replyText).toContain('Purchase balance: 50.00 GEL')
-    expect(replyText).toContain('Suggested payment under utilities adjustment: 150.00 GEL')
+    expect(replyText).toContain('Utilities due: 100.00 ₾')
+    expect(replyText).toContain('Purchase balance: 50.00 ₾')
+    expect(replyText).toContain('Suggested payment under utilities adjustment: 150.00 ₾')
   })
 
   test('answers household roster questions from real member data', async () => {
@@ -1008,7 +1008,7 @@ describe('registerDmAssistant', () => {
           | undefined
       )?.text ?? ''
     )
-    expect(replyText).toContain("Dima's shared purchase balance is 15.00 GEL.")
+    expect(replyText).toContain("Dima's shared purchase balance is 15.00 ₾.")
   })
 
   test('routes obvious purchase-like DMs into purchase confirmation flow', async () => {
@@ -2180,7 +2180,7 @@ Confirm or cancel below.`,
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'Recorded rent payment: 700.00 GEL'
+        text: 'Recorded rent payment: 700.00 ₾'
       }
     })
     expect(calls[1]).toMatchObject({
@@ -2188,7 +2188,7 @@ Confirm or cancel below.`,
       payload: {
         chat_id: 123456,
         message_id: 77,
-        text: 'Recorded rent payment: 700.00 GEL'
+        text: 'Recorded rent payment: 700.00 ₾'
       }
     })
     expect(await promptRepository.getPendingAction('123456', '123456')).toBeNull()

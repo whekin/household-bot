@@ -469,18 +469,18 @@ describe('createFinanceCommandsService', () => {
     const payload = calls[0]?.payload as { text?: string } | undefined
     expect(payload?.text).toContain('Статус на март 2026')
     expect(payload?.text).toContain('\n\nНачисления\n')
-    expect(payload?.text).toContain('Аренда: 700.00 USD (~1890.00 GEL)')
-    expect(payload?.text).toContain('Коммуналка: 82.00 GEL')
-    expect(payload?.text).toContain('Общие покупки: 30.00 GEL')
+    expect(payload?.text).toContain('Аренда: $700.00 (~1890.00 ₾)')
+    expect(payload?.text).toContain('Коммуналка: 82.00 ₾')
+    expect(payload?.text).toContain('Общие покупки: 30.00 ₾')
     expect(payload?.text).toContain('Срок оплаты аренды: до 20 марта')
     expect(payload?.text).toContain('Расчёты')
-    expect(payload?.text).toContain('Общий баланс: 400.00 GEL')
-    expect(payload?.text).toContain('Уже оплачено: 100.00 GEL')
-    expect(payload?.text).toContain('Осталось оплатить: 300.00 GEL')
+    expect(payload?.text).toContain('Общий баланс: 400.00 ₾')
+    expect(payload?.text).toContain('Уже оплачено: 100.00 ₾')
+    expect(payload?.text).toContain('Осталось оплатить: 300.00 ₾')
     expect(payload?.text).toContain('Участники')
-    expect(payload?.text).toContain('- Ион: остаток 190.00 GEL')
-    expect(payload?.text).toContain('- Стас: остаток 110.00 GEL (210.00 баланс, 100.00 оплачено)')
-    expect(payload?.text).not.toContain('- Ион: остаток 190.00 GEL (')
+    expect(payload?.text).toContain('- Ион: остаток 190.00 ₾')
+    expect(payload?.text).toContain('- Стас: остаток 110.00 ₾ (210.00 ₾ баланс, 100.00 ₾ оплачено)')
+    expect(payload?.text).not.toContain('- Ион: остаток 190.00 ₾ (')
   })
 
   test('renders the utility bill plan and quick action button for assigned members', async () => {
@@ -502,12 +502,13 @@ describe('createFinanceCommandsService', () => {
             {
               utilityBillId: 'utility-gas',
               billName: 'Gas',
-              amount: Money.fromMajor('300', 'GEL'),
+              billTotal: Money.fromMajor('300', 'GEL'),
+              assignedAmount: Money.fromMajor('300', 'GEL'),
               assignedMemberId: 'member-1',
               assignedDisplayName: 'Стас',
               paidAmount: Money.zero('GEL'),
-              fullCategoryPayment: true,
-              splitSourceBillId: null
+              isFullAssignment: true,
+              splitGroupId: null
             }
           ],
           memberSummaries: []
@@ -568,7 +569,8 @@ describe('createFinanceCommandsService', () => {
       | undefined
 
     expect(payload?.text).toContain('Коммуналка')
-    expect(payload?.text).toContain('FULL · Gas: 300.00 GEL — Стас')
+    expect(payload?.text).toContain('FULL · Gas: 300.00 ₾ — Стас')
+    expect(payload?.text).toContain('Сводка:')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
         {
@@ -701,9 +703,9 @@ describe('createFinanceCommandsService', () => {
     )
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('- Gas (Water): 321.07 GEL')
-    expect(payload?.text).toContain('- Cleaning: 2.50 GEL')
-    expect(payload?.text).toContain('- Electricity: 83.09 GEL')
+    expect(payload?.text).toContain('- Gas (Water): 321.07 ₾')
+    expect(payload?.text).toContain('- Cleaning: 2.50 ₾')
+    expect(payload?.text).toContain('- Electricity: 83.09 ₾')
     expect(addedUtilityBills).toEqual([])
   })
 })

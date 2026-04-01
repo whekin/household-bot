@@ -81,28 +81,20 @@ export interface FinanceUtilityBillingPlanMemberPayload {
 export interface FinanceUtilityBillingPlanCategoryPayload {
   utilityBillId: string
   billName: string
-  amountMinor: string
+  billTotalMinor: string
+  assignedAmountMinor: string
   assignedMemberId: string
   paidAmountMinor: string
-  fullCategoryPayment: boolean
-  splitSourceBillId: string | null
-}
-
-export interface FinanceUtilityBillingPlanTransferPayload {
-  fromMemberId: string
-  toMemberId: string
-  amountMinor: string
-  settledAmountMinor: string
+  isFullAssignment: boolean
+  splitGroupId: string | null
 }
 
 export interface FinanceUtilityBillingPlanMemberSummaryPayload {
   memberId: string
   fairShareMinor: string
   vendorPaidMinor: string
-  assignedVendorMinor: string
-  effectiveTargetMinor: string
-  carryoverBeforeMinor: string
-  carryoverAfterMinor: string
+  assignedThisCycleMinor: string
+  projectedDeltaAfterPlanMinor: string
 }
 
 export interface FinanceUtilityBillingPlanPayload {

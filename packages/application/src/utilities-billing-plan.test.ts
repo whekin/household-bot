@@ -21,20 +21,17 @@ function bill(utilityBillId: string, billName: string, amountMajor: string) {
 }
 
 function assignedTotals(plan: ReturnType<typeof computeUtilityBillingPlan>) {
-  const totals = new Map<string, bigint>()
-
-  for (const category of plan.categories) {
+  return plan.categories.reduce((totals, category) => {
     totals.set(
       category.assignedMemberId,
-      (totals.get(category.assignedMemberId) ?? 0n) + category.amount.amountMinor
+      (totals.get(category.assignedMemberId) ?? 0n) + category.assignedAmount.amountMinor
     )
-  }
-
-  return totals
+    return totals
+  }, new Map<string, bigint>())
 }
 
 describe('computeUtilityBillingPlan', () => {
-  test('assigns whole bills within the 2-category cap when an exact fit exists', () => {
+  test('assigns whole bills within the 2-action target when an exact fit exists', () => {
     const plan = computeUtilityBillingPlan({
       currency: 'GEL',
       members: [
@@ -52,7 +49,7 @@ describe('computeUtilityBillingPlan', () => {
     })
 
     expect(plan.maxCategoriesPerMemberApplied).toBe(2)
-    expect(plan.categories.every((category) => category.fullCategoryPayment)).toBe(true)
+    expect(plan.categories.every((category) => category.isFullAssignment)).toBe(true)
 
     const counts = plan.categories.reduce(
       (result, category) =>
@@ -66,9 +63,74 @@ describe('computeUtilityBillingPlan', () => {
       10000n,
       10000n
     ])
+    expect(
+      plan.memberSummaries.every((summary) => summary.projectedDeltaAfterPlan.amountMinor === 0n)
+    ).toBe(true)
   })
 
-  test('relaxes the category cap when 2 assignments per member are impossible', () => {
+  test('splits a large bill when whole-bill assignment would force material fronting', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [member('alice', 'Alice', '50.00'), member('bob', 'Bob', '50.00')],
+      bills: [bill('big', 'Big bill', '80.00'), bill('small', 'Small bill', '20.00')],
+      vendorPayments: []
+    })
+
+    expect(plan.categories.some((category) => category.splitGroupId === 'big')).toBe(true)
+    expect(assignedTotals(plan)).toEqual(
+      new Map([
+        ['alice', 5000n],
+        ['bob', 5000n]
+      ])
+    )
+    expect(
+      plan.memberSummaries.every((summary) => summary.projectedDeltaAfterPlan.amountMinor === 0n)
+    ).toBe(true)
+  })
+
+  test('assigns only the unpaid remainder when a bill was already partially paid', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [member('alice', 'Alice', '75.00'), member('bob', 'Bob', '75.00')],
+      bills: [bill('gas', 'Gas', '90.00'), bill('electricity', 'Electricity', '60.00')],
+      vendorPayments: [
+        {
+          utilityBillId: 'gas',
+          billName: 'Gas',
+          payerMemberId: 'alice',
+          amount: Money.fromMajor('40.00', 'GEL')
+        }
+      ]
+    })
+
+    const gasAssignments = plan.categories.filter((category) => category.utilityBillId === 'gas')
+    expect(
+      gasAssignments.reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n)
+    ).toBe(5000n)
+    expect(
+      plan.memberSummaries.map((summary) => ({
+        memberId: summary.memberId,
+        vendorPaidMinor: summary.vendorPaid.amountMinor,
+        assignedMinor: summary.assignedThisCycle.amountMinor,
+        deltaMinor: summary.projectedDeltaAfterPlan.amountMinor
+      }))
+    ).toEqual([
+      {
+        memberId: 'alice',
+        vendorPaidMinor: 4000n,
+        assignedMinor: 3500n,
+        deltaMinor: 0n
+      },
+      {
+        memberId: 'bob',
+        vendorPaidMinor: 0n,
+        assignedMinor: 7500n,
+        deltaMinor: 0n
+      }
+    ])
+  })
+
+  test('relaxes the 2-action target when a split is required for fairness', () => {
     const plan = computeUtilityBillingPlan({
       currency: 'GEL',
       members: [member('alice', 'Alice', '50.00'), member('bob', 'Bob', '50.00')],
@@ -82,19 +144,11 @@ describe('computeUtilityBillingPlan', () => {
       vendorPayments: []
     })
 
-    const counts = [
-      ...plan.categories
-        .reduce(
-          (result, category) =>
-            result.set(category.assignedMemberId, (result.get(category.assignedMemberId) ?? 0) + 1),
-          new Map<string, number>()
-        )
-        .values()
-    ].sort((left, right) => left - right)
-
     expect(plan.maxCategoriesPerMemberApplied).toBe(3)
-    expect(counts).toEqual([2, 3])
-    expect(plan.categories.every((category) => category.fullCategoryPayment)).toBe(true)
+    expect(plan.categories.some((category) => category.splitGroupId !== null)).toBe(true)
+    expect(
+      plan.memberSummaries.every((summary) => summary.projectedDeltaAfterPlan.amountMinor === 0n)
+    ).toBe(true)
   })
 
   test('uses deterministic member assignment when multiple plans have the same score', () => {
@@ -114,22 +168,5 @@ describe('computeUtilityBillingPlan', () => {
       { utilityBillId: 'bill-a', assignedMemberId: 'alice' },
       { utilityBillId: 'bill-b', assignedMemberId: 'bob' }
     ])
-  })
-
-  test('prefers whole-bill assignments over split alternatives', () => {
-    const plan = computeUtilityBillingPlan({
-      currency: 'GEL',
-      members: [member('alice', 'Alice', '50.00'), member('bob', 'Bob', '50.00')],
-      bills: [
-        bill('big', 'Big bill', '80.00'),
-        bill('small-1', 'Small bill 1', '10.00'),
-        bill('small-2', 'Small bill 2', '10.00')
-      ],
-      vendorPayments: []
-    })
-
-    expect(plan.maxCategoriesPerMemberApplied).toBe(2)
-    expect(plan.categories.every((category) => category.fullCategoryPayment)).toBe(true)
-    expect(plan.categories.every((category) => category.splitSourceBillId === null)).toBe(true)
   })
 })

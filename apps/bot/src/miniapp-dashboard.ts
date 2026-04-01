@@ -83,7 +83,10 @@ export function createMiniAppDashboardHandler(options: {
 
         const dashboard = await options
           .financeServiceForHousehold(session.member.householdId)
-          .generateDashboard()
+          .generateDashboard(
+            payload.periodOverride,
+            payload.todayOverride ? { todayOverride: payload.todayOverride } : {}
+          )
         const [notifications, utilityCategories] = await Promise.all([
           options.adHocNotificationService.listUpcomingNotifications({
             householdId: session.member.householdId,
@@ -136,12 +139,13 @@ export function createMiniAppDashboardHandler(options: {
                     categories: dashboard.utilityBillingPlan.categories.map((category) => ({
                       utilityBillId: category.utilityBillId,
                       billName: category.billName,
-                      amountMajor: category.amount.toMajorString(),
+                      billTotalMajor: category.billTotal.toMajorString(),
+                      assignedAmountMajor: category.assignedAmount.toMajorString(),
                       assignedMemberId: category.assignedMemberId,
                       assignedDisplayName: category.assignedDisplayName,
                       paidAmountMajor: category.paidAmount.toMajorString(),
-                      fullCategoryPayment: category.fullCategoryPayment,
-                      splitSourceBillId: category.splitSourceBillId
+                      isFullAssignment: category.isFullAssignment,
+                      splitGroupId: category.splitGroupId
                     })),
                     memberSummaries: dashboard.utilityBillingPlan.memberSummaries.map(
                       (summary) => ({
@@ -149,10 +153,9 @@ export function createMiniAppDashboardHandler(options: {
                         displayName: summary.displayName,
                         fairShareMajor: summary.fairShare.toMajorString(),
                         vendorPaidMajor: summary.vendorPaid.toMajorString(),
-                        assignedVendorMajor: summary.assignedVendor.toMajorString(),
-                        effectiveTargetMajor: summary.effectiveTarget.toMajorString(),
-                        carryoverBeforeMajor: summary.carryoverBefore.toMajorString(),
-                        carryoverAfterMajor: summary.carryoverAfter.toMajorString()
+                        assignedThisCycleMajor: summary.assignedThisCycle.toMajorString(),
+                        projectedDeltaAfterPlanMajor:
+                          summary.projectedDeltaAfterPlan.toMajorString()
                       })
                     )
                   }

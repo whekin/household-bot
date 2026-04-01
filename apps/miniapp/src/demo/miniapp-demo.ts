@@ -15,6 +15,11 @@ type DemoScenarioState = {
   cycleState: MiniAppAdminCycleState
 }
 
+type DemoStateOverrides = {
+  periodOverride?: string | null
+  todayOverride?: string | null
+}
+
 export const demoMember: NonNullable<MiniAppSession['member']> = {
   id: 'demo-member',
   householdId: 'demo-household',
@@ -387,6 +392,162 @@ function baseLedger(): MiniAppDashboard['ledger'] {
   ]
 }
 
+function parsePeriod(period: string): { year: number; month: number } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  if (!match) return null
+
+  const year = Number.parseInt(match[1] ?? '', 10)
+  const month = Number.parseInt(match[2] ?? '', 10)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null
+  }
+
+  return { year, month }
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+function remapDateIntoPeriod(value: string, period: string): string {
+  const parsed = parsePeriod(period)
+  if (!parsed) return value
+
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateMatch) {
+    const day = Math.min(
+      Number.parseInt(dateMatch[3] ?? '1', 10),
+      daysInMonth(parsed.year, parsed.month)
+    )
+    return `${period}-${String(day).padStart(2, '0')}`
+  }
+
+  const dateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})(T.*)$/.exec(value)
+  if (dateTimeMatch) {
+    const day = Math.min(
+      Number.parseInt(dateTimeMatch[3] ?? '1', 10),
+      daysInMonth(parsed.year, parsed.month)
+    )
+    return `${period}-${String(day).padStart(2, '0')}${dateTimeMatch[4]}`
+  }
+
+  return value
+}
+
+function dayInPeriod(period: string, day: number): string {
+  return `${period}-${String(day).padStart(2, '0')}`
+}
+
+function buildDemoUtilityPlan(state: {
+  members: MiniAppDashboard['members']
+  ledger: MiniAppDashboard['ledger']
+}): NonNullable<MiniAppDashboard['utilityBillingPlan']> | null {
+  const utilityEntries = state.ledger.filter((entry) => entry.kind === 'utility')
+  if (utilityEntries.length === 0) {
+    return null
+  }
+
+  const vendorPaidByMemberId = new Map<string, bigint>()
+  for (const entry of state.ledger) {
+    if (entry.kind !== 'payment' || entry.paymentKind !== 'utilities' || !entry.memberId) continue
+    vendorPaidByMemberId.set(
+      entry.memberId,
+      (vendorPaidByMemberId.get(entry.memberId) ?? 0n) +
+        BigInt(Math.round(Number(entry.amountMajor) * 100))
+    )
+  }
+
+  const participants = state.members.filter((member) => Number(member.utilityShareMajor) > 0)
+  const remainingTargetByMemberId = new Map<string, bigint>(
+    participants.map((member) => {
+      const fairShareMinor = BigInt(Math.round(Number(member.utilityShareMajor) * 100))
+      const vendorPaidMinor = vendorPaidByMemberId.get(member.memberId) ?? 0n
+      const remainingMinor = fairShareMinor - vendorPaidMinor
+      return [member.memberId, remainingMinor > 0n ? remainingMinor : 0n] as const
+    })
+  )
+
+  const categories: Array<
+    NonNullable<MiniAppDashboard['utilityBillingPlan']>['categories'][number]
+  > = []
+
+  for (const entry of utilityEntries) {
+    let remainingBillMinor = BigInt(Math.round(Number(entry.displayAmountMajor) * 100))
+    const assignments: Array<{ memberId: string; amountMinor: bigint }> = []
+
+    const orderedParticipants = [...participants].sort((left, right) => {
+      const leftRemaining = remainingTargetByMemberId.get(left.memberId) ?? 0n
+      const rightRemaining = remainingTargetByMemberId.get(right.memberId) ?? 0n
+      if (rightRemaining === leftRemaining) {
+        return left.displayName.localeCompare(right.displayName)
+      }
+      return rightRemaining > leftRemaining ? 1 : -1
+    })
+
+    for (const member of orderedParticipants) {
+      if (remainingBillMinor <= 0n) break
+      const remainingTargetMinor = remainingTargetByMemberId.get(member.memberId) ?? 0n
+      if (remainingTargetMinor <= 0n) continue
+
+      const assignedMinor =
+        remainingTargetMinor >= remainingBillMinor ? remainingBillMinor : remainingTargetMinor
+      if (assignedMinor <= 0n) continue
+
+      assignments.push({ memberId: member.memberId, amountMinor: assignedMinor })
+      remainingTargetByMemberId.set(member.memberId, remainingTargetMinor - assignedMinor)
+      remainingBillMinor -= assignedMinor
+    }
+
+    for (const assignment of assignments) {
+      const displayName =
+        state.members.find((member) => member.memberId === assignment.memberId)?.displayName ??
+        assignment.memberId
+      const billMinor = BigInt(Math.round(Number(entry.displayAmountMajor) * 100))
+      categories.push({
+        utilityBillId: entry.id,
+        billName: entry.title,
+        billTotalMajor: entry.displayAmountMajor,
+        assignedAmountMajor: (Number(assignment.amountMinor) / 100).toFixed(2),
+        assignedMemberId: assignment.memberId,
+        assignedDisplayName: displayName,
+        paidAmountMajor: '0.00',
+        isFullAssignment: assignments.length === 1 && assignment.amountMinor === billMinor,
+        splitGroupId: assignments.length > 1 ? entry.id : null
+      })
+    }
+  }
+
+  return {
+    version: 1,
+    status: 'active',
+    dueDate: '2026-03-04',
+    updatedFromVersion: null,
+    reason: null,
+    categories,
+    memberSummaries: state.members.map((member) => {
+      const fairShareMinor = BigInt(Math.round(Number(member.utilityShareMajor) * 100))
+      const vendorPaidMinor = vendorPaidByMemberId.get(member.memberId) ?? 0n
+      const assignedMinor = categories
+        .filter((category) => category.assignedMemberId === member.memberId)
+        .reduce(
+          (sum, category) => sum + BigInt(Math.round(Number(category.assignedAmountMajor) * 100)),
+          0n
+        )
+
+      return {
+        memberId: member.memberId,
+        displayName: member.displayName,
+        fairShareMajor: (Number(fairShareMinor) / 100).toFixed(2),
+        vendorPaidMajor: (Number(vendorPaidMinor) / 100).toFixed(2),
+        assignedThisCycleMajor: (Number(assignedMinor) / 100).toFixed(2),
+        projectedDeltaAfterPlanMajor: (
+          Number(vendorPaidMinor + assignedMinor - fairShareMinor) / 100
+        ).toFixed(2)
+      }
+    })
+  }
+}
+
 function createDashboard(state: {
   totalDueMajor: string
   totalPaidMajor: string
@@ -394,6 +555,7 @@ function createDashboard(state: {
   members: MiniAppDashboard['members']
   ledger?: MiniAppDashboard['ledger']
 }): MiniAppDashboard {
+  const ledger = state.ledger ?? baseLedger()
   const paymentPeriods: MiniAppDashboard['paymentPeriods'] = [
     {
       period: '2026-03',
@@ -480,7 +642,7 @@ function createDashboard(state: {
     },
     members: state.members,
     paymentPeriods,
-    ledger: state.ledger ?? baseLedger(),
+    ledger,
     notifications: [
       {
         id: 'notification-breakfast',
@@ -768,8 +930,90 @@ const demoScenarioCatalog: Record<DemoScenarioId, DemoScenarioState> = {
   }
 }
 
-export function getDemoScenarioState(id: DemoScenarioId): DemoScenarioState {
-  return structuredClone(demoScenarioCatalog[id])
+function applyOverridesToDemoState(
+  state: DemoScenarioState,
+  overrides: DemoStateOverrides = {}
+): DemoScenarioState {
+  const next = structuredClone(state)
+  const periodOverride = overrides.periodOverride?.trim() || null
+  if (!periodOverride) {
+    next.dashboard.utilityBillingPlan = buildDemoUtilityPlan({
+      members: next.dashboard.members,
+      ledger: next.dashboard.ledger
+    })
+    return next
+  }
+
+  next.dashboard.period = periodOverride
+  next.dashboard.rentBillingState.dueDate = dayInPeriod(periodOverride, next.dashboard.rentDueDay)
+  if (next.dashboard.utilityBillingPlan) {
+    next.dashboard.utilityBillingPlan.dueDate = dayInPeriod(
+      periodOverride,
+      next.dashboard.utilitiesDueDay
+    )
+  }
+  next.dashboard.paymentPeriods = (next.dashboard.paymentPeriods ?? []).map((entry) => ({
+    ...entry,
+    period: periodOverride,
+    isCurrentPeriod: true
+  }))
+  next.dashboard.ledger = next.dashboard.ledger.map((entry) => ({
+    ...entry,
+    occurredAt: entry.occurredAt ? remapDateIntoPeriod(entry.occurredAt, periodOverride) : null,
+    ...(entry.originPeriod ? { originPeriod: periodOverride } : {})
+  }))
+  next.dashboard.notifications = next.dashboard.notifications.map((notification) => ({
+    ...notification,
+    scheduledFor: remapDateIntoPeriod(notification.scheduledFor, periodOverride)
+  }))
+
+  if (next.cycleState.cycle) {
+    next.cycleState.cycle = {
+      ...next.cycleState.cycle,
+      period: periodOverride
+    }
+  }
+  next.cycleState.utilityBills = next.cycleState.utilityBills.map((bill) => ({
+    ...bill,
+    createdAt: remapDateIntoPeriod(bill.createdAt, periodOverride)
+  }))
+  next.adminSettings.memberAbsencePolicies = next.adminSettings.memberAbsencePolicies.map(
+    (policy) => ({
+      ...policy,
+      startsOn: remapDateIntoPeriod(policy.startsOn, periodOverride),
+      endsOn: policy.endsOn ? remapDateIntoPeriod(policy.endsOn, periodOverride) : null
+    })
+  )
+  next.dashboard.utilityBillingPlan = buildDemoUtilityPlan({
+    members: next.dashboard.members,
+    ledger: next.dashboard.ledger
+  })
+
+  return next
+}
+
+export function getDemoScenarioState(
+  id: DemoScenarioId,
+  overrides: DemoStateOverrides = {}
+): DemoScenarioState {
+  return applyOverridesToDemoState(demoScenarioCatalog[id], overrides)
+}
+
+export function getDemoScenarioDefaultToday(
+  _id: DemoScenarioId,
+  periodOverride?: string | null
+): string {
+  if (periodOverride?.trim()) {
+    const today = new Date()
+    const parsed = parsePeriod(periodOverride.trim())
+    if (parsed) {
+      const day = Math.min(today.getDate(), daysInMonth(parsed.year, parsed.month))
+      return dayInPeriod(periodOverride.trim(), day)
+    }
+  }
+
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 }
 
 const defaultScenarioState = getDemoScenarioState('current-cycle')

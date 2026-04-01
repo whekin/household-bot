@@ -1,9 +1,9 @@
 import { Route, Router } from '@solidjs/router'
-import { Match, Switch, createEffect } from 'solid-js'
+import { Match, Switch } from 'solid-js'
 
 import { I18nProvider, useI18n } from './contexts/i18n-context'
 import { SessionProvider, useSession, joinDeepLink } from './contexts/session-context'
-import { DashboardProvider, useDashboard } from './contexts/dashboard-context'
+import { DashboardProvider } from './contexts/dashboard-context'
 import { AppShell } from './components/layout/shell'
 import { LoadingState } from './components/session/loading-state'
 import { BlockedState } from './components/session/blocked-state'
@@ -97,16 +97,6 @@ function AppContent() {
 }
 
 function AuthenticatedApp() {
-  const { initData, readySession } = useSession()
-  const { loadDashboardData } = useDashboard()
-
-  createEffect(() => {
-    const data = initData()
-    const current = readySession()
-    if (!current) return
-    void loadDashboardData(data ?? '', current.member.isAdmin)
-  })
-
   return (
     <Router root={AppShell}>
       <Route path="/" component={HomeRoute} />

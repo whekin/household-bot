@@ -7,6 +7,7 @@ import type {
 import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations } from './i18n'
+import { formatUserFacingMoney } from './i18n/money'
 import { resolveReplyLocale } from './bot-locale'
 import {
   buildTemplateText,
@@ -336,6 +337,12 @@ export function createFinanceCommandsService(options: {
             .map((category) => {
               const details = categoryDetailsByName.get(category.billName.trim().toLowerCase())
               const detailParts = [
+                !category.isFullAssignment
+                  ? `${input.locale === 'ru' ? 'сумма счета' : 'bill total'}: ${formatUserFacingMoney(category.billTotal.toMajorString(), input.currency)}`
+                  : null,
+                category.paidAmount.amountMinor > 0n
+                  ? `${input.locale === 'ru' ? 'уже оплачено' : 'already paid'}: ${formatUserFacingMoney(category.paidAmount.toMajorString(), input.currency)}`
+                  : null,
                 details?.providerName
                   ? `${input.locale === 'ru' ? 'провайдер' : 'provider'}: ${details.providerName}`
                   : null,
@@ -350,27 +357,27 @@ export function createFinanceCommandsService(options: {
                   : null
               ].filter(Boolean)
 
-              return `- ${category.fullCategoryPayment ? 'FULL · ' : ''}${category.billName}: ${category.amount.toMajorString()} ${input.currency} — ${category.assignedDisplayName}${detailParts.length > 0 ? `\n  ${detailParts.join('\n  ')}` : ''}`
+              return `- ${category.isFullAssignment ? 'FULL' : 'SPLIT'} · ${category.billName}: ${formatUserFacingMoney(category.assignedAmount.toMajorString(), input.currency)} — ${category.assignedDisplayName}${detailParts.length > 0 ? `\n  ${detailParts.join('\n  ')}` : ''}`
             })
             .join('\n')}`
         : input.locale === 'ru'
           ? 'Активных назначений по коммуналке нет.'
           : 'No active utility assignments.',
       '',
-      `${input.locale === 'ru' ? 'Переносы:' : 'Carryover:'}\n${
+      `${input.locale === 'ru' ? 'Сводка:' : 'Summary:'}\n${
         (input.plan?.memberSummaries ?? [])
           .filter((summary) => {
             if (!input.viewerMemberId) {
-              return summary.carryoverAfter.amountMinor !== 0n
+              return true
             }
 
             return summary.memberId === input.viewerMemberId
           })
           .map(
             (summary) =>
-              `- ${summary.displayName}: ${summary.carryoverAfter.toMajorString()} ${input.currency}`
+              `- ${summary.displayName}: ${input.locale === 'ru' ? 'цель' : 'fair share'} ${formatUserFacingMoney(summary.fairShare.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'уже оплачено' : 'paid'} ${formatUserFacingMoney(summary.vendorPaid.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'назначено сейчас' : 'assigned now'} ${formatUserFacingMoney(summary.assignedThisCycle.toMajorString(), input.currency)}, ${input.locale === 'ru' ? 'итоговое отклонение' : 'projected delta'} ${formatUserFacingMoney(summary.projectedDeltaAfterPlan.toMajorString(), input.currency)}`
           )
-          .join('\n') || (input.locale === 'ru' ? '- Нет переноса' : '- No carryover')
+          .join('\n') || (input.locale === 'ru' ? '- Нет данных' : '- No summary')
       }`
     ].join('\n')
   }
@@ -396,7 +403,7 @@ export function createFinanceCommandsService(options: {
       visibleMembers
         .map(
           (member) =>
-            `- ${member.displayName}: ${member.remaining.toMajorString()} ${input.currency} ${input.locale === 'ru' ? 'осталось' : 'remaining'}`
+            `- ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)} ${input.locale === 'ru' ? 'осталось' : 'remaining'}`
         )
         .join('\n')
     ].join('\n')

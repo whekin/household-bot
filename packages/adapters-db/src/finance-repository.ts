@@ -44,23 +44,38 @@ function mapUtilityBillingPlanPayload(raw: unknown): FinanceUtilityBillingPlanPa
     categories: arrayOfObjects(payload.categories).map((entry) => ({
       utilityBillId: String(entry.utilityBillId ?? ''),
       billName: String(entry.billName ?? ''),
-      amountMinor: String(entry.amountMinor ?? '0'),
+      billTotalMinor: String(entry.billTotalMinor ?? entry.amountMinor ?? '0'),
+      assignedAmountMinor: String(entry.assignedAmountMinor ?? entry.amountMinor ?? '0'),
       assignedMemberId: String(entry.assignedMemberId ?? ''),
       paidAmountMinor: String(entry.paidAmountMinor ?? '0'),
-      fullCategoryPayment: entry.fullCategoryPayment === true,
-      splitSourceBillId:
-        entry.splitSourceBillId === null || entry.splitSourceBillId === undefined
-          ? null
-          : String(entry.splitSourceBillId)
+      isFullAssignment:
+        entry.isFullAssignment === true ||
+        (entry.isFullAssignment === undefined && entry.fullCategoryPayment === true),
+      splitGroupId:
+        entry.splitGroupId === null || entry.splitGroupId === undefined
+          ? entry.splitSourceBillId === null || entry.splitSourceBillId === undefined
+            ? null
+            : String(entry.splitSourceBillId)
+          : String(entry.splitGroupId)
     })),
     memberSummaries: arrayOfObjects(payload.memberSummaries).map((entry) => ({
       memberId: String(entry.memberId ?? ''),
       fairShareMinor: String(entry.fairShareMinor ?? '0'),
       vendorPaidMinor: String(entry.vendorPaidMinor ?? '0'),
-      assignedVendorMinor: String(entry.assignedVendorMinor ?? '0'),
-      effectiveTargetMinor: String(entry.effectiveTargetMinor ?? '0'),
-      carryoverBeforeMinor: String(entry.carryoverBeforeMinor ?? '0'),
-      carryoverAfterMinor: String(entry.carryoverAfterMinor ?? '0')
+      assignedThisCycleMinor:
+        entry.assignedThisCycleMinor === undefined
+          ? (
+              BigInt(String(entry.assignedVendorMinor ?? entry.vendorPaidMinor ?? '0')) -
+              BigInt(String(entry.vendorPaidMinor ?? '0'))
+            ).toString()
+          : String(entry.assignedThisCycleMinor),
+      projectedDeltaAfterPlanMinor:
+        entry.projectedDeltaAfterPlanMinor === undefined
+          ? (
+              BigInt(String(entry.assignedVendorMinor ?? entry.vendorPaidMinor ?? '0')) -
+              BigInt(String(entry.fairShareMinor ?? '0'))
+            ).toString()
+          : String(entry.projectedDeltaAfterPlanMinor)
     }))
   }
 }

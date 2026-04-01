@@ -90,7 +90,6 @@ export type {
   FinanceRepository,
   FinanceUtilityBillRecord,
   FinanceUtilityVendorPaymentFactRecord,
-  FinanceUtilityBillingPlanTransferPayload,
   SettlementSnapshotLineRecord,
   SettlementSnapshotRecord
 } from './finance'

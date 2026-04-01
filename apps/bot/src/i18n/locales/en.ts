@@ -1,4 +1,5 @@
 import type { BotTranslationCatalog } from '../types'
+import { formatUserFacingMoney } from '../money'
 
 export const enBotTranslations: BotTranslationCatalog = {
   localeName: 'English',
@@ -178,7 +179,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     hour: (count) => `${count} hour${count === 1 ? '' : 's'}`,
     minute: (count) => `${count} minute${count === 1 ? '' : 's'}`,
     paymentProposal: (kind, amount, currency) =>
-      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}. Confirm or cancel below.`,
+      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`,
     paymentClarification:
       'I can help record that payment, but I need a clearer message. Mention whether it was rent or utilities, and include the amount if you did not pay the full current balance.',
     paymentUnsupportedCurrency:
@@ -187,7 +188,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     paymentConfirmButton: 'Confirm payment',
     paymentCancelButton: 'Cancel',
     paymentConfirmed: (kind, amount, currency) =>
-      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}`,
+      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}`,
     paymentCancelled: 'Payment proposal cancelled.',
     paymentAlreadyHandled: 'That payment proposal was already handled.',
     paymentUnavailable: 'That payment proposal is no longer available.'
@@ -207,40 +208,47 @@ export const enBotTranslations: BotTranslationCatalog = {
     rentSetUsage: 'Usage: /rent_set <amount> [USD|GEL] [YYYY-MM]',
     rentNoPeriod: 'No period provided and no open cycle found.',
     rentSaved: (amount, currency, period) =>
-      `Rent rule saved: ${amount} ${currency} starting ${period}`,
+      `Rent rule saved: ${formatUserFacingMoney(amount, currency)} starting ${period}`,
     rentSaveFailed: (message) => `Failed to save rent rule: ${message}`,
     utilityAddUsage: 'Usage: /utility_add <name> <amount> [USD|GEL]',
     utilityNoOpenCycle: 'No open cycle found. Use /cycle_open first.',
     utilityAdded: (name, amount, currency, period) =>
-      `Utility bill added: ${name} ${amount} ${currency} for ${period}`,
+      `Utility bill added: ${name} ${formatUserFacingMoney(amount, currency)} for ${period}`,
     utilityAddFailed: (message) => `Failed to add utility bill: ${message}`,
     paymentAddUsage: 'Usage: /payment_add <rent|utilities> [amount] [USD|GEL]',
     paymentNoCycle: 'No billing cycle is ready yet.',
     paymentNoBalance: 'There is no payable balance for that payment type right now.',
     paymentAdded: (kind, amount, currency, period) =>
-      `Payment recorded: ${kind === 'rent' ? 'rent' : 'utilities'} ${amount} ${currency} for ${period}`,
+      `Payment recorded: ${kind === 'rent' ? 'rent' : 'utilities'} ${formatUserFacingMoney(amount, currency)} for ${period}`,
     paymentAddFailed: (message) => `Failed to record payment: ${message}`,
     noStatementCycle: 'No cycle found for statement.',
     householdStatusTitle: (period) => `Household status for ${period}`,
     householdStatusDueDate: (dueDate) => `Rent due by ${dueDate}`,
     householdStatusChargesHeading: 'Charges',
-    householdStatusRentDirect: (amount, currency) => `Rent: ${amount} ${currency}`,
+    householdStatusRentDirect: (amount, currency) =>
+      `Rent: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
-      `Rent: ${sourceAmount} ${sourceCurrency} (~${displayAmount} ${displayCurrency})`,
-    householdStatusUtilities: (amount, currency) => `Utilities: ${amount} ${currency}`,
-    householdStatusPurchases: (amount, currency) => `Shared purchases: ${amount} ${currency}`,
+      `Rent: ${formatUserFacingMoney(sourceAmount, sourceCurrency)} (~${formatUserFacingMoney(displayAmount, displayCurrency)})`,
+    householdStatusUtilities: (amount, currency) =>
+      `Utilities: ${formatUserFacingMoney(amount, currency)}`,
+    householdStatusPurchases: (amount, currency) =>
+      `Shared purchases: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusSettlementHeading: 'Settlement',
-    householdStatusSettlementBalance: (amount, currency) => `Gross balance: ${amount} ${currency}`,
-    householdStatusSettlementPaid: (amount, currency) => `Paid so far: ${amount} ${currency}`,
-    householdStatusSettlementRemaining: (amount, currency) => `Remaining: ${amount} ${currency}`,
+    householdStatusSettlementBalance: (amount, currency) =>
+      `Gross balance: ${formatUserFacingMoney(amount, currency)}`,
+    householdStatusSettlementPaid: (amount, currency) =>
+      `Paid so far: ${formatUserFacingMoney(amount, currency)}`,
+    householdStatusSettlementRemaining: (amount, currency) =>
+      `Remaining: ${formatUserFacingMoney(amount, currency)}`,
     householdStatusMembersHeading: 'Members',
     householdStatusMemberCompact: (displayName, remaining, currency) =>
-      `- ${displayName}: remaining ${remaining} ${currency}`,
+      `- ${displayName}: remaining ${formatUserFacingMoney(remaining, currency)}`,
     householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
-      `- ${displayName}: remaining ${remaining} ${currency} (${balance} balance, ${paid} paid)`,
+      `- ${displayName}: remaining ${formatUserFacingMoney(remaining, currency)} (${formatUserFacingMoney(balance, currency)} balance, ${formatUserFacingMoney(paid, currency)} paid)`,
     statementTitle: (period) => `Statement for ${period}`,
-    statementLine: (displayName, amount, currency) => `- ${displayName}: ${amount} ${currency}`,
-    statementTotal: (amount, currency) => `Total: ${amount} ${currency}`,
+    statementLine: (displayName, amount, currency) =>
+      `- ${displayName}: ${formatUserFacingMoney(amount, currency)}`,
+    statementTotal: (amount, currency) => `Total: ${formatUserFacingMoney(amount, currency)}`,
     statementFailed: (message) => `Failed to generate statement: ${message}`,
     utilitiesTopicRequired: 'This command must be used inside a topic.',
     utilitiesNotLinked: 'This topic is not linked to a household.'
@@ -267,7 +275,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     templateInvalid:
       'I could not read any utility amounts from that template. Send the filled template back with at least one amount.',
     summaryTitle: (period) => `Utility charges for ${period}`,
-    summaryLine: (categoryName, amount, currency) => `- ${categoryName}: ${amount} ${currency}`,
+    summaryLine: (categoryName, amount, currency) =>
+      `- ${categoryName}: ${formatUserFacingMoney(amount, currency)}`,
     confirmPrompt: 'Confirm or cancel below.',
     confirmButton: 'Save utility charges',
     cancelButton: 'Cancel',
@@ -336,20 +345,22 @@ export const enBotTranslations: BotTranslationCatalog = {
     balanceReply: (kind) =>
       kind === 'rent' ? 'Current rent payment guidance:' : 'Current utilities payment guidance:',
     proposal: (kind, amount, currency) =>
-      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}. Confirm or cancel below.`,
+      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`,
     clarification:
       'I could not confirm this payment yet. Please clarify whether this was rent or utilities and include the amount/currency if needed.',
     unsupportedCurrency:
       'I can only record payments in the household settlement currency for this topic right now.',
     noBalance: 'There is no payable balance for that payment type right now.',
     breakdownBase: (kind, amount, currency) =>
-      `${kind === 'rent' ? 'Rent due' : 'Utilities due'}: ${amount} ${currency}`,
-    breakdownPurchaseBalance: (amount, currency) => `Purchase balance: ${amount} ${currency}`,
+      `${kind === 'rent' ? 'Rent due' : 'Utilities due'}: ${formatUserFacingMoney(amount, currency)}`,
+    breakdownPurchaseBalance: (amount, currency) =>
+      `Purchase balance: ${formatUserFacingMoney(amount, currency)}`,
     breakdownSuggestedTotal: (amount, currency, policy) =>
-      `Suggested payment under ${policy}: ${amount} ${currency}`,
+      `Suggested payment under ${policy}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownRecordingAmount: (amount, currency) =>
-      `Amount from your message: ${amount} ${currency}`,
-    breakdownRemaining: (amount, currency) => `Total remaining balance: ${amount} ${currency}`,
+      `Amount from your message: ${formatUserFacingMoney(amount, currency)}`,
+    breakdownRemaining: (amount, currency) =>
+      `Total remaining balance: ${formatUserFacingMoney(amount, currency)}`,
     adjustmentPolicy: (policy) =>
       policy === 'utilities'
         ? 'utilities adjustment'
@@ -363,7 +374,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     confirmButton: 'Confirm payment',
     cancelButton: 'Cancel',
     recorded: (kind, amount, currency) =>
-      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${amount} ${currency}`,
+      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}`,
     cancelled: 'Payment proposal cancelled.',
     proposalUnavailable: 'This payment proposal is no longer available.',
     notYourProposal: 'Only the original sender can confirm or cancel this payment.',

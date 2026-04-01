@@ -236,22 +236,21 @@ export interface FinanceDashboardUtilityBillingPlan {
   categories: readonly {
     utilityBillId: string
     billName: string
-    amount: Money
+    billTotal: Money
+    assignedAmount: Money
     assignedMemberId: string
     assignedDisplayName: string
     paidAmount: Money
-    fullCategoryPayment: boolean
-    splitSourceBillId: string | null
+    isFullAssignment: boolean
+    splitGroupId: string | null
   }[]
   memberSummaries: readonly {
     memberId: string
     displayName: string
     fairShare: Money
     vendorPaid: Money
-    assignedVendor: Money
-    effectiveTarget: Money
-    carryoverBefore: Money
-    carryoverAfter: Money
+    assignedThisCycle: Money
+    projectedDeltaAfterPlan: Money
   }[]
 }
 
@@ -530,46 +529,6 @@ function utilityPlanPayloadChanged(
   )
 }
 
-async function computePriorUtilityCarryoverByMemberId(input: {
-  dependencies: FinanceCommandServiceDependencies
-  cycle: FinanceCycleRecord
-  members: readonly HouseholdMemberRecord[]
-}): Promise<ReadonlyMap<string, bigint>> {
-  const carryoverByMemberId = new Map<string, bigint>(
-    input.members.map((member) => [member.id, 0n] as const)
-  )
-  const priorCycles = (await input.dependencies.repository.listCycles()).filter(
-    (candidate) => candidate.period.localeCompare(input.cycle.period) < 0
-  )
-
-  for (const priorCycle of priorCycles) {
-    const [settlementLines, vendorFacts] = await Promise.all([
-      input.dependencies.repository.getSettlementSnapshotLines(priorCycle.id),
-      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(priorCycle.id)
-    ])
-
-    const vendorPaidByMemberId = new Map<string, bigint>()
-    for (const fact of vendorFacts) {
-      vendorPaidByMemberId.set(
-        fact.payerMemberId,
-        (vendorPaidByMemberId.get(fact.payerMemberId) ?? 0n) + fact.amountMinor
-      )
-    }
-
-    for (const member of input.members) {
-      const fairShareMinor =
-        settlementLines.find((line) => line.memberId === member.id)?.utilityShareMinor ?? 0n
-      const vendorPaidMinor = vendorPaidByMemberId.get(member.id) ?? 0n
-      carryoverByMemberId.set(
-        member.id,
-        (carryoverByMemberId.get(member.id) ?? 0n) + fairShareMinor - vendorPaidMinor
-      )
-    }
-  }
-
-  return carryoverByMemberId
-}
-
 async function ensureUtilityBillingPlan(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -587,14 +546,9 @@ async function ensureUtilityBillingPlan(input: {
   record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
   computed: UtilityBillingPlanComputed
 }> {
-  const [existingPlans, vendorFacts, carryoverBeforeByMemberId] = await Promise.all([
+  const [existingPlans, vendorFacts] = await Promise.all([
     input.dependencies.repository.listUtilityBillingPlansForCycle(input.cycle.id),
-    input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(input.cycle.id),
-    computePriorUtilityCarryoverByMemberId({
-      dependencies: input.dependencies,
-      cycle: input.cycle,
-      members: input.members
-    })
+    input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(input.cycle.id)
   ])
 
   const activePlan =
@@ -608,11 +562,7 @@ async function ensureUtilityBillingPlan(input: {
       memberId: line.memberId,
       displayName:
         input.members.find((member) => member.id === line.memberId)?.displayName ?? line.memberId,
-      fairShare: line.utilityShare,
-      carryoverBefore: Money.fromMinor(
-        carryoverBeforeByMemberId.get(line.memberId) ?? 0n,
-        input.cycle.currency
-      )
+      fairShare: line.utilityShare
     })),
     bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
       utilityBillId: bill.id,
@@ -689,23 +639,22 @@ function buildDashboardUtilityBillingPlan(input: {
     categories: input.computed.categories.map((category) => ({
       utilityBillId: category.utilityBillId,
       billName: category.billName,
-      amount: category.amount,
+      billTotal: category.billTotal,
+      assignedAmount: category.assignedAmount,
       assignedMemberId: category.assignedMemberId,
       assignedDisplayName:
         input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
       paidAmount: category.paidAmount,
-      fullCategoryPayment: category.fullCategoryPayment,
-      splitSourceBillId: category.splitSourceBillId
+      isFullAssignment: category.isFullAssignment,
+      splitGroupId: category.splitGroupId
     })),
     memberSummaries: input.computed.memberSummaries.map((summary) => ({
       memberId: summary.memberId,
       displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
       fairShare: summary.fairShare,
       vendorPaid: summary.vendorPaid,
-      assignedVendor: summary.assignedVendor,
-      effectiveTarget: summary.effectiveTarget,
-      carryoverBefore: summary.carryoverBefore,
-      carryoverAfter: summary.carryoverAfter
+      assignedThisCycle: summary.assignedThisCycle,
+      projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
     }))
   }
 }
@@ -715,8 +664,11 @@ function resolveBillingStage(input: {
   settings: HouseholdBillingSettingsRecord
   utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
   rentBillingState: FinanceDashboardRentBillingState
+  todayOverride?: string
 }): 'utilities' | 'rent' | 'idle' {
-  const localDate = localDateInTimezone(input.settings.timezone)
+  const localDate = input.todayOverride
+    ? Temporal.PlainDate.from(input.todayOverride)
+    : localDateInTimezone(input.settings.timezone)
   const period = BillingPeriod.fromString(input.period)
   const utilitiesReminder = billingPeriodLockDate(period, input.settings.utilitiesReminderDay)
   const rentReminder = billingPeriodLockDate(period, input.settings.rentWarningDay)
@@ -1291,7 +1243,10 @@ async function resolveAutomaticPaymentTargets(input: {
 
 async function buildFinanceDashboard(
   dependencies: FinanceCommandServiceDependencies,
-  periodArg?: string
+  periodArg?: string,
+  options: {
+    todayOverride?: string
+  } = {}
 ): Promise<FinanceDashboard | null> {
   const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
   if (!cycle) {
@@ -1674,7 +1629,8 @@ async function buildFinanceDashboard(
     period: cycle.period,
     settings,
     utilityBillingPlan: dashboardUtilityBillingPlan,
-    rentBillingState
+    rentBillingState,
+    ...(options.todayOverride ? { todayOverride: options.todayOverride } : {})
   })
 
   const ledger: FinanceDashboardLedgerEntry[] = [
@@ -2017,7 +1973,12 @@ export interface FinanceCommandService {
     plan: FinanceDashboardUtilityBillingPlan | null
   } | null>
   rebalanceUtilityPlan(periodArg?: string): Promise<FinanceDashboardUtilityBillingPlan | null>
-  generateDashboard(periodArg?: string): Promise<FinanceDashboard | null>
+  generateDashboard(
+    periodArg?: string,
+    options?: {
+      todayOverride?: string
+    }
+  ): Promise<FinanceDashboard | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
 
@@ -2577,7 +2538,7 @@ export function createFinanceCommandService(
 
       const categories = dashboard.utilityBillingPlan.categories.filter(
         (category) =>
-          category.assignedMemberId === input.memberId && category.amount.amountMinor > 0n
+          category.assignedMemberId === input.memberId && category.assignedAmount.amountMinor > 0n
       )
       if (categories.length === 0) {
         throw new Error('No planned utility bills assigned to this member')
@@ -2594,7 +2555,7 @@ export function createFinanceCommandService(
           utilityBillId: category.utilityBillId,
           billName: category.billName,
           payerMemberId: input.memberId,
-          amountMinor: category.amount.amountMinor,
+          amountMinor: category.assignedAmount.amountMinor,
           currency: dashboard.currency,
           plannedForMemberId: input.memberId,
           planVersion: dashboard.utilityBillingPlan.version,
@@ -2637,7 +2598,7 @@ export function createFinanceCommandService(
         ) ?? []
       const defaultMinor = assignedAmounts
         .filter((category) => category.assignedMemberId === input.payerMemberId)
-        .reduce((sum, category) => sum + category.amount.amountMinor, 0n)
+        .reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n)
       const currency = parseCurrency(input.currencyArg, dashboard.currency)
       const amount = input.amountArg
         ? Money.fromMajor(input.amountArg, currency)
@@ -2645,7 +2606,7 @@ export function createFinanceCommandService(
       const matchingCategory = assignedAmounts.find(
         (category) =>
           category.assignedMemberId === input.payerMemberId &&
-          category.amount.amountMinor === amount.amountMinor
+          category.assignedAmount.amountMinor === amount.amountMinor
       )
 
       await repository.addUtilityVendorPaymentFact({
@@ -2742,10 +2703,10 @@ export function createFinanceCommandService(
       ].join('\n')
     },
 
-    generateDashboard(periodArg) {
+    generateDashboard(periodArg, options) {
       return periodArg
-        ? buildFinanceDashboard(dependencies, periodArg)
-        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies))
+        ? buildFinanceDashboard(dependencies, periodArg, options)
+        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies, undefined, options))
     }
   }
 }

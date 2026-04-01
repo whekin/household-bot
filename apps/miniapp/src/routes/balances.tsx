@@ -4,7 +4,7 @@ import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
-import { memberCreditClass, memberRemainingClass } from '../lib/ledger-helpers'
+import { formatMoneyLabel, memberCreditClass, memberRemainingClass } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 
 function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
@@ -16,6 +16,8 @@ export default function BalancesRoute() {
   const { copy, locale } = useI18n()
   const { dashboard, loading, purchaseLedger, purchaseTotalMajor, utilityTotalMajor } =
     useDashboard()
+  const formatAmount = (amountMajor: string, currency: 'USD' | 'GEL') =>
+    formatMoneyLabel(amountMajor, currency, locale())
 
   const purchaseByMember = createMemo(() => {
     const data = dashboard()
@@ -96,22 +98,18 @@ export default function BalancesRoute() {
                   <div>
                     <p class="statement-header__eyebrow">{copy().balancesTitle}</p>
                     <h2 class="statement-header__title">
-                      {data().totalRemainingMajor} {data().currency}
+                      {formatAmount(data().totalRemainingMajor, data().currency)}
                     </h2>
                     <p class="statement-header__body">{copy().householdBalancesBody}</p>
                   </div>
                   <div class="statement-chip-grid">
                     <div class="statement-chip">
                       <span>{copy().purchasesBalanceTitle}</span>
-                      <strong>
-                        {purchaseTotalMajor()} {data().currency}
-                      </strong>
+                      <strong>{formatAmount(purchaseTotalMajor(), data().currency)}</strong>
                     </div>
                     <div class="statement-chip">
                       <span>{copy().utilitiesBalanceTitle}</span>
-                      <strong>
-                        {utilityTotalMajor()} {data().currency}
-                      </strong>
+                      <strong>{formatAmount(utilityTotalMajor(), data().currency)}</strong>
                     </div>
                   </div>
                 </div>
@@ -135,13 +133,11 @@ export default function BalancesRoute() {
                         <div>
                           <strong>{member.displayName}</strong>
                           <span>
-                            {locale() === 'ru' ? 'К начислению' : 'Total due'}: {member.netDueMajor}{' '}
-                            {data().currency}
+                            {locale() === 'ru' ? 'К начислению' : 'Total due'}:{' '}
+                            {formatAmount(member.netDueMajor, data().currency)}
                           </span>
                         </div>
-                        <strong>
-                          {member.remainingMajor} {data().currency}
-                        </strong>
+                        <strong>{formatAmount(member.remainingMajor, data().currency)}</strong>
                       </div>
                     )}
                   </For>
@@ -169,12 +165,8 @@ export default function BalancesRoute() {
                     {(item) => (
                       <div class={`statement-row ${memberCreditClass(item.member)}`}>
                         <strong>{item.member.displayName}</strong>
-                        <span>
-                          {item.spentMajor} {data().currency}
-                        </span>
-                        <span>
-                          {item.balanceMajor} {data().currency}
-                        </span>
+                        <span>{formatAmount(item.spentMajor, data().currency)}</span>
+                        <span>{formatAmount(item.balanceMajor, data().currency)}</span>
                       </div>
                     )}
                   </For>
@@ -209,10 +201,10 @@ export default function BalancesRoute() {
                         <div class="statement-row">
                           <strong>{member.displayName}</strong>
                           <span>
-                            {minorToMajorString(pureMinor)} {data().currency}
+                            {formatAmount(minorToMajorString(pureMinor), data().currency)}
                           </span>
                           <span>
-                            {minorToMajorString(adjustedMinor)} {data().currency}
+                            {formatAmount(minorToMajorString(adjustedMinor), data().currency)}
                           </span>
                         </div>
                       )
@@ -247,9 +239,7 @@ export default function BalancesRoute() {
                               style={{ width: item.rentWidth }}
                             />
                           </div>
-                          <em>
-                            {item.rentMajor} {data().currency}
-                          </em>
+                          <em>{formatAmount(item.rentMajor, data().currency)}</em>
                         </div>
                         <div class="category-visual-row__group">
                           <span>{copy().shareUtilities}</span>
@@ -259,9 +249,7 @@ export default function BalancesRoute() {
                               style={{ width: item.utilityWidth }}
                             />
                           </div>
-                          <em>
-                            {item.utilityMajor} {data().currency}
-                          </em>
+                          <em>{formatAmount(item.utilityMajor, data().currency)}</em>
                         </div>
                         <div class="category-visual-row__group">
                           <span>{copy().shareOffset}</span>
@@ -271,9 +259,7 @@ export default function BalancesRoute() {
                               style={{ width: item.offsetWidth }}
                             />
                           </div>
-                          <em>
-                            {item.offsetMajor} {data().currency}
-                          </em>
+                          <em>{formatAmount(item.offsetMajor, data().currency)}</em>
                         </div>
                       </div>
                     )}

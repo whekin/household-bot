@@ -301,14 +301,23 @@ export default function BillsRoute() {
                           <div class="statement-list__item">
                             <div>
                               <strong>
-                                {category.fullCategoryPayment
-                                  ? `${locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL'} · ${category.billName}`
-                                  : category.billName}
+                                {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
                               </strong>
                               <span>
                                 {category.assignedDisplayName} ·{' '}
-                                {formatMoneyLabel(category.amountMajor, data().currency, locale())}
+                                {formatMoneyLabel(
+                                  category.assignedAmountMajor,
+                                  data().currency,
+                                  locale()
+                                )}
                               </span>
+                              <Show when={!category.isFullAssignment}>
+                                <span>
+                                  {locale() === 'ru'
+                                    ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                    : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                </span>
+                              </Show>
                               <Show
                                 when={utilityCategoryByName().get(
                                   category.billName.trim().toLowerCase()
@@ -392,35 +401,43 @@ export default function BillsRoute() {
                     <div class="statement-section-heading">
                       <div>
                         <strong>
-                          {locale() === 'ru' ? 'Перенос по коммуналке' : 'Utility carryover'}
+                          {locale() === 'ru' ? 'Сводка по коммуналке' : 'Utility summary'}
                         </strong>
                         <p>
                           {locale() === 'ru'
-                            ? 'Остаток переносится на следующий коммунальный цикл, без переводов между соседями.'
-                            : 'Any mismatch stays inside future utility cycles instead of creating bank transfers.'}
+                            ? 'Показывает цель, уже оплаченные суммы, назначение на этот цикл и итоговое отклонение после плана.'
+                            : 'Shows each member fair share, already paid amount, current-cycle assignment, and projected delta after the plan.'}
                         </p>
                       </div>
                     </div>
                     <div class="statement-rows">
                       <div class="statement-row statement-row--header">
                         <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
-                        <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
-                        <span>{locale() === 'ru' ? 'После плана' : 'Carryover after plan'}</span>
+                        <span>{locale() === 'ru' ? 'Цель' : 'Fair share'}</span>
+                        <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                        <span>{locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}</span>
+                        <span>{locale() === 'ru' ? 'Итоговое отклонение' : 'Projected delta'}</span>
                       </div>
                       <For each={utilityBillingPlan()?.memberSummaries ?? []}>
                         {(summary) => (
                           <div class="statement-row">
                             <strong>{summary.displayName}</strong>
                             <span>
+                              {formatMoneyLabel(summary.fairShareMajor, data().currency, locale())}
+                            </span>
+                            <span>
+                              {formatMoneyLabel(summary.vendorPaidMajor, data().currency, locale())}
+                            </span>
+                            <span>
                               {formatMoneyLabel(
-                                summary.effectiveTargetMajor,
+                                summary.assignedThisCycleMajor,
                                 data().currency,
                                 locale()
                               )}
                             </span>
                             <span>
                               {formatMoneyLabel(
-                                summary.carryoverAfterMajor,
+                                summary.projectedDeltaAfterPlanMajor,
                                 data().currency,
                                 locale()
                               )}

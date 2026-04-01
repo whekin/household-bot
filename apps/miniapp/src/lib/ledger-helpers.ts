@@ -90,7 +90,7 @@ export function memberCreditClass(member: MiniAppDashboard['members'][number]): 
 }
 
 export function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
-  return `${entry.displayAmountMajor} ${entry.displayCurrency}`
+  return formatSignedMoney(entry.displayAmountMajor, entry.displayCurrency)
 }
 
 export function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number]): string | null {
@@ -98,26 +98,30 @@ export function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number])
     return null
   }
 
-  return `${entry.amountMajor} ${entry.currency}`
+  return formatSignedMoney(entry.amountMajor, entry.currency)
 }
 
-export function localizedCurrencyLabel(
-  locale: 'en' | 'ru',
+export function formatSignedMoney(
+  amountMajor: string,
   currency: MiniAppDashboard['currency']
 ): string {
-  if (locale === 'ru' && currency === 'GEL') {
-    return 'Лари'
+  if (currency === 'USD') {
+    return `$${amountMajor}`
   }
 
-  return currency
+  if (currency === 'GEL') {
+    return `${amountMajor} ₾`
+  }
+
+  return `${amountMajor} ${currency}`
 }
 
 export function formatMoneyLabel(
   amountMajor: string,
   currency: MiniAppDashboard['currency'],
-  locale: 'en' | 'ru'
+  _locale: 'en' | 'ru'
 ): string {
-  return `${amountMajor} ${localizedCurrencyLabel(locale, currency)}`
+  return formatSignedMoney(amountMajor, currency)
 }
 
 export function cycleUtilityBillDrafts(
