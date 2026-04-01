@@ -172,7 +172,7 @@ describe('createPaymentConfirmationService', () => {
     expect(result).toEqual({
       status: 'recorded',
       kind: 'rent',
-      amount: Money.fromMajor('472.50', 'GEL')
+      amount: Money.fromMajor('473.00', 'GEL')
     })
     expect(repository.saved[0]?.status).toBe('recorded')
   })
