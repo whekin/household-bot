@@ -1,6 +1,7 @@
+import { CurrencyToggle } from './ui/currency-toggle'
 import { Field } from './ui/field'
 import { Input } from './ui/input'
-import { Select, type SelectOption } from './ui/select'
+import { type SelectOption } from './ui/select'
 import { UtilityCategorySelect } from './utility-category-select'
 
 export type UtilityFormData = {
@@ -12,7 +13,7 @@ export type UtilityFormData = {
 type UtilityFormProps = {
   value: UtilityFormData
   onChange: (value: UtilityFormData) => void
-  currencyOptions: readonly SelectOption[]
+  categoryOptions?: readonly SelectOption[]
   labels: {
     category: string
     amount: string
@@ -29,6 +30,7 @@ export function UtilityForm(props: UtilityFormProps) {
           value={props.value.billName}
           ariaLabel={props.labels.category}
           placeholder={props.labels.category}
+          {...(props.categoryOptions ? { options: props.categoryOptions } : {})}
           {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
           onChange={(value) => props.onChange({ ...props.value, billName: value })}
         />
@@ -42,10 +44,9 @@ export function UtilityForm(props: UtilityFormProps) {
         />
       </Field>
       <Field label={props.labels.currency}>
-        <Select
+        <CurrencyToggle
           value={props.value.currency}
           ariaLabel={props.labels.currency}
-          options={props.currencyOptions}
           {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
           onChange={(value) => props.onChange({ ...props.value, currency: value as 'USD' | 'GEL' })}
         />

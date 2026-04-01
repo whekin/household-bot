@@ -435,9 +435,11 @@ describe('createMiniAppDashboardHandler', () => {
         ],
         ledger: [
           {
-            title: 'Soap',
+            kind: 'payment',
+            title: 'rent',
             currency: 'GEL',
-            displayCurrency: 'GEL'
+            displayCurrency: 'GEL',
+            paymentKind: 'rent'
           },
           {
             title: 'Electricity',
@@ -445,9 +447,7 @@ describe('createMiniAppDashboardHandler', () => {
             displayCurrency: 'GEL'
           },
           {
-            kind: 'payment',
-            title: 'rent',
-            paymentKind: 'rent',
+            title: 'Soap',
             currency: 'GEL',
             displayCurrency: 'GEL'
           }
@@ -628,6 +628,12 @@ describe('createMiniAppDashboardHandler', () => {
       dashboard: {
         ledger: [
           {
+            kind: 'payment'
+          },
+          {
+            title: 'Electricity'
+          },
+          {
             id: 'purchase-1',
             purchaseSplitMode: 'custom_amounts',
             purchaseParticipants: [
@@ -647,12 +653,6 @@ describe('createMiniAppDashboardHandler', () => {
                 shareAmountMajor: '10.00'
               }
             ]
-          },
-          {
-            title: 'Electricity'
-          },
-          {
-            kind: 'payment'
           }
         ]
       }

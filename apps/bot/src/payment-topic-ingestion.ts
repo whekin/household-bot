@@ -303,6 +303,23 @@ function parsePaymentTopicConfirmationPayload(
   }
 }
 
+function isLikelyUtilityTemplate(rawText: string): boolean {
+  const lines = rawText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+  if (lines.length < 2) {
+    return false
+  }
+
+  const templateLineCount = lines.filter((line) =>
+    /^[^:\n]{2,}:\s*(?:\d+(?:[.,]\d{1,2})?|0|skip|пропуск|нет|-)?(?:\s+(?:USD|GEL))?$/i.test(line)
+  ).length
+
+  return templateLineCount >= 2
+}
+
 function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   const t = getBotTranslations(locale).payments
 
@@ -531,6 +548,10 @@ export function registerConfiguredPaymentTopicIngestion(
 
     try {
       const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
+      if (isLikelyUtilityTemplate(record.rawText)) {
+        await next()
+        return
+      }
       const pending = await promptRepository.getPendingAction(
         record.chatId,
         record.senderTelegramUserId

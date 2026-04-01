@@ -1258,10 +1258,10 @@ async function buildFinanceDashboard(
     }))
   ].sort((left, right) => {
     if (left.occurredAt === right.occurredAt) {
-      return left.title.localeCompare(right.title)
+      return right.title.localeCompare(left.title)
     }
 
-    return (left.occurredAt ?? '').localeCompare(right.occurredAt ?? '')
+    return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
   })
 
   return {
@@ -1395,11 +1395,13 @@ export interface FinanceCommandService {
   setRent(
     amountArg: string,
     currencyArg?: string,
-    periodArg?: string
+    periodArg?: string,
+    fxRateMicrosArg?: string
   ): Promise<{
     amount: Money
     currency: CurrencyCode
     period: string
+    fxRateMicros?: bigint | null
   } | null>
   addUtilityBill(
     billName: string,
@@ -1593,7 +1595,7 @@ export function createFinanceCommandService(
       return cycle
     },
 
-    async setRent(amountArg, currencyArg, periodArg) {
+    async setRent(amountArg, currencyArg, periodArg, fxRateMicrosArg) {
       const [settings, cycle] = await Promise.all([
         householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
         periodArg ? Promise.resolve(null) : ensureExpectedCycle()
@@ -1612,10 +1614,30 @@ export function createFinanceCommandService(
         currency
       )
 
+      const targetCycle =
+        cycle ?? (await repository.getCycleByPeriod(BillingPeriod.fromString(period).toString()))
+      const targetRateMicros =
+        fxRateMicrosArg && /^\d+$/.test(fxRateMicrosArg) ? BigInt(fxRateMicrosArg) : null
+
+      if (targetCycle && targetRateMicros && currency !== targetCycle.currency) {
+        await repository.saveCycleExchangeRate({
+          cycleId: targetCycle.id,
+          sourceCurrency: currency,
+          targetCurrency: targetCycle.currency,
+          rateMicros: targetRateMicros,
+          effectiveDate: billingPeriodLockDate(
+            BillingPeriod.fromString(period),
+            settings.rentWarningDay
+          ).toString(),
+          source: 'nbg'
+        })
+      }
+
       return {
         amount,
         currency,
-        period: BillingPeriod.fromString(period).toString()
+        period: BillingPeriod.fromString(period).toString(),
+        fxRateMicros: targetRateMicros
       }
     },
 

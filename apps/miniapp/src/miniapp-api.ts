@@ -120,6 +120,10 @@ export interface MiniAppDashboard {
   rentDisplayAmountMajor: string
   rentFxRateMicros: string | null
   rentFxEffectiveDate: string | null
+  utilityCategories?: readonly {
+    slug: string
+    name: string
+  }[]
   members: {
     memberId: string
     displayName: string
@@ -973,6 +977,7 @@ export async function updateMiniAppCycleRent(
     amountMajor: string
     currency: 'USD' | 'GEL'
     period?: string
+    fxRateMicros?: string
   }
 ): Promise<MiniAppAdminCycleState> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/rent/update`, {

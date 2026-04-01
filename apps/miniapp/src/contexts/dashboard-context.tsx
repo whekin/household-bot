@@ -385,6 +385,10 @@ export function DashboardProvider(props: ParentProps) {
           console.warn('Failed to load admin data', error)
         }
       }
+    } else {
+      setAdminSettings(null)
+      setCycleState(null)
+      setPendingMembers([])
     }
 
     setLoading(false)

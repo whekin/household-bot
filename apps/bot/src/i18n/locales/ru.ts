@@ -5,6 +5,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
   commands: {
     help: 'Показать список команд',
     household_status: 'Показать текущий статус дома',
+    utilities: 'Показать шаблон для ввода коммуналки в этом топике',
     anon: 'Отправить анонимное сообщение по дому',
     cancel: 'Отменить текущий ввод',
     setup: 'Подключить эту группу как дом',

@@ -3,6 +3,7 @@ import { Select, type SelectOption } from './ui/select'
 
 type UtilityCategorySelectProps = {
   value: string
+  options?: readonly SelectOption[]
   disabled?: boolean
   class?: string
   id?: string
@@ -12,10 +13,12 @@ type UtilityCategorySelectProps = {
 }
 
 export function UtilityCategorySelect(props: UtilityCategorySelectProps) {
-  const options: readonly SelectOption[] = UTILITY_CATEGORIES.map((category: string) => ({
-    value: category,
-    label: category
-  }))
+  const options: readonly SelectOption[] =
+    props.options ??
+    UTILITY_CATEGORIES.map((category: string) => ({
+      value: category,
+      label: category
+    }))
 
   return (
     <Select

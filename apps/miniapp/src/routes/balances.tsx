@@ -1,41 +1,84 @@
-import { Show, For, Switch, Match } from 'solid-js'
-import { BarChart3 } from 'lucide-solid'
+import { For, Match, Switch, createMemo } from 'solid-js'
 
 import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
-import { memberRemainingClass, memberCreditClass } from '../lib/ledger-helpers'
+import { memberCreditClass, memberRemainingClass } from '../lib/ledger-helpers'
+import { majorStringToMinor, minorToMajorString } from '../lib/money'
+
+function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
+  if (maxMinor <= 0n) return '0%'
+  return `${Math.max((Number(valueMinor) / Number(maxMinor)) * 100, 6)}%`
+}
 
 export default function BalancesRoute() {
-  const { copy } = useI18n()
-  const {
-    dashboard,
-    loading,
-    memberBalanceVisuals,
-    purchaseInvestmentChart,
-    memberPurchaseBalanceVisuals,
-    memberUtilityBalanceVisuals,
-    utilityTotalMajor,
-    purchaseTotalMajor
-  } = useDashboard()
+  const { copy, locale } = useI18n()
+  const { dashboard, loading, purchaseLedger, purchaseTotalMajor, utilityTotalMajor } =
+    useDashboard()
+
+  const purchaseByMember = createMemo(() => {
+    const data = dashboard()
+    if (!data) return []
+
+    const totals = new Map<string, bigint>()
+    for (const entry of purchaseLedger()) {
+      const key = entry.memberId ?? entry.actorDisplayName ?? entry.id
+      totals.set(key, (totals.get(key) ?? 0n) + majorStringToMinor(entry.displayAmountMajor))
+    }
+
+    return data.members.map((member) => ({
+      member,
+      spentMinor: totals.get(member.memberId) ?? 0n,
+      spentMajor: minorToMajorString(totals.get(member.memberId) ?? 0n),
+      balanceMajor: member.purchaseOffsetMajor,
+      balanceMinor: majorStringToMinor(member.purchaseOffsetMajor)
+    }))
+  })
+
+  const categoryVisuals = createMemo(() => {
+    const data = dashboard()
+    if (!data) return []
+
+    const rows = data.members.map((member) => ({
+      member,
+      rentMinor: majorStringToMinor(member.rentShareMajor),
+      utilityMinor: majorStringToMinor(member.utilityShareMajor),
+      offsetMinor: majorStringToMinor(member.purchaseOffsetMajor)
+    }))
+
+    const maxRent = rows.reduce((max, row) => (row.rentMinor > max ? row.rentMinor : max), 0n)
+    const maxUtility = rows.reduce(
+      (max, row) => (row.utilityMinor > max ? row.utilityMinor : max),
+      0n
+    )
+    const maxOffset = rows.reduce((max, row) => {
+      const current = row.offsetMinor < 0n ? -row.offsetMinor : row.offsetMinor
+      return current > max ? current : max
+    }, 0n)
+
+    return rows.map((row) => ({
+      member: row.member,
+      rentMajor: minorToMajorString(row.rentMinor),
+      utilityMajor: minorToMajorString(row.utilityMinor),
+      offsetMajor: minorToMajorString(row.offsetMinor),
+      rentWidth: normalizedWidth(row.rentMinor, maxRent),
+      utilityWidth: normalizedWidth(row.utilityMinor, maxUtility),
+      offsetWidth: normalizedWidth(
+        row.offsetMinor < 0n ? -row.offsetMinor : row.offsetMinor,
+        maxOffset
+      ),
+      offsetClass: row.offsetMinor < 0n ? 'is-credit' : 'is-debit'
+    }))
+  })
 
   return (
     <div class="route route--balances">
       <Switch>
         <Match when={loading()}>
           <Card>
-            <div class="section-header">
-              <Skeleton style={{ width: '180px', height: '20px' }} />
-              <Skeleton style={{ width: '100%', height: '16px', 'margin-top': '8px' }} />
-            </div>
-            <div style={{ 'margin-top': '16px' }}>
-              <Skeleton style={{ width: '100%', height: '120px' }} />
-            </div>
-          </Card>
-          <Card>
-            <Skeleton style={{ width: '200px', height: '20px' }} />
-            <Skeleton style={{ width: '100%', height: '80px', 'margin-top': '16px' }} />
+            <Skeleton style={{ width: '180px', height: '20px' }} />
+            <Skeleton style={{ width: '100%', height: '120px', 'margin-top': '16px' }} />
           </Card>
         </Match>
 
@@ -48,199 +91,194 @@ export default function BalancesRoute() {
         <Match when={dashboard()}>
           {(data) => (
             <>
-              {/* ── Balance summary ─────────────────────────── */}
               <Card>
-                <div class="balance-summary">
-                  <div class="balance-summary__col">
-                    <span class="balance-summary__label">{copy().balancesTitle}</span>
-                    <span class="balance-summary__value">
-                      {data().totalDueMajor} {data().currency}
-                    </span>
-                    <span class="balance-summary__sub">{copy().balancesSubtitle}</span>
+                <div class="statement-header">
+                  <div>
+                    <p class="statement-header__eyebrow">{copy().balancesTitle}</p>
+                    <h2 class="statement-header__title">
+                      {data().totalRemainingMajor} {data().currency}
+                    </h2>
+                    <p class="statement-header__body">{copy().householdBalancesBody}</p>
                   </div>
-                  <div class="balance-summary__col">
-                    <span class="balance-summary__label">{copy().purchasesBalanceTitle}</span>
-                    <span class="balance-summary__value">
-                      {purchaseTotalMajor()} {data().currency}
-                    </span>
-                    <span class="balance-summary__sub">{copy().purchasesBalanceBody}</span>
-                  </div>
-                  <div class="balance-summary__col">
-                    <span class="balance-summary__label">{copy().utilitiesBalanceTitle}</span>
-                    <span class="balance-summary__value">
-                      {utilityTotalMajor()} {data().currency}
-                    </span>
-                    <span class="balance-summary__sub">{copy().utilitiesBalanceBody}</span>
+                  <div class="statement-chip-grid">
+                    <div class="statement-chip">
+                      <span>{copy().purchasesBalanceTitle}</span>
+                      <strong>
+                        {purchaseTotalMajor()} {data().currency}
+                      </strong>
+                    </div>
+                    <div class="statement-chip">
+                      <span>{copy().utilitiesBalanceTitle}</span>
+                      <strong>
+                        {utilityTotalMajor()} {data().currency}
+                      </strong>
+                    </div>
                   </div>
                 </div>
               </Card>
 
-              {/* ── Household balances ──────────────────────── */}
               <Card>
-                <div class="section-header">
-                  <strong>{copy().householdBalancesTitle}</strong>
-                  <p>{copy().householdBalancesBody}</p>
+                <div class="statement-section-heading">
+                  <div>
+                    <strong>
+                      {locale() === 'ru' ? 'Кто должен сейчас' : 'Who owes right now'}
+                    </strong>
+                    <p>{copy().householdBalancesBody}</p>
+                  </div>
                 </div>
-                <div class="member-balance-list">
+                <div class="statement-list">
                   <For each={data().members}>
                     {(member) => (
-                      <div class={`member-balance-row ${memberRemainingClass(member)}`}>
-                        <span class="member-balance-row__name">{member.displayName}</span>
-                        <div class="member-balance-row__amounts">
-                          <span class="member-balance-row__due">
-                            {member.netDueMajor} {data().currency}
-                          </span>
-                          <span class="member-balance-row__remaining">
-                            {member.remainingMajor} {data().currency}
+                      <div
+                        class={`statement-list__item statement-list__item--member ${memberRemainingClass(member)}`}
+                      >
+                        <div>
+                          <strong>{member.displayName}</strong>
+                          <span>
+                            {locale() === 'ru' ? 'К начислению' : 'Total due'}: {member.netDueMajor}{' '}
+                            {data().currency}
                           </span>
                         </div>
+                        <strong>
+                          {member.remainingMajor} {data().currency}
+                        </strong>
                       </div>
                     )}
                   </For>
                 </div>
               </Card>
 
-              {/* ── Purchases balance ────────────────────────── */}
               <Card>
-                <div class="section-header">
-                  <strong>{copy().purchasesBalanceTitle}</strong>
-                  <p>{copy().purchasesBalanceBody}</p>
+                <div class="statement-section-heading">
+                  <div>
+                    <strong>{copy().purchasesBalanceTitle}</strong>
+                    <p>
+                      {locale() === 'ru'
+                        ? 'Показывает, сколько каждый внёс в общие покупки и как это влияет на его баланс.'
+                        : 'See how much each member paid for shared purchases and how it affects the balance.'}
+                    </p>
+                  </div>
                 </div>
-                <div class="member-balance-list">
-                  <For each={memberPurchaseBalanceVisuals()}>
+                <div class="statement-rows">
+                  <div class="statement-row statement-row--header">
+                    <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
+                    <span>{locale() === 'ru' ? 'Оплачено' : 'Spent'}</span>
+                    <span>{locale() === 'ru' ? 'Баланс покупок' : 'Purchase balance'}</span>
+                  </div>
+                  <For each={purchaseByMember()}>
                     {(item) => (
-                      <div class={`member-balance-row ${memberCreditClass(item.member)}`}>
-                        <span class="member-balance-row__name">{item.member.displayName}</span>
-                        <div class="member-balance-row__amounts">
-                          <span
-                            class={`member-balance-row__due ${item.isCredit ? 'text-credit' : 'text-debit'}`}
-                          >
-                            {item.amountMajor} {data().currency}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Card>
-
-              {/* ── Utilities balance ────────────────────────── */}
-              <Card>
-                <div class="section-header">
-                  <strong>{copy().utilitiesBalanceTitle}</strong>
-                  <p>{copy().utilitiesBalanceBody}</p>
-                </div>
-                <div class="member-balance-list">
-                  <For each={memberUtilityBalanceVisuals()}>
-                    {(item) => (
-                      <div class="member-balance-row">
-                        <span class="member-balance-row__name">{item.member.displayName}</span>
-                        <div class="member-balance-row__amounts">
-                          <span class="member-balance-row__due">
-                            {item.amountMajor} {data().currency}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Card>
-
-              {/* ── Balance breakdown bars ───────────────────── */}
-              <Card>
-                <div class="section-header">
-                  <BarChart3 size={16} />
-                  <strong>{copy().financeVisualsTitle}</strong>
-                  <p>{copy().financeVisualsBody}</p>
-                </div>
-                <div class="balance-visuals">
-                  <For each={memberBalanceVisuals()}>
-                    {(item) => (
-                      <div class="balance-bar-row">
-                        <span class="balance-bar-row__name">{item.member.displayName}</span>
-                        <div
-                          class="balance-bar-row__track"
-                          style={{ width: `${Math.max(item.barWidthPercent, 8)}%` }}
-                        >
-                          <For each={item.segments}>
-                            {(segment) => (
-                              <div
-                                class={`balance-bar-row__segment balance-bar-row__segment--${segment.key}`}
-                                style={{ width: `${segment.widthPercent}%` }}
-                                title={`${segment.label}: ${segment.amountMajor} ${data().currency}`}
-                              />
-                            )}
-                          </For>
-                        </div>
-                        <span class={`balance-bar-row__label ${memberRemainingClass(item.member)}`}>
-                          {item.member.remainingMajor} {data().currency}
+                      <div class={`statement-row ${memberCreditClass(item.member)}`}>
+                        <strong>{item.member.displayName}</strong>
+                        <span>
+                          {item.spentMajor} {data().currency}
+                        </span>
+                        <span>
+                          {item.balanceMajor} {data().currency}
                         </span>
                       </div>
                     )}
                   </For>
-                  <div class="balance-bar-legend">
-                    <span class="balance-bar-legend__item balance-bar-legend__item--rent">
-                      {copy().shareRent}
-                    </span>
-                    <span class="balance-bar-legend__item balance-bar-legend__item--utilities">
-                      {copy().shareUtilities}
-                    </span>
-                    <span class="balance-bar-legend__item balance-bar-legend__item--purchase">
-                      {copy().shareOffset}
-                    </span>
-                  </div>
                 </div>
               </Card>
 
-              {/* ── Purchase investment donut ────────────────── */}
               <Card>
-                <div class="section-header">
-                  <strong>{copy().purchaseInvestmentsTitle}</strong>
-                  <p>{copy().purchaseInvestmentsBody}</p>
-                </div>
-                <Show
-                  when={purchaseInvestmentChart().slices.length > 0}
-                  fallback={<p class="empty-state">{copy().purchaseInvestmentsEmpty}</p>}
-                >
-                  <div class="donut-chart">
-                    <svg viewBox="0 0 100 100" class="donut-chart__svg">
-                      <For each={purchaseInvestmentChart().slices}>
-                        {(slice) => (
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="42"
-                            fill="none"
-                            stroke={slice.color}
-                            stroke-width="12"
-                            stroke-dasharray={slice.dasharray}
-                            stroke-dashoffset={slice.dashoffset}
-                            class="donut-chart__slice"
-                          />
-                        )}
-                      </For>
-                      <text x="50" y="48" text-anchor="middle" class="donut-chart__total">
-                        {purchaseInvestmentChart().totalMajor}
-                      </text>
-                      <text x="50" y="58" text-anchor="middle" class="donut-chart__label">
-                        {data().currency}
-                      </text>
-                    </svg>
-                    <div class="donut-chart__legend">
-                      <For each={purchaseInvestmentChart().slices}>
-                        {(slice) => (
-                          <div class="donut-chart__legend-item">
-                            <span class="donut-chart__color" style={{ background: slice.color }} />
-                            <span>{slice.label}</span>
-                            <strong>
-                              {slice.amountMajor} ({slice.percentage}%)
-                            </strong>
-                          </div>
-                        )}
-                      </For>
-                    </div>
+                <div class="statement-section-heading">
+                  <div>
+                    <strong>{copy().utilitiesBalanceTitle}</strong>
+                    <p>
+                      {locale() === 'ru'
+                        ? 'Показывает долю коммуналки и итоговую сумму после поправки по балансу.'
+                        : 'See each member utility share and the final amount after balance adjustments.'}
+                    </p>
                   </div>
-                </Show>
+                </div>
+                <div class="statement-rows">
+                  <div class="statement-row statement-row--header">
+                    <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
+                    <span>{copy().pureUtilitiesLabel}</span>
+                    <span>{copy().utilitiesAdjustedTotalLabel}</span>
+                  </div>
+                  <For each={data().members}>
+                    {(member) => {
+                      const pureMinor = majorStringToMinor(member.utilityShareMajor)
+                      const adjustedMinor =
+                        data().paymentBalanceAdjustmentPolicy === 'utilities'
+                          ? pureMinor + majorStringToMinor(member.purchaseOffsetMajor)
+                          : pureMinor
+                      return (
+                        <div class="statement-row">
+                          <strong>{member.displayName}</strong>
+                          <span>
+                            {minorToMajorString(pureMinor)} {data().currency}
+                          </span>
+                          <span>
+                            {minorToMajorString(adjustedMinor)} {data().currency}
+                          </span>
+                        </div>
+                      )
+                    }}
+                  </For>
+                </div>
+              </Card>
+
+              <Card>
+                <div class="statement-section-heading">
+                  <div>
+                    <strong>
+                      {locale() === 'ru' ? 'Разбивка по категориям' : 'Breakdown by category'}
+                    </strong>
+                    <p>
+                      {locale() === 'ru'
+                        ? 'Сравни аренду, коммуналку и поправку по покупкам отдельно для каждого участника.'
+                        : 'Compare rent, utilities, and purchase adjustments separately for each member.'}
+                    </p>
+                  </div>
+                </div>
+                <div class="category-visual-grid">
+                  <For each={categoryVisuals()}>
+                    {(item) => (
+                      <div class="category-visual-row">
+                        <strong>{item.member.displayName}</strong>
+                        <div class="category-visual-row__group">
+                          <span>{copy().shareRent}</span>
+                          <div class="category-visual-row__track">
+                            <div
+                              class="category-visual-row__bar category-visual-row__bar--rent"
+                              style={{ width: item.rentWidth }}
+                            />
+                          </div>
+                          <em>
+                            {item.rentMajor} {data().currency}
+                          </em>
+                        </div>
+                        <div class="category-visual-row__group">
+                          <span>{copy().shareUtilities}</span>
+                          <div class="category-visual-row__track">
+                            <div
+                              class="category-visual-row__bar category-visual-row__bar--utilities"
+                              style={{ width: item.utilityWidth }}
+                            />
+                          </div>
+                          <em>
+                            {item.utilityMajor} {data().currency}
+                          </em>
+                        </div>
+                        <div class="category-visual-row__group">
+                          <span>{copy().shareOffset}</span>
+                          <div class="category-visual-row__track">
+                            <div
+                              class={`category-visual-row__bar category-visual-row__bar--offset ${item.offsetClass}`}
+                              style={{ width: item.offsetWidth }}
+                            />
+                          </div>
+                          <em>
+                            {item.offsetMajor} {data().currency}
+                          </em>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
               </Card>
             </>
           )}

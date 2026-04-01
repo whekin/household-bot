@@ -202,6 +202,12 @@ export function buildTemplateText(
     text: [
       escapeHtml(t.templateIntro(currency)),
       '',
+      escapeHtml(
+        locale === 'ru'
+          ? 'Ответьте в этот топик, по одной строке на категорию.'
+          : 'Reply in this topic with one line per category.'
+      ),
+      '',
       `<pre>${escapeHtml(templateLines)}</pre>`,
       '',
       escapeHtml(t.templateInstruction)

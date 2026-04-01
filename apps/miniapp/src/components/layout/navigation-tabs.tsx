@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from '@solidjs/router'
-import { Home, Wallet, Receipt, BookOpen } from 'lucide-solid'
+import { Home, Wallet, Receipt, ShoppingBasket } from 'lucide-solid'
 import { type JSX } from 'solid-js'
 
 import { useI18n } from '../../contexts/i18n-context'
@@ -22,7 +22,7 @@ export function NavigationTabs(): JSX.Element {
     { path: '/', label: copy().home, icon: <Home size={20} /> },
     { path: '/balances', label: copy().balances, icon: <Wallet size={20} /> },
     { path: '/bills', label: copy().bills, icon: <Receipt size={20} /> },
-    { path: '/ledger', label: copy().ledger, icon: <BookOpen size={20} /> }
+    { path: '/purchases', label: copy().ledger, icon: <ShoppingBasket size={20} /> }
   ]
 
   const isActive = (path: string) => {

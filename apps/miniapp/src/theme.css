@@ -8,6 +8,8 @@
   --bg-root: #1c1c1c;
   --bg-surface: #242424;
   --bg-elevated: #2e2e2e;
+  --bg-surface-glass: rgba(36, 36, 36, 0.78);
+  --bg-elevated-glass: rgba(46, 46, 46, 0.72);
   --bg-overlay: rgba(0, 0, 0, 0.75);
   --bg-input: rgba(255, 255, 255, 0.05);
   --bg-input-hover: rgba(255, 255, 255, 0.08);

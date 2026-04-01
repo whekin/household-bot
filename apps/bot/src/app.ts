@@ -652,6 +652,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           financeServiceForHousehold,
           adHocNotificationService: adHocNotificationService!,
           onboardingService: householdOnboardingService,
+          ...(householdConfigurationRepositoryClient
+            ? {
+                householdConfigurationRepository: householdConfigurationRepositoryClient.repository
+              }
+            : {}),
           logger: getLogger('miniapp-dashboard')
         })
       : undefined,

@@ -175,12 +175,14 @@ async function readRentUpdatePayload(request: Request): Promise<{
   amountMajor: string
   currency?: string
   period?: string
+  fxRateMicros?: string
 }> {
   const parsed = await parseJsonBody<{
     initData?: string
     amountMajor?: string
     currency?: string
     period?: string
+    fxRateMicros?: string
   }>(request)
   const initData = parsed.initData?.trim()
   if (!initData) {
@@ -193,6 +195,7 @@ async function readRentUpdatePayload(request: Request): Promise<{
 
   const currency = parsed.currency?.trim()
   const period = parsed.period?.trim()
+  const fxRateMicros = parsed.fxRateMicros?.trim()
 
   return {
     initData,
@@ -205,6 +208,11 @@ async function readRentUpdatePayload(request: Request): Promise<{
     ...(period
       ? {
           period: BillingPeriod.fromString(period).toString()
+        }
+      : {}),
+    ...(fxRateMicros
+      ? {
+          fxRateMicros
         }
       : {})
   }
@@ -746,7 +754,12 @@ export function createMiniAppRentUpdateHandler(options: {
 
         const payload = await readRentUpdatePayload(request)
         const service = options.financeServiceForHousehold(auth.member.householdId)
-        const result = await service.setRent(payload.amountMajor, payload.currency, payload.period)
+        const result = await service.setRent(
+          payload.amountMajor,
+          payload.currency,
+          payload.period,
+          payload.fxRateMicros
+        )
         if (!result) {
           return miniAppJsonResponse(
             { ok: false, error: 'No billing cycle available' },

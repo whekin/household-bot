@@ -5,6 +5,7 @@ import type {
 } from '@household/application'
 import { Money } from '@household/domain'
 import type { Logger } from '@household/observability'
+import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import {
   allowedMiniAppOrigin,
@@ -20,6 +21,10 @@ export function createMiniAppDashboardHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -79,10 +84,17 @@ export function createMiniAppDashboardHandler(options: {
         const dashboard = await options
           .financeServiceForHousehold(session.member.householdId)
           .generateDashboard()
-        const notifications = await options.adHocNotificationService.listUpcomingNotifications({
-          householdId: session.member.householdId,
-          viewerMemberId: session.member.id
-        })
+        const [notifications, utilityCategories] = await Promise.all([
+          options.adHocNotificationService.listUpcomingNotifications({
+            householdId: session.member.householdId,
+            viewerMemberId: session.member.id
+          }),
+          options.householdConfigurationRepository
+            ? options.householdConfigurationRepository.listHouseholdUtilityCategories(
+                session.member.householdId
+              )
+            : Promise.resolve([])
+        ])
         if (!dashboard) {
           return miniAppJsonResponse(
             { ok: false, error: 'No billing cycle available' },
@@ -113,6 +125,13 @@ export function createMiniAppDashboardHandler(options: {
               rentDisplayAmountMajor: dashboard.rentDisplayAmount.toMajorString(),
               rentFxRateMicros: dashboard.rentFxRateMicros?.toString() ?? null,
               rentFxEffectiveDate: dashboard.rentFxEffectiveDate,
+              utilityCategories: utilityCategories
+                .filter((category) => category.isActive)
+                .sort((left, right) => left.sortOrder - right.sortOrder)
+                .map((category) => ({
+                  slug: category.slug,
+                  name: category.name
+                })),
               members: dashboard.members.map((line) => ({
                 memberId: line.memberId,
                 displayName: line.displayName,

@@ -1,5 +1,5 @@
 import { Route, Router } from '@solidjs/router'
-import { Match, Switch } from 'solid-js'
+import { Match, Switch, createEffect } from 'solid-js'
 
 import { I18nProvider, useI18n } from './contexts/i18n-context'
 import { SessionProvider, useSession, joinDeepLink } from './contexts/session-context'
@@ -11,7 +11,7 @@ import { OnboardingState } from './components/session/onboarding-state'
 import HomeRoute from './routes/home'
 import BalancesRoute from './routes/balances'
 import BillsRoute from './routes/bills'
-import LedgerRoute from './routes/ledger'
+import PurchasesRoute from './routes/purchases'
 import SettingsRoute from './routes/settings'
 
 function AppContent() {
@@ -97,19 +97,22 @@ function AppContent() {
 }
 
 function AuthenticatedApp() {
-  const { initData } = useSession()
+  const { initData, readySession } = useSession()
   const { loadDashboardData } = useDashboard()
 
-  // Load dashboard data once the component mounts
-  const data = initData()
-  void loadDashboardData(data ?? '', true)
+  createEffect(() => {
+    const data = initData()
+    const current = readySession()
+    if (!current) return
+    void loadDashboardData(data ?? '', current.member.isAdmin)
+  })
 
   return (
     <Router root={AppShell}>
       <Route path="/" component={HomeRoute} />
       <Route path="/balances" component={BalancesRoute} />
       <Route path="/bills" component={BillsRoute} />
-      <Route path="/ledger" component={LedgerRoute} />
+      <Route path="/purchases" component={PurchasesRoute} />
       <Route path="/settings" component={SettingsRoute} />
     </Router>
   )

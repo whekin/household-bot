@@ -31,7 +31,8 @@ const PRIVATE_CHAT_COMMAND_NAMES = [
 const GROUP_CHAT_COMMAND_NAMES = DEFAULT_COMMAND_NAMES
 const GROUP_MEMBER_COMMAND_NAMES = [
   ...GROUP_CHAT_COMMAND_NAMES,
-  'payment_add'
+  'payment_add',
+  'utilities'
 ] as const satisfies readonly TelegramCommandName[]
 const GROUP_ADMIN_COMMAND_NAMES = [
   ...GROUP_MEMBER_COMMAND_NAMES,

@@ -1,116 +1,182 @@
-import { Show, For, createSignal, createMemo, Switch, Match } from 'solid-js'
-import { Plus } from 'lucide-solid'
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
 
-import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
+import { useSession } from '../contexts/session-context'
 import { useDashboard } from '../contexts/dashboard-context'
-import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { PaymentsManager } from '../components/payments-manager'
+import { CurrencyToggle } from '../components/ui/currency-toggle'
+import { Field } from '../components/ui/field'
+import { Input } from '../components/ui/input'
 import { Skeleton } from '../components/ui/skeleton'
-import { UtilityForm, type UtilityFormData } from '../components/utility-form'
-import { formatMoneyLabel, localizedCurrencyLabel } from '../lib/ledger-helpers'
 import { formatCyclePeriod } from '../lib/dates'
+import { formatMoneyLabel } from '../lib/ledger-helpers'
+import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
-  updateMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
-  type MiniAppDashboard
+  updateMiniAppCycleRent,
+  updateMiniAppUtilityBill
 } from '../miniapp-api'
 
-const EMPTY_UTILITY: UtilityFormData = { billName: '', amountMajor: '', currency: 'GEL' }
+function rateMicrosToString(value: string | null): string {
+  if (!value) return ''
+  const normalized = value.padStart(7, '0')
+  const whole = normalized.slice(0, -6) || '0'
+  const fraction = normalized.slice(-6).replace(/0+$/, '')
+  return fraction.length > 0 ? `${whole}.${fraction}` : whole
+}
+
+function rateStringToMicros(value: string): string | null {
+  const trimmed = value.trim().replace(',', '.')
+  if (trimmed.length === 0) return null
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(trimmed)
+  if (!match) return null
+  const whole = match[1] ?? '0'
+  const fraction = (match[2] ?? '').padEnd(6, '0')
+  return `${whole}${fraction}`.replace(/^0+(?=\d)/, '')
+}
+
+function sameCategory(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase()
+}
 
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
   const { initData, refreshHouseholdData } = useSession()
-  const { dashboard, loading, effectiveIsAdmin, utilityLedger, paymentLedger } = useDashboard()
+  const { adminSettings, cycleState, dashboard, effectiveIsAdmin, loading, utilityLedger } =
+    useDashboard()
 
-  const [newUtility, setNewUtility] = createSignal<UtilityFormData>(EMPTY_UTILITY)
-  const [editingUtilityId, setEditingUtilityId] = createSignal<string | null>(null)
-  const [utilityDraft, setUtilityDraft] = createSignal<UtilityFormData | null>(null)
+  const [utilityAmounts, setUtilityAmounts] = createSignal<Record<string, string>>({})
+  const [savingUtilityName, setSavingUtilityName] = createSignal<string | null>(null)
+  const [rentDraft, setRentDraft] = createSignal({
+    amountMajor: '',
+    currency: 'USD' as 'USD' | 'GEL',
+    fxRate: ''
+  })
+  const [savingRent, setSavingRent] = createSignal(false)
 
-  const [addingUtility, setAddingUtility] = createSignal(false)
-  const [savingUtility, setSavingUtility] = createSignal(false)
-  const [deletingUtility, setDeletingUtility] = createSignal(false)
+  const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
 
-  const currencyOptions = () => [
-    { value: 'GEL', label: localizedCurrencyLabel(locale(), 'GEL') },
-    { value: 'USD', label: 'USD' }
-  ]
-
-  const rentPayments = createMemo(() =>
-    paymentLedger().filter((entry) => entry.paymentKind === 'rent')
-  )
-
-  const utilityPayments = createMemo(() =>
-    paymentLedger().filter((entry) => entry.paymentKind === 'utilities')
-  )
-
-  const utilityFormLabels = () => ({
-    category: copy().utilityCategoryLabel,
-    amount: copy().utilityAmount,
-    currency: copy().currencyLabel
+  const defaultRentLabel = createMemo(() => {
+    const settings = adminSettings()?.settings
+    if (!settings?.rentAmountMinor) return '—'
+    return formatMoneyLabel(
+      minorToMajorString(BigInt(settings.rentAmountMinor)),
+      settings.rentCurrency,
+      locale()
+    )
   })
 
-  const handleAddUtility = async () => {
-    const data = initData()
-    const draft = newUtility()
-    if (!data || !draft.billName.trim() || !draft.amountMajor.trim()) return
+  const utilityOverview = createMemo(() => {
+    const data = dashboard()
+    if (!data) return []
 
-    setAddingUtility(true)
+    return data.members.map((member) => {
+      const pureMinor = majorStringToMinor(member.utilityShareMajor)
+      const adjustmentMinor =
+        data.paymentBalanceAdjustmentPolicy === 'utilities'
+          ? majorStringToMinor(member.purchaseOffsetMajor)
+          : 0n
+      const adjustedMinor = pureMinor + adjustmentMinor
+
+      return {
+        memberId: member.memberId,
+        displayName: member.displayName,
+        pureMajor: minorToMajorString(pureMinor),
+        adjustedMajor: minorToMajorString(adjustedMinor)
+      }
+    })
+  })
+  const utilityCycleTotal = createMemo(() =>
+    minorToMajorString(
+      utilityLedger().reduce((sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor), 0n)
+    )
+  )
+  const adjustedUtilityTotal = createMemo(() =>
+    minorToMajorString(
+      utilityOverview().reduce((sum, item) => sum + majorStringToMinor(item.adjustedMajor), 0n)
+    )
+  )
+  const hasRentOverride = createMemo(() => Boolean(cycleState()?.rentRule))
+
+  createEffect(() => {
+    const categories = utilityCategories()
+    const entries = utilityLedger()
+    setUtilityAmounts(
+      Object.fromEntries(
+        categories.map((category) => {
+          const entry = entries.find((item) => sameCategory(item.title, category.name))
+          return [category.name, entry?.amountMajor ?? '']
+        })
+      )
+    )
+  })
+
+  createEffect(() => {
+    const cycle = cycleState()
+    const data = dashboard()
+    if (!data) return
+
+    const rule = cycle?.rentRule
+    setRentDraft({
+      amountMajor:
+        rule?.amountMinor !== undefined ? minorToMajorString(BigInt(rule.amountMinor)) : '',
+      currency: rule?.currency ?? adminSettings()?.settings.rentCurrency ?? 'USD',
+      fxRate: rateMicrosToString(data.rentFxRateMicros)
+    })
+  })
+
+  async function handleSaveUtility(categoryName: string) {
+    const data = initData()
+    const amountMajor = utilityAmounts()[categoryName]?.trim() ?? ''
+    const currentEntry = utilityLedger().find((entry) => sameCategory(entry.title, categoryName))
+    if (!data || savingUtilityName()) return
+
+    setSavingUtilityName(categoryName)
     try {
-      await addMiniAppUtilityBill(data, draft)
-      setNewUtility({
-        ...EMPTY_UTILITY,
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+      if (currentEntry && amountMajor.length === 0) {
+        await deleteMiniAppUtilityBill(data, currentEntry.id)
+      } else if (currentEntry) {
+        await updateMiniAppUtilityBill(data, {
+          billId: currentEntry.id,
+          billName: categoryName,
+          amountMajor,
+          currency: currentEntry.currency
+        })
+      } else if (amountMajor.length > 0) {
+        await addMiniAppUtilityBill(data, {
+          billName: categoryName,
+          amountMajor,
+          currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+        })
+      }
+
+      await refreshHouseholdData(true, true)
+    } finally {
+      setSavingUtilityName(null)
+    }
+  }
+
+  async function handleSaveRent() {
+    const data = initData()
+    const current = dashboard()
+    const draft = rentDraft()
+    if (!data || !current || !draft.amountMajor.trim()) return
+
+    setSavingRent(true)
+    try {
+      const fxRateMicros = rateStringToMicros(draft.fxRate)
+      await updateMiniAppCycleRent(data, {
+        amountMajor: draft.amountMajor,
+        currency: draft.currency,
+        period: current.period,
+        ...(fxRateMicros ? { fxRateMicros } : {})
       })
       await refreshHouseholdData(true, true)
     } finally {
-      setAddingUtility(false)
-    }
-  }
-
-  const openUtilityEditor = (entry: MiniAppDashboard['ledger'][number]) => {
-    setEditingUtilityId(entry.id)
-    setUtilityDraft({
-      billName: entry.title,
-      amountMajor: entry.amountMajor,
-      currency: entry.currency as 'USD' | 'GEL'
-    })
-  }
-
-  const closeUtilityEditor = () => {
-    setEditingUtilityId(null)
-    setUtilityDraft(null)
-  }
-
-  const handleSaveUtility = async () => {
-    const data = initData()
-    const utilityId = editingUtilityId()
-    const draft = utilityDraft()
-    if (!data || !utilityId || !draft) return
-
-    setSavingUtility(true)
-    try {
-      await updateMiniAppUtilityBill(data, { billId: utilityId, ...draft })
-      closeUtilityEditor()
-      await refreshHouseholdData(true, true)
-    } finally {
-      setSavingUtility(false)
-    }
-  }
-
-  const handleDeleteUtility = async () => {
-    const data = initData()
-    const utilityId = editingUtilityId()
-    if (!data || !utilityId) return
-
-    setDeletingUtility(true)
-    try {
-      await deleteMiniAppUtilityBill(data, utilityId)
-      closeUtilityEditor()
-      await refreshHouseholdData(true, true)
-    } finally {
-      setDeletingUtility(false)
+      setSavingRent(false)
     }
   }
 
@@ -134,226 +200,252 @@ export default function BillsRoute() {
           <Match when={dashboard()}>
             {(data) => (
               <>
-                {/* Utilities Section */}
                 <Card>
-                  <div class="card-header">
+                  <div class="statement-header">
                     <div>
-                      <h2 class="card-title">{copy().utilityLedgerTitle}</h2>
-                      <p class="card-subtitle">
-                        {copy().currentCycleLabel} · {formatCyclePeriod(data().period, locale())}
+                      <p class="statement-header__eyebrow">{copy().bills}</p>
+                      <h2 class="statement-header__title">
+                        {formatCyclePeriod(data().period, locale())}
+                      </h2>
+                      <p class="statement-header__body">
+                        {copy().currentCycleLabel} · {data().currency}
                       </p>
                     </div>
+                    <div class="statement-chip-grid">
+                      <div class="statement-chip">
+                        <span>{copy().pureUtilitiesLabel}</span>
+                        <strong>
+                          {formatMoneyLabel(utilityCycleTotal(), data().currency, locale())}
+                        </strong>
+                      </div>
+                      <div class="statement-chip">
+                        <span>{copy().utilitiesAdjustedTotalLabel}</span>
+                        <strong>
+                          {formatMoneyLabel(adjustedUtilityTotal(), data().currency, locale())}
+                        </strong>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* Add Utility Form — admin only */}
-                  <Show when={effectiveIsAdmin()}>
-                    <div class="bills-add-form">
-                      <UtilityForm
-                        value={newUtility()}
-                        onChange={setNewUtility}
-                        currencyOptions={currencyOptions()}
-                        labels={utilityFormLabels()}
-                        disabled={addingUtility()}
-                      />
-                      <div class="bills-add-form__actions">
-                        <Button
-                          variant="primary"
-                          loading={addingUtility()}
-                          disabled={
-                            !newUtility().billName.trim() || !newUtility().amountMajor.trim()
-                          }
-                          onClick={() => void handleAddUtility()}
-                        >
-                          <Plus size={16} />
-                          {addingUtility() ? copy().savingUtilityBill : copy().addUtilityBillAction}
-                        </Button>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* Current Cycle Utilities List */}
-                  <Show
-                    when={utilityLedger().length > 0}
-                    fallback={<p class="empty-state">{copy().utilityLedgerEmpty}</p>}
-                  >
-                    <div class="bills-list">
-                      <p class="bills-list__title">{copy().currentCycleLabel}</p>
-                      <div class="editable-list">
-                        <For each={utilityLedger()}>
-                          {(entry) => (
-                            <Show
-                              when={effectiveIsAdmin()}
-                              fallback={
-                                <div class="editable-list-row editable-list-row--static">
-                                  <div class="editable-list-row__main">
-                                    <span class="editable-list-row__title">{entry.title}</span>
-                                    <span class="editable-list-row__subtitle">
-                                      {entry.actorDisplayName}
-                                    </span>
-                                  </div>
-                                  <div class="editable-list-row__meta">
-                                    <strong>
-                                      {formatMoneyLabel(
-                                        entry.displayAmountMajor,
-                                        entry.displayCurrency,
-                                        locale()
-                                      )}
-                                    </strong>
-                                  </div>
-                                </div>
-                              }
-                            >
-                              <button
-                                class="editable-list-row"
-                                onClick={() => openUtilityEditor(entry)}
-                              >
-                                <div class="editable-list-row__main">
-                                  <span class="editable-list-row__title">{entry.title}</span>
-                                  <span class="editable-list-row__subtitle">
-                                    {entry.actorDisplayName}
-                                  </span>
-                                </div>
-                                <div class="editable-list-row__meta">
-                                  <strong>
-                                    {formatMoneyLabel(
-                                      entry.displayAmountMajor,
-                                      entry.displayCurrency,
-                                      locale()
-                                    )}
-                                  </strong>
-                                </div>
-                              </button>
-                            </Show>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
                 </Card>
 
-                {/* Rent Payments Section */}
                 <Card>
-                  <div class="card-header">
+                  <div class="statement-section-heading">
                     <div>
-                      <h2 class="card-title">{copy().shareRent}</h2>
-                      <p class="card-subtitle">
-                        {copy().currentCycleLabel} · {formatCyclePeriod(data().period, locale())}
-                      </p>
+                      <strong>{copy().utilitiesBalanceTitle}</strong>
+                      <p>{copy().utilitiesBalanceBody}</p>
                     </div>
                   </div>
-                  <Show
-                    when={rentPayments().length > 0}
-                    fallback={<p class="empty-state">{copy().paymentsEmpty}</p>}
-                  >
-                    <div class="editable-list" style={{ 'margin-top': 'var(--spacing-md)' }}>
-                      <For each={rentPayments()}>
-                        {(entry) => (
-                          <div class="editable-list-row editable-list-row--static">
-                            <div class="editable-list-row__main">
-                              <span class="editable-list-row__title">{entry.title}</span>
-                              <span class="editable-list-row__subtitle">
-                                {entry.actorDisplayName}
-                              </span>
-                            </div>
-                            <div class="editable-list-row__meta">
-                              <strong>
-                                {formatMoneyLabel(
-                                  entry.displayAmountMajor,
-                                  entry.displayCurrency,
-                                  locale()
-                                )}
-                              </strong>
-                            </div>
-                          </div>
-                        )}
-                      </For>
+                  <div class="statement-rows">
+                    <div class="statement-row statement-row--header">
+                      <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
+                      <span>{copy().pureUtilitiesLabel}</span>
+                      <span>{copy().utilitiesAdjustedTotalLabel}</span>
                     </div>
-                  </Show>
+                    <For each={utilityOverview()}>
+                      {(item) => (
+                        <div class="statement-row">
+                          <strong>{item.displayName}</strong>
+                          <span>{formatMoneyLabel(item.pureMajor, data().currency, locale())}</span>
+                          <span>
+                            {formatMoneyLabel(item.adjustedMajor, data().currency, locale())}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </Card>
 
-                {/* Utility Payments Section */}
-                <Show when={utilityPayments().length > 0}>
+                <Show when={effectiveIsAdmin()}>
                   <Card>
-                    <div class="card-header">
+                    <div class="statement-section-heading">
                       <div>
-                        <h2 class="card-title">{copy().paymentsTitle}</h2>
-                        <p class="card-subtitle">
-                          {copy().shareUtilities} · {formatCyclePeriod(data().period, locale())}
+                        <strong>{copy().shareRent}</strong>
+                        <p>{copy().rentPanelBody}</p>
+                      </div>
+                      <span
+                        class={`ui-badge ${hasRentOverride() ? 'ui-badge--accent' : 'ui-badge--muted'}`}
+                      >
+                        {hasRentOverride()
+                          ? copy().currentCycleOverrideRent
+                          : copy().currentCycleUsesDefaultRent}
+                      </span>
+                    </div>
+                    <div class="rent-block">
+                      <div class="rent-block__overview">
+                        <div class="rent-block__header">
+                          <div>
+                            <p class="rent-block__eyebrow">{copy().currentCycleLabel}</p>
+                            <h3>{formatCyclePeriod(data().period, locale())}</h3>
+                          </div>
+                          <p class="rent-block__meta">
+                            {copy().billingCycleStatus.replace('{currency}', data().currency)}
+                          </p>
+                        </div>
+                        <div class="rent-overview-grid">
+                          <div class="rent-overview-card">
+                            <span>{copy().rentPanelHouseholdDefaultLabel}</span>
+                            <strong>{defaultRentLabel()}</strong>
+                          </div>
+                          <div class="rent-overview-card">
+                            <span>{copy().rentPanelCycleSourceLabel}</span>
+                            <strong>
+                              {formatMoneyLabel(
+                                data().rentSourceAmountMajor,
+                                data().rentSourceCurrency,
+                                locale()
+                              )}
+                            </strong>
+                          </div>
+                          <div class="rent-overview-card">
+                            <span>{copy().rentPanelSettlementLabel}</span>
+                            <strong>
+                              {formatMoneyLabel(
+                                data().rentDisplayAmountMajor,
+                                data().currency,
+                                locale()
+                              )}
+                            </strong>
+                          </div>
+                          <div class="rent-overview-card">
+                            <span>{copy().rentPanelFxLabel}</span>
+                            <strong>
+                              {data().rentFxRateMicros
+                                ? rateMicrosToString(data().rentFxRateMicros)
+                                : data().rentSourceCurrency === data().currency
+                                  ? copy().rentPanelNoConversion
+                                  : copy().rentPanelAutoRate}
+                            </strong>
+                          </div>
+                        </div>
+                        <p class="rent-block__note">
+                          {hasRentOverride()
+                            ? copy().rentPanelOverrideNote
+                            : copy().rentPanelDefaultNote}
                         </p>
                       </div>
-                    </div>
-                    <div class="editable-list" style={{ 'margin-top': 'var(--spacing-md)' }}>
-                      <For each={utilityPayments()}>
-                        {(entry) => (
-                          <div class="editable-list-row editable-list-row--static">
-                            <div class="editable-list-row__main">
-                              <span class="editable-list-row__title">{entry.title}</span>
-                              <span class="editable-list-row__subtitle">
-                                {entry.actorDisplayName}
-                              </span>
-                            </div>
-                            <div class="editable-list-row__meta">
-                              <strong>
-                                {formatMoneyLabel(
-                                  entry.displayAmountMajor,
-                                  entry.displayCurrency,
-                                  locale()
-                                )}
-                              </strong>
-                            </div>
-                          </div>
-                        )}
-                      </For>
+                      <div class="rent-block__editor">
+                        <div class="rent-block__editor-copy">
+                          <strong>{copy().manageCycleAction}</strong>
+                          <p>{copy().cycleEditorBody}</p>
+                        </div>
+                        <div class="rent-block__form">
+                          <Field label={copy().defaultRentAmount}>
+                            <Input
+                              type="number"
+                              value={rentDraft().amountMajor}
+                              onInput={(e) =>
+                                setRentDraft((draft) => ({
+                                  ...draft,
+                                  amountMajor: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentCurrencyLabel}>
+                            <CurrencyToggle
+                              value={rentDraft().currency}
+                              ariaLabel={copy().rentCurrencyLabel}
+                              onChange={(value) =>
+                                setRentDraft((draft) => ({
+                                  ...draft,
+                                  currency: value as 'USD' | 'GEL'
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label={copy().rentPanelFxLabel} hint={copy().rentPanelFxHint} wide>
+                            <Input
+                              type="text"
+                              value={rentDraft().fxRate}
+                              placeholder="2.76"
+                              onInput={(e) =>
+                                setRentDraft((draft) => ({
+                                  ...draft,
+                                  fxRate: e.currentTarget.value
+                                }))
+                              }
+                            />
+                          </Field>
+                        </div>
+                        <Button
+                          variant="primary"
+                          class="rent-block__save"
+                          loading={savingRent()}
+                          onClick={() => void handleSaveRent()}
+                        >
+                          {savingRent() ? copy().savingSettings : copy().saveSettingsAction}
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 </Show>
 
-                {/* Edit Utility Inline Form — admin only */}
-                <Show when={utilityDraft()}>
-                  {(draft) => (
-                    <Card>
-                      <div class="card-header">
-                        <h2 class="card-title">{copy().editEntryAction}</h2>
-                      </div>
-                      <UtilityForm
-                        value={draft()}
-                        onChange={setUtilityDraft}
-                        currencyOptions={currencyOptions()}
-                        labels={utilityFormLabels()}
-                        disabled={savingUtility() || deletingUtility()}
-                      />
-                      <div class="bills-editor-actions">
-                        <Button
-                          variant="danger"
-                          loading={deletingUtility()}
-                          onClick={() => void handleDeleteUtility()}
-                        >
-                          {deletingUtility()
-                            ? copy().deletingUtilityBill
-                            : copy().deleteUtilityBillAction}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={closeUtilityEditor}
-                          disabled={savingUtility() || deletingUtility()}
-                        >
-                          {copy().closeEditorAction}
-                        </Button>
-                        <div class="bills-editor-actions__save">
-                          <Button
-                            variant="primary"
-                            loading={savingUtility()}
-                            onClick={() => void handleSaveUtility()}
-                          >
-                            {savingUtility()
-                              ? copy().savingUtilityBill
-                              : copy().saveUtilityBillAction}
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  )}
-                </Show>
+                <Card>
+                  <div class="statement-section-heading">
+                    <div>
+                      <strong>{copy().utilityLedgerTitle}</strong>
+                      <p>{copy().utilityBillsEditorBody}</p>
+                    </div>
+                  </div>
+                  <Show
+                    when={utilityCategories().length > 0}
+                    fallback={<p class="empty-state">{copy().utilityBillsEmpty}</p>}
+                  >
+                    <div class="inline-editor-list">
+                      <For each={utilityCategories()}>
+                        {(category) => {
+                          const entry = () =>
+                            utilityLedger().find((item) => sameCategory(item.title, category.name))
+                          const currentAmount = () => utilityAmounts()[category.name] ?? ''
+                          return (
+                            <div class="inline-editor-row">
+                              <div class="inline-editor-row__label">
+                                <strong>{category.name}</strong>
+                                <span>
+                                  {entry()?.actorDisplayName ?? copy().utilityCategoryLabel}
+                                </span>
+                              </div>
+                              <Input
+                                type="number"
+                                value={currentAmount()}
+                                onInput={(e) =>
+                                  setUtilityAmounts((prev) => ({
+                                    ...prev,
+                                    [category.name]: e.currentTarget.value
+                                  }))
+                                }
+                              />
+                              <div class="inline-editor-row__value">
+                                <Show when={entry()}>
+                                  {(saved) => (
+                                    <span>
+                                      {formatMoneyLabel(
+                                        saved().displayAmountMajor,
+                                        saved().displayCurrency,
+                                        locale()
+                                      )}
+                                    </span>
+                                  )}
+                                </Show>
+                              </div>
+                              <Button
+                                variant="primary"
+                                loading={savingUtilityName() === category.name}
+                                onClick={() => void handleSaveUtility(category.name)}
+                              >
+                                {entry()
+                                  ? copy().saveUtilityBillAction
+                                  : copy().addUtilityBillAction}
+                              </Button>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </Card>
+
+                <PaymentsManager />
               </>
             )}
           </Match>

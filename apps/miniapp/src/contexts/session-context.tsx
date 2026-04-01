@@ -347,7 +347,7 @@ export function SessionProvider(
     // Delegate actual data loading to dashboard context via onReady
     const current = readySession()
     if (current) {
-      const isAdmin = includeAdmin || current.member.isAdmin
+      const isAdmin = current.member.isAdmin && includeAdmin
       await Promise.all([
         props.onReady?.(data, isAdmin),
         ...Array.from(refreshListeners).map((l) => l(data, isAdmin))

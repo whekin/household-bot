@@ -1,4 +1,4 @@
-import { Show, For, createMemo, createSignal, Switch, Match } from 'solid-js'
+import { Show, For, createEffect, createMemo, createSignal, Switch, Match } from 'solid-js'
 import { Clock, ChevronDown, ChevronUp, Copy, Check, CreditCard } from 'lucide-solid'
 import { useNavigate } from '@solidjs/router'
 
@@ -8,12 +8,13 @@ import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
 import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatMoneyLabel, localizedCurrencyLabel } from '../lib/ledger-helpers'
+import { formatMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   compareTodayToPeriodDay,
@@ -206,11 +207,7 @@ export default function HomeRoute() {
     testingTodayOverride
   } = useDashboard()
   const [showAllActivity, setShowAllActivity] = createSignal(false)
-  const [utilityDraft, setUtilityDraft] = createSignal({
-    billName: '',
-    amountMajor: '',
-    currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-  })
+  const [utilityAmounts, setUtilityAmounts] = createSignal<Record<string, string>>({})
   const [submittingUtilities, setSubmittingUtilities] = createSignal(false)
   const [copiedValue, setCopiedValue] = createSignal<string | null>(null)
   const [quickPaymentOpen, setQuickPaymentOpen] = createSignal(false)
@@ -243,6 +240,21 @@ export default function HomeRoute() {
   )
 
   const activeHouseholdMembers = createMemo(() => dashboard()?.members ?? [])
+  const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
+  const latestActivity = createMemo(() => {
+    const entries = [...(dashboard()?.ledger ?? [])]
+    return entries.sort((left, right) => {
+      if (left.occurredAt === right.occurredAt) {
+        return right.title.localeCompare(left.title)
+      }
+      return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
+    })
+  })
+
+  createEffect(() => {
+    const categories = utilityCategories()
+    setUtilityAmounts(Object.fromEntries(categories.map((category) => [category.name, ''])))
+  })
 
   async function copyText(value: string): Promise<boolean> {
     try {
@@ -391,23 +403,30 @@ export default function HomeRoute() {
   async function handleSubmitUtilities() {
     const data = initData()
     const current = dashboard()
-    const draft = utilityDraft()
+    const drafts = utilityAmounts()
     if (!data || !current || submittingUtilities()) return
-    if (!draft.billName.trim() || !draft.amountMajor.trim()) return
+    const entries = utilityCategories()
+      .map((category) => ({
+        billName: category.name,
+        amountMajor: drafts[category.name]?.trim() ?? ''
+      }))
+      .filter((entry) => entry.amountMajor.length > 0)
+
+    if (entries.length === 0) return
 
     setSubmittingUtilities(true)
     try {
-      await submitMiniAppUtilityBill(data, {
-        billName: draft.billName,
-        amountMajor: draft.amountMajor,
-        currency: draft.currency
-      })
-      setUtilityDraft({
-        billName: '',
-        amountMajor: '',
-        currency: current.currency
-      })
-      await refreshHouseholdData(true, true)
+      for (const entry of entries) {
+        await submitMiniAppUtilityBill(data, {
+          billName: entry.billName,
+          amountMajor: entry.amountMajor,
+          currency: current.currency
+        })
+      }
+      setUtilityAmounts(
+        Object.fromEntries(utilityCategories().map((category) => [category.name, '']))
+      )
+      await refreshHouseholdData(false, true)
     } finally {
       setSubmittingUtilities(false)
     }
@@ -935,36 +954,37 @@ export default function HomeRoute() {
                             </div>
                             <p class="empty-state">{copy().homeFillUtilitiesBody}</p>
                             <div class="editor-grid">
-                              <Field label={copy().utilityCategoryLabel} wide>
-                                <Input
-                                  value={utilityDraft().billName}
-                                  onInput={(e) =>
-                                    setUtilityDraft((d) => ({
-                                      ...d,
-                                      billName: e.currentTarget.value
-                                    }))
-                                  }
-                                />
-                              </Field>
-                              <Field label={copy().utilityAmount} wide>
-                                <Input
-                                  type="number"
-                                  value={utilityDraft().amountMajor}
-                                  onInput={(e) =>
-                                    setUtilityDraft((d) => ({
-                                      ...d,
-                                      amountMajor: e.currentTarget.value
-                                    }))
-                                  }
-                                />
-                              </Field>
-                              <div style={{ display: 'flex', gap: '10px' }}>
+                              <div class="inline-editor-list">
+                                <For each={utilityCategories()}>
+                                  {(category) => (
+                                    <div class="inline-editor-row">
+                                      <div class="inline-editor-row__label">
+                                        <strong>{category.name}</strong>
+                                        <span>{copy().utilityCategoryLabel}</span>
+                                      </div>
+                                      <Input
+                                        type="number"
+                                        value={utilityAmounts()[category.name] ?? ''}
+                                        onInput={(e) =>
+                                          setUtilityAmounts((prev) => ({
+                                            ...prev,
+                                            [category.name]: e.currentTarget.value
+                                          }))
+                                        }
+                                      />
+                                      <div class="inline-editor-row__value">
+                                        <span>{data().currency}</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                              <div style={{ display: 'flex', gap: '10px', 'flex-wrap': 'wrap' }}>
                                 <Button
                                   variant="primary"
                                   loading={submittingUtilities()}
                                   disabled={
-                                    !utilityDraft().billName.trim() ||
-                                    !utilityDraft().amountMajor.trim()
+                                    !Object.values(utilityAmounts()).some((value) => value.trim())
                                   }
                                   onClick={() => void handleSubmitUtilities()}
                                 >
@@ -972,8 +992,8 @@ export default function HomeRoute() {
                                     ? copy().homeFillUtilitiesSubmitting
                                     : copy().homeFillUtilitiesSubmitAction}
                                 </Button>
-                                <Button variant="ghost" onClick={() => navigate('/ledger')}>
-                                  {copy().homeFillUtilitiesOpenLedgerAction}
+                                <Button variant="ghost" onClick={() => navigate('/bills')}>
+                                  {copy().bills}
                                 </Button>
                               </div>
                             </div>
@@ -1247,11 +1267,13 @@ export default function HomeRoute() {
                     <span>{copy().latestActivityTitle}</span>
                   </div>
                   <Show
-                    when={data().ledger.length > 0}
+                    when={latestActivity().length > 0}
                     fallback={<p class="empty-state">{copy().latestActivityEmpty}</p>}
                   >
                     <div class="activity-card__list">
-                      <For each={showAllActivity() ? data().ledger : data().ledger.slice(0, 5)}>
+                      <For
+                        each={showAllActivity() ? latestActivity() : latestActivity().slice(0, 5)}
+                      >
                         {(entry) => (
                           <div class="activity-card__item">
                             <span class="activity-card__title">{entry.title}</span>
@@ -1266,7 +1288,7 @@ export default function HomeRoute() {
                         )}
                       </For>
                     </div>
-                    <Show when={data().ledger.length > 5}>
+                    <Show when={latestActivity().length > 5}>
                       <button
                         class="activity-card__show-more"
                         onClick={() => setShowAllActivity(!showAllActivity())}
@@ -1450,12 +1472,9 @@ export default function HomeRoute() {
             />
           </Field>
           <Field label={copy().quickPaymentCurrencyLabel}>
-            <Input
-              type="text"
-              value={localizedCurrencyLabel(
-                locale(),
-                (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-              )}
+            <CurrencyToggle
+              value={(dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'}
+              ariaLabel={copy().quickPaymentCurrencyLabel}
               disabled
             />
           </Field>
