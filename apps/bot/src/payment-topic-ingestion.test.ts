@@ -323,7 +323,7 @@ describe('buildPaymentAcknowledgement', () => {
         amountMajor: '472.50',
         currency: 'GEL'
       })
-    ).toBe('Оплата аренды сохранена: 472.50 GEL')
+    ).toBe('Оплата аренды сохранена: 472.50 ₾')
   })
 
   test('returns review acknowledgement', () => {
@@ -392,7 +392,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       reply_parameters: {
         message_id: 55
       },
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.'),
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.'),
       reply_markup: {
         inline_keyboard: [
           [
@@ -494,7 +494,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       text: 'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.'
     })
     expect(calls[1]?.payload).toMatchObject({
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.')
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.')
     })
   })
 
@@ -629,7 +629,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'Recorded rent payment: 472.50 GEL'
+        text: 'Recorded rent payment: 472.50 ₾'
       }
     })
     expect(calls[1]).toMatchObject({
@@ -637,7 +637,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       payload: {
         chat_id: -10012345,
         message_id: 77,
-        text: 'Recorded rent payment: 472.50 GEL'
+        text: 'Recorded rent payment: 472.50 ₾'
       }
     })
   })
@@ -803,7 +803,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 GEL.')
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.')
     })
   })
 

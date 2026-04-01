@@ -397,7 +397,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 GEL')
+        text: expect.stringContaining('- Electricity: 22.00 ₾')
       }
     })
   })
@@ -413,7 +413,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 GEL')
+        text: expect.stringContaining('- Electricity: 22.00 ₾')
       }
     })
 
@@ -425,7 +425,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 GEL')
+        text: expect.stringContaining('- Electricity: 22.00 ₾')
       }
     })
   })
