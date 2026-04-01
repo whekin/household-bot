@@ -37,6 +37,17 @@ function adjustmentApplies(
   return (policy === 'utilities' && kind === 'utilities') || (policy === 'rent' && kind === 'rent')
 }
 
+function roundRentMinor(amountMinor: bigint): bigint {
+  if (amountMinor <= 0n) {
+    return 0n
+  }
+
+  const wholeMinor = amountMinor / 100n
+  const remainderMinor = amountMinor % 100n
+
+  return (remainderMinor >= 50n ? wholeMinor + 1n : wholeMinor) * 100n
+}
+
 export function buildMemberPaymentGuidance(input: {
   kind: 'rent' | 'utilities'
   period: string
@@ -48,9 +59,17 @@ export function buildMemberPaymentGuidance(input: {
   const baseAmount =
     input.kind === 'rent' ? input.memberLine.rentShare : input.memberLine.utilityShare
   const purchaseOffset = input.memberLine.purchaseOffset
-  const proposalAmount = adjustmentApplies(policy, input.kind)
-    ? baseAmount.add(purchaseOffset)
-    : baseAmount
+  const adjustedMinor = adjustmentApplies(policy, input.kind)
+    ? baseAmount.amountMinor + purchaseOffset.amountMinor
+    : baseAmount.amountMinor
+  const proposalAmount = Money.fromMinor(
+    input.kind === 'rent'
+      ? roundRentMinor(adjustedMinor > 0n ? adjustedMinor : 0n)
+      : adjustedMinor > 0n
+        ? adjustedMinor
+        : 0n,
+    baseAmount.currency
+  )
 
   const reminderDay =
     input.kind === 'rent' ? input.settings.rentWarningDay : input.settings.utilitiesReminderDay

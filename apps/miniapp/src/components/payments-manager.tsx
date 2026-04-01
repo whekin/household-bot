@@ -46,12 +46,53 @@ export function PaymentsManager() {
   })
   const paymentPeriodSummaries = createMemo(() => dashboard()?.paymentPeriods ?? [])
   const visiblePeriodSummaries = createMemo(() => {
-    const current = paymentPeriodSummaries().find((summary) => summary.isCurrentPeriod)
+    const stage = dashboard()?.billingStage ?? 'idle'
+    const utilityPlanActive = Boolean(dashboard()?.utilityBillingPlan?.categories.length)
+    const filterKinds = (
+      summary: (typeof paymentPeriodSummaries extends () => infer T ? T : never)[number]
+    ) =>
+      summary.kinds.filter((kindSummary) => {
+        if (kindSummary.unresolvedMembers.length === 0) {
+          return false
+        }
+
+        if (!summary.isCurrentPeriod) {
+          return true
+        }
+
+        if (stage === 'idle') {
+          return false
+        }
+
+        if (stage === 'utilities') {
+          if (kindSummary.kind === 'rent') {
+            return false
+          }
+
+          return !utilityPlanActive
+        }
+
+        return true
+      })
+
+    const currentSummary = paymentPeriodSummaries().find((summary) => summary.isCurrentPeriod)
+    const current =
+      currentSummary && filterKinds(currentSummary).length > 0
+        ? {
+            ...currentSummary,
+            kinds: filterKinds(currentSummary)
+          }
+        : null
     const overdue = sortPeriodsDesc(
       paymentPeriodSummaries().filter(
         (summary) => !summary.isCurrentPeriod && summary.hasOverdueBalance
       )
     )
+      .map((summary) => ({
+        ...summary,
+        kinds: filterKinds(summary)
+      }))
+      .filter((summary) => summary.kinds.length > 0)
 
     return [...(current ? [current] : []), ...overdue]
   })

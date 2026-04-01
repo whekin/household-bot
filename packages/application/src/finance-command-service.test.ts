@@ -9,6 +9,7 @@ import type {
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   SettlementSnapshotRecord
 } from '@household/ports'
@@ -58,6 +59,9 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdAt: Instant
   }[] = []
   utilityBillingPlans: Array<Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]> = []
+  billingSettingsOverride: Partial<
+    Awaited<ReturnType<HouseholdConfigurationRepository['getHouseholdBillingSettings']>>
+  > | null = null
   utilityVendorPaymentFacts: Array<
     Awaited<ReturnType<FinanceRepository['listUtilityVendorPaymentFactsForCycle']>>[number]
   > = []
@@ -478,7 +482,8 @@ const householdConfigurationRepository: Pick<
   'getHouseholdBillingSettings' | 'listHouseholdMembers' | 'listHouseholdMemberAbsencePolicies'
 > = {
   async getHouseholdBillingSettings(householdId) {
-    return {
+    const repository = financeRepositoryForHousehold(householdId)
+    const defaults: HouseholdBillingSettingsRecord = {
       householdId,
       settlementCurrency: 'GEL',
       rentAmountMinor: 70000n,
@@ -490,6 +495,10 @@ const householdConfigurationRepository: Pick<
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }
+
+    return repository.billingSettingsOverride
+      ? { ...defaults, ...repository.billingSettingsOverride }
+      : defaults
   },
   async listHouseholdMembers(householdId) {
     const repository = financeRepositoryForHousehold(householdId)
@@ -1488,6 +1497,241 @@ describe('createFinanceCommandService', () => {
     await expect(service.addPayment('alice', 'rent', '10.00', 'GEL', '2026-03')).rejects.toThrow(
       'Payment period is already settled'
     )
+  })
+
+  test('generateDashboard applies purchase balance through utilities mode', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Shared food',
+        occurredAt: instantFromIso('2026-03-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-03')
+
+    expect(
+      dashboard?.utilityBillingPlan?.memberSummaries.map((summary) => ({
+        memberId: summary.memberId,
+        fairShareMinor: summary.fairShare.amountMinor
+      }))
+    ).toEqual([
+      { memberId: 'alice', fairShareMinor: 4000n },
+      { memberId: 'bob', fairShareMinor: 6000n }
+    ])
+    expect(
+      dashboard?.paymentPeriods?.[0]?.kinds
+        .find((kind) => kind.kind === 'utilities')
+        ?.unresolvedMembers.map((member) => ({
+          memberId: member.memberId,
+          baseDueMinor: member.baseDue.amountMinor
+        }))
+    ).toEqual([
+      { memberId: 'alice', baseDueMinor: 4000n },
+      { memberId: 'bob', baseDueMinor: 6000n }
+    ])
+  })
+
+  test('generateDashboard routes purchase balance through rent mode instead of utility targets', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'rent'
+    }
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Shared food',
+        occurredAt: instantFromIso('2026-03-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-03')
+
+    expect(
+      dashboard?.utilityBillingPlan?.memberSummaries.map((summary) => ({
+        memberId: summary.memberId,
+        fairShareMinor: summary.fairShare.amountMinor
+      }))
+    ).toEqual([
+      { memberId: 'alice', fairShareMinor: 5000n },
+      { memberId: 'bob', fairShareMinor: 5000n }
+    ])
+    expect(
+      dashboard?.utilityBillingPlan?.categories.every((category) => category.isFullAssignment)
+    ).toBe(true)
+    expect(dashboard?.rentBillingState.memberSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          memberId: 'alice',
+          due: expect.objectContaining({ amountMinor: 93500n })
+        }),
+        expect.objectContaining({
+          memberId: 'bob',
+          due: expect.objectContaining({ amountMinor: 95500n })
+        })
+      ])
+    )
+  })
+
+  test('generateDashboard keeps both payment kinds raw in manual mode', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'separate'
+    }
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Shared food',
+        occurredAt: instantFromIso('2026-03-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-03')
+
+    expect(
+      dashboard?.rentBillingState.memberSummaries.map((summary) => summary.due.amountMinor)
+    ).toEqual([94500n, 94500n])
+    expect(
+      dashboard?.paymentPeriods?.[0]?.kinds
+        .find((kind) => kind.kind === 'utilities')
+        ?.unresolvedMembers.map((member) => member.baseDue.amountMinor)
+    ).toEqual([5000n, 5000n])
   })
 
   test('recordUtilityVendorPayment marks the previous plan diverged and rebalances the remainder', async () => {

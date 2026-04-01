@@ -54,6 +54,8 @@ export interface UtilityBillingPlanComputed {
   }[]
 }
 
+export type UtilityBillingPlanStrategy = 'same_cycle' | 'whole_bills_first'
+
 interface SearchBill {
   utilityBillId: string
   billName: string
@@ -304,11 +306,51 @@ function compareScore(
   return (left[left.length - 1] as string).localeCompare(right[right.length - 1] as string)
 }
 
+function compareStrategyScore(
+  strategy: UtilityBillingPlanStrategy,
+  left: readonly [bigint, bigint, number, number, number, number, string],
+  right: readonly [bigint, bigint, number, number, number, number, string]
+): number {
+  if (strategy === 'same_cycle') {
+    return compareScore(left, right)
+  }
+
+  const remap = (
+    score: readonly [bigint, bigint, number, number, number, number, string]
+  ): readonly [number, number, number, bigint, bigint, number, string] => [
+    score[2],
+    score[3],
+    score[4],
+    score[0],
+    score[1],
+    score[5],
+    score[6]
+  ]
+
+  const leftMapped = remap(left)
+  const rightMapped = remap(right)
+
+  for (let index = 0; index < leftMapped.length - 1; index += 1) {
+    const leftValue = leftMapped[index]!
+    const rightValue = rightMapped[index]!
+    if (leftValue === rightValue) {
+      continue
+    }
+
+    return leftValue < rightValue ? -1 : 1
+  }
+
+  return (leftMapped[leftMapped.length - 1] as string).localeCompare(
+    rightMapped[rightMapped.length - 1] as string
+  )
+}
+
 function searchAssignments(input: {
   currency: CurrencyCode
   members: readonly UtilityBillingTargetMember[]
   vendorPaidByMemberId: ReadonlyMap<string, bigint>
   bills: readonly SearchBill[]
+  strategy: UtilityBillingPlanStrategy
 }): SearchResult | null {
   if (input.members.length === 0) {
     return null
@@ -362,7 +404,7 @@ function searchAssignments(input: {
       lexical
     ]
 
-    if (!bestScore || compareScore(score, bestScore) < 0) {
+    if (!bestScore || compareStrategyScore(input.strategy, score, bestScore) < 0) {
       bestScore = score
       bestResult = {
         assignments: [...assignments],
@@ -436,6 +478,7 @@ export function computeUtilityBillingPlan(input: {
   members: readonly UtilityBillingTargetMember[]
   bills: readonly UtilityBillingBill[]
   vendorPayments: readonly UtilityVendorPaymentFactInput[]
+  strategy?: UtilityBillingPlanStrategy
 }): UtilityBillingPlanComputed {
   const paidByBillId = candidatePaidByBill(input.bills, input.vendorPayments)
   const vendorPaidByMemberId = new Map<string, bigint>()
@@ -475,7 +518,8 @@ export function computeUtilityBillingPlan(input: {
     currency: input.currency,
     members: input.members,
     vendorPaidByMemberId,
-    bills: searchBills
+    bills: searchBills,
+    strategy: input.strategy ?? 'same_cycle'
   })
 
   if (!best) {

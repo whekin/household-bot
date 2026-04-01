@@ -85,54 +85,27 @@ function purchaseShareForMember(
   )
 }
 
-function sumMemberPaymentsByKind(
+function paymentRemainingMinor(
   data: MiniAppDashboard,
   memberId: string,
   kind: 'rent' | 'utilities'
 ): bigint {
-  return data.ledger.reduce((sum, entry) => {
-    if (entry.kind !== 'payment' || entry.memberId !== memberId || entry.paymentKind !== kind) {
-      return sum
-    }
-
-    return sum + majorStringToMinor(entry.amountMajor)
-  }, 0n)
-}
-
-function paymentProposalMinor(
-  data: MiniAppDashboard,
-  member: MiniAppDashboard['members'][number],
-  kind: 'rent' | 'utilities'
-): bigint {
-  const purchaseOffsetMinor = majorStringToMinor(member.purchaseOffsetMajor)
-  const baseMinor =
-    kind === 'rent'
-      ? majorStringToMinor(member.rentShareMajor)
-      : majorStringToMinor(member.utilityShareMajor)
-
-  const proposalMinor =
-    data.paymentBalanceAdjustmentPolicy === kind ? baseMinor + purchaseOffsetMinor : baseMinor
-
-  if (kind !== 'rent' || proposalMinor <= 0n) {
-    return proposalMinor
+  if (kind === 'rent') {
+    const rentSummary = data.rentBillingState.memberSummaries.find(
+      (summary) => summary.memberId === memberId
+    )
+    return majorStringToMinor(rentSummary?.remainingMajor ?? '0.00')
   }
 
-  const wholeMinor = proposalMinor / 100n
-  const remainderMinor = proposalMinor % 100n
+  if (data.utilityBillingPlan) {
+    return utilityPlanAssignedMinor(data, memberId)
+  }
 
-  return (remainderMinor >= 50n ? wholeMinor + 1n : wholeMinor) * 100n
-}
+  const periodSummary = (data.paymentPeriods ?? []).find((summary) => summary.isCurrentPeriod)
+  const utilityKind = periodSummary?.kinds.find((entry) => entry.kind === 'utilities')
+  const memberSummary = utilityKind?.unresolvedMembers.find((entry) => entry.memberId === memberId)
 
-function paymentRemainingMinor(
-  data: MiniAppDashboard,
-  member: MiniAppDashboard['members'][number],
-  kind: 'rent' | 'utilities'
-): bigint {
-  const proposalMinor = paymentProposalMinor(data, member, kind)
-  const paidMinor = sumMemberPaymentsByKind(data, member.memberId, kind)
-  const remainingMinor = proposalMinor - paidMinor
-
-  return remainingMinor > 0n ? remainingMinor : 0n
+  return majorStringToMinor(memberSummary?.remainingMajor ?? '0.00')
 }
 
 function utilityPlanAssignedMinor(data: MiniAppDashboard, memberId: string): bigint {
@@ -497,8 +470,8 @@ export default function HomeRoute() {
     })
     const utilitiesDueMinor = data.utilityBillingPlan
       ? utilityPlanAssignedMinor(data, member.memberId)
-      : paymentRemainingMinor(data, member, 'utilities')
-    const rentDueMinor = paymentRemainingMinor(data, member, 'rent')
+      : paymentRemainingMinor(data, member.memberId, 'utilities')
+    const rentDueMinor = paymentRemainingMinor(data, member.memberId, 'rent')
     const utilitiesActive =
       utilities.active && (Boolean(data.utilityBillingPlan) || utilitiesDueMinor > 0n)
     const rentActive = rent.active && rentDueMinor > 0n
@@ -564,7 +537,7 @@ export default function HomeRoute() {
         : minorToMajorString(
             type === 'utilities' && data.utilityBillingPlan
               ? utilityPlanAssignedMinor(data, member.memberId)
-              : paymentRemainingMinor(data, member, type)
+              : paymentRemainingMinor(data, member.memberId, type)
           )
 
     setQuickPaymentType(type)
@@ -745,11 +718,12 @@ export default function HomeRoute() {
               <Show when={currentMemberLine()}>
                 {(member) => {
                   const policy = () => data().paymentBalanceAdjustmentPolicy
-                  const rentRemainingMinor = () => paymentRemainingMinor(data(), member(), 'rent')
+                  const rentRemainingMinor = () =>
+                    paymentRemainingMinor(data(), member().memberId, 'rent')
                   const utilitiesRemainingMinor = () =>
                     data().utilityBillingPlan
                       ? utilityPlanAssignedMinor(data(), member().memberId)
-                      : paymentRemainingMinor(data(), member(), 'utilities')
+                      : paymentRemainingMinor(data(), member().memberId, 'utilities')
 
                   const modes = () => currentPaymentModes()
                   const formatMajorAmount = (

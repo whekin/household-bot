@@ -9,7 +9,7 @@ import {
 } from 'solid-js'
 
 import type { CalendarDateParts } from '../lib/dates'
-import { normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
+import { compareTodayToPeriodDay, normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   fetchDashboardQuery,
@@ -116,6 +116,7 @@ type DashboardContextValue = {
   setTestingTodayOverride: (value: string | null) => void
   effectivePeriod: () => string | null
   effectiveTodayOverride: () => CalendarDateParts | null
+  effectiveBillingStage: () => 'utilities' | 'rent' | 'idle'
   testingOverridesActive: () => boolean
   loadDashboardData: (
     initData: string,
@@ -259,6 +260,53 @@ function computePurchaseInvestmentChart(
   }
 }
 
+function computeEffectiveBillingStage(input: {
+  dashboard: MiniAppDashboard | null
+  period: string | null
+  todayOverride: CalendarDateParts | null
+}): 'utilities' | 'rent' | 'idle' {
+  const data = input.dashboard
+  const period = input.period
+  if (!data || !period) {
+    return 'idle'
+  }
+
+  const utilitiesReminder = compareTodayToPeriodDay(
+    period,
+    data.utilitiesReminderDay,
+    data.timezone,
+    input.todayOverride
+  )
+  const rentReminder = compareTodayToPeriodDay(
+    period,
+    data.rentWarningDay,
+    data.timezone,
+    input.todayOverride
+  )
+
+  const utilitiesOpen =
+    Boolean(data.utilityBillingPlan) &&
+    data.utilityBillingPlan?.status !== 'settled' &&
+    (data.utilityBillingPlan?.categories.length ?? 0) > 0 &&
+    utilitiesReminder !== null &&
+    rentReminder !== null &&
+    utilitiesReminder >= 0 &&
+    rentReminder === -1
+
+  if (utilitiesOpen) {
+    return 'utilities'
+  }
+
+  const rentOpen =
+    data.rentBillingState.memberSummaries.some(
+      (member) => majorStringToMinor(member.remainingMajor) > 0n
+    ) &&
+    rentReminder !== null &&
+    rentReminder >= 0
+
+  return rentOpen ? 'rent' : 'idle'
+}
+
 interface MemberBalanceItem {
   member: MiniAppDashboard['members'][number]
   amountMajor: string
@@ -350,6 +398,13 @@ export function DashboardProvider(props: ParentProps) {
 
     return derivedTestingPeriodOverride() ?? demoDefaultPeriodOverride() ?? data.period
   })
+  const effectiveBillingStage = createMemo(() =>
+    computeEffectiveBillingStage({
+      dashboard: dashboard(),
+      period: effectivePeriod(),
+      todayOverride: effectiveTodayOverride()
+    })
+  )
   const testingOverridesActive = createMemo(() =>
     Boolean(normalizePeriodOverride(testingPeriodOverride()) ?? testingTodayOverride())
   )
@@ -542,6 +597,7 @@ export function DashboardProvider(props: ParentProps) {
         setTestingTodayOverride,
         effectivePeriod,
         effectiveTodayOverride,
+        effectiveBillingStage,
         testingOverridesActive,
         loadDashboardData,
         applyDemoState

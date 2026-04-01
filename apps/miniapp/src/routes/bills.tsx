@@ -10,9 +10,8 @@ import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatCyclePeriod } from '../lib/dates'
 import { formatMoneyLabel } from '../lib/ledger-helpers'
-import { majorStringToMinor, minorToMajorString } from '../lib/money'
+import { minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
@@ -47,8 +46,15 @@ function sameCategory(left: string, right: string): boolean {
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
   const { initData, refreshHouseholdData, readySession } = useSession()
-  const { adminSettings, cycleState, dashboard, effectiveIsAdmin, loading, utilityLedger } =
-    useDashboard()
+  const {
+    adminSettings,
+    cycleState,
+    dashboard,
+    effectiveBillingStage,
+    effectiveIsAdmin,
+    loading,
+    utilityLedger
+  } = useDashboard()
 
   const [utilityAmounts, setUtilityAmounts] = createSignal<Record<string, string>>({})
   const [savingUtilityName, setSavingUtilityName] = createSignal<string | null>(null)
@@ -71,37 +77,6 @@ export default function BillsRoute() {
       locale()
     )
   })
-
-  const utilityOverview = createMemo(() => {
-    const data = dashboard()
-    if (!data) return []
-
-    return data.members.map((member) => {
-      const pureMinor = majorStringToMinor(member.utilityShareMajor)
-      const adjustmentMinor =
-        data.paymentBalanceAdjustmentPolicy === 'utilities'
-          ? majorStringToMinor(member.purchaseOffsetMajor)
-          : 0n
-      const adjustedMinor = pureMinor + adjustmentMinor
-
-      return {
-        memberId: member.memberId,
-        displayName: member.displayName,
-        pureMajor: minorToMajorString(pureMinor),
-        adjustedMajor: minorToMajorString(adjustedMinor)
-      }
-    })
-  })
-  const utilityCycleTotal = createMemo(() =>
-    minorToMajorString(
-      utilityLedger().reduce((sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor), 0n)
-    )
-  )
-  const adjustedUtilityTotal = createMemo(() =>
-    minorToMajorString(
-      utilityOverview().reduce((sum, item) => sum + majorStringToMinor(item.adjustedMajor), 0n)
-    )
-  )
   const hasRentOverride = createMemo(() => Boolean(cycleState()?.rentRule))
   const currentMemberId = createMemo(() =>
     readySession()?.status === 'ready' ? readySession()!.member.id : null
@@ -110,6 +85,47 @@ export default function BillsRoute() {
     () => readySession()?.status === 'ready' && readySession()!.member.isAdmin
   )
   const utilityBillingPlan = createMemo(() => dashboard()?.utilityBillingPlan ?? null)
+  const currentUtilityAssignments = createMemo(() =>
+    (utilityBillingPlan()?.categories ?? []).filter(
+      (category) => category.assignedMemberId === currentMemberId()
+    )
+  )
+  const currentUtilitySummary = createMemo(
+    () =>
+      (utilityBillingPlan()?.memberSummaries ?? []).find(
+        (summary) => summary.memberId === currentMemberId()
+      ) ?? null
+  )
+  const householdUtilityPlanMembers = createMemo(() => {
+    const plan = utilityBillingPlan()
+    if (!plan) return []
+
+    const currentId = currentMemberId()
+    const categoriesByMemberId = new Map<string, typeof plan.categories>()
+    for (const summary of plan.memberSummaries) {
+      categoriesByMemberId.set(
+        summary.memberId,
+        plan.categories.filter((category) => category.assignedMemberId === summary.memberId)
+      )
+    }
+
+    return [...plan.memberSummaries]
+      .sort((left, right) => {
+        if (left.memberId === currentId) return -1
+        if (right.memberId === currentId) return 1
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((summary) => ({
+        ...summary,
+        categories: categoriesByMemberId.get(summary.memberId) ?? []
+      }))
+  })
+  const currentRentSummary = createMemo(
+    () =>
+      dashboard()?.rentBillingState.memberSummaries.find(
+        (summary) => summary.memberId === currentMemberId()
+      ) ?? null
+  )
   const utilityCategoryByName = createMemo(
     () =>
       new Map(utilityCategories().map((category) => [category.name.trim().toLowerCase(), category]))
@@ -248,14 +264,248 @@ export default function BillsRoute() {
           <Match when={dashboard()}>
             {(data) => (
               <>
-                <Card>
-                  <Show when={utilityBillingPlan()}>
-                    {(plan) => (
+                <Switch>
+                  <Match when={effectiveBillingStage() === 'utilities'}>
+                    <Card accent>
                       <div class="statement-section-heading">
                         <div>
                           <strong>
-                            {locale() === 'ru' ? 'План по коммуналке' : 'Utilities plan'}
+                            {locale() === 'ru' ? 'Твоя коммуналка сейчас' : 'Your utilities now'}
                           </strong>
+                          <p>
+                            {locale() === 'ru'
+                              ? 'Сначала твои текущие счета. Ниже — план для остальных.'
+                              : 'Your current utility instructions first. The household plan is below.'}
+                          </p>
+                        </div>
+                        <span class="ui-badge ui-badge--muted">
+                          {data().paymentBalanceAdjustmentPolicy === 'utilities'
+                            ? locale() === 'ru'
+                              ? 'Зачёт через коммуналку'
+                              : 'Through utilities'
+                            : data().paymentBalanceAdjustmentPolicy === 'rent'
+                              ? locale() === 'ru'
+                                ? 'Зачёт через аренду'
+                                : 'Through rent'
+                              : locale() === 'ru'
+                                ? 'Вручную'
+                                : 'Manual'}
+                        </span>
+                      </div>
+                      <Show
+                        when={currentUtilityAssignments().length > 0}
+                        fallback={
+                          <p class="empty-state">
+                            {locale() === 'ru'
+                              ? 'Сейчас тебе ничего не назначено по коммуналке.'
+                              : 'Nothing is currently assigned to you for utilities.'}
+                          </p>
+                        }
+                      >
+                        <div class="statement-list">
+                          <For each={currentUtilityAssignments()}>
+                            {(category) => (
+                              <div class="statement-list__item statement-list__item--stack">
+                                <div>
+                                  <strong>
+                                    {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
+                                  </strong>
+                                  <span>
+                                    {formatMoneyLabel(
+                                      category.assignedAmountMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </span>
+                                  <Show when={!category.isFullAssignment}>
+                                    <span>
+                                      {locale() === 'ru'
+                                        ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                        : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                    </span>
+                                  </Show>
+                                  <Show
+                                    when={utilityCategoryByName().get(
+                                      category.billName.trim().toLowerCase()
+                                    )}
+                                  >
+                                    {(details) => (
+                                      <span>
+                                        {[
+                                          details().providerName,
+                                          details().customerNumber,
+                                          details().note
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ')}
+                                      </span>
+                                    )}
+                                  </Show>
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                        <Show when={currentUtilitySummary()}>
+                          {(summary) => (
+                            <div class="statement-chip-grid">
+                              <div class="statement-chip">
+                                <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    summary().fairShareMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <div class="statement-chip">
+                                <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    summary().vendorPaidMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <div class="statement-chip">
+                                <span>
+                                  {locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}
+                                </span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    summary().assignedThisCycleMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <div class="statement-chip">
+                                <span>{locale() === 'ru' ? 'После плана' : 'After plan'}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    summary().projectedDeltaAfterPlanMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                            </div>
+                          )}
+                        </Show>
+                        <div class="statement-actions statement-actions--single">
+                          <Button
+                            variant="primary"
+                            loading={utilityActionKey() === `resolve:${currentMemberId()}`}
+                            onClick={() =>
+                              currentMemberId() && void handleResolvePlanned(currentMemberId()!)
+                            }
+                          >
+                            {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve my plan'}
+                          </Button>
+                        </div>
+                      </Show>
+                    </Card>
+                  </Match>
+
+                  <Match when={effectiveBillingStage() === 'rent' && currentRentSummary()}>
+                    {(summary) => (
+                      <Card accent>
+                        <div class="statement-section-heading">
+                          <div>
+                            <strong>
+                              {locale() === 'ru' ? 'Твоя аренда сейчас' : 'Your rent now'}
+                            </strong>
+                            <p>
+                              {locale() === 'ru'
+                                ? `Срок ${data().rentBillingState.dueDate}`
+                                : `Due ${data().rentBillingState.dueDate}`}
+                            </p>
+                          </div>
+                          <span class="ui-badge ui-badge--accent">
+                            {locale() === 'ru' ? 'Аренда' : 'Rent'}
+                          </span>
+                        </div>
+                        <div class="statement-chip-grid">
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'К оплате' : 'Due now'}</span>
+                            <strong>
+                              {formatMoneyLabel(
+                                summary().remainingMajor,
+                                data().currency,
+                                locale()
+                              )}
+                            </strong>
+                          </div>
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Полная сумма' : 'Full due'}</span>
+                            <strong>
+                              {formatMoneyLabel(summary().dueMajor, data().currency, locale())}
+                            </strong>
+                          </div>
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                            <strong>
+                              {formatMoneyLabel(summary().paidMajor, data().currency, locale())}
+                            </strong>
+                          </div>
+                        </div>
+                        <Show when={(data().rentBillingState.paymentDestinations ?? []).length > 0}>
+                          <div class="statement-list">
+                            <For each={data().rentBillingState.paymentDestinations ?? []}>
+                              {(destination) => (
+                                <div class="statement-list__item statement-list__item--stack">
+                                  <div>
+                                    <strong>{destination.label}</strong>
+                                    <span>
+                                      {[
+                                        destination.recipientName,
+                                        destination.bankName,
+                                        destination.account
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                    </span>
+                                    <Show when={destination.note}>
+                                      <span>{destination.note}</span>
+                                    </Show>
+                                  </div>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </Card>
+                    )}
+                  </Match>
+
+                  <Match when={effectiveBillingStage() === 'idle'}>
+                    <Card>
+                      <div class="statement-section-heading">
+                        <div>
+                          <strong>
+                            {locale() === 'ru'
+                              ? 'Сейчас активных оплат нет'
+                              : 'No active payment window right now'}
+                          </strong>
+                          <p>
+                            {locale() === 'ru'
+                              ? 'На этой странице ниже останутся история и настройки цикла.'
+                              : 'History and cycle tools stay below.'}
+                          </p>
+                        </div>
+                      </div>
+                    </Card>
+                  </Match>
+                </Switch>
+
+                <Show when={utilityBillingPlan()}>
+                  {(plan) => (
+                    <Card>
+                      <div class="statement-section-heading">
+                        <div>
+                          <strong>{locale() === 'ru' ? 'План по дому' : 'Household plan'}</strong>
                           <p>
                             {(locale() === 'ru' ? 'Версия' : 'Version') + ` ${plan().version}`} ·{' '}
                             {locale() === 'ru' ? 'Срок' : 'Due'} {plan().dueDate}
@@ -263,11 +513,9 @@ export default function BillsRoute() {
                         </div>
                         <span
                           class={`ui-badge ${
-                            plan().status === 'settled'
+                            plan().status === 'settled' || plan().status === 'active'
                               ? 'ui-badge--accent'
-                              : plan().status === 'active'
-                                ? 'ui-badge--accent'
-                                : 'ui-badge--muted'
+                              : 'ui-badge--muted'
                           }`}
                         >
                           {plan().status === 'active'
@@ -283,417 +531,335 @@ export default function BillsRoute() {
                                 : 'Rebalanced'}
                         </span>
                       </div>
-                    )}
-                  </Show>
-                  <Show
-                    when={utilityBillingPlan()?.categories.length}
-                    fallback={
-                      <p class="empty-state">
-                        {locale() === 'ru'
-                          ? 'Активных назначений нет.'
-                          : 'No active utility assignments.'}
-                      </p>
-                    }
-                  >
-                    <div class="statement-list">
-                      <For each={utilityBillingPlan()?.categories ?? []}>
-                        {(category) => (
-                          <div class="statement-list__item">
-                            <div>
-                              <strong>
-                                {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
-                              </strong>
-                              <span>
-                                {category.assignedDisplayName} ·{' '}
-                                {formatMoneyLabel(
-                                  category.assignedAmountMajor,
-                                  data().currency,
-                                  locale()
-                                )}
-                              </span>
-                              <Show when={!category.isFullAssignment}>
-                                <span>
-                                  {locale() === 'ru'
-                                    ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
-                                    : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
-                                </span>
-                              </Show>
-                              <Show
-                                when={utilityCategoryByName().get(
-                                  category.billName.trim().toLowerCase()
-                                )}
-                              >
-                                {(details) => (
-                                  <span>
-                                    {[details().providerName, details().customerNumber]
-                                      .filter(Boolean)
-                                      .join(' · ')}
-                                  </span>
-                                )}
-                              </Show>
-                            </div>
-                            <div class="statement-actions">
-                              <Show when={currentMemberId() === category.assignedMemberId}>
-                                <Button
-                                  variant="primary"
-                                  loading={
-                                    utilityActionKey() === `resolve:${category.assignedMemberId}`
-                                  }
-                                  onClick={() =>
-                                    void handleResolvePlanned(category.assignedMemberId)
-                                  }
-                                >
-                                  {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve as planned'}
-                                </Button>
-                              </Show>
-                              <Show
-                                when={
-                                  currentMemberId() &&
-                                  currentMemberId() !== category.assignedMemberId
-                                }
-                              >
-                                <Button
-                                  variant="ghost"
-                                  loading={
-                                    utilityActionKey() ===
-                                    `vendor:${category.utilityBillId}:${currentMemberId()}`
-                                  }
-                                  onClick={() =>
-                                    currentMemberId() &&
-                                    void handleRecordVendorPayment(
-                                      category.utilityBillId,
-                                      currentMemberId()!
-                                    )
-                                  }
-                                >
-                                  {locale() === 'ru'
-                                    ? 'Я оплатил вместо этого'
-                                    : 'I paid this instead'}
-                                </Button>
-                              </Show>
-                              <Show
-                                when={
-                                  currentMemberIsAdmin() &&
-                                  currentMemberId() !== category.assignedMemberId
-                                }
-                              >
-                                <Button
-                                  variant="ghost"
-                                  loading={
-                                    utilityActionKey() === `resolve:${category.assignedMemberId}`
-                                  }
-                                  onClick={() =>
-                                    void handleResolvePlanned(category.assignedMemberId)
-                                  }
-                                >
-                                  {locale() === 'ru'
-                                    ? `Записать за ${category.assignedDisplayName}`
-                                    : `Record for ${category.assignedDisplayName}`}
-                                </Button>
-                              </Show>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <Show when={utilityBillingPlan()?.memberSummaries.length}>
-                    <div class="statement-section-heading">
-                      <div>
-                        <strong>
-                          {locale() === 'ru' ? 'Сводка по коммуналке' : 'Utility summary'}
-                        </strong>
-                        <p>
-                          {locale() === 'ru'
-                            ? 'Показывает цель, уже оплаченные суммы, назначение на этот цикл и итоговое отклонение после плана.'
-                            : 'Shows each member fair share, already paid amount, current-cycle assignment, and projected delta after the plan.'}
-                        </p>
-                      </div>
-                    </div>
-                    <div class="statement-rows">
-                      <div class="statement-row statement-row--header">
-                        <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
-                        <span>{locale() === 'ru' ? 'Цель' : 'Fair share'}</span>
-                        <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
-                        <span>{locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}</span>
-                        <span>{locale() === 'ru' ? 'Итоговое отклонение' : 'Projected delta'}</span>
-                      </div>
-                      <For each={utilityBillingPlan()?.memberSummaries ?? []}>
-                        {(summary) => (
-                          <div class="statement-row">
-                            <strong>{summary.displayName}</strong>
-                            <span>
-                              {formatMoneyLabel(summary.fairShareMajor, data().currency, locale())}
-                            </span>
-                            <span>
-                              {formatMoneyLabel(summary.vendorPaidMajor, data().currency, locale())}
-                            </span>
-                            <span>
-                              {formatMoneyLabel(
-                                summary.assignedThisCycleMajor,
-                                data().currency,
-                                locale()
-                              )}
-                            </span>
-                            <span>
-                              {formatMoneyLabel(
-                                summary.projectedDeltaAfterPlanMajor,
-                                data().currency,
-                                locale()
-                              )}
-                            </span>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Card>
-
-                <Card>
-                  <div class="statement-header">
-                    <div>
-                      <p class="statement-header__eyebrow">{copy().bills}</p>
-                      <h2 class="statement-header__title">
-                        {formatCyclePeriod(data().period, locale())}
-                      </h2>
-                      <p class="statement-header__body">
-                        {copy().currentCycleLabel} · {data().currency}
-                      </p>
-                    </div>
-                    <div class="statement-chip-grid">
-                      <div class="statement-chip">
-                        <span>{copy().pureUtilitiesLabel}</span>
-                        <strong>
-                          {formatMoneyLabel(utilityCycleTotal(), data().currency, locale())}
-                        </strong>
-                      </div>
-                      <div class="statement-chip">
-                        <span>{copy().utilitiesAdjustedTotalLabel}</span>
-                        <strong>
-                          {formatMoneyLabel(adjustedUtilityTotal(), data().currency, locale())}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card>
-                  <div class="statement-section-heading">
-                    <div>
-                      <strong>{copy().utilitiesBalanceTitle}</strong>
-                      <p>{copy().utilitiesBalanceBody}</p>
-                    </div>
-                  </div>
-                  <div class="statement-rows">
-                    <div class="statement-row statement-row--header">
-                      <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
-                      <span>{copy().pureUtilitiesLabel}</span>
-                      <span>{copy().utilitiesAdjustedTotalLabel}</span>
-                    </div>
-                    <For each={utilityOverview()}>
-                      {(item) => (
-                        <div class="statement-row">
-                          <strong>{item.displayName}</strong>
-                          <span>{formatMoneyLabel(item.pureMajor, data().currency, locale())}</span>
-                          <span>
-                            {formatMoneyLabel(item.adjustedMajor, data().currency, locale())}
-                          </span>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Card>
-
-                <Show when={effectiveIsAdmin()}>
-                  <Card>
-                    <div class="statement-section-heading">
-                      <div>
-                        <strong>{copy().shareRent}</strong>
-                        <p>{copy().rentPanelBody}</p>
-                      </div>
-                      <span
-                        class={`ui-badge ${hasRentOverride() ? 'ui-badge--accent' : 'ui-badge--muted'}`}
-                      >
-                        {hasRentOverride()
-                          ? copy().currentCycleOverrideRent
-                          : copy().currentCycleUsesDefaultRent}
-                      </span>
-                    </div>
-                    <div class="rent-block">
-                      <div class="rent-block__overview">
-                        <div class="rent-block__header">
-                          <div>
-                            <p class="rent-block__eyebrow">{copy().currentCycleLabel}</p>
-                            <h3>{formatCyclePeriod(data().period, locale())}</h3>
-                          </div>
-                          <p class="rent-block__meta">
-                            {copy().billingCycleStatus.replace('{currency}', data().currency)}
-                          </p>
-                        </div>
-                        <div class="rent-overview-grid">
-                          <div class="rent-overview-card">
-                            <span>{copy().rentPanelHouseholdDefaultLabel}</span>
-                            <strong>{defaultRentLabel()}</strong>
-                          </div>
-                          <div class="rent-overview-card">
-                            <span>{copy().rentPanelCycleSourceLabel}</span>
-                            <strong>
-                              {formatMoneyLabel(
-                                data().rentSourceAmountMajor,
-                                data().rentSourceCurrency,
-                                locale()
-                              )}
-                            </strong>
-                          </div>
-                          <div class="rent-overview-card">
-                            <span>{copy().rentPanelSettlementLabel}</span>
-                            <strong>
-                              {formatMoneyLabel(
-                                data().rentDisplayAmountMajor,
-                                data().currency,
-                                locale()
-                              )}
-                            </strong>
-                          </div>
-                          <div class="rent-overview-card">
-                            <span>{copy().rentPanelFxLabel}</span>
-                            <strong>
-                              {data().rentFxRateMicros
-                                ? rateMicrosToString(data().rentFxRateMicros)
-                                : data().rentSourceCurrency === data().currency
-                                  ? copy().rentPanelNoConversion
-                                  : copy().rentPanelAutoRate}
-                            </strong>
-                          </div>
-                        </div>
-                        <p class="rent-block__note">
-                          {hasRentOverride()
-                            ? copy().rentPanelOverrideNote
-                            : copy().rentPanelDefaultNote}
-                        </p>
-                      </div>
-                      <div class="rent-block__editor">
-                        <div class="rent-block__editor-copy">
-                          <strong>{copy().manageCycleAction}</strong>
-                          <p>{copy().cycleEditorBody}</p>
-                        </div>
-                        <div class="rent-block__form">
-                          <Field label={copy().defaultRentAmount}>
-                            <Input
-                              type="number"
-                              value={rentDraft().amountMajor}
-                              onInput={(e) =>
-                                setRentDraft((draft) => ({
-                                  ...draft,
-                                  amountMajor: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label={copy().rentCurrencyLabel}>
-                            <CurrencyToggle
-                              value={rentDraft().currency}
-                              ariaLabel={copy().rentCurrencyLabel}
-                              onChange={(value) =>
-                                setRentDraft((draft) => ({
-                                  ...draft,
-                                  currency: value as 'USD' | 'GEL'
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label={copy().rentPanelFxLabel} hint={copy().rentPanelFxHint} wide>
-                            <Input
-                              type="text"
-                              value={rentDraft().fxRate}
-                              placeholder="2.76"
-                              onInput={(e) =>
-                                setRentDraft((draft) => ({
-                                  ...draft,
-                                  fxRate: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                        </div>
-                        <Button
-                          variant="primary"
-                          class="rent-block__save"
-                          loading={savingRent()}
-                          onClick={() => void handleSaveRent()}
-                        >
-                          {savingRent() ? copy().savingSettings : copy().saveSettingsAction}
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                </Show>
-
-                <Card>
-                  <div class="statement-section-heading">
-                    <div>
-                      <strong>{copy().utilityLedgerTitle}</strong>
-                      <p>{copy().utilityBillsEditorBody}</p>
-                    </div>
-                  </div>
-                  <Show
-                    when={utilityCategories().length > 0}
-                    fallback={<p class="empty-state">{copy().utilityBillsEmpty}</p>}
-                  >
-                    <div class="inline-editor-list">
-                      <For each={utilityCategories()}>
-                        {(category) => {
-                          const entry = () =>
-                            utilityLedger().find((item) => sameCategory(item.title, category.name))
-                          const currentAmount = () => utilityAmounts()[category.name] ?? ''
-                          return (
-                            <div class="inline-editor-row">
-                              <div class="inline-editor-row__label">
-                                <strong>{category.name}</strong>
-                                <span>
-                                  {entry()?.actorDisplayName ?? copy().utilityCategoryLabel}
-                                </span>
-                              </div>
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                value={currentAmount()}
-                                onInput={(e) =>
-                                  setUtilityAmounts((prev) => ({
-                                    ...prev,
-                                    [category.name]: e.currentTarget.value
-                                  }))
-                                }
-                              />
-                              <div class="inline-editor-row__value">
-                                <Show when={entry()}>
-                                  {(saved) => (
-                                    <span>
-                                      {formatMoneyLabel(
-                                        saved().displayAmountMajor,
-                                        saved().displayCurrency,
-                                        locale()
-                                      )}
+                      <div class="statement-list">
+                        <For each={householdUtilityPlanMembers()}>
+                          {(summary) => (
+                            <div class="statement-list__item statement-list__item--stack">
+                              <div class="utility-member-card__header">
+                                <div>
+                                  <strong>{summary.displayName}</strong>
+                                  <Show when={summary.memberId === currentMemberId()}>
+                                    <span class="utility-member-card__current">
+                                      {locale() === 'ru' ? 'Сначала ты' : 'You first'}
                                     </span>
-                                  )}
+                                  </Show>
+                                </div>
+                                <Show
+                                  when={
+                                    currentMemberIsAdmin() && summary.memberId !== currentMemberId()
+                                  }
+                                >
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    loading={utilityActionKey() === `resolve:${summary.memberId}`}
+                                    onClick={() => void handleResolvePlanned(summary.memberId)}
+                                  >
+                                    {locale() === 'ru'
+                                      ? `Записать за ${summary.displayName}`
+                                      : `Record for ${summary.displayName}`}
+                                  </Button>
                                 </Show>
                               </div>
-                              <Button
-                                variant="primary"
-                                loading={savingUtilityName() === category.name}
-                                onClick={() => void handleSaveUtility(category.name)}
+                              <div class="statement-chip-grid">
+                                <div class="statement-chip">
+                                  <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      summary.fairShareMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                                <div class="statement-chip">
+                                  <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      summary.vendorPaidMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                                <div class="statement-chip">
+                                  <span>
+                                    {locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}
+                                  </span>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      summary.assignedThisCycleMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                                <div class="statement-chip">
+                                  <span>{locale() === 'ru' ? 'После плана' : 'After plan'}</span>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      summary.projectedDeltaAfterPlanMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                              </div>
+                              <Show
+                                when={summary.categories.length > 0}
+                                fallback={
+                                  <span class="statement-list__empty">
+                                    {locale() === 'ru'
+                                      ? 'Сейчас ничего не назначено.'
+                                      : 'Nothing is assigned right now.'}
+                                  </span>
+                                }
                               >
-                                {entry()
-                                  ? copy().saveUtilityBillAction
-                                  : copy().addUtilityBillAction}
-                              </Button>
+                                <div class="statement-list">
+                                  <For each={summary.categories}>
+                                    {(category) => (
+                                      <div class="statement-list__item">
+                                        <div>
+                                          <strong>
+                                            {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
+                                          </strong>
+                                          <span>
+                                            {formatMoneyLabel(
+                                              category.assignedAmountMajor,
+                                              data().currency,
+                                              locale()
+                                            )}
+                                          </span>
+                                          <Show when={!category.isFullAssignment}>
+                                            <span>
+                                              {locale() === 'ru'
+                                                ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                                : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                            </span>
+                                          </Show>
+                                        </div>
+                                        <Show
+                                          when={
+                                            currentMemberId() &&
+                                            currentMemberId() !== category.assignedMemberId
+                                          }
+                                        >
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            loading={
+                                              utilityActionKey() ===
+                                              `vendor:${category.utilityBillId}:${currentMemberId()}`
+                                            }
+                                            onClick={() =>
+                                              currentMemberId() &&
+                                              void handleRecordVendorPayment(
+                                                category.utilityBillId,
+                                                currentMemberId()!
+                                              )
+                                            }
+                                          >
+                                            {locale() === 'ru'
+                                              ? 'Я оплатил вместо этого'
+                                              : 'I paid this instead'}
+                                          </Button>
+                                        </Show>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
                             </div>
-                          )
-                        }}
-                      </For>
+                          )}
+                        </For>
+                      </div>
+                    </Card>
+                  )}
+                </Show>
+
+                <Show when={effectiveIsAdmin()}>
+                  <details class="billing-admin-tools" open={effectiveBillingStage() === 'rent'}>
+                    <summary>{locale() === 'ru' ? 'Инструменты цикла' : 'Cycle tools'}</summary>
+                    <div class="billing-admin-tools__body">
+                      <section class="billing-admin-panel">
+                        <div class="statement-section-heading">
+                          <div>
+                            <strong>{copy().shareRent}</strong>
+                            <p>{copy().rentPanelBody}</p>
+                          </div>
+                          <span
+                            class={`ui-badge ${hasRentOverride() ? 'ui-badge--accent' : 'ui-badge--muted'}`}
+                          >
+                            {hasRentOverride()
+                              ? copy().currentCycleOverrideRent
+                              : copy().currentCycleUsesDefaultRent}
+                          </span>
+                        </div>
+                        <div class="rent-block rent-block--flat">
+                          <div class="rent-block__overview rent-block__overview--flat">
+                            <div class="rent-overview-grid rent-overview-grid--flat">
+                              <div class="rent-overview-row">
+                                <span>{copy().rentPanelHouseholdDefaultLabel}</span>
+                                <strong>{defaultRentLabel()}</strong>
+                              </div>
+                              <div class="rent-overview-row">
+                                <span>{copy().rentPanelCycleSourceLabel}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    data().rentSourceAmountMajor,
+                                    data().rentSourceCurrency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <div class="rent-overview-row">
+                                <span>{copy().rentPanelSettlementLabel}</span>
+                                <strong>
+                                  {formatMoneyLabel(
+                                    data().rentDisplayAmountMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
+                                </strong>
+                              </div>
+                              <div class="rent-overview-row">
+                                <span>{copy().rentPanelFxLabel}</span>
+                                <strong>
+                                  {data().rentFxRateMicros
+                                    ? rateMicrosToString(data().rentFxRateMicros)
+                                    : data().rentSourceCurrency === data().currency
+                                      ? copy().rentPanelNoConversion
+                                      : copy().rentPanelAutoRate}
+                                </strong>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="rent-block__editor rent-block__editor--flat">
+                            <div class="rent-block__form">
+                              <Field label={copy().defaultRentAmount}>
+                                <Input
+                                  type="number"
+                                  value={rentDraft().amountMajor}
+                                  onInput={(e) =>
+                                    setRentDraft((draft) => ({
+                                      ...draft,
+                                      amountMajor: e.currentTarget.value
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <Field label={copy().rentCurrencyLabel}>
+                                <CurrencyToggle
+                                  value={rentDraft().currency}
+                                  ariaLabel={copy().rentCurrencyLabel}
+                                  onChange={(value) =>
+                                    setRentDraft((draft) => ({
+                                      ...draft,
+                                      currency: value as 'USD' | 'GEL'
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <Field
+                                label={copy().rentPanelFxLabel}
+                                hint={copy().rentPanelFxHint}
+                                wide
+                              >
+                                <Input
+                                  type="text"
+                                  value={rentDraft().fxRate}
+                                  placeholder="2.76"
+                                  onInput={(e) =>
+                                    setRentDraft((draft) => ({
+                                      ...draft,
+                                      fxRate: e.currentTarget.value
+                                    }))
+                                  }
+                                />
+                              </Field>
+                            </div>
+                            <Button
+                              variant="primary"
+                              class="rent-block__save"
+                              loading={savingRent()}
+                              onClick={() => void handleSaveRent()}
+                            >
+                              {savingRent() ? copy().savingSettings : copy().saveSettingsAction}
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section class="billing-admin-panel">
+                        <div class="statement-section-heading">
+                          <div>
+                            <strong>{copy().utilityLedgerTitle}</strong>
+                            <p>{copy().utilityBillsEditorBody}</p>
+                          </div>
+                        </div>
+                        <Show
+                          when={utilityCategories().length > 0}
+                          fallback={<p class="empty-state">{copy().utilityBillsEmpty}</p>}
+                        >
+                          <div class="inline-editor-list">
+                            <For each={utilityCategories()}>
+                              {(category) => {
+                                const entry = () =>
+                                  utilityLedger().find((item) =>
+                                    sameCategory(item.title, category.name)
+                                  )
+                                const currentAmount = () => utilityAmounts()[category.name] ?? ''
+                                return (
+                                  <div class="inline-editor-row">
+                                    <div class="inline-editor-row__label">
+                                      <strong>{category.name}</strong>
+                                      <span>
+                                        {entry()?.actorDisplayName ?? copy().utilityCategoryLabel}
+                                      </span>
+                                    </div>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={currentAmount()}
+                                      onInput={(e) =>
+                                        setUtilityAmounts((prev) => ({
+                                          ...prev,
+                                          [category.name]: e.currentTarget.value
+                                        }))
+                                      }
+                                    />
+                                    <div class="inline-editor-row__value">
+                                      <Show when={entry()}>
+                                        {(saved) => (
+                                          <span>
+                                            {formatMoneyLabel(
+                                              saved().displayAmountMajor,
+                                              saved().displayCurrency,
+                                              locale()
+                                            )}
+                                          </span>
+                                        )}
+                                      </Show>
+                                    </div>
+                                    <Button
+                                      variant="primary"
+                                      loading={savingUtilityName() === category.name}
+                                      onClick={() => void handleSaveUtility(category.name)}
+                                    >
+                                      {entry()
+                                        ? copy().saveUtilityBillAction
+                                        : copy().addUtilityBillAction}
+                                    </Button>
+                                  </div>
+                                )
+                              }}
+                            </For>
+                          </div>
+                        </Show>
+                      </section>
                     </div>
-                  </Show>
-                </Card>
+                  </details>
+                </Show>
 
                 <PaymentsManager />
               </>

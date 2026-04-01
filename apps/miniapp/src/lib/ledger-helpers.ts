@@ -451,14 +451,5 @@ export function computePaymentPrefill(
     return '0.00'
   }
 
-  let prefillMinor = majorStringToMinor(memberSummary.remainingMajor)
-  if (periodSummary?.isCurrentPeriod && dashboard.paymentBalanceAdjustmentPolicy === kind) {
-    const member = dashboard.members.find((entry) => entry.memberId === memberId)
-    const purchaseOffsetMinor = majorStringToMinor(member?.purchaseOffsetMajor ?? '0.00')
-    if (purchaseOffsetMinor > 0n) {
-      prefillMinor += purchaseOffsetMinor
-    }
-  }
-
-  return minorToMajorString(prefillMinor > 0n ? prefillMinor : 0n)
+  return minorToMajorString(majorStringToMinor(memberSummary.suggestedAmountMajor))
 }

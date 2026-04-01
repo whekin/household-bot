@@ -1,10 +1,10 @@
-import { For, Match, Switch, createMemo } from 'solid-js'
+import { For, Match, Show, Switch, createMemo } from 'solid-js'
 
 import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatMoneyLabel, memberCreditClass, memberRemainingClass } from '../lib/ledger-helpers'
+import { formatMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 
 function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
@@ -14,64 +14,91 @@ function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
 
 export default function BalancesRoute() {
   const { copy, locale } = useI18n()
-  const { dashboard, loading, purchaseLedger, purchaseTotalMajor, utilityTotalMajor } =
+  const { dashboard, effectiveBillingStage, loading, purchaseLedger, currentMemberLine } =
     useDashboard()
   const formatAmount = (amountMajor: string, currency: 'USD' | 'GEL') =>
     formatMoneyLabel(amountMajor, currency, locale())
 
-  const purchaseByMember = createMemo(() => {
+  const purchaseRows = createMemo(() => {
     const data = dashboard()
+    const currentMember = currentMemberLine()
     if (!data) return []
 
-    const totals = new Map<string, bigint>()
+    const spentByMemberId = new Map<string, bigint>()
     for (const entry of purchaseLedger()) {
-      const key = entry.memberId ?? entry.actorDisplayName ?? entry.id
-      totals.set(key, (totals.get(key) ?? 0n) + majorStringToMinor(entry.displayAmountMajor))
+      if (!entry.memberId) {
+        continue
+      }
+      spentByMemberId.set(
+        entry.memberId,
+        (spentByMemberId.get(entry.memberId) ?? 0n) + majorStringToMinor(entry.displayAmountMajor)
+      )
     }
 
-    return data.members.map((member) => ({
-      member,
-      spentMinor: totals.get(member.memberId) ?? 0n,
-      spentMajor: minorToMajorString(totals.get(member.memberId) ?? 0n),
-      balanceMajor: member.purchaseOffsetMajor,
-      balanceMinor: majorStringToMinor(member.purchaseOffsetMajor)
-    }))
-  })
-
-  const categoryVisuals = createMemo(() => {
-    const data = dashboard()
-    if (!data) return []
-
     const rows = data.members.map((member) => ({
-      member,
-      rentMinor: majorStringToMinor(member.rentShareMajor),
-      utilityMinor: majorStringToMinor(member.utilityShareMajor),
-      offsetMinor: majorStringToMinor(member.purchaseOffsetMajor)
+      memberId: member.memberId,
+      displayName: member.displayName,
+      spentMinor: spentByMemberId.get(member.memberId) ?? 0n,
+      purchaseBalanceMinor: majorStringToMinor(member.purchaseOffsetMajor),
+      purchaseBalanceMajor: member.purchaseOffsetMajor,
+      isCurrent: currentMember?.memberId === member.memberId
     }))
-
-    const maxRent = rows.reduce((max, row) => (row.rentMinor > max ? row.rentMinor : max), 0n)
-    const maxUtility = rows.reduce(
-      (max, row) => (row.utilityMinor > max ? row.utilityMinor : max),
-      0n
-    )
-    const maxOffset = rows.reduce((max, row) => {
-      const current = row.offsetMinor < 0n ? -row.offsetMinor : row.offsetMinor
-      return current > max ? current : max
+    const maxBalanceMinor = rows.reduce((max, row) => {
+      const absolute =
+        row.purchaseBalanceMinor < 0n ? -row.purchaseBalanceMinor : row.purchaseBalanceMinor
+      return absolute > max ? absolute : max
     }, 0n)
 
-    return rows.map((row) => ({
-      member: row.member,
-      rentMajor: minorToMajorString(row.rentMinor),
-      utilityMajor: minorToMajorString(row.utilityMinor),
-      offsetMajor: minorToMajorString(row.offsetMinor),
-      rentWidth: normalizedWidth(row.rentMinor, maxRent),
-      utilityWidth: normalizedWidth(row.utilityMinor, maxUtility),
-      offsetWidth: normalizedWidth(
-        row.offsetMinor < 0n ? -row.offsetMinor : row.offsetMinor,
-        maxOffset
-      ),
-      offsetClass: row.offsetMinor < 0n ? 'is-credit' : 'is-debit'
-    }))
+    return rows
+      .sort((left, right) => {
+        if (left.isCurrent) return -1
+        if (right.isCurrent) return 1
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((row) => ({
+        ...row,
+        spentMajor: minorToMajorString(row.spentMinor),
+        width: normalizedWidth(
+          row.purchaseBalanceMinor < 0n ? -row.purchaseBalanceMinor : row.purchaseBalanceMinor,
+          maxBalanceMinor
+        ),
+        side:
+          row.purchaseBalanceMinor < 0n ? 'left' : row.purchaseBalanceMinor > 0n ? 'right' : 'none'
+      }))
+  })
+
+  const currentUtilityAssignments = createMemo(() => {
+    const data = dashboard()
+    const currentMember = currentMemberLine()
+    if (!data?.utilityBillingPlan || !currentMember) return []
+
+    return data.utilityBillingPlan.categories.filter(
+      (category) => category.assignedMemberId === currentMember.memberId
+    )
+  })
+
+  const currentUtilitySummary = createMemo(() => {
+    const data = dashboard()
+    const currentMember = currentMemberLine()
+    if (!data?.utilityBillingPlan || !currentMember) return null
+
+    return (
+      data.utilityBillingPlan.memberSummaries.find(
+        (summary) => summary.memberId === currentMember.memberId
+      ) ?? null
+    )
+  })
+
+  const currentRentSummary = createMemo(() => {
+    const data = dashboard()
+    const currentMember = currentMemberLine()
+    if (!data || !currentMember) return null
+
+    return (
+      data.rentBillingState.memberSummaries.find(
+        (summary) => summary.memberId === currentMember.memberId
+      ) ?? null
+    )
   })
 
   return (
@@ -93,173 +120,174 @@ export default function BalancesRoute() {
         <Match when={dashboard()}>
           {(data) => (
             <>
-              <Card>
-                <div class="statement-header">
-                  <div>
-                    <p class="statement-header__eyebrow">{copy().balancesTitle}</p>
-                    <h2 class="statement-header__title">
-                      {formatAmount(data().totalRemainingMajor, data().currency)}
-                    </h2>
-                    <p class="statement-header__body">{copy().householdBalancesBody}</p>
-                  </div>
-                  <div class="statement-chip-grid">
-                    <div class="statement-chip">
-                      <span>{copy().purchasesBalanceTitle}</span>
-                      <strong>{formatAmount(purchaseTotalMajor(), data().currency)}</strong>
+              <Show when={effectiveBillingStage() === 'utilities'}>
+                <Card accent>
+                  <div class="statement-section-heading">
+                    <div>
+                      <strong>
+                        {locale() === 'ru' ? 'Коммуналка сейчас' : 'Utilities right now'}
+                      </strong>
+                      <p>
+                        {data().paymentBalanceAdjustmentPolicy === 'rent'
+                          ? locale() === 'ru'
+                            ? 'Баланс по покупкам уйдёт в аренду. Здесь только текущие коммунальные назначения.'
+                            : 'Purchase balance will be settled through rent. This screen shows only current utility work.'
+                          : data().paymentBalanceAdjustmentPolicy === 'separate'
+                            ? locale() === 'ru'
+                              ? 'Баланс покупок остаётся отдельно. Здесь только коммуналка.'
+                              : 'Purchase balance stays separate. This screen shows utilities only.'
+                            : locale() === 'ru'
+                              ? 'Баланс по покупкам уже учтён в коммуналке.'
+                              : 'Purchase balance is already applied through utilities.'}
+                      </p>
                     </div>
-                    <div class="statement-chip">
-                      <span>{copy().utilitiesBalanceTitle}</span>
-                      <strong>{formatAmount(utilityTotalMajor(), data().currency)}</strong>
-                    </div>
                   </div>
-                </div>
-              </Card>
+                  <Show
+                    when={currentUtilityAssignments().length > 0}
+                    fallback={
+                      <p class="empty-state">
+                        {locale() === 'ru'
+                          ? 'Сейчас тебе ничего не назначено по коммуналке.'
+                          : 'Nothing is currently assigned to you for utilities.'}
+                      </p>
+                    }
+                  >
+                    <div class="statement-list">
+                      <For each={currentUtilityAssignments()}>
+                        {(category) => (
+                          <div class="statement-list__item">
+                            <div>
+                              <strong>{category.billName}</strong>
+                              <span>
+                                {formatAmount(category.assignedAmountMajor, data().currency)}
+                              </span>
+                            </div>
+                            <span class="ui-badge ui-badge--muted">
+                              {category.isFullAssignment
+                                ? locale() === 'ru'
+                                  ? 'Полностью'
+                                  : 'Full'
+                                : locale() === 'ru'
+                                  ? 'Часть'
+                                  : 'Split'}
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={currentUtilitySummary()}>
+                      {(summary) => (
+                        <div class="statement-chip-grid">
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
+                            <strong>
+                              {formatAmount(summary().fairShareMajor, data().currency)}
+                            </strong>
+                          </div>
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}</span>
+                            <strong>
+                              {formatAmount(summary().assignedThisCycleMajor, data().currency)}
+                            </strong>
+                          </div>
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'После плана' : 'After plan'}</span>
+                            <strong>
+                              {formatAmount(
+                                summary().projectedDeltaAfterPlanMajor,
+                                data().currency
+                              )}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+                    </Show>
+                  </Show>
+                </Card>
+              </Show>
+
+              <Show when={effectiveBillingStage() === 'rent' && currentRentSummary()}>
+                {(summary) => (
+                  <Card accent>
+                    <div class="statement-section-heading">
+                      <div>
+                        <strong>{locale() === 'ru' ? 'Аренда сейчас' : 'Rent right now'}</strong>
+                        <p>
+                          {locale() === 'ru'
+                            ? `Срок ${data().rentBillingState.dueDate}`
+                            : `Due ${data().rentBillingState.dueDate}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div class="statement-chip-grid">
+                      <div class="statement-chip">
+                        <span>{locale() === 'ru' ? 'К оплате' : 'Due now'}</span>
+                        <strong>{formatAmount(summary().remainingMajor, data().currency)}</strong>
+                      </div>
+                      <div class="statement-chip">
+                        <span>{locale() === 'ru' ? 'Полная сумма' : 'Full due'}</span>
+                        <strong>{formatAmount(summary().dueMajor, data().currency)}</strong>
+                      </div>
+                      <div class="statement-chip">
+                        <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                        <strong>{formatAmount(summary().paidMajor, data().currency)}</strong>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+              </Show>
 
               <Card>
                 <div class="statement-section-heading">
                   <div>
-                    <strong>
-                      {locale() === 'ru' ? 'Кто должен сейчас' : 'Who owes right now'}
-                    </strong>
-                    <p>{copy().householdBalancesBody}</p>
+                    <strong>{locale() === 'ru' ? 'Баланс по покупкам' : 'Purchase balance'}</strong>
+                    <p>
+                      {locale() === 'ru'
+                        ? 'Это вклад каждого участника в общие покупки после разделения. Это не текущий счёт к оплате.'
+                        : 'This is each member’s shared-purchase position after split. It is not a current payment request.'}
+                    </p>
                   </div>
                 </div>
                 <div class="statement-list">
-                  <For each={data().members}>
-                    {(member) => (
-                      <div
-                        class={`statement-list__item statement-list__item--member ${memberRemainingClass(member)}`}
-                      >
-                        <div>
-                          <strong>{member.displayName}</strong>
-                          <span>
-                            {locale() === 'ru' ? 'К начислению' : 'Total due'}:{' '}
-                            {formatAmount(member.netDueMajor, data().currency)}
-                          </span>
-                        </div>
-                        <strong>{formatAmount(member.remainingMajor, data().currency)}</strong>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Card>
-
-              <Card>
-                <div class="statement-section-heading">
-                  <div>
-                    <strong>{copy().purchasesBalanceTitle}</strong>
-                    <p>
-                      {locale() === 'ru'
-                        ? 'Показывает, сколько каждый внёс в общие покупки и как это влияет на его баланс.'
-                        : 'See how much each member paid for shared purchases and how it affects the balance.'}
-                    </p>
-                  </div>
-                </div>
-                <div class="statement-rows">
-                  <div class="statement-row statement-row--header">
-                    <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
-                    <span>{locale() === 'ru' ? 'Оплачено' : 'Spent'}</span>
-                    <span>{locale() === 'ru' ? 'Баланс покупок' : 'Purchase balance'}</span>
-                  </div>
-                  <For each={purchaseByMember()}>
-                    {(item) => (
-                      <div class={`statement-row ${memberCreditClass(item.member)}`}>
-                        <strong>{item.member.displayName}</strong>
-                        <span>{formatAmount(item.spentMajor, data().currency)}</span>
-                        <span>{formatAmount(item.balanceMajor, data().currency)}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Card>
-
-              <Card>
-                <div class="statement-section-heading">
-                  <div>
-                    <strong>{copy().utilitiesBalanceTitle}</strong>
-                    <p>
-                      {locale() === 'ru'
-                        ? 'Показывает долю коммуналки и итоговую сумму после поправки по балансу.'
-                        : 'See each member utility share and the final amount after balance adjustments.'}
-                    </p>
-                  </div>
-                </div>
-                <div class="statement-rows">
-                  <div class="statement-row statement-row--header">
-                    <span>{locale() === 'ru' ? 'Участник' : 'Member'}</span>
-                    <span>{copy().pureUtilitiesLabel}</span>
-                    <span>{copy().utilitiesAdjustedTotalLabel}</span>
-                  </div>
-                  <For each={data().members}>
-                    {(member) => {
-                      const pureMinor = majorStringToMinor(member.utilityShareMajor)
-                      const adjustedMinor =
-                        data().paymentBalanceAdjustmentPolicy === 'utilities'
-                          ? pureMinor + majorStringToMinor(member.purchaseOffsetMajor)
-                          : pureMinor
-                      return (
-                        <div class="statement-row">
-                          <strong>{member.displayName}</strong>
-                          <span>
-                            {formatAmount(minorToMajorString(pureMinor), data().currency)}
-                          </span>
-                          <span>
-                            {formatAmount(minorToMajorString(adjustedMinor), data().currency)}
-                          </span>
-                        </div>
-                      )
-                    }}
-                  </For>
-                </div>
-              </Card>
-
-              <Card>
-                <div class="statement-section-heading">
-                  <div>
-                    <strong>
-                      {locale() === 'ru' ? 'Разбивка по категориям' : 'Breakdown by category'}
-                    </strong>
-                    <p>
-                      {locale() === 'ru'
-                        ? 'Сравни аренду, коммуналку и поправку по покупкам отдельно для каждого участника.'
-                        : 'Compare rent, utilities, and purchase adjustments separately for each member.'}
-                    </p>
-                  </div>
-                </div>
-                <div class="category-visual-grid">
-                  <For each={categoryVisuals()}>
-                    {(item) => (
-                      <div class="category-visual-row">
-                        <strong>{item.member.displayName}</strong>
-                        <div class="category-visual-row__group">
-                          <span>{copy().shareRent}</span>
-                          <div class="category-visual-row__track">
-                            <div
-                              class="category-visual-row__bar category-visual-row__bar--rent"
-                              style={{ width: item.rentWidth }}
-                            />
+                  <For each={purchaseRows()}>
+                    {(row) => (
+                      <div class="statement-list__item statement-list__item--stack">
+                        <div class="utility-member-card__header">
+                          <div>
+                            <strong>{row.displayName}</strong>
+                            <Show when={row.isCurrent}>
+                              <span class="utility-member-card__current">
+                                {locale() === 'ru' ? 'Это ты' : 'You'}
+                              </span>
+                            </Show>
                           </div>
-                          <em>{formatAmount(item.rentMajor, data().currency)}</em>
+                          <strong>{formatAmount(row.purchaseBalanceMajor, data().currency)}</strong>
                         </div>
-                        <div class="category-visual-row__group">
-                          <span>{copy().shareUtilities}</span>
-                          <div class="category-visual-row__track">
+                        <div class="purchase-balance-bar">
+                          <div class="purchase-balance-bar__zero" />
+                          <Show when={row.side !== 'none'}>
                             <div
-                              class="category-visual-row__bar category-visual-row__bar--utilities"
-                              style={{ width: item.utilityWidth }}
+                              class={`purchase-balance-bar__fill ${
+                                row.side === 'left' ? 'is-credit' : 'is-debit'
+                              }`}
+                              style={{
+                                width: row.width,
+                                left: row.side === 'left' ? `calc(50% - ${row.width})` : '50%'
+                              }}
                             />
-                          </div>
-                          <em>{formatAmount(item.utilityMajor, data().currency)}</em>
+                          </Show>
                         </div>
-                        <div class="category-visual-row__group">
-                          <span>{copy().shareOffset}</span>
-                          <div class="category-visual-row__track">
-                            <div
-                              class={`category-visual-row__bar category-visual-row__bar--offset ${item.offsetClass}`}
-                              style={{ width: item.offsetWidth }}
-                            />
+                        <div class="statement-chip-grid">
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Баланс' : 'Balance'}</span>
+                            <strong>
+                              {formatAmount(row.purchaseBalanceMajor, data().currency)}
+                            </strong>
                           </div>
-                          <em>{formatAmount(item.offsetMajor, data().currency)}</em>
+                          <div class="statement-chip">
+                            <span>{locale() === 'ru' ? 'Оплачено' : 'Spent'}</span>
+                            <strong>{formatAmount(row.spentMajor, data().currency)}</strong>
+                          </div>
                         </div>
                       </div>
                     )}

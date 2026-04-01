@@ -169,4 +169,26 @@ describe('computeUtilityBillingPlan', () => {
       { utilityBillId: 'bill-b', assignedMemberId: 'bob' }
     ])
   })
+
+  test('prefers whole categories before fairness splits in whole-bills-first mode', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [
+        member('alice', 'Alice', '101.67'),
+        member('bob', 'Bob', '101.67'),
+        member('carol', 'Carol', '101.66'),
+        member('dave', 'Dave', '101.66')
+      ],
+      bills: [
+        bill('gas', 'Gas', '321.07'),
+        bill('electricity', 'Electricity', '83.09'),
+        bill('cleaning', 'Cleaning', '2.50')
+      ],
+      vendorPayments: [],
+      strategy: 'whole_bills_first'
+    })
+
+    expect(plan.categories.every((category) => category.isFullAssignment)).toBe(true)
+    expect(plan.maxCategoriesPerMemberApplied).toBeLessThanOrEqual(2)
+  })
 })
