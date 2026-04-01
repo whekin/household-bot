@@ -200,6 +200,24 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppResolveUtilityPlan?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppRecordUtilityVendorPayment?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppRecordUtilityReimbursement?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppLocalePreference?:
     | {
         path?: string
@@ -295,6 +313,14 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpdatePayment?.path ?? '/api/miniapp/admin/payments/update'
   const miniAppDeletePaymentPath =
     options.miniAppDeletePayment?.path ?? '/api/miniapp/admin/payments/delete'
+  const miniAppResolveUtilityPlanPath =
+    options.miniAppResolveUtilityPlan?.path ?? '/api/miniapp/billing/utilities/resolve-planned'
+  const miniAppRecordUtilityVendorPaymentPath =
+    options.miniAppRecordUtilityVendorPayment?.path ??
+    '/api/miniapp/billing/utilities/vendor-payment'
+  const miniAppRecordUtilityReimbursementPath =
+    options.miniAppRecordUtilityReimbursement?.path ??
+    '/api/miniapp/billing/utilities/reimbursement'
   const miniAppLocalePreferencePath =
     options.miniAppLocalePreference?.path ?? '/api/miniapp/preferences/locale'
   const schedulerPathPrefix = options.scheduler ? (options.scheduler.pathPrefix ?? '/jobs') : null
@@ -449,6 +475,24 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppDeletePayment && url.pathname === miniAppDeletePaymentPath) {
         return await options.miniAppDeletePayment.handler(request)
+      }
+
+      if (options.miniAppResolveUtilityPlan && url.pathname === miniAppResolveUtilityPlanPath) {
+        return await options.miniAppResolveUtilityPlan.handler(request)
+      }
+
+      if (
+        options.miniAppRecordUtilityVendorPayment &&
+        url.pathname === miniAppRecordUtilityVendorPaymentPath
+      ) {
+        return await options.miniAppRecordUtilityVendorPayment.handler(request)
+      }
+
+      if (
+        options.miniAppRecordUtilityReimbursement &&
+        url.pathname === miniAppRecordUtilityReimbursementPath
+      ) {
+        return await options.miniAppRecordUtilityReimbursement.handler(request)
       }
 
       if (options.miniAppLocalePreference && url.pathname === miniAppLocalePreferencePath) {

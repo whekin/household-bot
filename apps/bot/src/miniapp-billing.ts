@@ -330,6 +330,7 @@ async function readAddPurchasePayload(request: Request): Promise<{
   description: string
   amountMajor: string
   currency?: string
+  occurredOn?: string
   payerMemberId?: string
   split?: {
     mode: 'equal' | 'custom_amounts'
@@ -345,6 +346,7 @@ async function readAddPurchasePayload(request: Request): Promise<{
     description?: string
     amountMajor?: string
     currency?: string
+    occurredOn?: string
     payerMemberId?: string
     split?: {
       mode?: string
@@ -377,6 +379,11 @@ async function readAddPurchasePayload(request: Request): Promise<{
           currency: parsed.currency
         }
       : {}),
+    ...(parsed.occurredOn?.trim()
+      ? {
+          occurredOn: parsed.occurredOn.trim()
+        }
+      : {}),
     ...(parsed.payerMemberId !== undefined
       ? {
           payerMemberId: parsed.payerMemberId
@@ -402,6 +409,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
   description?: string
   amountMajor?: string
   currency?: string
+  occurredOn?: string
   payerMemberId?: string
   split?: {
     mode: 'equal' | 'custom_amounts'
@@ -417,6 +425,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     description?: string
     amountMajor?: string
     currency?: string
+    occurredOn?: string
     payerMemberId?: string
     split?: {
       mode?: string
@@ -451,6 +460,11 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     ...(parsed.currency?.trim()
       ? {
           currency: parsed.currency.trim()
+        }
+      : {}),
+    ...(parsed.occurredOn?.trim()
+      ? {
+          occurredOn: parsed.occurredOn.trim()
         }
       : {}),
     ...(parsed.payerMemberId !== undefined
@@ -541,6 +555,108 @@ async function readPaymentMutationPayload(request: Request): Promise<{
       ? {
           period: BillingPeriod.fromString(parsed.period.trim()).toString()
         }
+      : {})
+  }
+}
+
+async function readResolveUtilityPlanPayload(request: Request): Promise<{
+  initData: string
+  memberId?: string
+  period?: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    memberId?: string
+    period?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+
+  return {
+    initData,
+    ...(parsed.memberId?.trim() ? { memberId: parsed.memberId.trim() } : {}),
+    ...(parsed.period?.trim()
+      ? { period: BillingPeriod.fromString(parsed.period.trim()).toString() }
+      : {})
+  }
+}
+
+async function readUtilityVendorPaymentPayload(request: Request): Promise<{
+  initData: string
+  utilityBillId: string
+  payerMemberId?: string
+  amountMajor?: string
+  currency?: string
+  period?: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    utilityBillId?: string
+    payerMemberId?: string
+    amountMajor?: string
+    currency?: string
+    period?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  const utilityBillId = parsed.utilityBillId?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  if (!utilityBillId) {
+    throw new Error('Missing utility bill id')
+  }
+
+  return {
+    initData,
+    utilityBillId,
+    ...(parsed.payerMemberId?.trim() ? { payerMemberId: parsed.payerMemberId.trim() } : {}),
+    ...(parsed.amountMajor?.trim() ? { amountMajor: parsed.amountMajor.trim() } : {}),
+    ...(parsed.currency?.trim() ? { currency: parsed.currency.trim() } : {}),
+    ...(parsed.period?.trim()
+      ? { period: BillingPeriod.fromString(parsed.period.trim()).toString() }
+      : {})
+  }
+}
+
+async function readUtilityReimbursementPayload(request: Request): Promise<{
+  initData: string
+  fromMemberId?: string
+  toMemberId: string
+  amountMajor: string
+  currency?: string
+  period?: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    fromMemberId?: string
+    toMemberId?: string
+    amountMajor?: string
+    currency?: string
+    period?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  const toMemberId = parsed.toMemberId?.trim()
+  const amountMajor = parsed.amountMajor?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  if (!toMemberId) {
+    throw new Error('Missing reimbursement recipient')
+  }
+  if (!amountMajor) {
+    throw new Error('Missing reimbursement amount')
+  }
+
+  return {
+    initData,
+    toMemberId,
+    amountMajor,
+    ...(parsed.fromMemberId?.trim() ? { fromMemberId: parsed.fromMemberId.trim() } : {}),
+    ...(parsed.currency?.trim() ? { currency: parsed.currency.trim() } : {}),
+    ...(parsed.period?.trim()
+      ? { period: BillingPeriod.fromString(parsed.period.trim()).toString() }
       : {})
   }
 }
@@ -1228,7 +1344,8 @@ export function createMiniAppAddPurchaseHandler(options: {
           payload.amountMajor,
           payerMemberId,
           payload.currency,
-          payload.split
+          payload.split,
+          payload.occurredOn
         )
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
@@ -1286,7 +1403,8 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           payload.amountMajor,
           payload.currency,
           payload.split,
-          payerMemberId
+          payerMemberId,
+          payload.occurredOn
         )
 
         if (!updated) {
@@ -1516,6 +1634,177 @@ export function createMiniAppDeletePaymentHandler(options: {
         if (!deleted) {
           return miniAppJsonResponse({ ok: false, error: 'Payment not found' }, 404, origin)
         }
+
+        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppResolveUtilityPlanHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readResolveUtilityPlanPayload(request)
+        const memberId = payload.memberId ?? auth.member.id
+        if (!auth.member.isAdmin && memberId !== auth.member.id) {
+          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        await service.resolveUtilityBillAsPlanned({
+          memberId,
+          actorMemberId: auth.member.id,
+          ...(payload.period ? { periodArg: payload.period } : {})
+        })
+
+        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityVendorPaymentPayload(request)
+        const payerMemberId = payload.payerMemberId ?? auth.member.id
+        if (!auth.member.isAdmin && payerMemberId !== auth.member.id) {
+          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        await service.recordUtilityVendorPayment({
+          utilityBillId: payload.utilityBillId,
+          payerMemberId,
+          actorMemberId: auth.member.id,
+          ...(payload.amountMajor ? { amountArg: payload.amountMajor } : {}),
+          ...(payload.currency ? { currencyArg: payload.currency } : {}),
+          ...(payload.period ? { periodArg: payload.period } : {})
+        })
+
+        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppRecordUtilityReimbursementHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityReimbursementPayload(request)
+        const fromMemberId = payload.fromMemberId ?? auth.member.id
+        if (!auth.member.isAdmin && fromMemberId !== auth.member.id) {
+          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        await service.recordUtilityReimbursement({
+          fromMemberId,
+          toMemberId: payload.toMemberId,
+          actorMemberId: auth.member.id,
+          amountArg: payload.amountMajor,
+          ...(payload.currency ? { currencyArg: payload.currency } : {}),
+          ...(payload.period ? { periodArg: payload.period } : {})
+        })
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

@@ -43,6 +43,8 @@ function repository(
     period: '2026-03',
     currency: 'GEL' as const
   }
+  let latestUtilityPlan: Awaited<ReturnType<FinanceRepository['getActiveUtilityBillingPlan']>> =
+    null
 
   return {
     getMemberByTelegramUserId: async () => member,
@@ -158,6 +160,70 @@ function repository(
       }
     ],
     listPaymentPurchaseAllocations: async () => [],
+    getActiveUtilityBillingPlan: async () => latestUtilityPlan,
+    listUtilityBillingPlansForCycle: async () => (latestUtilityPlan ? [latestUtilityPlan] : []),
+    saveUtilityBillingPlan: async (input) => {
+      latestUtilityPlan = {
+        id: 'utility-plan-1',
+        householdId: 'household-1',
+        cycleId: input.cycleId,
+        version: input.version,
+        status: input.status,
+        dueDate: input.dueDate,
+        currency: input.currency,
+        maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+        updatedFromPlanId: input.updatedFromPlanId,
+        reason: input.reason,
+        payload: input.payload,
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+      }
+
+      return latestUtilityPlan
+    },
+    updateUtilityBillingPlanStatus: async (planId, status) => {
+      if (!latestUtilityPlan || latestUtilityPlan.id !== planId) {
+        return null
+      }
+
+      latestUtilityPlan = {
+        ...latestUtilityPlan,
+        status
+      }
+
+      return latestUtilityPlan
+    },
+    listUtilityVendorPaymentFactsForCycle: async () => [],
+    addUtilityVendorPaymentFact: async (input) => ({
+      id: 'utility-vendor-payment-1',
+      cycleId: input.cycleId,
+      utilityBillId: input.utilityBillId ?? null,
+      billName: input.billName,
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedForMemberId: input.plannedForMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+    }),
+    listUtilityReimbursementFactsForCycle: async () => [],
+    addUtilityReimbursementFact: async (input) => ({
+      id: 'utility-reimbursement-1',
+      cycleId: input.cycleId,
+      fromMemberId: input.fromMemberId,
+      toMemberId: input.toMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedFromMemberId: input.plannedFromMemberId ?? null,
+      plannedToMemberId: input.plannedToMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+    }),
     getSettlementSnapshotLines: async () => [],
     savePaymentConfirmation: async () =>
       ({

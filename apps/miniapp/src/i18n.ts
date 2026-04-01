@@ -140,6 +140,7 @@ export const dictionary = {
     purchaseInlineEditorBody: 'Adjust the purchase details directly in the list.',
     purchaseDescriptionLabel: 'Purchase description',
     purchaseAmountLabel: 'Purchase amount',
+    purchaseDateLabel: 'Purchase date',
     purchaseStatusOpen: 'Open',
     purchaseStatusSettled: 'Settled',
     purchaseSplitSummaryEqual: 'Equal split',
@@ -208,6 +209,7 @@ export const dictionary = {
     participantExcluded: 'Excluded',
     purchaseCustomShareLabel: 'Custom amount',
     purchaseEditorBody: 'Review the purchase details and adjust the split only when needed.',
+    dateLabel: 'Date',
     purchasePayerLabel: 'Paid by',
     paymentsAdminTitle: 'Payments',
     paymentsAdminBody:
@@ -569,6 +571,7 @@ export const dictionary = {
     purchaseInlineEditorBody: 'Исправляй детали покупки прямо в списке.',
     purchaseDescriptionLabel: 'Описание покупки',
     purchaseAmountLabel: 'Сумма покупки',
+    purchaseDateLabel: 'Дата покупки',
     purchaseStatusOpen: 'Открыта',
     purchaseStatusSettled: 'Закрыта',
     purchaseSplitSummaryEqual: 'Поровну',
@@ -639,6 +642,7 @@ export const dictionary = {
     purchaseCustomShareLabel: 'Своя сумма',
     purchaseEditorBody:
       'Проверь покупку и меняй детали разделения только если это действительно нужно.',
+    dateLabel: 'Дата',
     purchasePayerLabel: 'Оплатил',
     paymentsAdminTitle: 'Оплаты',
     paymentsAdminBody:

@@ -4,6 +4,7 @@ export const enBotTranslations: BotTranslationCatalog = {
   localeName: 'English',
   commands: {
     help: 'Show command list',
+    bill: 'Show the current billing plan and status',
     household_status: 'Show current household status',
     utilities: 'Post the utility entry template for this topic',
     anon: 'Send anonymous household feedback',

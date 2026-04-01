@@ -240,6 +240,11 @@ function createFinanceService(): FinanceCommandService & {
     }),
     updatePayment: async () => null,
     deletePayment: async () => false,
+    generateCurrentBillPlan: async () => null,
+    resolveUtilityBillAsPlanned: async () => null,
+    recordUtilityVendorPayment: async () => null,
+    recordUtilityReimbursement: async () => null,
+    rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => null,
     generateStatement: async () => null
   }

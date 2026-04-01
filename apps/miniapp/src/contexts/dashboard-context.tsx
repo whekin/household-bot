@@ -7,6 +7,8 @@ import {
   type ParentProps
 } from 'solid-js'
 
+import type { CalendarDateParts } from '../lib/dates'
+import { normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   fetchDashboardQuery,
@@ -107,6 +109,9 @@ type DashboardContextValue = {
   setTestingPeriodOverride: (value: string | null) => void
   testingTodayOverride: () => string | null
   setTestingTodayOverride: (value: string | null) => void
+  effectivePeriod: () => string | null
+  effectiveTodayOverride: () => CalendarDateParts | null
+  testingOverridesActive: () => boolean
   loadDashboardData: (initData: string, isAdmin: boolean) => Promise<void>
   applyDemoState: () => void
 }
@@ -297,6 +302,20 @@ export function DashboardProvider(props: ParentProps) {
   const [demoScenario, setDemoScenarioSignal] = createSignal<DemoScenarioId>('current-cycle')
   const [testingPeriodOverride, setTestingPeriodOverride] = createSignal<string | null>(null)
   const [testingTodayOverride, setTestingTodayOverride] = createSignal<string | null>(null)
+  const effectiveTodayOverride = createMemo(() => {
+    const raw = testingTodayOverride()
+    if (!raw) return null
+    return parseCalendarDate(raw)
+  })
+  const effectivePeriod = createMemo(() => {
+    const data = dashboard()
+    if (!data) return null
+
+    return normalizePeriodOverride(testingPeriodOverride()) ?? data.period
+  })
+  const testingOverridesActive = createMemo(() =>
+    Boolean(normalizePeriodOverride(testingPeriodOverride()) ?? effectiveTodayOverride())
+  )
 
   const effectiveIsAdmin = createMemo(() => {
     const current = readySession()
@@ -444,6 +463,9 @@ export function DashboardProvider(props: ParentProps) {
         setTestingPeriodOverride,
         testingTodayOverride,
         setTestingTodayOverride,
+        effectivePeriod,
+        effectiveTodayOverride,
+        testingOverridesActive,
         loadDashboardData,
         applyDemoState
       }}

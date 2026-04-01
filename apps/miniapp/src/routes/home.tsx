@@ -17,12 +17,13 @@ import { Skeleton } from '../components/ui/skeleton'
 import { formatMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
+  type CalendarDateParts,
   compareTodayToPeriodDay,
   daysUntilPeriodDay,
   formatCyclePeriod,
+  formatFriendlyDate,
   formatPeriodDay,
-  nextCyclePeriod,
-  parseCalendarDate
+  nextCyclePeriod
 } from '../lib/dates'
 import {
   submitMiniAppUtilityBill,
@@ -203,7 +204,9 @@ export default function HomeRoute() {
     currentMemberLine,
     utilityLedger,
     utilityTotalMajor,
-    testingPeriodOverride,
+    effectivePeriod,
+    effectiveTodayOverride,
+    testingOverridesActive,
     testingTodayOverride
   } = useDashboard()
   const [showAllActivity, setShowAllActivity] = createSignal(false)
@@ -304,7 +307,7 @@ export default function HomeRoute() {
     timezone: string
     reminderDay: number
     dueDay: number
-    todayOverride?: ReturnType<typeof parseCalendarDate>
+    todayOverride?: CalendarDateParts | null
   }): { active: boolean; daysUntilDue: number | null } {
     if (!Number.isInteger(input.reminderDay) || !Number.isInteger(input.dueDay)) {
       return { active: false, daysUntilDue: null }
@@ -341,30 +344,12 @@ export default function HomeRoute() {
     }
   }
 
-  const todayOverride = createMemo(() => {
-    const raw = testingTodayOverride()
-    if (!raw) return null
-    return parseCalendarDate(raw)
-  })
-
-  const effectivePeriod = createMemo(() => {
-    const data = dashboard()
-    if (!data) return null
-    const override = testingPeriodOverride()
-    if (!override) return data.period
-    const match = /^(\d{4})-(\d{2})$/.exec(override)
-    if (!match) return data.period
-    const month = Number.parseInt(match[2] ?? '', 10)
-    if (!Number.isInteger(month) || month < 1 || month > 12) return data.period
-    return override
-  })
-
   const currentPaymentModes = createMemo(() => {
     const data = dashboard()
     const member = currentMemberLine()
     if (!data || !member) return [] as ('rent' | 'utilities')[]
     const period = effectivePeriod() ?? data.period
-    const today = todayOverride()
+    const today = effectiveTodayOverride()
 
     const utilities = paymentWindowStatus({
       period,
@@ -634,7 +619,7 @@ export default function HomeRoute() {
                   ) => formatMoneyLabel(amountMajor, currencyCode, locale())
                   const timezone = () => data().timezone
                   const period = () => effectivePeriod() ?? data().period
-                  const today = () => todayOverride()
+                  const today = () => effectiveTodayOverride()
 
                   function upcomingDay(day: number): {
                     dateLabel: string
@@ -696,6 +681,35 @@ export default function HomeRoute() {
 
                   return (
                     <>
+                      <Show when={testingOverridesActive()}>
+                        <Card muted>
+                          <div class="balance-card">
+                            <div class="balance-card__header">
+                              <span class="balance-card__label">
+                                {locale() === 'ru' ? 'Тестовая дата' : 'Test date'}
+                              </span>
+                              <Badge variant="accent">
+                                {locale() === 'ru' ? 'Переопределено' : 'Overridden'}
+                              </Badge>
+                            </div>
+                            <div class="balance-card__amounts">
+                              <div class="balance-card__row">
+                                <span>{locale() === 'ru' ? 'Период' : 'Period'}</span>
+                                <strong>{formatCyclePeriod(period(), locale())}</strong>
+                              </div>
+                              <Show when={testingTodayOverride()}>
+                                {(override) => (
+                                  <div class="balance-card__row">
+                                    <span>{locale() === 'ru' ? 'Сегодня' : 'Today'}</span>
+                                    <strong>{formatFriendlyDate(override(), locale())}</strong>
+                                  </div>
+                                )}
+                              </Show>
+                            </div>
+                          </div>
+                        </Card>
+                      </Show>
+
                       <Show when={overduePaymentFor('utilities')}>
                         {(overdue) => (
                           <Card accent>

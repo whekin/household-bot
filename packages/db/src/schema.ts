@@ -747,6 +747,117 @@ export const paymentRecords = pgTable(
   })
 )
 
+export const utilityBillingPlans = pgTable(
+  'utility_billing_plans',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    status: text('status').notNull(),
+    dueDate: date('due_date').notNull(),
+    currency: text('currency').notNull(),
+    maxCategoriesPerMemberApplied: integer('max_categories_per_member_applied').notNull(),
+    updatedFromPlanId: uuid('updated_from_plan_id'),
+    reason: text('reason'),
+    payload: jsonb('payload')
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cycleVersionUnique: uniqueIndex('utility_billing_plans_cycle_version_unique').on(
+      table.cycleId,
+      table.version
+    ),
+    cycleStatusIdx: index('utility_billing_plans_cycle_status_idx').on(table.cycleId, table.status),
+    householdCreatedIdx: index('utility_billing_plans_household_created_idx').on(
+      table.householdId,
+      table.createdAt
+    )
+  })
+)
+
+export const utilityVendorPaymentFacts = pgTable(
+  'utility_vendor_payment_facts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    utilityBillId: uuid('utility_bill_id').references(() => utilityBills.id, {
+      onDelete: 'set null'
+    }),
+    billName: text('bill_name').notNull(),
+    payerMemberId: uuid('payer_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    plannedForMemberId: uuid('planned_for_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    planVersion: integer('plan_version'),
+    matchedPlan: integer('matched_plan').default(0).notNull(),
+    recordedByMemberId: uuid('recorded_by_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cycleIdx: index('utility_vendor_payment_facts_cycle_idx').on(table.cycleId),
+    billIdx: index('utility_vendor_payment_facts_bill_idx').on(table.utilityBillId),
+    payerIdx: index('utility_vendor_payment_facts_payer_idx').on(table.payerMemberId)
+  })
+)
+
+export const utilityReimbursementFacts = pgTable(
+  'utility_reimbursement_facts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    fromMemberId: uuid('from_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    toMemberId: uuid('to_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    plannedFromMemberId: uuid('planned_from_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    plannedToMemberId: uuid('planned_to_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    planVersion: integer('plan_version'),
+    matchedPlan: integer('matched_plan').default(0).notNull(),
+    recordedByMemberId: uuid('recorded_by_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cycleIdx: index('utility_reimbursement_facts_cycle_idx').on(table.cycleId),
+    fromIdx: index('utility_reimbursement_facts_from_idx').on(table.fromMemberId),
+    toIdx: index('utility_reimbursement_facts_to_idx').on(table.toMemberId)
+  })
+)
+
 export const paymentPurchaseAllocations = pgTable(
   'payment_purchase_allocations',
   {
@@ -842,5 +953,8 @@ export type TopicMessage = typeof topicMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
 export type PaymentConfirmation = typeof paymentConfirmations.$inferSelect
 export type PaymentRecord = typeof paymentRecords.$inferSelect
+export type UtilityBillingPlan = typeof utilityBillingPlans.$inferSelect
+export type UtilityVendorPaymentFact = typeof utilityVendorPaymentFacts.$inferSelect
+export type UtilityReimbursementFact = typeof utilityReimbursementFacts.$inferSelect
 export type PaymentPurchaseAllocation = typeof paymentPurchaseAllocations.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

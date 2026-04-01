@@ -115,11 +115,60 @@ export interface MiniAppDashboard {
   totalDueMajor: string
   totalPaidMajor: string
   totalRemainingMajor: string
+  billingStage: 'utilities' | 'rent' | 'idle'
   rentSourceAmountMajor: string
   rentSourceCurrency: 'USD' | 'GEL'
   rentDisplayAmountMajor: string
   rentFxRateMicros: string | null
   rentFxEffectiveDate: string | null
+  utilityBillingPlan?: {
+    version: number
+    status: 'active' | 'diverged' | 'superseded' | 'settled'
+    dueDate: string
+    updatedFromVersion: number | null
+    reason: string | null
+    categories: readonly {
+      utilityBillId: string
+      billName: string
+      amountMajor: string
+      assignedMemberId: string
+      assignedDisplayName: string
+      paidAmountMajor: string
+      fullCategoryPayment: boolean
+      splitSourceBillId: string | null
+    }[]
+    transfers: readonly {
+      fromMemberId: string
+      fromDisplayName: string
+      toMemberId: string
+      toDisplayName: string
+      amountMajor: string
+      settledAmountMajor: string
+    }[]
+    memberSummaries: readonly {
+      memberId: string
+      displayName: string
+      fairShareMajor: string
+      vendorPaidMajor: string
+      reimbursementSentMajor: string
+      reimbursementReceivedMajor: string
+      assignedVendorMajor: string
+      remainingTransferInMajor: string
+      remainingTransferOutMajor: string
+      netSettledMajor: string
+    }[]
+  } | null
+  rentBillingState: {
+    dueDate: string
+    paymentDestinations: readonly MiniAppRentPaymentDestination[] | null
+    memberSummaries: readonly {
+      memberId: string
+      displayName: string
+      dueMajor: string
+      paidMajor: string
+      remainingMajor: string
+    }[]
+  }
   utilityCategories?: readonly {
     slug: string
     name: string
@@ -1137,6 +1186,7 @@ export async function addMiniAppPurchase(
     description: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    occurredOn?: string
     payerMemberId?: string
     split?: {
       mode: 'equal' | 'custom_amounts'
@@ -1172,6 +1222,7 @@ export async function updateMiniAppPurchase(
     description: string
     amountMajor: string
     currency: 'USD' | 'GEL'
+    occurredOn?: string
     payerMemberId?: string
     split?: {
       mode: 'equal' | 'custom_amounts'
@@ -1242,6 +1293,84 @@ export async function addMiniAppPayment(
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
     throw new Error(payload.error ?? 'Failed to add payment')
+  }
+}
+
+export async function resolveMiniAppUtilityPlan(
+  initData: string,
+  input: {
+    memberId?: string
+    period?: string
+  } = {}
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/billing/utilities/resolve-planned`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to resolve planned utility bills')
+  }
+}
+
+export async function recordMiniAppUtilityVendorPayment(
+  initData: string,
+  input: {
+    utilityBillId: string
+    payerMemberId?: string
+    amountMajor?: string
+    currency?: 'USD' | 'GEL'
+    period?: string
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/billing/utilities/vendor-payment`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to record utility vendor payment')
+  }
+}
+
+export async function recordMiniAppUtilityReimbursement(
+  initData: string,
+  input: {
+    fromMemberId?: string
+    toMemberId: string
+    amountMajor: string
+    currency?: 'USD' | 'GEL'
+    period?: string
+  }
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/billing/utilities/reimbursement`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
+  if (!response.ok || !payload.authorized) {
+    throw new Error(payload.error ?? 'Failed to record utility reimbursement')
   }
 }
 

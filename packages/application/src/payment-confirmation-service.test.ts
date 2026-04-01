@@ -125,10 +125,17 @@ describe('createPaymentConfirmationService', () => {
           totalDue: Money.fromMajor('1030', 'GEL'),
           totalPaid: Money.zero('GEL'),
           totalRemaining: Money.fromMajor('1030', 'GEL'),
+          billingStage: 'rent',
           rentSourceAmount: Money.fromMajor('700', 'USD'),
           rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
           rentFxRateMicros: 2_700_000n,
           rentFxEffectiveDate: '2026-03-17',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-03-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
           members: [
             {
               memberId: 'member-1',
@@ -195,10 +202,17 @@ describe('createPaymentConfirmationService', () => {
           totalDue: Money.fromMajor('1030', 'GEL'),
           totalPaid: Money.zero('GEL'),
           totalRemaining: Money.fromMajor('1030', 'GEL'),
+          billingStage: 'rent',
           rentSourceAmount: Money.fromMajor('700', 'USD'),
           rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
           rentFxRateMicros: 2_700_000n,
           rentFxEffectiveDate: '2026-03-17',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-03-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
           members: [
             {
               memberId: 'member-1',

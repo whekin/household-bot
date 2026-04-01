@@ -14,7 +14,10 @@ import {
   createMiniAppBillingCycleHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
+  createMiniAppRecordUtilityReimbursementHandler,
+  createMiniAppRecordUtilityVendorPaymentHandler,
   createMiniAppRentUpdateHandler,
+  createMiniAppResolveUtilityPlanHandler,
   createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
@@ -145,8 +148,29 @@ function onboardingRepository(): HouseholdConfigurationRepository {
   }
 }
 
-function createFinanceServiceStub(): FinanceCommandService {
+function createFinanceServiceStub(): FinanceCommandService & {
+  resolvedUtilityPlans: Array<{ memberId: string; actorMemberId?: string; periodArg?: string }>
+  utilityVendorPayments: Array<{
+    utilityBillId: string
+    payerMemberId: string
+    actorMemberId?: string
+    amountArg?: string
+    currencyArg?: string
+    periodArg?: string
+  }>
+  utilityReimbursements: Array<{
+    fromMemberId: string
+    toMemberId: string
+    amountArg: string
+    actorMemberId?: string
+    currencyArg?: string
+    periodArg?: string
+  }>
+} {
   return {
+    resolvedUtilityPlans: [],
+    utilityVendorPayments: [],
+    utilityReimbursements: [],
     getMemberByTelegramUserId: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-2026-03',
@@ -228,6 +252,30 @@ function createFinanceServiceStub(): FinanceCommandService {
       currency: 'USD'
     }),
     deletePayment: async () => true,
+    generateCurrentBillPlan: async () => null,
+    resolveUtilityBillAsPlanned: async function (input) {
+      this.resolvedUtilityPlans.push(input)
+      return {
+        period: input.periodArg ?? '2026-03',
+        resolvedBillIds: ['utility-1'],
+        plan: null
+      }
+    },
+    recordUtilityVendorPayment: async function (input) {
+      this.utilityVendorPayments.push(input)
+      return {
+        period: input.periodArg ?? '2026-03',
+        plan: null
+      }
+    },
+    recordUtilityReimbursement: async function (input) {
+      this.utilityReimbursements.push(input)
+      return {
+        period: input.periodArg ?? '2026-03',
+        plan: null
+      }
+    },
+    rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => null,
     generateStatement: async () => null
   }
@@ -637,5 +685,133 @@ describe('createMiniAppAddPurchaseHandler', () => {
         ]
       }
     })
+  })
+})
+
+describe('utility billing action handlers', () => {
+  test('resolve planned utility payment records the selected member action', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppResolveUtilityPlanHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/resolve-planned', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          memberId: 'member-123456',
+          period: '2026-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(financeService.resolvedUtilityPlans).toEqual([
+      {
+        memberId: 'member-123456',
+        actorMemberId: 'member-123456',
+        periodArg: '2026-03'
+      }
+    ])
+  })
+
+  test('custom vendor payment supports admin acting for another member', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppRecordUtilityVendorPaymentHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/vendor-payment', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          utilityBillId: 'utility-1',
+          payerMemberId: 'member-999',
+          amountMajor: '45.50',
+          currency: 'GEL',
+          period: '2026-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(financeService.utilityVendorPayments).toEqual([
+      {
+        utilityBillId: 'utility-1',
+        payerMemberId: 'member-999',
+        actorMemberId: 'member-123456',
+        amountArg: '45.50',
+        currencyArg: 'GEL',
+        periodArg: '2026-03'
+      }
+    ])
+  })
+
+  test('custom reimbursement supports admin acting for another member', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppRecordUtilityReimbursementHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/reimbursement', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          fromMemberId: 'member-999',
+          toMemberId: 'member-123456',
+          amountMajor: '12.25',
+          currency: 'GEL',
+          period: '2026-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(financeService.utilityReimbursements).toEqual([
+      {
+        fromMemberId: 'member-999',
+        toMemberId: 'member-123456',
+        amountArg: '12.25',
+        actorMemberId: 'member-123456',
+        currencyArg: 'GEL',
+        periodArg: '2026-03'
+      }
+    ])
   })
 })
