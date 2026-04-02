@@ -209,7 +209,8 @@ export function createOpenAiChatAssistant(
         })
 
         if (!response.ok) {
-          throw new Error(`Assistant request failed with status ${response.status}`)
+          const errorBody = await response.text()
+          throw new Error(`Assistant request failed with status ${response.status}: ${errorBody}`)
         }
 
         const payload = (await response.json()) as OpenAiResponsePayload & {
