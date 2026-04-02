@@ -1220,7 +1220,7 @@ export async function addMiniAppPurchase(
       }[]
     }
   }
-): Promise<void> {
+): Promise<MiniAppDashboard> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/add`, {
     method: 'POST',
     headers: {
@@ -1232,10 +1232,17 @@ export async function addMiniAppPurchase(
     })
   })
 
-  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
-  if (!response.ok || !payload.authorized) {
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    dashboard?: MiniAppDashboard
+    error?: string
+  }
+  if (!response.ok || !payload.authorized || !payload.dashboard) {
     throw new Error(payload.error ?? 'Failed to add purchase')
   }
+
+  return payload.dashboard
 }
 
 export async function updateMiniAppPurchase(
@@ -1256,7 +1263,7 @@ export async function updateMiniAppPurchase(
       }[]
     }
   }
-): Promise<void> {
+): Promise<MiniAppDashboard> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/update`, {
     method: 'POST',
     headers: {
@@ -1268,13 +1275,23 @@ export async function updateMiniAppPurchase(
     })
   })
 
-  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
-  if (!response.ok || !payload.authorized) {
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    dashboard?: MiniAppDashboard
+    error?: string
+  }
+  if (!response.ok || !payload.authorized || !payload.dashboard) {
     throw new Error(payload.error ?? 'Failed to update purchase')
   }
+
+  return payload.dashboard
 }
 
-export async function deleteMiniAppPurchase(initData: string, purchaseId: string): Promise<void> {
+export async function deleteMiniAppPurchase(
+  initData: string,
+  purchaseId: string
+): Promise<MiniAppDashboard> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/purchases/delete`, {
     method: 'POST',
     headers: {
@@ -1286,10 +1303,17 @@ export async function deleteMiniAppPurchase(initData: string, purchaseId: string
     })
   })
 
-  const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
-  if (!response.ok || !payload.authorized) {
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    dashboard?: MiniAppDashboard
+    error?: string
+  }
+  if (!response.ok || !payload.authorized || !payload.dashboard) {
     throw new Error(payload.error ?? 'Failed to delete purchase')
   }
+
+  return payload.dashboard
 }
 
 export async function addMiniAppPayment(

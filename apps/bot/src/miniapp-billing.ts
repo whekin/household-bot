@@ -1,9 +1,14 @@
-import type { FinanceCommandService, HouseholdOnboardingService } from '@household/application'
+import type {
+  AdHocNotificationService,
+  FinanceCommandService,
+  HouseholdOnboardingService
+} from '@household/application'
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 import { formatUserFacingMoney } from './i18n/money'
+import { loadMiniAppDashboardPayload } from './miniapp-dashboard'
 
 import {
   allowedMiniAppOrigin,
@@ -416,6 +421,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
     mode: 'equal' | 'custom_amounts'
     participants: {
       memberId: string
+      included?: boolean
       shareAmountMajor?: string
     }[]
   }
@@ -432,6 +438,7 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
       mode?: string
       participants?: {
         memberId?: string
+        included?: boolean
         shareAmountMajor?: string
       }[]
     }
@@ -488,6 +495,11 @@ async function readPurchaseMutationPayload(request: Request): Promise<{
 
                 return {
                   memberId,
+                  ...(participant.included !== undefined
+                    ? {
+                        included: participant.included
+                      }
+                    : {}),
                   ...(participant.shareAmountMajor?.trim()
                     ? {
                         shareAmountMajor: participant.shareAmountMajor.trim()
@@ -1262,7 +1274,12 @@ export function createMiniAppAddPurchaseHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1308,7 +1325,26 @@ export function createMiniAppAddPurchaseHandler(options: {
           payload.occurredOn
         )
 
-        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+        const dashboard = await loadMiniAppDashboardPayload({
+          householdId: auth.member.householdId,
+          viewerMemberId: auth.member.id,
+          financeService: service,
+          adHocNotificationService: options.adHocNotificationService,
+          ...(options.householdConfigurationRepository
+            ? {
+                householdConfigurationRepository: options.householdConfigurationRepository
+              }
+            : {})
+        })
+        if (!dashboard) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'No billing cycle available' },
+            404,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse({ ok: true, authorized: true, dashboard }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }
@@ -1320,7 +1356,12 @@ export function createMiniAppUpdatePurchaseHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1371,7 +1412,26 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, origin)
         }
 
-        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+        const dashboard = await loadMiniAppDashboardPayload({
+          householdId: auth.member.householdId,
+          viewerMemberId: auth.member.id,
+          financeService: service,
+          adHocNotificationService: options.adHocNotificationService,
+          ...(options.householdConfigurationRepository
+            ? {
+                householdConfigurationRepository: options.householdConfigurationRepository
+              }
+            : {})
+        })
+        if (!dashboard) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'No billing cycle available' },
+            404,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse({ ok: true, authorized: true, dashboard }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }
@@ -1383,7 +1443,12 @@ export function createMiniAppDeletePurchaseHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1421,7 +1486,26 @@ export function createMiniAppDeletePurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, origin)
         }
 
-        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+        const dashboard = await loadMiniAppDashboardPayload({
+          householdId: auth.member.householdId,
+          viewerMemberId: auth.member.id,
+          financeService: service,
+          adHocNotificationService: options.adHocNotificationService,
+          ...(options.householdConfigurationRepository
+            ? {
+                householdConfigurationRepository: options.householdConfigurationRepository
+              }
+            : {})
+        })
+        if (!dashboard) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'No billing cycle available' },
+            404,
+            origin
+          )
+        }
+
+        return miniAppJsonResponse({ ok: true, authorized: true, dashboard }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }

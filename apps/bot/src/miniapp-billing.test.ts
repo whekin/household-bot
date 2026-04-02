@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { FinanceCommandService } from '@household/application'
+import type { AdHocNotificationService, FinanceCommandService } from '@household/application'
 import { createHouseholdOnboardingService } from '@household/application'
 import { instantFromIso, Money } from '@household/domain'
 import type {
@@ -12,6 +12,7 @@ import {
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
+  createMiniAppDeletePurchaseHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
   createMiniAppRecordUtilityVendorPaymentHandler,
@@ -147,6 +148,55 @@ function onboardingRepository(): HouseholdConfigurationRepository {
   }
 }
 
+const adHocNotificationService = {
+  listUpcomingNotifications: async () => []
+} as unknown as AdHocNotificationService
+
+function createDashboardStub() {
+  return {
+    period: '2026-03',
+    currency: 'GEL' as const,
+    timezone: 'Asia/Tbilisi',
+    rentWarningDay: 17,
+    rentDueDay: 20,
+    utilitiesReminderDay: 3,
+    utilitiesDueDay: 4,
+    paymentBalanceAdjustmentPolicy: 'utilities' as const,
+    rentPaymentDestinations: null,
+    totalDue: Money.fromMinor(3000n, 'GEL'),
+    totalPaid: Money.fromMinor(0n, 'GEL'),
+    totalRemaining: Money.fromMinor(3000n, 'GEL'),
+    billingStage: 'utilities' as const,
+    rentSourceAmount: Money.fromMinor(70000n, 'USD'),
+    rentDisplayAmount: Money.fromMinor(188958n, 'GEL'),
+    rentFxRateMicros: null,
+    rentFxEffectiveDate: null,
+    utilityBillingPlan: null,
+    rentBillingState: {
+      dueDate: '2026-03-20',
+      paymentDestinations: null,
+      memberSummaries: []
+    },
+    members: [
+      {
+        memberId: 'member-123456',
+        displayName: 'Stan',
+        predictedUtilityShare: null,
+        rentShare: Money.fromMinor(0n, 'GEL'),
+        utilityShare: Money.fromMinor(0n, 'GEL'),
+        purchaseOffset: Money.fromMinor(0n, 'GEL'),
+        netDue: Money.fromMinor(0n, 'GEL'),
+        paid: Money.fromMinor(0n, 'GEL'),
+        remaining: Money.fromMinor(0n, 'GEL'),
+        overduePayments: [],
+        explanations: []
+      }
+    ],
+    paymentPeriods: [],
+    ledger: []
+  }
+}
+
 function createFinanceServiceStub(): FinanceCommandService & {
   resolvedUtilityPlans: Array<{ memberId: string; actorMemberId?: string; periodArg?: string }>
   utilityVendorPayments: Array<{
@@ -263,7 +313,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
       plan: null
     }),
     rebalanceUtilityPlan: async () => null,
-    generateDashboard: async () => null,
+    generateDashboard: async () => createDashboardStub(),
     generateBillingAuditExport: async () => null,
     generateStatement: async () => null
   }
@@ -536,6 +586,7 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
+      adHocNotificationService,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         updatePurchase: async (_purchaseId, _description, _amountArg, _currencyArg, split) => {
@@ -586,18 +637,28 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: {
+        period: '2026-03'
+      }
+    })
     expect(capturedSplit).toEqual({
       mode: 'custom_amounts',
       participants: [
         {
           memberId: 'member-123456',
+          included: true,
           shareAmountMajor: '20'
         },
         {
-          memberId: 'member-999'
+          memberId: 'member-999',
+          included: false
         },
         {
           memberId: 'member-888',
+          included: true,
           shareAmountMajor: '10'
         }
       ]
@@ -616,6 +677,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
+      adHocNotificationService,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         addPurchase: async (
@@ -659,7 +721,13 @@ describe('createMiniAppAddPurchaseHandler', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: {
+        period: '2026-03'
+      }
+    })
     expect(capturedArgs).toEqual({
       description: 'Pizza',
       amountArg: '30',
@@ -685,6 +753,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
+      adHocNotificationService,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         addPurchase: async (
@@ -758,6 +827,44 @@ describe('createMiniAppAddPurchaseHandler', () => {
           shareAmountMajor: '10'
         }
       ]
+    })
+  })
+})
+
+describe('createMiniAppDeletePurchaseHandler', () => {
+  test('returns a refreshed dashboard after deleting a purchase', async () => {
+    const repository = onboardingRepository()
+    const handler = createMiniAppDeletePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => createFinanceServiceStub()
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/delete', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: {
+        period: '2026-03'
+      }
     })
   })
 })

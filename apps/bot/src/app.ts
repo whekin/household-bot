@@ -884,33 +884,57 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('miniapp-billing')
         })
       : undefined,
-    miniAppAddPurchase: householdOnboardingService
-      ? createMiniAppAddPurchaseHandler({
-          allowedOrigins: runtime.miniAppAllowedOrigins,
-          botToken: runtime.telegramBotToken,
-          onboardingService: householdOnboardingService,
-          financeServiceForHousehold,
-          logger: getLogger('miniapp-billing')
-        })
-      : undefined,
-    miniAppUpdatePurchase: householdOnboardingService
-      ? createMiniAppUpdatePurchaseHandler({
-          allowedOrigins: runtime.miniAppAllowedOrigins,
-          botToken: runtime.telegramBotToken,
-          onboardingService: householdOnboardingService,
-          financeServiceForHousehold,
-          logger: getLogger('miniapp-billing')
-        })
-      : undefined,
-    miniAppDeletePurchase: householdOnboardingService
-      ? createMiniAppDeletePurchaseHandler({
-          allowedOrigins: runtime.miniAppAllowedOrigins,
-          botToken: runtime.telegramBotToken,
-          onboardingService: householdOnboardingService,
-          financeServiceForHousehold,
-          logger: getLogger('miniapp-billing')
-        })
-      : undefined,
+    miniAppAddPurchase:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppAddPurchaseHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            financeServiceForHousehold,
+            adHocNotificationService,
+            ...(householdConfigurationRepositoryClient
+              ? {
+                  householdConfigurationRepository:
+                    householdConfigurationRepositoryClient.repository
+                }
+              : {}),
+            logger: getLogger('miniapp-billing')
+          })
+        : undefined,
+    miniAppUpdatePurchase:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppUpdatePurchaseHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            financeServiceForHousehold,
+            adHocNotificationService,
+            ...(householdConfigurationRepositoryClient
+              ? {
+                  householdConfigurationRepository:
+                    householdConfigurationRepositoryClient.repository
+                }
+              : {}),
+            logger: getLogger('miniapp-billing')
+          })
+        : undefined,
+    miniAppDeletePurchase:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppDeletePurchaseHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            financeServiceForHousehold,
+            adHocNotificationService,
+            ...(householdConfigurationRepositoryClient
+              ? {
+                  householdConfigurationRepository:
+                    householdConfigurationRepositoryClient.repository
+                }
+              : {}),
+            logger: getLogger('miniapp-billing')
+          })
+        : undefined,
     miniAppAddPayment: householdOnboardingService
       ? createMiniAppAddPaymentHandler({
           allowedOrigins: runtime.miniAppAllowedOrigins,

@@ -1171,6 +1171,24 @@ function resolveBillingStage(input: {
   return rentOpen ? 'rent' : 'idle'
 }
 
+async function invalidateCurrentUtilityBillingPlan(repository: FinanceRepository): Promise<void> {
+  const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
+  if (!cycle) {
+    return
+  }
+
+  const plans = await repository.listUtilityBillingPlansForCycle(cycle.id)
+  const activePlan =
+    [...plans].reverse().find((plan) => plan.status === 'active' || plan.status === 'settled') ??
+    null
+
+  if (!activePlan) {
+    return
+  }
+
+  await repository.updateUtilityBillingPlanStatus(activePlan.id, 'superseded')
+}
+
 function periodFromInstant(instant: Temporal.Instant | null | undefined): string | null {
   if (!instant) {
     return null
@@ -2766,6 +2784,8 @@ export function createFinanceCommandService(
         return null
       }
 
+      await invalidateCurrentUtilityBillingPlan(repository)
+
       return {
         purchaseId: updated.id,
         amount,
@@ -2834,6 +2854,8 @@ export function createFinanceCommandService(
           : {})
       })
 
+      await invalidateCurrentUtilityBillingPlan(repository)
+
       return {
         purchaseId: created.id,
         amount,
@@ -2841,8 +2863,13 @@ export function createFinanceCommandService(
       }
     },
 
-    deletePurchase(purchaseId) {
-      return repository.deleteParsedPurchase(purchaseId)
+    async deletePurchase(purchaseId) {
+      const deleted = await repository.deleteParsedPurchase(purchaseId)
+      if (deleted) {
+        await invalidateCurrentUtilityBillingPlan(repository)
+      }
+
+      return deleted
     },
 
     async addPayment(memberId, kind, amountArg, currencyArg, periodArg) {

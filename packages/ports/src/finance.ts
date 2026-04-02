@@ -290,6 +290,7 @@ export interface FinanceRepository {
     currency: CurrencyCode
     description: string | null
     payerMemberId?: string
+    occurredAt?: Instant
     splitMode?: 'equal' | 'custom_amounts'
     participants?: readonly {
       memberId: string

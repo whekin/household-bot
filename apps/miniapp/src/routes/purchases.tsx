@@ -24,6 +24,7 @@ import {
 } from '../lib/ledger-helpers'
 import { formatCyclePeriod, formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
+import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 import {
   addMiniAppPurchase,
   deleteMiniAppPurchase,
@@ -335,7 +336,7 @@ function PurchaseDraftFields(props: {
 export default function PurchasesRoute() {
   const { initData, refreshHouseholdData, session } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, effectiveIsAdmin, loading, purchaseLedger } = useDashboard()
+  const { dashboard, effectiveIsAdmin, loading, purchaseLedger, setDashboard } = useDashboard()
 
   const unresolvedPurchaseLedger = createMemo(() =>
     purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
@@ -364,6 +365,7 @@ export default function PurchasesRoute() {
   const [purchaseDraft, setPurchaseDraft] = createSignal<PurchaseDraft | null>(null)
   const [savingPurchase, setSavingPurchase] = createSignal(false)
   const [deletingPurchase, setDeletingPurchase] = createSignal(false)
+  const [purchaseMutationError, setPurchaseMutationError] = createSignal<string | null>(null)
 
   const memberOptions = createMemo(() =>
     (dashboard()?.members ?? []).map((member) => ({
@@ -400,12 +402,14 @@ export default function PurchasesRoute() {
   function openComposer() {
     setEditingPurchase(null)
     setPurchaseDraft(null)
+    setPurchaseMutationError(null)
     resetComposer()
     setComposerOpen(true)
   }
 
   function closeComposer() {
     setComposerOpen(false)
+    setPurchaseMutationError(null)
     resetComposer()
   }
 
@@ -415,9 +419,11 @@ export default function PurchasesRoute() {
     if (editingPurchase()?.id === entry.id) {
       setEditingPurchase(null)
       setPurchaseDraft(null)
+      setPurchaseMutationError(null)
       return
     }
     setEditingPurchase(entry)
+    setPurchaseMutationError(null)
     setPurchaseDraft(purchaseDraftForEntry(entry))
   }
 
@@ -427,8 +433,9 @@ export default function PurchasesRoute() {
     if (!data || !draft.description.trim() || !draft.amountMajor.trim()) return
 
     setAddingPurchase(true)
+    setPurchaseMutationError(null)
     try {
-      await addMiniAppPurchase(data, {
+      const refreshedDashboard = await addMiniAppPurchase(data, {
         description: draft.description,
         amountMajor: draft.amountMajor,
         currency: draft.currency,
@@ -440,7 +447,13 @@ export default function PurchasesRoute() {
             }
           : {})
       })
+      setDashboard(refreshedDashboard)
       closeComposer()
+      await invalidateHouseholdQueries(data)
+    } catch (error) {
+      setPurchaseMutationError(
+        error instanceof Error ? error.message : copy().purchaseMutationFailed
+      )
       await refreshHouseholdData(true, true)
     } finally {
       setAddingPurchase(false)
@@ -454,8 +467,9 @@ export default function PurchasesRoute() {
     if (!data || !entry || !draft) return
 
     setSavingPurchase(true)
+    setPurchaseMutationError(null)
     try {
-      await updateMiniAppPurchase(data, {
+      const refreshedDashboard = await updateMiniAppPurchase(data, {
         purchaseId: entry.id,
         description: draft.description,
         amountMajor: draft.amountMajor,
@@ -464,8 +478,14 @@ export default function PurchasesRoute() {
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
         split: buildPurchaseSplitPayload(draft)
       })
+      setDashboard(refreshedDashboard)
       setEditingPurchase(null)
       setPurchaseDraft(null)
+      await invalidateHouseholdQueries(data)
+    } catch (error) {
+      setPurchaseMutationError(
+        error instanceof Error ? error.message : copy().purchaseMutationFailed
+      )
       await refreshHouseholdData(true, true)
     } finally {
       setSavingPurchase(false)
@@ -478,10 +498,17 @@ export default function PurchasesRoute() {
     if (!data || !entry) return
 
     setDeletingPurchase(true)
+    setPurchaseMutationError(null)
     try {
-      await deleteMiniAppPurchase(data, entry.id)
+      const refreshedDashboard = await deleteMiniAppPurchase(data, entry.id)
+      setDashboard(refreshedDashboard)
       setEditingPurchase(null)
       setPurchaseDraft(null)
+      await invalidateHouseholdQueries(data)
+    } catch (error) {
+      setPurchaseMutationError(
+        error instanceof Error ? error.message : copy().purchaseMutationFailed
+      )
       await refreshHouseholdData(true, true)
     } finally {
       setDeletingPurchase(false)
@@ -604,6 +631,13 @@ export default function PurchasesRoute() {
                           copy={copy}
                           locale={locale}
                         />
+                        <Show when={purchaseMutationError()}>
+                          {(error) => (
+                            <p class="purchase-split-editor__error" role="alert">
+                              {error()}
+                            </p>
+                          )}
+                        </Show>
                         <div class="purchase-inline-editor__actions">
                           <Button variant="ghost" onClick={closeComposer}>
                             {copy().closeEditorAction}
@@ -780,6 +814,13 @@ export default function PurchasesRoute() {
                                   copy={copy}
                                   locale={locale}
                                 />
+                                <Show when={purchaseMutationError()}>
+                                  {(error) => (
+                                    <p class="purchase-split-editor__error" role="alert">
+                                      {error()}
+                                    </p>
+                                  )}
+                                </Show>
                                 <div class="purchase-inline-editor__actions">
                                   <Button
                                     variant="danger"
@@ -971,6 +1012,13 @@ export default function PurchasesRoute() {
                                   copy={copy}
                                   locale={locale}
                                 />
+                                <Show when={purchaseMutationError()}>
+                                  {(error) => (
+                                    <p class="purchase-split-editor__error" role="alert">
+                                      {error()}
+                                    </p>
+                                  )}
+                                </Show>
                                 <div class="purchase-inline-editor__actions">
                                   <Button
                                     variant="danger"

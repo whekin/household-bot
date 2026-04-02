@@ -550,6 +550,11 @@ export function createDbFinanceRepository(
             parsedAmountMinor: input.amountMinor,
             parsedCurrency: input.currency,
             parsedItemDescription: input.description,
+            ...(input.occurredAt
+              ? {
+                  messageSentAt: instantToDate(input.occurredAt)
+                }
+              : {}),
             ...(input.splitMode
               ? {
                   participantSplitMode: input.splitMode

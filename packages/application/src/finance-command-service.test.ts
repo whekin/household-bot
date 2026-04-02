@@ -196,7 +196,7 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async addParsedPurchase(input: Parameters<FinanceRepository['addParsedPurchase']>[0]) {
     this.lastAddedPurchaseInput = input
-    return {
+    const created = {
       id: 'purchase-1',
       cycleId: input.cycleId,
       cyclePeriod: null,
@@ -212,6 +212,9 @@ class FinanceRepositoryStub implements FinanceRepository {
         shareAmountMinor: p.shareAmountMinor
       }))
     }
+    this.purchases = [...this.purchases, created]
+
+    return created
   }
 
   async updateUtilityBill() {
@@ -224,15 +227,17 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async updateParsedPurchase(input: Parameters<FinanceRepository['updateParsedPurchase']>[0]) {
     this.lastUpdatedPurchaseInput = input
-    return {
+    const existing = this.purchases.find((purchase) => purchase.id === input.purchaseId)
+    const updated = {
       id: input.purchaseId,
-      cycleId: null,
-      cyclePeriod: null,
-      payerMemberId: 'alice',
+      cycleId: existing?.cycleId ?? null,
+      cyclePeriod: existing?.cyclePeriod ?? null,
+      payerMemberId: input.payerMemberId ?? existing?.payerMemberId ?? 'alice',
       amountMinor: input.amountMinor,
       currency: input.currency,
       description: input.description,
-      occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+      occurredAt:
+        input.occurredAt ?? existing?.occurredAt ?? instantFromIso('2026-03-12T11:00:00.000Z'),
       splitMode: input.splitMode ?? 'equal',
       ...(input.participants
         ? {
@@ -245,10 +250,17 @@ class FinanceRepositoryStub implements FinanceRepository {
           }
         : {})
     }
+    this.purchases = this.purchases.map((purchase) =>
+      purchase.id === input.purchaseId ? updated : purchase
+    )
+
+    return updated
   }
 
-  async deleteParsedPurchase() {
-    return false
+  async deleteParsedPurchase(purchaseId: string) {
+    const existed = this.purchases.some((purchase) => purchase.id === purchaseId)
+    this.purchases = this.purchases.filter((purchase) => purchase.id !== purchaseId)
+    return existed
   }
 
   async addPaymentRecord(input: {
@@ -1011,6 +1023,117 @@ describe('createFinanceCommandService', () => {
         }
       ]
     })
+  })
+
+  test('updatePurchase persists the edited occurred date', async () => {
+    const repository = new FinanceRepositoryStub()
+    const service = createService(repository)
+
+    await service.updatePurchase(
+      'purchase-1',
+      'Kitchen towels',
+      '30.00',
+      'GEL',
+      undefined,
+      undefined,
+      '2026-03-14'
+    )
+
+    expect(repository.lastUpdatedPurchaseInput?.occurredAt?.toString()).toBe('2026-03-14T08:00:00Z')
+  })
+
+  test('purchase mutations supersede the current utility plan and regenerate it from latest purchases', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Soap',
+        occurredAt: instantFromIso('2026-04-01T10:00:00.000Z'),
+        splitMode: 'equal',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1000n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1000n
+          }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const initialDashboard = await service.generateDashboard('2026-04')
+
+    expect(initialDashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['active'])
+
+    await service.updatePurchase(
+      'purchase-1',
+      'Soap',
+      '40.00',
+      'GEL',
+      {
+        mode: 'equal',
+        participants: [
+          { memberId: 'alice', included: true },
+          { memberId: 'bob', included: true }
+        ]
+      },
+      'alice',
+      '2026-04-01'
+    )
+
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
+
+    const refreshedDashboard = await service.generateDashboard('2026-04')
+
+    expect(refreshedDashboard?.utilityBillingPlan?.version).toBe(2)
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'superseded',
+      'active'
+    ])
   })
 
   test('generateDashboard exposes purchase participant splits in the ledger', async () => {
