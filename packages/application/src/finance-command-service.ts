@@ -2708,14 +2708,16 @@ export function createFinanceCommandService(
       const amount = Money.fromMajor(amountArg, currency)
 
       if (split?.mode === 'custom_amounts') {
-        if (split.participants.some((p) => p.shareAmountMajor === undefined)) {
+        const includedParticipants = split.participants.filter((p) => p.included !== false)
+
+        if (includedParticipants.some((p) => p.shareAmountMajor === undefined)) {
           throw new DomainError(
             DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must include explicit share amounts for every participant'
+            'Purchase custom split must include explicit share amounts for every included participant'
           )
         }
 
-        const totalMinor = split.participants.reduce(
+        const totalMinor = includedParticipants.reduce(
           (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
           0n
         )
@@ -2784,14 +2786,16 @@ export function createFinanceCommandService(
       }
 
       if (split?.mode === 'custom_amounts') {
-        if (split.participants.some((p) => p.shareAmountMajor === undefined)) {
+        const includedParticipants = split.participants.filter((p) => p.included !== false)
+
+        if (includedParticipants.some((p) => p.shareAmountMajor === undefined)) {
           throw new DomainError(
             DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must include explicit share amounts for every participant'
+            'Purchase custom split must include explicit share amounts for every included participant'
           )
         }
 
-        const totalMinor = split.participants.reduce(
+        const totalMinor = includedParticipants.reduce(
           (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
           0n
         )

@@ -674,6 +674,92 @@ describe('createMiniAppAddPurchaseHandler', () => {
       }
     })
   })
+
+  test('accepts excluded participants without explicit share amounts in custom splits', async () => {
+    const repository = onboardingRepository()
+    let capturedArgs: any = null
+
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        addPurchase: async (
+          description: string,
+          amountArg: string,
+          payerMemberId: string,
+          currencyArg?: string,
+          split?: any
+        ) => {
+          capturedArgs = { description, amountArg, payerMemberId, currencyArg, split }
+          return {
+            purchaseId: 'new-purchase-1',
+            amount: Money.fromMinor(3000n, 'GEL'),
+            currency: 'GEL' as const
+          }
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL',
+          split: {
+            mode: 'custom_amounts',
+            participants: [
+              {
+                memberId: 'member-123456',
+                included: true,
+                shareAmountMajor: '20'
+              },
+              {
+                memberId: 'member-999',
+                included: false
+              },
+              {
+                memberId: 'member-888',
+                included: true,
+                shareAmountMajor: '10'
+              }
+            ]
+          }
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(capturedArgs?.split).toEqual({
+      mode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'member-123456',
+          included: true,
+          shareAmountMajor: '20'
+        },
+        {
+          memberId: 'member-999',
+          included: false
+        },
+        {
+          memberId: 'member-888',
+          included: true,
+          shareAmountMajor: '10'
+        }
+      ]
+    })
+  })
 })
 
 describe('utility billing action handlers', () => {

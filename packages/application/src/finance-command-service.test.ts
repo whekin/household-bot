@@ -959,6 +959,60 @@ describe('createFinanceCommandService', () => {
     })
   })
 
+  test('updatePurchase allows excluded participants without explicit custom amounts', async () => {
+    const repository = new FinanceRepositoryStub()
+    const service = createService(repository)
+
+    const result = await service.updatePurchase('purchase-1', 'Kitchen towels', '30.00', 'GEL', {
+      mode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'alice',
+          included: true,
+          shareAmountMajor: '20.00'
+        },
+        {
+          memberId: 'bob',
+          included: false
+        },
+        {
+          memberId: 'carol',
+          included: true,
+          shareAmountMajor: '10.00'
+        }
+      ]
+    })
+
+    expect(result).toMatchObject({
+      purchaseId: 'purchase-1',
+      currency: 'GEL'
+    })
+    expect(repository.lastUpdatedPurchaseInput).toEqual({
+      purchaseId: 'purchase-1',
+      amountMinor: 3000n,
+      currency: 'GEL',
+      description: 'Kitchen towels',
+      splitMode: 'custom_amounts',
+      participants: [
+        {
+          memberId: 'alice',
+          included: true,
+          shareAmountMinor: 2000n
+        },
+        {
+          memberId: 'bob',
+          included: false,
+          shareAmountMinor: null
+        },
+        {
+          memberId: 'carol',
+          included: true,
+          shareAmountMinor: 1000n
+        }
+      ]
+    })
+  })
+
   test('generateDashboard exposes purchase participant splits in the ledger', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
