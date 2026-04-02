@@ -8,13 +8,11 @@ import {
   type CurrencyCode
 } from '@household/domain'
 import {
-  HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES,
   HOUSEHOLD_TOPIC_ROLES,
   type HouseholdAssistantConfigRecord,
-  type HouseholdMemberAbsencePolicy,
-  type HouseholdMemberAbsencePolicyRecord,
+  type HouseholdMemberPresenceDaysRecord,
   type HouseholdBillingSettingsRecord,
   type HouseholdConfigurationRepository,
   type HouseholdJoinTokenRecord,
@@ -61,16 +59,6 @@ function normalizePaymentBalanceAdjustmentPolicy(
   }
 
   return 'utilities'
-}
-
-function normalizeMemberAbsencePolicy(raw: string): HouseholdMemberAbsencePolicy {
-  const normalized = raw.trim().toLowerCase()
-
-  if ((HOUSEHOLD_MEMBER_ABSENCE_POLICIES as readonly string[]).includes(normalized)) {
-    return normalized as HouseholdMemberAbsencePolicy
-  }
-
-  throw new Error(`Unsupported household member absence policy: ${raw}`)
 }
 
 function toHouseholdTelegramChatRecord(row: {
@@ -319,19 +307,17 @@ function toHouseholdUtilityCategoryRecord(row: {
   }
 }
 
-function toHouseholdMemberAbsencePolicyRecord(row: {
+function toHouseholdMemberPresenceDaysRecord(row: {
   householdId: string
   memberId: string
-  startsOn: string
-  endsOn: string | null
-  policy: string
-}): HouseholdMemberAbsencePolicyRecord {
+  period: string
+  daysPresent: number
+}): HouseholdMemberPresenceDaysRecord {
   return {
     householdId: row.householdId,
     memberId: row.memberId,
-    startsOn: row.startsOn,
-    endsOn: row.endsOn,
-    policy: normalizeMemberAbsencePolicy(row.policy)
+    period: row.period,
+    daysPresent: row.daysPresent
   }
 }
 
@@ -1640,57 +1626,72 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       })
     },
 
-    async listHouseholdMemberAbsencePolicies(householdId) {
+    async listHouseholdMemberPresenceDays(householdId, period) {
       const rows = await db
         .select({
-          householdId: schema.memberAbsencePolicies.householdId,
-          memberId: schema.memberAbsencePolicies.memberId,
-          startsOn: schema.memberAbsencePolicies.startsOn,
-          endsOn: schema.memberAbsencePolicies.endsOn,
-          policy: schema.memberAbsencePolicies.policy
+          householdId: schema.memberPresenceDays.householdId,
+          memberId: schema.memberPresenceDays.memberId,
+          period: schema.memberPresenceDays.period,
+          daysPresent: schema.memberPresenceDays.daysPresent
         })
-        .from(schema.memberAbsencePolicies)
-        .where(eq(schema.memberAbsencePolicies.householdId, householdId))
-        .orderBy(
-          asc(schema.memberAbsencePolicies.memberId),
-          asc(schema.memberAbsencePolicies.startsOn)
+        .from(schema.memberPresenceDays)
+        .where(
+          period
+            ? and(
+                eq(schema.memberPresenceDays.householdId, householdId),
+                eq(schema.memberPresenceDays.period, period)
+              )
+            : eq(schema.memberPresenceDays.householdId, householdId)
         )
+        .orderBy(asc(schema.memberPresenceDays.memberId), asc(schema.memberPresenceDays.period))
 
-      return rows.map(toHouseholdMemberAbsencePolicyRecord)
+      return rows.map(toHouseholdMemberPresenceDaysRecord)
     },
 
-    async upsertHouseholdMemberAbsencePolicy(input) {
+    async upsertHouseholdMemberPresenceDays(input) {
       const rows = await db
-        .insert(schema.memberAbsencePolicies)
+        .insert(schema.memberPresenceDays)
         .values({
           householdId: input.householdId,
           memberId: input.memberId,
-          startsOn: input.startsOn,
-          endsOn: input.endsOn ?? null,
-          policy: input.policy
+          period: input.period,
+          daysPresent: input.daysPresent
         })
         .onConflictDoUpdate({
           target: [
-            schema.memberAbsencePolicies.householdId,
-            schema.memberAbsencePolicies.memberId,
-            schema.memberAbsencePolicies.startsOn
+            schema.memberPresenceDays.householdId,
+            schema.memberPresenceDays.memberId,
+            schema.memberPresenceDays.period
           ],
           set: {
-            endsOn: input.endsOn ?? null,
-            policy: input.policy,
+            daysPresent: input.daysPresent,
             updatedAt: instantToDate(nowInstant())
           }
         })
         .returning({
-          householdId: schema.memberAbsencePolicies.householdId,
-          memberId: schema.memberAbsencePolicies.memberId,
-          startsOn: schema.memberAbsencePolicies.startsOn,
-          endsOn: schema.memberAbsencePolicies.endsOn,
-          policy: schema.memberAbsencePolicies.policy
+          householdId: schema.memberPresenceDays.householdId,
+          memberId: schema.memberPresenceDays.memberId,
+          period: schema.memberPresenceDays.period,
+          daysPresent: schema.memberPresenceDays.daysPresent
         })
 
       const row = rows[0]
-      return row ? toHouseholdMemberAbsencePolicyRecord(row) : null
+      return row ? toHouseholdMemberPresenceDaysRecord(row) : null
+    },
+
+    async deleteHouseholdMemberPresenceDays(householdId, memberId, period) {
+      const rows = await db
+        .delete(schema.memberPresenceDays)
+        .where(
+          and(
+            eq(schema.memberPresenceDays.householdId, householdId),
+            eq(schema.memberPresenceDays.memberId, memberId),
+            eq(schema.memberPresenceDays.period, period)
+          )
+        )
+        .returning({ id: schema.memberPresenceDays.id })
+
+      return rows.length > 0
     }
   }
 

@@ -17,11 +17,10 @@ import { Modal } from '../components/ui/dialog'
 import { Collapsible } from '../components/ui/collapsible'
 import { Field } from '../components/ui/field'
 import { Toggle } from '../components/ui/toggle'
-import { DatePickerField } from '../components/ui/date-picker'
 import {
   updateMiniAppBillingSettings,
   updateMiniAppMemberDisplayName,
-  updateMiniAppMemberAbsencePolicy,
+  updateMiniAppMemberPresenceDays,
   updateMiniAppMemberRentWeight,
   updateMiniAppMemberStatus,
   demoteMiniAppMember,
@@ -32,7 +31,6 @@ import {
   type MiniAppUtilityCategory
 } from '../miniapp-api'
 import { minorToMajorString } from '../lib/money'
-import { formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
 
 const NEW_CATEGORY_SLUG = '__new__'
 
@@ -81,6 +79,8 @@ export default function SettingsRoute() {
   const { copy, locale } = useI18n()
   const { showError } = useToast()
   const {
+    dashboard,
+    effectivePeriod,
     effectiveIsAdmin,
     adminSettings,
     setAdminSettings,
@@ -129,14 +129,8 @@ export default function SettingsRoute() {
     rentShareWeight: 1,
     status: 'active' as 'active' | 'away' | 'left',
     isAdmin: false,
-    absencePolicy: 'resident' as
-      | 'resident'
-      | 'away_rent_and_utilities'
-      | 'away_rent_only'
-      | 'inactive',
-    absenceStartsOn: todayCalendarInputValue(),
-    absenceEndsOn: null as string | null,
-    absenceDirty: false
+    daysPresent: 0,
+    daysPresentDirty: false
   })
 
   const editingMember = createMemo(
@@ -170,6 +164,18 @@ export default function SettingsRoute() {
       (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
     )
   )
+
+  const dashboardMemberById = createMemo(() => {
+    const lines = dashboard()?.members ?? []
+    return new Map(lines.map((member) => [member.memberId, member]))
+  })
+
+  function currentPresenceDaysForMember(memberId: string, status: 'active' | 'away' | 'left') {
+    return (
+      dashboardMemberById().get(memberId)?.daysPresent ??
+      defaultPresenceDaysForStatus(status, effectivePeriod())
+    )
+  }
 
   createEffect(() => {
     const member = readySession()?.member
@@ -208,13 +214,19 @@ export default function SettingsRoute() {
     return copy().paymentBalanceAdjustmentUtilities
   }
 
-  function absencePolicyLabel(
-    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+  function daysInPeriod(period: string | null | undefined): number {
+    const match = period?.match(/^(\d{4})-(\d{2})$/)
+    if (!match) return 31
+    const year = Number(match[1])
+    const month = Number(match[2])
+    return new Date(year, month, 0).getDate()
+  }
+
+  function defaultPresenceDaysForStatus(
+    status: 'active' | 'away' | 'left',
+    period: string | null | undefined
   ) {
-    if (policy === 'away_rent_and_utilities') return copy().absencePolicyAwayRentAndUtilities
-    if (policy === 'away_rent_only') return copy().absencePolicyAwayRentOnly
-    if (policy === 'inactive') return copy().absencePolicyInactive
-    return copy().absencePolicyResident
+    return status === 'active' ? daysInPeriod(period) : 0
   }
 
   function openAddCategory() {
@@ -373,10 +385,8 @@ export default function SettingsRoute() {
       rentShareWeight: member.rentShareWeight,
       status: member.status,
       isAdmin: member.isAdmin,
-      absencePolicy: member.absencePolicy ?? 'resident',
-      absenceStartsOn: member.absenceIntervalStartsOn ?? todayCalendarInputValue(),
-      absenceEndsOn: member.absenceIntervalEndsOn ?? null,
-      absenceDirty: false
+      daysPresent: currentPresenceDaysForMember(member.id, member.status),
+      daysPresentDirty: false
     })
   }
 
@@ -400,19 +410,23 @@ export default function SettingsRoute() {
       if (form.rentShareWeight !== currentMember.rentShareWeight) {
         updatedMember = await updateMiniAppMemberRentWeight(data, memberId, form.rentShareWeight)
       }
-      if (form.absenceDirty) {
-        const updatedAbsence = await updateMiniAppMemberAbsencePolicy(
-          data,
-          memberId,
-          form.absencePolicy,
-          form.absenceStartsOn,
-          form.absenceEndsOn
-        )
+      const period = effectivePeriod() ?? dashboard()?.period ?? null
+      const currentDaysPresent = currentPresenceDaysForMember(
+        currentMember.id,
+        currentMember.status
+      )
+      if (form.daysPresent !== currentDaysPresent) {
+        if (!period) {
+          throw new Error(
+            locale() === 'ru'
+              ? 'Нет активного расчетного периода для сохранения дней присутствия.'
+              : 'No billing period available to save presence days.'
+          )
+        }
+        await updateMiniAppMemberPresenceDays(data, memberId, period, form.daysPresent)
         updatedMember = {
           ...updatedMember,
-          absencePolicy: updatedAbsence.policy,
-          absenceIntervalStartsOn: updatedAbsence.startsOn,
-          absenceIntervalEndsOn: updatedAbsence.endsOn
+          daysPresent: form.daysPresent
         }
       }
       if (form.isAdmin && !currentMember.isAdmin) {
@@ -1284,25 +1298,10 @@ export default function SettingsRoute() {
                         <span class="editable-list-row__subtitle">
                           {copy().rentWeightLabel}: {member.rentShareWeight}
                         </span>
-                        <Show when={member.absencePolicy}>
-                          <span class="editable-list-row__subtitle">
-                            {absencePolicyLabel(member.absencePolicy!)}
-                            <Show when={member.absenceIntervalStartsOn}>
-                              {(startsOn) => (
-                                <>
-                                  {' · '}
-                                  {formatFriendlyDate(startsOn(), locale())}
-                                  <Show when={member.absenceIntervalEndsOn}>
-                                    {(endsOn) => ` → ${formatFriendlyDate(endsOn(), locale())}`}
-                                  </Show>
-                                </>
-                              )}
-                            </Show>
-                            <Show when={member.utilityParticipationDays !== undefined}>
-                              {` · ${copy().utilityParticipationDaysLabel}: ${member.utilityParticipationDays ?? 0}`}
-                            </Show>
-                          </span>
-                        </Show>
+                        <span class="editable-list-row__subtitle">
+                          {copy().presenceDaysLabel}:{' '}
+                          {currentPresenceDaysForMember(member.id, member.status)}
+                        </span>
                       </div>
                       <div class="editable-list-row__meta">
                         <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
@@ -1414,10 +1413,21 @@ export default function SettingsRoute() {
                 { value: 'left', label: copy().memberStatusLeft }
               ]}
               onChange={(value) =>
-                setEditMemberForm((form) => ({
-                  ...form,
-                  status: value as 'active' | 'away' | 'left'
-                }))
+                setEditMemberForm((form) => {
+                  const nextStatus = value as 'active' | 'away' | 'left'
+                  return {
+                    ...form,
+                    status: nextStatus,
+                    ...(form.daysPresentDirty
+                      ? {}
+                      : {
+                          daysPresent: defaultPresenceDaysForStatus(
+                            nextStatus,
+                            effectivePeriod() ?? dashboard()?.period
+                          )
+                        })
+                  }
+                })
               }
             />
           </Field>
@@ -1434,87 +1444,51 @@ export default function SettingsRoute() {
               }
             />
           </Field>
-          <Field label={copy().absencePolicyLabel} hint={copy().absencePolicyHint} wide>
-            <Select
-              value={editMemberForm().absencePolicy}
-              ariaLabel={copy().absencePolicyLabel}
-              options={[
-                { value: 'resident', label: copy().absencePolicyResident },
-                {
-                  value: 'away_rent_and_utilities',
-                  label: copy().absencePolicyAwayRentAndUtilities
-                },
-                { value: 'away_rent_only', label: copy().absencePolicyAwayRentOnly },
-                { value: 'inactive', label: copy().absencePolicyInactive }
-              ]}
-              onChange={(value) =>
+          <Field label={copy().presenceDaysLabel} hint={copy().presenceDaysHint} wide>
+            <Input
+              type="number"
+              min="0"
+              max={String(daysInPeriod(effectivePeriod() ?? dashboard()?.period))}
+              value={String(editMemberForm().daysPresent)}
+              onInput={(e) =>
                 setEditMemberForm((form) => ({
                   ...form,
-                  absencePolicy: value as
-                    | 'resident'
-                    | 'away_rent_and_utilities'
-                    | 'away_rent_only'
-                    | 'inactive',
-                  absenceDirty: true
-                }))
-              }
-            />
-          </Field>
-          <Field label={copy().absenceStartDateLabel}>
-            <DatePickerField
-              value={editMemberForm().absenceStartsOn}
-              placeholder={copy().absenceStartDateLabel}
-              locale={locale()}
-              portal={false}
-              onChange={(value) =>
-                setEditMemberForm((form) => ({
-                  ...form,
-                  absenceStartsOn: value ?? todayCalendarInputValue(),
-                  absenceDirty: true
-                }))
-              }
-            />
-          </Field>
-          <Field label={copy().absenceEndDateLabel} hint={copy().absenceEndDateHint}>
-            <DatePickerField
-              value={editMemberForm().absenceEndsOn}
-              placeholder={copy().absenceEndDateLabel}
-              locale={locale()}
-              portal={false}
-              onChange={(value) =>
-                setEditMemberForm((form) => ({
-                  ...form,
-                  absenceEndsOn: value,
-                  absenceDirty: true
+                  daysPresent: Math.max(0, parseInt(e.currentTarget.value || '0', 10) || 0),
+                  daysPresentDirty: true
                 }))
               }
             />
           </Field>
           <Show when={editingMember()}>
             {(member) => (
-              <Field label={copy().absenceIntervalSummaryLabel} wide>
+              <Field label={copy().presenceSummaryLabel} wide>
                 <div class="settings-summary-list">
                   <div class="settings-summary-row">
-                    <span>{copy().absencePolicyLabel}</span>
-                    <strong>{absencePolicyLabel(editMemberForm().absencePolicy)}</strong>
-                  </div>
-                  <div class="settings-summary-row">
-                    <span>{copy().absenceStartDateLabel}</span>
+                    <span>{copy().memberStatusLabel}</span>
                     <strong>
-                      {formatFriendlyDate(editMemberForm().absenceStartsOn, locale())}
+                      {editMemberForm().status === 'active'
+                        ? copy().memberStatusActive
+                        : editMemberForm().status === 'away'
+                          ? copy().memberStatusAway
+                          : copy().memberStatusLeft}
                     </strong>
                   </div>
                   <div class="settings-summary-row">
-                    <span>{copy().absenceEndDateLabel}</span>
+                    <span>{copy().presenceDaysLabel}</span>
+                    <strong>{editMemberForm().daysPresent}</strong>
+                  </div>
+                  <div class="settings-summary-row">
+                    <span>{copy().presenceDefaultLabel}</span>
                     <strong>
-                      {editMemberForm().absenceEndsOn
-                        ? formatFriendlyDate(editMemberForm().absenceEndsOn!, locale())
-                        : '—'}
+                      {defaultPresenceDaysForStatus(
+                        editMemberForm().status,
+                        effectivePeriod() ?? dashboard()?.period
+                      )}
                     </strong>
                   </div>
                   <div class="settings-summary-row">
-                    <span>{copy().utilityParticipationDaysLabel}</span>
-                    <strong>{member().utilityParticipationDays ?? 0}</strong>
+                    <span>{copy().currentSavedValueLabel}</span>
+                    <strong>{currentPresenceDaysForMember(member().id, member().status)}</strong>
                   </div>
                 </div>
               </Field>

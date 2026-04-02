@@ -474,15 +474,6 @@ export function resolveProposalParticipantSelection(input: {
     displayName?: string
     lifecycleStatus: 'active' | 'away' | 'left'
   }[]
-  policyByMemberId: ReadonlyMap<
-    string,
-    {
-      startsOn?: string | null
-      endsOn?: string | null
-      effectiveFromPeriod?: string | null
-      policy: string
-    }
-  >
   senderTelegramUserId: string
   senderMemberId: string | null
   payerMemberId?: string | null
@@ -513,13 +504,10 @@ export function resolveProposalParticipantSelection(input: {
   }
 
   const participants = eligibleMembers.map((member) => {
-    const policy = input.policyByMemberId.get(member.memberId)?.policy ?? 'resident'
-    const included = member.lifecycleStatus !== 'left' && policy !== 'inactive'
-
     return {
       memberId: member.memberId,
       telegramUserId: member.telegramUserId,
-      included
+      included: member.lifecycleStatus === 'active'
     }
   })
 
@@ -1144,63 +1132,14 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     messageSentAt: Instant
     explicitParticipantMemberIds: readonly string[] | null
   }): Promise<readonly { memberId: string; included: boolean }[]> {
-    const [members, settingsRows, policyRows] = await Promise.all([
-      db
-        .select({
-          id: schema.members.id,
-          telegramUserId: schema.members.telegramUserId,
-          lifecycleStatus: schema.members.lifecycleStatus
-        })
-        .from(schema.members)
-        .where(eq(schema.members.householdId, input.householdId)),
-      db
-        .select({
-          timezone: schema.householdBillingSettings.timezone
-        })
-        .from(schema.householdBillingSettings)
-        .where(eq(schema.householdBillingSettings.householdId, input.householdId))
-        .limit(1),
-      db
-        .select({
-          memberId: schema.memberAbsencePolicies.memberId,
-          startsOn: schema.memberAbsencePolicies.startsOn,
-          endsOn: schema.memberAbsencePolicies.endsOn,
-          policy: schema.memberAbsencePolicies.policy
-        })
-        .from(schema.memberAbsencePolicies)
-        .where(eq(schema.memberAbsencePolicies.householdId, input.householdId))
-    ])
-
-    const timezone = settingsRows[0]?.timezone ?? 'Asia/Tbilisi'
-    const localDate = input.messageSentAt.toZonedDateTimeISO(timezone).toPlainDate().toString()
-    const policyByMemberId = new Map<
-      string,
-      {
-        startsOn?: string | null
-        endsOn?: string | null
-        effectiveFromPeriod?: string | null
-        policy: string
-      }
-    >()
-
-    for (const row of policyRows) {
-      if (row.startsOn.localeCompare(localDate) > 0) {
-        continue
-      }
-      if (row.endsOn && row.endsOn.localeCompare(localDate) < 0) {
-        continue
-      }
-
-      const current = policyByMemberId.get(row.memberId)
-      const currentStartsOn = current?.startsOn ?? current?.effectiveFromPeriod ?? ''
-      if (!current || currentStartsOn.localeCompare(row.startsOn) < 0) {
-        policyByMemberId.set(row.memberId, {
-          startsOn: row.startsOn,
-          endsOn: row.endsOn,
-          policy: row.policy
-        })
-      }
-    }
+    const members = await db
+      .select({
+        id: schema.members.id,
+        telegramUserId: schema.members.telegramUserId,
+        lifecycleStatus: schema.members.lifecycleStatus
+      })
+      .from(schema.members)
+      .where(eq(schema.members.householdId, input.householdId))
 
     return resolveProposalParticipantSelection({
       members: members.map((member) => ({
@@ -1208,7 +1147,6 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         telegramUserId: member.telegramUserId,
         lifecycleStatus: normalizeLifecycleStatus(member.lifecycleStatus)
       })),
-      policyByMemberId,
       senderTelegramUserId: input.senderTelegramUserId,
       senderMemberId: input.senderMemberId,
       payerMemberId: input.payerMemberId,

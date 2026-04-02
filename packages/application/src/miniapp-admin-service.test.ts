@@ -5,13 +5,11 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import { createMiniAppAdminService } from './miniapp-admin-service'
 
 function repository(): HouseholdConfigurationRepository {
-  let memberAbsencePolicies: {
+  let memberPresenceDays: {
     householdId: string
     memberId: string
-    startsOn?: string | null
-    endsOn?: string | null
-    effectiveFromPeriod?: string | null
-    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+    period: string
+    daysPresent: number
   }[] = []
 
   return {
@@ -259,27 +257,37 @@ function repository(): HouseholdConfigurationRepository {
             isAdmin: false
           }
         : null,
-    listHouseholdMemberAbsencePolicies: async () => memberAbsencePolicies,
-    upsertHouseholdMemberAbsencePolicy: async (input) => {
+    upsertHouseholdMemberPresenceDays: async (input) => {
       const next = {
         householdId: input.householdId,
         memberId: input.memberId,
-        startsOn: input.startsOn,
-        endsOn: input.endsOn ?? null,
-        policy: input.policy
+        period: input.period,
+        daysPresent: input.daysPresent
       }
-      memberAbsencePolicies = [
-        ...memberAbsencePolicies.filter(
+      memberPresenceDays = [
+        ...memberPresenceDays.filter(
           (entry) =>
             !(
               entry.householdId === input.householdId &&
               entry.memberId === input.memberId &&
-              (entry.startsOn ?? entry.effectiveFromPeriod) === input.startsOn
+              entry.period === input.period
             )
         ),
         next
       ]
       return next
+    },
+    deleteHouseholdMemberPresenceDays: async (householdId, memberId, period) => {
+      const before = memberPresenceDays.length
+      memberPresenceDays = memberPresenceDays.filter(
+        (entry) =>
+          !(
+            entry.householdId === householdId &&
+            entry.memberId === memberId &&
+            entry.period === period
+          )
+      )
+      return memberPresenceDays.length !== before
     }
   }
 }
@@ -334,8 +342,7 @@ describe('createMiniAppAdminService', () => {
           rentShareWeight: 1,
           isAdmin: false
         }
-      ],
-      memberAbsencePolicies: []
+      ]
     })
   })
 
@@ -396,24 +403,23 @@ describe('createMiniAppAdminService', () => {
     })
   })
 
-  test('stores an away absence policy from the provided start date', async () => {
+  test('stores presence days override for admins', async () => {
     const service = createMiniAppAdminService(repository())
-    const result = await service.updateMemberAbsencePolicy({
+    const result = await service.updateMemberPresenceDays({
       householdId: 'household-1',
       actorIsAdmin: true,
       memberId: 'member-123456',
-      startsOn: '2026-03-01',
-      policy: 'away_rent_only'
+      period: '2026-03',
+      daysPresent: 7
     })
 
     expect(result).toEqual({
       status: 'ok',
-      policy: {
+      presenceDays: {
         householdId: 'household-1',
         memberId: 'member-123456',
-        startsOn: '2026-03-01',
-        endsOn: null,
-        policy: 'away_rent_only'
+        period: '2026-03',
+        daysPresent: 7
       }
     })
   })
@@ -684,6 +690,28 @@ describe('createMiniAppAdminService', () => {
         householdDefaultLocale: 'ru',
         rentShareWeight: 1,
         isAdmin: false
+      }
+    })
+  })
+
+  test('stores period-scoped member presence days for admins', async () => {
+    const service = createMiniAppAdminService(repository())
+
+    const result = await service.updateMemberPresenceDays({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      memberId: 'member-123456',
+      period: '2026-03',
+      daysPresent: 7
+    })
+
+    expect(result).toEqual({
+      status: 'ok',
+      presenceDays: {
+        householdId: 'household-1',
+        memberId: 'member-123456',
+        period: '2026-03',
+        daysPresent: 7
       }
     })
   })

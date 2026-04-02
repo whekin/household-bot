@@ -204,9 +204,7 @@ function createRepository(): HouseholdConfigurationRepository {
     promoteHouseholdAdmin: async () => null,
     demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
-    updateHouseholdMemberStatus: async () => null,
-    listHouseholdMemberAbsencePolicies: async () => [],
-    upsertHouseholdMemberAbsencePolicy: async () => null
+    updateHouseholdMemberStatus: async () => null
   }
 }
 
@@ -1147,7 +1145,7 @@ describe('createFinanceCommandsService', () => {
           }
         },
         members: [],
-        absencePolicies: [],
+        presenceDays: [],
         rawInputs: {
           utilityBills: [],
           parsedPurchases: [],

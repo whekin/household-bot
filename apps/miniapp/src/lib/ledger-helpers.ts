@@ -5,13 +5,7 @@
 
 import { majorStringToMinor, minorToMajorString } from './money'
 import { calendarDateInputValue } from './dates'
-import type {
-  MiniAppAdminCycleState,
-  MiniAppDashboard,
-  MiniAppMemberAbsencePolicy,
-  MiniAppMemberAbsencePolicyRecord,
-  MiniAppAdminSettingsPayload
-} from '../miniapp-api'
+import type { MiniAppAdminCycleState, MiniAppDashboard } from '../miniapp-api'
 
 /* ── Draft types ────────────────────────────────────── */
 
@@ -394,40 +388,6 @@ export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValida
 
 export function defaultCyclePeriod(): string {
   return new Date().toISOString().slice(0, 7)
-}
-
-export function defaultAbsencePolicyForStatus(
-  status: 'active' | 'away' | 'left'
-): MiniAppMemberAbsencePolicy {
-  if (status === 'away') {
-    return 'away_rent_and_utilities'
-  }
-
-  if (status === 'left') {
-    return 'inactive'
-  }
-
-  return 'resident'
-}
-
-export function resolvedMemberAbsencePolicy(
-  memberId: string,
-  status: 'active' | 'away' | 'left',
-  settings?: MiniAppAdminSettingsPayload | null
-): MiniAppMemberAbsencePolicyRecord {
-  const current = settings?.memberAbsencePolicies
-    .filter((policy) => policy.memberId === memberId)
-    .sort((left, right) => left.startsOn.localeCompare(right.startsOn))
-    .at(-1)
-
-  return (
-    current ?? {
-      memberId,
-      startsOn: '',
-      endsOn: null,
-      policy: defaultAbsencePolicyForStatus(status)
-    }
-  )
 }
 
 /**

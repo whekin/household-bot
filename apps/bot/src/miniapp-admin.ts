@@ -1,10 +1,8 @@
 import type { HouseholdOnboardingService, MiniAppAdminService } from '@household/application'
 import type { Logger } from '@household/observability'
 import {
-  HOUSEHOLD_MEMBER_ABSENCE_POLICIES,
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   type HouseholdBillingSettingsRecord,
-  type HouseholdMemberAbsencePolicy,
   type HouseholdMemberLifecycleStatus
 } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
@@ -349,12 +347,11 @@ async function readMemberStatusPayload(request: Request): Promise<{
   }
 }
 
-async function readMemberAbsencePolicyPayload(request: Request): Promise<{
+async function readMemberPresenceDaysPayload(request: Request): Promise<{
   initData: string
   memberId: string
-  policy: HouseholdMemberAbsencePolicy
-  startsOn: string
-  endsOn?: string | null
+  period: string
+  daysPresent: number
 }> {
   const clonedRequest = request.clone()
   const payload = await readMiniAppRequestPayload(request)
@@ -363,7 +360,7 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
   }
 
   const text = await clonedRequest.text()
-  let parsed: { memberId?: string; policy?: string; startsOn?: string; endsOn?: string | null }
+  let parsed: { memberId?: string; period?: string; daysPresent?: number }
   try {
     parsed = JSON.parse(text)
   } catch {
@@ -371,28 +368,17 @@ async function readMemberAbsencePolicyPayload(request: Request): Promise<{
   }
 
   const memberId = parsed.memberId?.trim()
-  const policy = parsed.policy?.trim().toLowerCase()
-  const startsOn = parsed.startsOn?.trim()
-  if (!memberId || !policy || !startsOn) {
-    throw new Error('Missing member absence policy fields')
-  }
-
-  if (!(HOUSEHOLD_MEMBER_ABSENCE_POLICIES as readonly string[]).includes(policy)) {
-    throw new Error('Invalid member absence policy')
+  const period = parsed.period?.trim()
+  const daysPresent = parsed.daysPresent
+  if (!memberId || !period || !Number.isInteger(daysPresent)) {
+    throw new Error('Missing member presence days fields')
   }
 
   return {
     initData: payload.initData,
     memberId,
-    policy: policy as HouseholdMemberAbsencePolicy,
-    startsOn,
-    ...(typeof parsed.endsOn === 'string'
-      ? {
-          endsOn: parsed.endsOn.trim() || null
-        }
-      : parsed.endsOn === null
-        ? { endsOn: null }
-        : {})
+    period,
+    daysPresent: Number(daysPresent)
   }
 }
 
@@ -597,7 +583,6 @@ export function createMiniAppSettingsHandler(options: {
             topics: result.topics,
             categories: result.categories,
             members: result.members,
-            memberAbsencePolicies: result.memberAbsencePolicies,
             assistantUsage:
               options.assistantUsageTracker?.listHouseholdUsage(member.householdId) ?? []
           },
@@ -1369,7 +1354,7 @@ export function createMiniAppUpdateMemberStatusHandler(options: {
   }
 }
 
-export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
+export function createMiniAppUpdateMemberPresenceDaysHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
   onboardingService: HouseholdOnboardingService
@@ -1396,7 +1381,7 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
       }
 
       try {
-        const payload = await readMemberAbsencePolicyPayload(request)
+        const payload = await readMemberPresenceDaysPayload(request)
         const session = await sessionService.authenticate({
           initData: payload.initData
         })
@@ -1415,32 +1400,36 @@ export function createMiniAppUpdateMemberAbsencePolicyHandler(options: {
           )
         }
 
-        const result = await options.miniAppAdminService.updateMemberAbsencePolicy({
+        const result = await options.miniAppAdminService.updateMemberPresenceDays({
           householdId: session.member.householdId,
           actorIsAdmin: session.member.isAdmin,
           memberId: payload.memberId,
-          startsOn: payload.startsOn,
-          ...(payload.endsOn !== undefined ? { endsOn: payload.endsOn } : {}),
-          policy: payload.policy
+          period: payload.period,
+          daysPresent: payload.daysPresent
         })
 
         if (result.status === 'rejected') {
-          return miniAppJsonResponse(
-            {
-              ok: false,
-              error:
-                result.reason === 'member_not_found' ? 'Member not found' : 'Admin access required'
-            },
-            result.reason === 'member_not_found' ? 404 : 403,
-            origin
-          )
+          const status =
+            result.reason === 'member_not_found'
+              ? 404
+              : result.reason === 'invalid_days'
+                ? 400
+                : 403
+          const error =
+            result.reason === 'member_not_found'
+              ? 'Member not found'
+              : result.reason === 'invalid_days'
+                ? 'Invalid presence days value'
+                : 'Admin access required'
+
+          return miniAppJsonResponse({ ok: false, error }, status, origin)
         }
 
         return miniAppJsonResponse(
           {
             ok: true,
             authorized: true,
-            policy: result.policy
+            presenceDays: result.presenceDays
           },
           200,
           origin

@@ -258,9 +258,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
     promoteHouseholdAdmin: async () => null,
     demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
-    updateHouseholdMemberStatus: async () => null,
-    listHouseholdMemberAbsencePolicies: async () => [],
-    upsertHouseholdMemberAbsencePolicy: async () => null
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

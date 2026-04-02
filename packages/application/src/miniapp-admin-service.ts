@@ -2,8 +2,6 @@ import type {
   HouseholdAssistantConfigRecord,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
-  HouseholdMemberAbsencePolicy,
-  HouseholdMemberAbsencePolicyRecord,
   HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
@@ -11,7 +9,7 @@ import type {
   HouseholdTopicBindingRecord,
   HouseholdUtilityCategoryRecord
 } from '@household/ports'
-import { Money, type CurrencyCode } from '@household/domain'
+import { BillingPeriod, Money, type CurrencyCode } from '@household/domain'
 import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
@@ -70,7 +68,6 @@ export interface MiniAppAdminService {
         assistantConfig: HouseholdAssistantConfigRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
         members: readonly HouseholdMemberRecord[]
-        memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
         topics: readonly HouseholdTopicBindingRecord[]
       }
     | {
@@ -222,6 +219,27 @@ export interface MiniAppAdminService {
         reason: 'not_admin' | 'member_not_found'
       }
   >
+  updateMemberPresenceDays(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    memberId: string
+    period: string
+    daysPresent: number
+  }): Promise<
+    | {
+        status: 'ok'
+        presenceDays: {
+          householdId: string
+          memberId: string
+          period: string
+          daysPresent: number
+        }
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'member_not_found' | 'invalid_days'
+      }
+  >
   updateOwnDisplayName(input: {
     householdId: string
     actorMemberId: string
@@ -249,23 +267,6 @@ export interface MiniAppAdminService {
     | {
         status: 'rejected'
         reason: 'not_admin' | 'invalid_display_name' | 'member_not_found'
-      }
-  >
-  updateMemberAbsencePolicy(input: {
-    householdId: string
-    actorIsAdmin: boolean
-    memberId: string
-    startsOn?: string
-    endsOn?: string | null
-    policy: HouseholdMemberAbsencePolicy
-  }): Promise<
-    | {
-        status: 'ok'
-        policy: HouseholdMemberAbsencePolicyRecord
-      }
-    | {
-        status: 'rejected'
-        reason: 'not_admin' | 'member_not_found'
       }
   >
 }
@@ -358,17 +359,15 @@ export function createMiniAppAdminService(
         throw new Error('Failed to resolve household chat for mini app settings')
       }
 
-      const [settings, assistantConfig, categories, members, memberAbsencePolicies, topics] =
-        await Promise.all([
-          repository.getHouseholdBillingSettings(input.householdId),
-          repository.getHouseholdAssistantConfig
-            ? repository.getHouseholdAssistantConfig(input.householdId)
-            : Promise.resolve(defaultAssistantConfig(input.householdId)),
-          repository.listHouseholdUtilityCategories(input.householdId),
-          repository.listHouseholdMembers(input.householdId),
-          repository.listHouseholdMemberAbsencePolicies(input.householdId),
-          repository.listHouseholdTopicBindings(input.householdId)
-        ])
+      const [settings, assistantConfig, categories, members, topics] = await Promise.all([
+        repository.getHouseholdBillingSettings(input.householdId),
+        repository.getHouseholdAssistantConfig
+          ? repository.getHouseholdAssistantConfig(input.householdId)
+          : Promise.resolve(defaultAssistantConfig(input.householdId)),
+        repository.listHouseholdUtilityCategories(input.householdId),
+        repository.listHouseholdMembers(input.householdId),
+        repository.listHouseholdTopicBindings(input.householdId)
+      ])
 
       return {
         status: 'ok',
@@ -377,7 +376,6 @@ export function createMiniAppAdminService(
         assistantConfig,
         categories,
         members,
-        memberAbsencePolicies,
         topics
       }
     },
@@ -774,6 +772,79 @@ export function createMiniAppAdminService(
       }
     },
 
+    async updateMemberPresenceDays(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      const members = await repository.listHouseholdMembers(input.householdId)
+      const target = members.find((candidate) => candidate.id === input.memberId)
+      if (!target) {
+        return {
+          status: 'rejected',
+          reason: 'member_not_found'
+        }
+      }
+
+      const period = BillingPeriod.fromString(input.period)
+      const daysInMonth = new Date(period.year, period.month, 0).getDate()
+      if (
+        !Number.isInteger(input.daysPresent) ||
+        input.daysPresent < 0 ||
+        input.daysPresent > daysInMonth
+      ) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_days'
+        }
+      }
+
+      const defaultDaysPresent = target.status === 'active' ? daysInMonth : 0
+      if (
+        input.daysPresent === defaultDaysPresent &&
+        repository.deleteHouseholdMemberPresenceDays
+      ) {
+        await repository.deleteHouseholdMemberPresenceDays(
+          input.householdId,
+          input.memberId,
+          input.period
+        )
+
+        return {
+          status: 'ok',
+          presenceDays: {
+            householdId: input.householdId,
+            memberId: input.memberId,
+            period: input.period,
+            daysPresent: defaultDaysPresent
+          }
+        }
+      }
+
+      if (!repository.upsertHouseholdMemberPresenceDays) {
+        throw new Error('Member presence days repository is not configured')
+      }
+
+      const presenceDays = await repository.upsertHouseholdMemberPresenceDays({
+        householdId: input.householdId,
+        memberId: input.memberId,
+        period: input.period,
+        daysPresent: input.daysPresent
+      })
+
+      if (!presenceDays) {
+        throw new Error('Failed to update member presence days')
+      }
+
+      return {
+        status: 'ok',
+        presenceDays
+      }
+    },
+
     async updateOwnDisplayName(input) {
       const displayName = normalizeDisplayName(input.displayName)
       if (!displayName) {
@@ -834,44 +905,6 @@ export function createMiniAppAdminService(
       return {
         status: 'ok',
         member
-      }
-    },
-
-    async updateMemberAbsencePolicy(input) {
-      if (!input.actorIsAdmin) {
-        return {
-          status: 'rejected',
-          reason: 'not_admin'
-        }
-      }
-
-      const member = await repository.listHouseholdMembers(input.householdId)
-      const target = member.find((candidate) => candidate.id === input.memberId)
-      if (!target) {
-        return {
-          status: 'rejected',
-          reason: 'member_not_found'
-        }
-      }
-
-      const policy = await repository.upsertHouseholdMemberAbsencePolicy({
-        householdId: input.householdId,
-        memberId: input.memberId,
-        startsOn: input.startsOn ?? new Date().toISOString().slice(0, 10),
-        endsOn: input.endsOn ?? null,
-        policy: input.policy
-      })
-
-      if (!policy) {
-        return {
-          status: 'rejected',
-          reason: 'member_not_found'
-        }
-      }
-
-      return {
-        status: 'ok',
-        policy
       }
     }
   }

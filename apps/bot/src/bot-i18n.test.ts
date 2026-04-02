@@ -137,9 +137,7 @@ function createRepository(isAdmin = false): HouseholdConfigurationRepository {
     promoteHouseholdAdmin: async () => null,
     demoteHouseholdAdmin: async () => null,
     updateHouseholdMemberRentShareWeight: async () => null,
-    updateHouseholdMemberStatus: async () => null,
-    listHouseholdMemberAbsencePolicies: async () => [],
-    upsertHouseholdMemberAbsencePolicy: async () => null
+    updateHouseholdMemberStatus: async () => null
   }
 }
 

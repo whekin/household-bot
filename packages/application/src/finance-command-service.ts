@@ -13,8 +13,7 @@ import type {
   FinanceUtilityBillingPlanStatus,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
-  HouseholdMemberAbsencePolicy,
-  HouseholdMemberAbsencePolicyRecord,
+  HouseholdMemberPresenceDaysRecord,
   HouseholdMemberRecord,
   HouseholdRentPaymentDestination
 } from '@household/ports'
@@ -132,10 +131,7 @@ export interface FinanceDashboardMemberLine {
   memberId: string
   displayName: string
   status?: 'active' | 'away' | 'left'
-  absencePolicy?: HouseholdMemberAbsencePolicy
-  absenceIntervalStartsOn?: string | null
-  absenceIntervalEndsOn?: string | null
-  utilityParticipationDays?: number
+  daysPresent?: number
   predictedUtilityShare?: Money | null
   rentShare: Money
   utilityShare: Money
@@ -381,17 +377,12 @@ export interface FinanceBillingAuditExport {
     rentShareWeight: number
     preferredLocale: string | null
     householdDefaultLocale: string
-    activeAbsencePolicy: HouseholdMemberAbsencePolicy
-    absenceIntervalStartsOn: string | null
-    absenceIntervalEndsOn: string | null
-    utilityParticipationDays: number
+    daysPresent: number
   }[]
-  absencePolicies: readonly {
+  presenceDays: readonly {
     memberId: string
-    policy: HouseholdMemberAbsencePolicy
-    startsOn: string | null
-    endsOn: string | null
-    effectiveFromPeriod: string | null
+    period: string
+    daysPresent: number
   }[]
   rawInputs: {
     utilityBills: readonly {
@@ -539,18 +530,15 @@ interface FinanceCommandServiceDependencies {
     HouseholdConfigurationRepository,
     | 'getHouseholdBillingSettings'
     | 'listHouseholdMembers'
-    | 'listHouseholdMemberAbsencePolicies'
+    | 'listHouseholdMemberPresenceDays'
     | 'listHouseholdUtilityCategories'
   >
   exchangeRateProvider: ExchangeRateProvider
 }
 
-interface ResolvedMemberAbsencePolicy {
+interface ResolvedMemberCycleParticipation {
   memberId: string
-  policy: HouseholdMemberAbsencePolicy
-  startsOn: string | null
-  endsOn: string | null
-  utilityParticipationDays: number
+  daysPresent: number
 }
 
 function cycleDateRange(period: BillingPeriod): {
@@ -571,138 +559,31 @@ function cycleDateRange(period: BillingPeriod): {
   }
 }
 
-function defaultAbsencePolicyForMember(
-  member: HouseholdMemberRecord
-): HouseholdMemberAbsencePolicy {
-  return member.status === 'left' ? 'inactive' : 'resident'
-}
-
-function policyParticipatesInRent(policy: HouseholdMemberAbsencePolicy): boolean {
-  return policy !== 'inactive'
-}
-
-function policyParticipatesInUtilities(policy: HouseholdMemberAbsencePolicy): boolean {
-  return policy === 'resident' || policy === 'away_rent_and_utilities'
-}
-
-function policyParticipatesInPurchases(policy: HouseholdMemberAbsencePolicy): boolean {
-  return policy !== 'inactive'
-}
-
-function intervalContainsDate(
-  interval: HouseholdMemberAbsencePolicyRecord,
-  date: Temporal.PlainDate
-): boolean {
-  const startsOn = absencePolicyStartsOn(interval)
-  const endsOn = absencePolicyEndsOn(interval)
-
-  return (
-    Temporal.PlainDate.compare(startsOn, date) <= 0 &&
-    (!endsOn || Temporal.PlainDate.compare(date, endsOn) <= 0)
-  )
-}
-
-function intervalOverlapsCycle(
-  interval: HouseholdMemberAbsencePolicyRecord,
-  period: BillingPeriod
-): boolean {
-  const { start, endExclusive } = cycleDateRange(period)
-  const startsOn = absencePolicyStartsOn(interval)
-  const endsOn = absencePolicyEndsOn(interval)
-
-  return (
-    Temporal.PlainDate.compare(startsOn, endExclusive) < 0 &&
-    (!endsOn || Temporal.PlainDate.compare(endsOn, start) >= 0)
-  )
-}
-
-function absencePolicyStartsOn(interval: HouseholdMemberAbsencePolicyRecord): Temporal.PlainDate {
-  if (interval.startsOn) {
-    return Temporal.PlainDate.from(interval.startsOn)
-  }
-
-  if (interval.effectiveFromPeriod) {
-    return Temporal.PlainDate.from(`${interval.effectiveFromPeriod}-01`)
-  }
-
-  throw new Error(`Absence policy record is missing startsOn for member ${interval.memberId}`)
-}
-
-function absencePolicyEndsOn(
-  interval: HouseholdMemberAbsencePolicyRecord
-): Temporal.PlainDate | null {
-  return interval.endsOn ? Temporal.PlainDate.from(interval.endsOn) : null
-}
-
-function latestPolicyForDate(input: {
-  member: HouseholdMemberRecord
-  policies: readonly HouseholdMemberAbsencePolicyRecord[]
-  date: Temporal.PlainDate
-}): HouseholdMemberAbsencePolicy {
-  const applicable = input.policies
-    .filter(
-      (policy) => policy.memberId === input.member.id && intervalContainsDate(policy, input.date)
-    )
-    .sort((left, right) =>
-      absencePolicyStartsOn(left).toString().localeCompare(absencePolicyStartsOn(right).toString())
-    )
-    .at(-1)
-
-  return applicable?.policy ?? defaultAbsencePolicyForMember(input.member)
-}
-
-function resolveMemberAbsencePolicies(input: {
+function resolveMemberCycleParticipation(input: {
   members: readonly HouseholdMemberRecord[]
-  policies: readonly HouseholdMemberAbsencePolicyRecord[]
+  presenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   period: string
-  today?: Temporal.PlainDate
-}): ReadonlyMap<string, ResolvedMemberAbsencePolicy> {
+}): ReadonlyMap<string, ResolvedMemberCycleParticipation> {
   const period = BillingPeriod.fromString(input.period)
-  const { start, daysInMonth } = cycleDateRange(period)
-  const cycleToday =
-    input.today && input.today.year === period.year && input.today.month === period.month
-      ? input.today
-      : start
-  const resolved = new Map<string, ResolvedMemberAbsencePolicy>()
+  const { daysInMonth } = cycleDateRange(period)
+  const resolved = new Map<string, ResolvedMemberCycleParticipation>()
+  const presenceByMemberId = new Map(
+    input.presenceDays
+      .filter((entry) => entry.period === input.period)
+      .map((entry) => [entry.memberId, entry])
+  )
 
   for (const member of input.members) {
-    const overlapping = input.policies
-      .filter((policy) => policy.memberId === member.id && intervalOverlapsCycle(policy, period))
-      .sort((left, right) =>
-        absencePolicyStartsOn(left)
-          .toString()
-          .localeCompare(absencePolicyStartsOn(right).toString())
-      )
-    const activeInterval =
-      overlapping.find((interval) => intervalContainsDate(interval, cycleToday)) ??
-      overlapping.at(-1) ??
-      null
-
-    let utilityParticipationDays = 0
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const currentDate = Temporal.PlainDate.from({
-        year: period.year,
-        month: period.month,
-        day
-      })
-      const policy = latestPolicyForDate({
-        member,
-        policies: input.policies,
-        date: currentDate
-      })
-      if (member.status !== 'left' && policyParticipatesInUtilities(policy)) {
-        utilityParticipationDays += 1
-      }
-    }
+    const defaultUtilityParticipationDays = member.status === 'active' ? daysInMonth : 0
+    const override = presenceByMemberId.get(member.id)
+    const daysPresent = Math.max(
+      0,
+      Math.min(override?.daysPresent ?? defaultUtilityParticipationDays, daysInMonth)
+    )
 
     resolved.set(member.id, {
       memberId: member.id,
-      policy: activeInterval?.policy ?? defaultAbsencePolicyForMember(member),
-      startsOn:
-        activeInterval?.startsOn ??
-        (activeInterval?.effectiveFromPeriod ? `${activeInterval.effectiveFromPeriod}-01` : null),
-      endsOn: activeInterval?.endsOn ?? null,
-      utilityParticipationDays
+      daysPresent
     })
   }
 
@@ -934,10 +815,7 @@ function serializeDashboard(dashboard: FinanceDashboard): FinanceAuditJsonObject
       memberId: member.memberId,
       displayName: member.displayName,
       status: member.status,
-      absencePolicy: member.absencePolicy,
-      absenceIntervalStartsOn: member.absenceIntervalStartsOn,
-      absenceIntervalEndsOn: member.absenceIntervalEndsOn,
-      utilityParticipationDays: member.utilityParticipationDays,
+      daysPresent: member.daysPresent,
       predictedUtilityShare: serializeOptionalMoney(member.predictedUtilityShare ?? null),
       rentShare: serializeMoney(member.rentShare),
       utilityShare: serializeMoney(member.utilityShare),
@@ -1323,13 +1201,13 @@ async function buildCycleBaseMemberLines(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
   members: readonly HouseholdMemberRecord[]
-  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
 }): Promise<readonly CycleBaseMemberLine[]> {
   const period = BillingPeriod.fromString(input.cycle.period)
-  const resolvedAbsencePolicies = resolveMemberAbsencePolicies({
+  const resolvedParticipation = resolveMemberCycleParticipation({
     members: input.members,
-    policies: input.memberAbsencePolicies,
+    presenceDays: input.memberPresenceDays,
     period: input.cycle.period
   })
   const [rentRule, utilityBills, paymentRecords] = await Promise.all([
@@ -1372,21 +1250,16 @@ async function buildCycleBaseMemberLines(input: {
     utilities,
     utilitySplitMode: 'weighted_by_days',
     members: input.members.map((member) => {
-      const resolvedPolicy = resolvedAbsencePolicies.get(member.id)
+      const participation = resolvedParticipation.get(member.id)
 
       return {
         memberId: MemberId.from(member.id),
         active: member.status !== 'left',
-        participatesInRent:
-          member.status !== 'left' &&
-          policyParticipatesInRent(resolvedPolicy?.policy ?? 'resident'),
-        participatesInUtilities:
-          member.status !== 'left' && (resolvedPolicy?.utilityParticipationDays ?? 0) > 0,
-        participatesInPurchases:
-          member.status !== 'left' &&
-          policyParticipatesInPurchases(resolvedPolicy?.policy ?? 'resident'),
+        participatesInRent: member.status !== 'left',
+        participatesInUtilities: member.status !== 'left' && (participation?.daysPresent ?? 0) > 0,
+        participatesInPurchases: member.status === 'active',
         rentWeight: member.rentShareWeight,
-        utilityDays: Math.max(resolvedPolicy?.utilityParticipationDays ?? 0, 1)
+        utilityDays: Math.max(participation?.daysPresent ?? 0, 1)
       }
     }),
     purchases: []
@@ -1418,7 +1291,7 @@ async function computeMemberOverduePayments(input: {
   dependencies: FinanceCommandServiceDependencies
   currentCycle: FinanceCycleRecord
   members: readonly HouseholdMemberRecord[]
-  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
 }): Promise<ReadonlyMap<string, readonly FinanceMemberOverduePaymentRecord[]>> {
   const localDate = localDateInTimezone(input.settings.timezone)
@@ -1432,7 +1305,7 @@ async function computeMemberOverduePayments(input: {
       dependencies: input.dependencies,
       cycle,
       members: input.members,
-      memberAbsencePolicies: input.memberAbsencePolicies,
+      memberPresenceDays: input.memberPresenceDays,
       settings: input.settings
     })
     const rentDueDate = billingPeriodLockDate(
@@ -1502,7 +1375,7 @@ async function buildPaymentPeriodSummaries(input: {
   dependencies: FinanceCommandServiceDependencies
   currentCycle: FinanceCycleRecord
   members: readonly HouseholdMemberRecord[]
-  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
   currentUtilityPlan: UtilityBillingPlanComputed | null
 }): Promise<readonly FinanceDashboardPaymentPeriodSummary[]> {
@@ -1520,7 +1393,7 @@ async function buildPaymentPeriodSummaries(input: {
         dependencies: input.dependencies,
         cycle,
         members: input.members,
-        memberAbsencePolicies: input.memberAbsencePolicies,
+        memberPresenceDays: input.memberPresenceDays,
         settings: input.settings
       }),
       input.dependencies.repository.listUtilityBillsForCycle(cycle.id)
@@ -1647,7 +1520,7 @@ async function getCycleKindBaseRemaining(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
   members: readonly HouseholdMemberRecord[]
-  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
   memberId: string
   kind: FinancePaymentKind
@@ -1657,7 +1530,7 @@ async function getCycleKindBaseRemaining(input: {
       dependencies: input.dependencies,
       cycle: input.cycle,
       members: input.members,
-      memberAbsencePolicies: input.memberAbsencePolicies,
+      memberPresenceDays: input.memberPresenceDays,
       settings: input.settings
     })
   ).find((line) => line.memberId === input.memberId)
@@ -1675,7 +1548,7 @@ async function resolveAutomaticPaymentTargets(input: {
   dependencies: FinanceCommandServiceDependencies
   currentCycle: FinanceCycleRecord
   members: readonly HouseholdMemberRecord[]
-  memberAbsencePolicies: readonly HouseholdMemberAbsencePolicyRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
   memberId: string
   kind: FinancePaymentKind
@@ -1702,7 +1575,7 @@ async function resolveAutomaticPaymentTargets(input: {
         dependencies: input.dependencies,
         cycle,
         members: input.members,
-        memberAbsencePolicies: input.memberAbsencePolicies,
+        memberPresenceDays: input.memberPresenceDays,
         settings: input.settings
       })
     ).find((line) => line.memberId === input.memberId)
@@ -1771,11 +1644,11 @@ async function buildFinanceDashboard(
     return null
   }
 
-  const [members, memberAbsencePolicies, rentRule, settings] = await Promise.all([
+  const [members, memberPresenceDays, rentRule, settings] = await Promise.all([
     dependencies.householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
-    dependencies.householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+    dependencies.householdConfigurationRepository.listHouseholdMemberPresenceDays?.(
       dependencies.householdId
-    ),
+    ) ?? Promise.resolve([]),
     dependencies.repository.getRentRuleForPeriod(cycle.period),
     dependencies.householdConfigurationRepository.getHouseholdBillingSettings(
       dependencies.householdId
@@ -1791,9 +1664,9 @@ async function buildFinanceDashboard(
 
   const period = BillingPeriod.fromString(cycle.period)
   const { start, end } = monthRange(period)
-  const resolvedAbsencePolicies = resolveMemberAbsencePolicies({
+  const resolvedParticipation = resolveMemberCycleParticipation({
     members,
-    policies: memberAbsencePolicies,
+    presenceDays: memberPresenceDays,
     period: cycle.period
   })
   const [allPurchases, utilityBills, paymentPurchaseAllocations] = await Promise.all([
@@ -1810,7 +1683,7 @@ async function buildFinanceDashboard(
     dependencies,
     currentCycle: cycle,
     members,
-    memberAbsencePolicies,
+    memberPresenceDays,
     settings
   })
   const previousUtilityShareByMemberId = new Map(
@@ -1886,11 +1759,7 @@ async function buildFinanceDashboard(
   )
 
   const activePurchaseParticipantIds = members
-    .filter(
-      (member) =>
-        member.status !== 'left' &&
-        policyParticipatesInPurchases(resolvedAbsencePolicies.get(member.id)?.policy ?? 'resident')
-    )
+    .filter((member) => member.status === 'active')
     .map((member) => member.id)
 
   const purchaseHistory: PurchaseHistoryState[] = convertedPurchases.map(
@@ -1954,21 +1823,16 @@ async function buildFinanceDashboard(
     utilities,
     utilitySplitMode: 'weighted_by_days',
     members: members.map((member) => {
-      const resolvedPolicy = resolvedAbsencePolicies.get(member.id)
+      const participation = resolvedParticipation.get(member.id)
 
       return {
         memberId: MemberId.from(member.id),
         active: member.status !== 'left',
-        participatesInRent:
-          member.status !== 'left' &&
-          policyParticipatesInRent(resolvedPolicy?.policy ?? 'resident'),
-        participatesInUtilities:
-          member.status !== 'left' && (resolvedPolicy?.utilityParticipationDays ?? 0) > 0,
-        participatesInPurchases:
-          member.status !== 'left' &&
-          policyParticipatesInPurchases(resolvedPolicy?.policy ?? 'resident'),
+        participatesInRent: member.status !== 'left',
+        participatesInUtilities: member.status !== 'left' && (participation?.daysPresent ?? 0) > 0,
+        participatesInPurchases: member.status === 'active',
         rentWeight: member.rentShareWeight,
-        utilityDays: Math.max(resolvedPolicy?.utilityParticipationDays ?? 0, 1)
+        utilityDays: Math.max(participation?.daysPresent ?? 0, 1)
       }
     }),
     purchases: purchaseHistory
@@ -2062,12 +1926,7 @@ async function buildFinanceDashboard(
     memberId: line.memberId.toString(),
     displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
     status: members.find((member) => member.id === line.memberId.toString())?.status ?? 'active',
-    absencePolicy: resolvedAbsencePolicies.get(line.memberId.toString())?.policy ?? 'resident',
-    absenceIntervalStartsOn:
-      resolvedAbsencePolicies.get(line.memberId.toString())?.startsOn ?? null,
-    absenceIntervalEndsOn: resolvedAbsencePolicies.get(line.memberId.toString())?.endsOn ?? null,
-    utilityParticipationDays:
-      resolvedAbsencePolicies.get(line.memberId.toString())?.utilityParticipationDays ?? 0,
+    daysPresent: resolvedParticipation.get(line.memberId.toString())?.daysPresent ?? 0,
     predictedUtilityShare: previousUtilityShareByMemberId.get(line.memberId.toString()) ?? null,
     rentShare: line.rentShare,
     utilityShare: line.utilityShare,
@@ -2101,7 +1960,7 @@ async function buildFinanceDashboard(
     dependencies,
     currentCycle: cycle,
     members,
-    memberAbsencePolicies,
+    memberPresenceDays,
     settings,
     currentUtilityPlan: ensuredUtilityPlan.computed
   })
@@ -2873,12 +2732,12 @@ export function createFinanceCommandService(
     },
 
     async addPayment(memberId, kind, amountArg, currencyArg, periodArg) {
-      const [settings, members, memberAbsencePolicies] = await Promise.all([
+      const [settings, members, memberPresenceDays] = await Promise.all([
         householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
         householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
-        householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+        householdConfigurationRepository.listHouseholdMemberPresenceDays?.(
           dependencies.householdId
-        )
+        ) ?? Promise.resolve([])
       ])
       const currentCycle = periodArg
         ? await repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
@@ -2896,7 +2755,7 @@ export function createFinanceCommandService(
           dependencies,
           cycle: currentCycle,
           members,
-          memberAbsencePolicies,
+          memberPresenceDays,
           settings,
           memberId,
           kind
@@ -2918,7 +2777,7 @@ export function createFinanceCommandService(
             dependencies,
             currentCycle,
             members,
-            memberAbsencePolicies,
+            memberPresenceDays,
             settings,
             memberId,
             kind
@@ -3220,15 +3079,15 @@ export function createFinanceCommandService(
         return null
       }
 
-      const [cycle, openCycle, settings, members, absencePolicies, utilityCategories] =
+      const [cycle, openCycle, settings, members, presenceDays, utilityCategories] =
         await Promise.all([
           repository.getCycleByPeriod(dashboard.period),
           repository.getOpenCycle(),
           householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
           householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
-          householdConfigurationRepository.listHouseholdMemberAbsencePolicies(
+          householdConfigurationRepository.listHouseholdMemberPresenceDays?.(
             dependencies.householdId
-          ),
+          ) ?? Promise.resolve([]),
           householdConfigurationRepository.listHouseholdUtilityCategories(dependencies.householdId)
         ])
       if (!cycle) {
@@ -3299,6 +3158,7 @@ export function createFinanceCommandService(
       }
 
       const adjustmentPolicy = resolvedPaymentBalanceAdjustmentPolicy(settings)
+      const auditCycleDays = cycleDateRange(BillingPeriod.fromString(dashboard.period)).daysInMonth
       const billedUtilityNames = new Set(
         utilityBills.map((bill) => bill.billName.trim().toLowerCase())
       )
@@ -3440,19 +3300,14 @@ export function createFinanceCommandService(
             rentShareWeight: member.rentShareWeight,
             preferredLocale: member.preferredLocale ?? null,
             householdDefaultLocale: member.householdDefaultLocale,
-            activeAbsencePolicy:
-              dashboardMember?.absencePolicy ?? defaultAbsencePolicyForMember(member),
-            absenceIntervalStartsOn: dashboardMember?.absenceIntervalStartsOn ?? null,
-            absenceIntervalEndsOn: dashboardMember?.absenceIntervalEndsOn ?? null,
-            utilityParticipationDays: dashboardMember?.utilityParticipationDays ?? 0
+            daysPresent:
+              dashboardMember?.daysPresent ?? (member.status === 'active' ? auditCycleDays : 0)
           }
         }),
-        absencePolicies: absencePolicies.map((policy) => ({
-          memberId: policy.memberId,
-          policy: policy.policy,
-          startsOn: policy.startsOn ?? null,
-          endsOn: policy.endsOn ?? null,
-          effectiveFromPeriod: policy.effectiveFromPeriod ?? null
+        presenceDays: presenceDays.map((entry) => ({
+          memberId: entry.memberId,
+          period: entry.period,
+          daysPresent: entry.daysPresent
         })),
         rawInputs: {
           utilityBills: utilityBills.map((bill) => ({

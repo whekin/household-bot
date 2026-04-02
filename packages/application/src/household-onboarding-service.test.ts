@@ -215,12 +215,6 @@ function createRepositoryStub() {
     },
     async updateHouseholdMemberStatus() {
       return null
-    },
-    async listHouseholdMemberAbsencePolicies() {
-      return []
-    },
-    async upsertHouseholdMemberAbsencePolicy() {
-      return null
     }
   }
 

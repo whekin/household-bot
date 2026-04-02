@@ -164,14 +164,6 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       isAdmin: false
     },
     { id: 'member-el', displayName: 'El', status: 'away', rentShareWeight: 2, isAdmin: false }
-  ],
-  memberAbsencePolicies: [
-    {
-      memberId: 'member-el',
-      startsOn: '2026-03-01',
-      endsOn: '2026-03-31',
-      policy: 'away_rent_only'
-    }
   ]
 }
 
@@ -977,13 +969,6 @@ function applyOverridesToDemoState(
     ...bill,
     createdAt: remapDateIntoPeriod(bill.createdAt, periodOverride)
   }))
-  next.adminSettings.memberAbsencePolicies = next.adminSettings.memberAbsencePolicies.map(
-    (policy) => ({
-      ...policy,
-      startsOn: remapDateIntoPeriod(policy.startsOn, periodOverride),
-      endsOn: policy.endsOn ? remapDateIntoPeriod(policy.endsOn, periodOverride) : null
-    })
-  )
   next.dashboard.utilityBillingPlan = buildDemoUtilityPlan({
     members: next.dashboard.members,
     ledger: next.dashboard.ledger

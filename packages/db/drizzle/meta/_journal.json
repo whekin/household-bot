@@ -190,6 +190,20 @@
       "when": 1775056129000,
       "tag": "0026_exact_absence_and_utility_destinations",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1775140000000,
+      "tag": "0027_clever_presence_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1775140800000,
+      "tag": "0028_simple_presence_model",
+      "breakpoints": true
     }
   ]
 }

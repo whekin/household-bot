@@ -9,12 +9,6 @@ export const HOUSEHOLD_TOPIC_ROLES = [
   'payments'
 ] as const
 export const HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES = ['active', 'away', 'left'] as const
-export const HOUSEHOLD_MEMBER_ABSENCE_POLICIES = [
-  'resident',
-  'away_rent_and_utilities',
-  'away_rent_only',
-  'inactive'
-] as const
 export const HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES = [
   'utilities',
   'rent',
@@ -23,7 +17,6 @@ export const HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES = [
 
 export type HouseholdTopicRole = (typeof HOUSEHOLD_TOPIC_ROLES)[number]
 export type HouseholdMemberLifecycleStatus = (typeof HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES)[number]
-export type HouseholdMemberAbsencePolicy = (typeof HOUSEHOLD_MEMBER_ABSENCE_POLICIES)[number]
 export type HouseholdPaymentBalanceAdjustmentPolicy =
   (typeof HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES)[number]
 
@@ -72,13 +65,11 @@ export interface HouseholdMemberRecord {
   isAdmin: boolean
 }
 
-export interface HouseholdMemberAbsencePolicyRecord {
+export interface HouseholdMemberPresenceDaysRecord {
   householdId: string
   memberId: string
-  startsOn?: string | null
-  endsOn?: string | null
-  effectiveFromPeriod?: string | null
-  policy: HouseholdMemberAbsencePolicy
+  period: string
+  daysPresent: number
 }
 
 export interface HouseholdRentPaymentDestination {
@@ -273,14 +264,19 @@ export interface HouseholdConfigurationRepository {
     memberId: string,
     status: HouseholdMemberLifecycleStatus
   ): Promise<HouseholdMemberRecord | null>
-  listHouseholdMemberAbsencePolicies(
-    householdId: string
-  ): Promise<readonly HouseholdMemberAbsencePolicyRecord[]>
-  upsertHouseholdMemberAbsencePolicy(input: {
+  listHouseholdMemberPresenceDays?(
+    householdId: string,
+    period?: string
+  ): Promise<readonly HouseholdMemberPresenceDaysRecord[]>
+  upsertHouseholdMemberPresenceDays?(input: {
     householdId: string
     memberId: string
-    startsOn: string
-    endsOn?: string | null
-    policy: HouseholdMemberAbsencePolicy
-  }): Promise<HouseholdMemberAbsencePolicyRecord | null>
+    period: string
+    daysPresent: number
+  }): Promise<HouseholdMemberPresenceDaysRecord | null>
+  deleteHouseholdMemberPresenceDays?(
+    householdId: string,
+    memberId: string,
+    period: string
+  ): Promise<boolean>
 }

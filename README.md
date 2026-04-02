@@ -21,7 +21,7 @@ Implemented today:
 - Telegram group onboarding with `/setup`, topic binding, and `/unsetup`
 - topic-based ingestion for purchases, payments, reminders, and anonymous feedback
 - DM assistant with household-aware context, payment confirmation flow, and tagged replies in group topics
-- deterministic household accounting for rent, utilities, purchases, payments, lifecycle status, and absence policy handling
+- deterministic household accounting for rent, utilities, purchases, payments, lifecycle status, and days-present handling
 - mini app authentication, member/admin controls, ledger view, balance dashboard, and household settings
 - GCP deployment baseline with Cloud Run, Cloud Scheduler, Secret Manager, Artifact Registry, and Terraform-managed alerting
 

@@ -219,8 +219,8 @@ export const members = pgTable(
   })
 )
 
-export const memberAbsencePolicies = pgTable(
-  'member_absence_policies',
+export const memberPresenceDays = pgTable(
+  'member_presence_days',
   {
     id: uuid('id').defaultRandom().primaryKey(),
     householdId: uuid('household_id')
@@ -229,24 +229,22 @@ export const memberAbsencePolicies = pgTable(
     memberId: uuid('member_id')
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
-    startsOn: date('starts_on').notNull(),
-    endsOn: date('ends_on'),
-    policy: text('policy').notNull(),
+    period: text('period').notNull(),
+    daysPresent: integer('days_present').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
-    householdMemberStartUnique: uniqueIndex(
-      'member_absence_policies_household_member_start_unique'
-    ).on(table.householdId, table.memberId, table.startsOn),
-    householdMemberIdx: index('member_absence_policies_household_member_idx').on(
+    householdMemberPeriodUnique: uniqueIndex(
+      'member_presence_days_household_member_period_unique'
+    ).on(table.householdId, table.memberId, table.period),
+    householdPeriodIdx: index('member_presence_days_household_period_idx').on(
+      table.householdId,
+      table.period
+    ),
+    householdMemberIdx: index('member_presence_days_household_member_idx').on(
       table.householdId,
       table.memberId
-    ),
-    householdRangeIdx: index('member_absence_policies_household_range_idx').on(
-      table.householdId,
-      table.startsOn,
-      table.endsOn
     )
   })
 )

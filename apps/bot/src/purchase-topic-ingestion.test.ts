@@ -418,15 +418,6 @@ describe('resolveProposalParticipantSelection', () => {
           lifecycleStatus: 'away'
         }
       ],
-      policyByMemberId: new Map([
-        [
-          'member-alice',
-          {
-            effectiveFromPeriod: '2026-03',
-            policy: 'away_rent_only'
-          }
-        ]
-      ]),
       senderTelegramUserId: '10002',
       senderMemberId: 'member-stas',
       explicitParticipantMemberIds: ['member-stas', 'member-alice']
@@ -467,7 +458,6 @@ describe('resolveProposalParticipantSelection', () => {
           lifecycleStatus: 'left'
         }
       ],
-      policyByMemberId: new Map(),
       senderTelegramUserId: '10002',
       senderMemberId: 'member-stas',
       explicitParticipantMemberIds: ['member-alice']

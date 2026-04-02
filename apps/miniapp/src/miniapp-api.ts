@@ -38,17 +38,11 @@ export interface MiniAppPendingMember {
   languageCode: string | null
 }
 
-export type MiniAppMemberAbsencePolicy =
-  | 'resident'
-  | 'away_rent_and_utilities'
-  | 'away_rent_only'
-  | 'inactive'
-
-export interface MiniAppMemberAbsencePolicyRecord {
+export interface MiniAppMemberPresenceDaysRecord {
+  householdId: string
   memberId: string
-  startsOn: string
-  endsOn: string | null
-  policy: MiniAppMemberAbsencePolicy
+  period: string
+  daysPresent: number
 }
 
 export interface MiniAppMember {
@@ -57,10 +51,7 @@ export interface MiniAppMember {
   status: 'active' | 'away' | 'left'
   rentShareWeight: number
   isAdmin: boolean
-  absencePolicy?: MiniAppMemberAbsencePolicy
-  absenceIntervalStartsOn?: string | null
-  absenceIntervalEndsOn?: string | null
-  utilityParticipationDays?: number
+  daysPresent?: number
 }
 
 export interface MiniAppBillingSettings {
@@ -179,10 +170,7 @@ export interface MiniAppDashboard {
     memberId: string
     displayName: string
     status?: 'active' | 'away' | 'left'
-    absencePolicy?: MiniAppMemberAbsencePolicy
-    absenceIntervalStartsOn?: string | null
-    absenceIntervalEndsOn?: string | null
-    utilityParticipationDays?: number
+    daysPresent?: number
     predictedUtilityShareMajor: string | null
     rentShareMajor: string
     utilityShareMajor: string
@@ -271,7 +259,6 @@ export interface MiniAppAdminSettingsPayload {
   topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
   members: readonly MiniAppMember[]
-  memberAbsencePolicies: readonly MiniAppMemberAbsencePolicyRecord[]
 }
 
 export interface MiniAppAdminCycleState {
@@ -612,7 +599,6 @@ export async function fetchMiniAppAdminSettings(
     topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
     members?: MiniAppMember[]
-    memberAbsencePolicies?: MiniAppMemberAbsencePolicyRecord[]
     error?: string
   }
 
@@ -624,8 +610,7 @@ export async function fetchMiniAppAdminSettings(
     !payload.assistantConfig ||
     !payload.topics ||
     !payload.categories ||
-    !payload.members ||
-    !payload.memberAbsencePolicies
+    !payload.members
   ) {
     throw new Error(payload.error ?? 'Failed to load admin settings')
   }
@@ -636,8 +621,7 @@ export async function fetchMiniAppAdminSettings(
     assistantConfig: payload.assistantConfig,
     topics: payload.topics,
     categories: payload.categories,
-    members: payload.members,
-    memberAbsencePolicies: payload.memberAbsencePolicies
+    members: payload.members
   }
 }
 
@@ -918,14 +902,13 @@ export async function demoteMiniAppMember(
   return payload.member
 }
 
-export async function updateMiniAppMemberAbsencePolicy(
+export async function updateMiniAppMemberPresenceDays(
   initData: string,
   memberId: string,
-  policy: MiniAppMemberAbsencePolicy,
-  startsOn: string,
-  endsOn?: string | null
-): Promise<MiniAppMemberAbsencePolicyRecord> {
-  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/absence-policy`, {
+  period: string,
+  daysPresent: number
+): Promise<MiniAppMemberPresenceDaysRecord> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/members/presence-days`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
@@ -933,24 +916,23 @@ export async function updateMiniAppMemberAbsencePolicy(
     body: JSON.stringify({
       initData,
       memberId,
-      policy,
-      startsOn,
-      ...(endsOn !== undefined ? { endsOn } : {})
+      period,
+      daysPresent
     })
   })
 
   const payload = (await response.json()) as {
     ok: boolean
     authorized?: boolean
-    policy?: MiniAppMemberAbsencePolicyRecord
+    presenceDays?: MiniAppMemberPresenceDaysRecord
     error?: string
   }
 
-  if (!response.ok || !payload.policy) {
-    throw new Error(payload.error ?? 'Failed to update member absence policy')
+  if (!response.ok || !payload.presenceDays) {
+    throw new Error(payload.error ?? 'Failed to update member presence days')
   }
 
-  return payload.policy
+  return payload.presenceDays
 }
 
 export async function fetchMiniAppBillingCycle(initData: string): Promise<MiniAppAdminCycleState> {

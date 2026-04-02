@@ -38,10 +38,10 @@ class FinanceRepositoryStub implements FinanceRepository {
   member: FinanceMemberRecord | null = null
   members: readonly FinanceMemberRecord[] = []
   memberStatuses = new Map<string, 'active' | 'away' | 'left'>()
-  memberAbsencePolicies: readonly {
+  memberPresenceDays: readonly {
     memberId: string
-    effectiveFromPeriod: string
-    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
+    period: string
+    daysPresent: number
   }[] = []
   openCycleRecord: FinanceCycleRecord | null = null
   cycleByPeriodRecord: FinanceCycleRecord | null = null
@@ -504,7 +504,7 @@ const householdConfigurationRepository: Pick<
   HouseholdConfigurationRepository,
   | 'getHouseholdBillingSettings'
   | 'listHouseholdMembers'
-  | 'listHouseholdMemberAbsencePolicies'
+  | 'listHouseholdMemberPresenceDays'
   | 'listHouseholdUtilityCategories'
 > = {
   async getHouseholdBillingSettings(householdId) {
@@ -541,12 +541,12 @@ const householdConfigurationRepository: Pick<
       isAdmin: member.isAdmin
     }))
   },
-  async listHouseholdMemberAbsencePolicies(householdId) {
-    return financeRepositoryForHousehold(householdId).memberAbsencePolicies.map((policy) => ({
+  async listHouseholdMemberPresenceDays(householdId) {
+    return financeRepositoryForHousehold(householdId).memberPresenceDays.map((entry) => ({
       householdId,
-      memberId: policy.memberId,
-      effectiveFromPeriod: policy.effectiveFromPeriod,
-      policy: policy.policy
+      memberId: entry.memberId,
+      period: entry.period,
+      daysPresent: entry.daysPresent
     }))
   },
   async listHouseholdUtilityCategories(householdId) {
@@ -847,7 +847,60 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.period).toBe('2026-03')
   })
 
-  test('generateDashboard excludes away members from utilities but keeps them in default purchase splits', async () => {
+  test('generateDashboard defaults utility days by status and prefers saved presence-day overrides', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'member-active',
+        telegramUserId: '1',
+        displayName: 'Active',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'member-away',
+        telegramUserId: '2',
+        displayName: 'Away',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.memberStatuses = new Map([
+      ['member-active', 'active'],
+      ['member-away', 'away']
+    ])
+    repository.cycleByPeriodRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.cycleByPeriodRecord!
+    repository.cycles = [repository.cycleByPeriodRecord!]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+    repository.memberPresenceDays = [
+      {
+        memberId: 'member-away',
+        period: '2026-03',
+        daysPresent: 5
+      }
+    ]
+
+    const service = createService(repository)
+
+    const dashboard = await service.generateDashboard('2026-03')
+
+    expect(
+      dashboard?.members.find((member) => member.memberId === 'member-active')?.daysPresent
+    ).toBe(31)
+    expect(
+      dashboard?.members.find((member) => member.memberId === 'member-away')?.daysPresent
+    ).toBe(5)
+  })
+
+  test('generateDashboard excludes away members from default utility and purchase splits', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -873,13 +926,6 @@ describe('createFinanceCommandService', () => {
       }
     ]
     repository.memberStatuses.set('carol', 'away')
-    repository.memberAbsencePolicies = [
-      {
-        memberId: 'carol',
-        effectiveFromPeriod: '2026-03',
-        policy: 'away_rent_only'
-      }
-    ]
     repository.openCycleRecord = {
       id: 'cycle-2026-03',
       period: '2026-03',
@@ -922,9 +968,9 @@ describe('createFinanceCommandService', () => {
         purchaseOffset: line.purchaseOffset.amountMinor
       }))
     ).toEqual([
-      { memberId: 'alice', utility: 6000n, purchaseOffset: -2000n },
-      { memberId: 'bob', utility: 6000n, purchaseOffset: 1000n },
-      { memberId: 'carol', utility: 0n, purchaseOffset: 1000n }
+      { memberId: 'alice', utility: 6000n, purchaseOffset: -1500n },
+      { memberId: 'bob', utility: 6000n, purchaseOffset: 1500n },
+      { memberId: 'carol', utility: 0n, purchaseOffset: 0n }
     ])
   })
 

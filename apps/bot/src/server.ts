@@ -104,7 +104,7 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
-  miniAppUpdateMemberAbsencePolicy?:
+  miniAppUpdateMemberPresenceDays?:
     | {
         path?: string
         handler: (request: Request) => Promise<Response>
@@ -278,8 +278,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpdateMemberRentWeight?.path ?? '/api/miniapp/admin/members/rent-weight'
   const miniAppUpdateMemberStatusPath =
     options.miniAppUpdateMemberStatus?.path ?? '/api/miniapp/admin/members/status'
-  const miniAppUpdateMemberAbsencePolicyPath =
-    options.miniAppUpdateMemberAbsencePolicy?.path ?? '/api/miniapp/admin/members/absence-policy'
+  const miniAppUpdateMemberPresenceDaysPath =
+    options.miniAppUpdateMemberPresenceDays?.path ?? '/api/miniapp/admin/members/presence-days'
   const miniAppBillingCyclePath =
     options.miniAppBillingCycle?.path ?? '/api/miniapp/admin/billing-cycle'
   const miniAppOpenCyclePath =
@@ -402,10 +402,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
       }
 
       if (
-        options.miniAppUpdateMemberAbsencePolicy &&
-        url.pathname === miniAppUpdateMemberAbsencePolicyPath
+        options.miniAppUpdateMemberPresenceDays &&
+        url.pathname === miniAppUpdateMemberPresenceDaysPath
       ) {
-        return await options.miniAppUpdateMemberAbsencePolicy.handler(request)
+        return await options.miniAppUpdateMemberPresenceDays.handler(request)
       }
 
       if (options.miniAppBillingCycle && url.pathname === miniAppBillingCyclePath) {

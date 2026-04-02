@@ -14,7 +14,7 @@ import {
   createMiniAppPromoteMemberHandler,
   createMiniAppSettingsHandler,
   createMiniAppUpdateMemberDisplayNameHandler,
-  createMiniAppUpdateMemberAbsencePolicyHandler,
+  createMiniAppUpdateMemberPresenceDaysHandler,
   createMiniAppUpdateOwnDisplayNameHandler,
   createMiniAppUpdateMemberStatusHandler,
   createMiniAppUpdateSettingsHandler
@@ -30,15 +30,6 @@ function onboardingRepository(): HouseholdConfigurationRepository {
     title: 'Kojori House',
     defaultLocale: 'ru' as const
   }
-  let memberAbsencePolicies: {
-    householdId: string
-    memberId: string
-    startsOn?: string | null
-    endsOn?: string | null
-    effectiveFromPeriod?: string | null
-    policy: 'resident' | 'away_rent_and_utilities' | 'away_rent_only' | 'inactive'
-  }[] = []
-
   return {
     registerTelegramHouseholdChat: async () => ({
       status: 'existing',
@@ -283,28 +274,13 @@ function onboardingRepository(): HouseholdConfigurationRepository {
             isAdmin: false
           }
         : null,
-    listHouseholdMemberAbsencePolicies: async () => memberAbsencePolicies,
-    upsertHouseholdMemberAbsencePolicy: async (input) => {
-      const next = {
-        householdId: input.householdId,
-        memberId: input.memberId,
-        startsOn: input.startsOn,
-        endsOn: input.endsOn ?? null,
-        policy: input.policy
-      }
-      memberAbsencePolicies = [
-        ...memberAbsencePolicies.filter(
-          (entry) =>
-            !(
-              entry.householdId === input.householdId &&
-              entry.memberId === input.memberId &&
-              (entry.startsOn ?? entry.effectiveFromPeriod) === input.startsOn
-            )
-        ),
-        next
-      ]
-      return next
-    }
+    listHouseholdMemberPresenceDays: async () => [],
+    upsertHouseholdMemberPresenceDays: async (input) => ({
+      householdId: input.householdId,
+      memberId: input.memberId,
+      period: input.period,
+      daysPresent: input.daysPresent
+    })
   }
 }
 
@@ -583,7 +559,6 @@ describe('createMiniAppSettingsHandler', () => {
         }
       ],
       categories: [],
-      memberAbsencePolicies: [],
       assistantUsage: [],
       members: [
         {
@@ -1089,7 +1064,7 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
     })
   })
 
-  test('updates a household member absence policy for an authenticated admin', async () => {
+  test('updates household member days present for an authenticated admin', async () => {
     const authDate = Math.floor(Date.now() / 1000)
     const repository = onboardingRepository()
     repository.listHouseholdMembersByTelegramUserId = async () => [
@@ -1106,19 +1081,17 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
       }
     ]
 
-    const handler = createMiniAppUpdateMemberAbsencePolicyHandler({
+    const handler = createMiniAppUpdateMemberPresenceDaysHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      miniAppAdminService: createMiniAppAdminService(repository, undefined, {
-        resolveEffectiveFromPeriod: async () => '2026-03'
-      })
+      miniAppAdminService: createMiniAppAdminService(repository)
     })
 
     const response = await handler.handler(
-      new Request('http://localhost/api/miniapp/admin/members/absence-policy', {
+      new Request('http://localhost/api/miniapp/admin/members/presence-days', {
         method: 'POST',
         headers: {
           origin: 'http://localhost:5173',
@@ -1132,8 +1105,8 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
             language_code: 'ru'
           }),
           memberId: 'member-123456',
-          startsOn: '2026-03-01',
-          policy: 'away_rent_only'
+          period: '2026-03',
+          daysPresent: 7
         })
       })
     )
@@ -1142,12 +1115,11 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
     expect(await response.json()).toEqual({
       ok: true,
       authorized: true,
-      policy: {
+      presenceDays: {
         householdId: 'household-1',
         memberId: 'member-123456',
-        startsOn: '2026-03-01',
-        endsOn: null,
-        policy: 'away_rent_only'
+        period: '2026-03',
+        daysPresent: 7
       }
     })
   })
