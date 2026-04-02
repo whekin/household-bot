@@ -4,6 +4,7 @@ import { Match, Switch } from 'solid-js'
 import { I18nProvider, useI18n } from './contexts/i18n-context'
 import { SessionProvider, useSession, joinDeepLink } from './contexts/session-context'
 import { DashboardProvider } from './contexts/dashboard-context'
+import { ToastProvider } from './contexts/toast-context'
 import { AppShell } from './components/layout/shell'
 import { LoadingState } from './components/session/loading-state'
 import { BlockedState } from './components/session/blocked-state'
@@ -111,9 +112,11 @@ function AuthenticatedApp() {
 function App() {
   return (
     <I18nProvider>
-      <SessionProvider>
-        <AppContent />
-      </SessionProvider>
+      <ToastProvider>
+        <SessionProvider>
+          <AppContent />
+        </SessionProvider>
+      </ToastProvider>
     </I18nProvider>
   )
 }
