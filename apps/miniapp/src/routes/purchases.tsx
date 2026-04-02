@@ -65,6 +65,19 @@ function buildEmptyPurchaseDraft(
   }
 }
 
+function buildPurchaseSplitPayload(draft: PurchaseDraft) {
+  return {
+    mode: draft.splitMode,
+    participants: draft.participants.map((participant) => ({
+      memberId: participant.memberId,
+      included: participant.included,
+      ...(draft.splitMode === 'custom_amounts' && participant.included
+        ? { shareAmountMajor: participant.shareAmountMajor || '0.00' }
+        : {})
+    }))
+  } as const
+}
+
 function ParticipantSplitInputs(props: {
   draft: PurchaseDraft
   updateDraft: (fn: (draft: PurchaseDraft) => PurchaseDraft) => void
@@ -423,16 +436,7 @@ export default function PurchasesRoute() {
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
         ...(draft.participants.length > 0
           ? {
-              split: {
-                mode: draft.splitMode,
-                participants: draft.participants.map((participant) => ({
-                  memberId: participant.memberId,
-                  included: participant.included,
-                  ...(draft.splitMode === 'custom_amounts'
-                    ? { shareAmountMajor: participant.shareAmountMajor || '0.00' }
-                    : {})
-                }))
-              }
+              split: buildPurchaseSplitPayload(draft)
             }
           : {})
       })
@@ -458,16 +462,7 @@ export default function PurchasesRoute() {
         currency: draft.currency,
         ...(draft.occurredOn ? { occurredOn: draft.occurredOn } : {}),
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
-        split: {
-          mode: draft.splitMode,
-          participants: draft.participants.map((participant) => ({
-            memberId: participant.memberId,
-            included: participant.included,
-            ...(draft.splitMode === 'custom_amounts'
-              ? { shareAmountMajor: participant.shareAmountMajor || '0.00' }
-              : {})
-          }))
-        }
+        split: buildPurchaseSplitPayload(draft)
       })
       setEditingPurchase(null)
       setPurchaseDraft(null)

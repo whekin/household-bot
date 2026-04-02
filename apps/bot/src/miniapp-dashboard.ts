@@ -244,6 +244,7 @@ export function createMiniAppDashboardHandler(options: {
                 occurredAt: entry.occurredAt,
                 ...(entry.kind === 'purchase'
                   ? {
+                      payerMemberId: entry.payerMemberId ?? undefined,
                       purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
                       originPeriod: entry.originPeriod ?? null,
                       resolutionStatus: entry.resolutionStatus ?? 'unresolved',

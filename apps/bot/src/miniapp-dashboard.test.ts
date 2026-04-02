@@ -791,6 +791,7 @@ describe('createMiniAppDashboardHandler', () => {
           },
           {
             id: 'purchase-1',
+            payerMemberId: 'member-1',
             purchaseSplitMode: 'custom_amounts',
             purchaseParticipants: [
               {
