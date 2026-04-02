@@ -5,6 +5,7 @@ import { useNavigate } from '@solidjs/router'
 import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
+import { useToast } from '../contexts/toast-context'
 import { formatCyclePeriod } from '../lib/dates'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -78,6 +79,7 @@ export default function SettingsRoute() {
     handleSaveOwnDisplayName
   } = useSession()
   const { copy, locale } = useI18n()
+  const { showError } = useToast()
   const {
     effectiveIsAdmin,
     adminSettings,
@@ -263,6 +265,11 @@ export default function SettingsRoute() {
       await approveMiniAppPendingMember(data, telegramUserId)
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru' ? 'Не получилось подтвердить участника.' : 'Failed to approve member.'
+      )
     } finally {
       setApprovingId(null)
     }
@@ -277,6 +284,11 @@ export default function SettingsRoute() {
       await rejectMiniAppPendingMember(data, telegramUserId)
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru' ? 'Не получилось отклонить участника.' : 'Failed to reject member.'
+      )
     } finally {
       setRejectingId(null)
     }
@@ -297,6 +309,11 @@ export default function SettingsRoute() {
       )
       setBillingEditing(false)
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru' ? 'Не получилось сохранить настройки.' : 'Failed to save settings.'
+      )
     } finally {
       setSavingSettings(false)
     }
@@ -337,6 +354,11 @@ export default function SettingsRoute() {
 
       closeCategoryEditor()
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru' ? 'Не получилось сохранить категорию.' : 'Failed to save category.'
+      )
     } finally {
       setSavingCategory(false)
     }
@@ -378,9 +400,6 @@ export default function SettingsRoute() {
       if (form.rentShareWeight !== currentMember.rentShareWeight) {
         updatedMember = await updateMiniAppMemberRentWeight(data, memberId, form.rentShareWeight)
       }
-      if (form.status !== currentMember.status) {
-        updatedMember = await updateMiniAppMemberStatus(data, memberId, form.status)
-      }
       if (form.absenceDirty) {
         const updatedAbsence = await updateMiniAppMemberAbsencePolicy(
           data,
@@ -399,6 +418,9 @@ export default function SettingsRoute() {
       if (form.isAdmin && !currentMember.isAdmin) {
         updatedMember = await promoteMiniAppMember(data, memberId)
       }
+      if (form.status !== currentMember.status) {
+        updatedMember = await updateMiniAppMemberStatus(data, memberId, form.status)
+      }
       if (!form.isAdmin && currentMember.isAdmin) {
         updatedMember = await demoteMiniAppMember(data, memberId)
       }
@@ -412,6 +434,11 @@ export default function SettingsRoute() {
       })
       setEditMemberId(null)
       await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru' ? 'Не получилось сохранить участника.' : 'Failed to save member.'
+      )
     } finally {
       setSavingMember(false)
     }
