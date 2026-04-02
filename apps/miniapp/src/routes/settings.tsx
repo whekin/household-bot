@@ -1438,6 +1438,7 @@ export default function SettingsRoute() {
               value={editMemberForm().absenceStartsOn}
               placeholder={copy().absenceStartDateLabel}
               locale={locale()}
+              portal={false}
               onChange={(value) =>
                 setEditMemberForm((form) => ({
                   ...form,
@@ -1452,6 +1453,7 @@ export default function SettingsRoute() {
               value={editMemberForm().absenceEndsOn}
               placeholder={copy().absenceEndDateLabel}
               locale={locale()}
+              portal={false}
               onChange={(value) =>
                 setEditMemberForm((form) => ({
                   ...form,
