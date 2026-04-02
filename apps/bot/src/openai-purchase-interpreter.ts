@@ -200,6 +200,7 @@ export function createOpenAiPurchaseInterpreter(
       },
       body: JSON.stringify({
         model,
+        reasoning: { effort: 'none', summary: 'auto' },
         input: [
           {
             role: 'system',

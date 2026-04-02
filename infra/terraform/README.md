@@ -74,7 +74,7 @@ Recommended approach:
 - Keep non-secret bot config in `*.tfvars`:
   - optional `bot_purchase_parser_model`
   - optional `bot_assistant_model`
-  - optional `bot_assistant_router_model`
+  - optional `bot_topic_processor_model`
   - optional assistant runtime knobs:
     `bot_assistant_timeout_ms`,
     `bot_assistant_memory_max_turns`,

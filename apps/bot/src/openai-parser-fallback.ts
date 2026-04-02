@@ -41,6 +41,7 @@ export function createOpenAiParserFallback(
       },
       body: JSON.stringify({
         model,
+        reasoning: { effort: 'none', summary: 'auto' },
         input: [
           {
             role: 'system',

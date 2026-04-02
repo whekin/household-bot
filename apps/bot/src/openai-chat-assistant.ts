@@ -147,6 +147,7 @@ export function createOpenAiChatAssistant(
           },
           body: JSON.stringify({
             model,
+            reasoning: { effort: 'none', summary: 'auto' },
             max_output_tokens: ASSISTANT_MAX_OUTPUT_TOKENS,
             input: [
               {

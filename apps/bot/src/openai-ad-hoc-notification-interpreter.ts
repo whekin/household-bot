@@ -297,6 +297,7 @@ async function fetchStructuredResult<T>(input: {
       },
       body: JSON.stringify({
         model: input.model,
+        reasoning: { effort: 'none', summary: 'auto' },
         input: [
           {
             role: 'system',

@@ -201,9 +201,9 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     miniAppAllowedOrigins,
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
-    purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-4o-mini',
-    assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-4o-mini',
-    topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4o-mini',
+    purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-5.4-mini',
+    assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.4-mini',
+    topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4.1-nano',
     topicProcessorTimeoutMs: parsePositiveInteger(
       env.TOPIC_PROCESSOR_TIMEOUT_MS,
       10_000,
