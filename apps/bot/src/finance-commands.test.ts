@@ -958,6 +958,7 @@ describe('createFinanceCommandsService', () => {
         descriptions: {
           sections: {
             meta: 'Meta',
+            warnings: 'Warnings',
             settings: 'Settings',
             rawInputs: 'Raw inputs',
             derived: 'Derived',
@@ -979,8 +980,13 @@ describe('createFinanceCommandsService', () => {
             assignedThisCycle: 'assigned',
             projectedDeltaAfterPlan: 'delta',
             remaining: 'remaining'
+          },
+          snapshotSemantics: {
+            settlementSnapshotLines: 'Frozen historical snapshot.',
+            utilityPlanPayloadFairShareByMember: 'Plan input semantics.'
           }
         },
+        warnings: [],
         household: {
           householdId: 'household-1'
         },
@@ -1039,7 +1045,11 @@ describe('createFinanceCommandsService', () => {
           utilityVendorPaymentFacts: [],
           utilityReimbursementFacts: [],
           utilityPlanVersions: [],
-          settlementSnapshotLines: []
+          settlementSnapshot: {
+            isFrozenHistoricalSnapshot: true,
+            description: 'Frozen historical snapshot.',
+            lines: []
+          }
         },
         derived: {
           totals: {
@@ -1067,6 +1077,13 @@ describe('createFinanceCommandsService', () => {
         },
         utilityPlan: {
           explanation: 'Utility explanation',
+          fieldSemantics: {
+            rawCycleFairShareByMember: 'raw',
+            adjustedTargetByMember: 'adjusted',
+            planPayloadFairShareByMember: 'input'
+          },
+          rawCycleFairShareByMember: [],
+          adjustedTargetByMember: [],
           plan: null
         },
         rentState: {

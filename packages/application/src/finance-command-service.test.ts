@@ -1803,6 +1803,13 @@ describe('createFinanceCommandService', () => {
         isActive: true,
         providerName: 'Tbilisi Gas',
         customerNumber: 'ACC-1'
+      },
+      {
+        id: 'cat-2',
+        slug: 'internet',
+        name: 'Internet',
+        sortOrder: 2,
+        isActive: true
       }
     ]
     repository.utilityBills = [
@@ -1821,6 +1828,21 @@ describe('createFinanceCommandService', () => {
 
     expect(audit?.meta.adjustmentPolicy).toBe('rent')
     expect(audit?.descriptions.adjustmentPolicies.separate).toContain('Manual mode')
+    expect(audit?.descriptions.snapshotSemantics.settlementSnapshotLines).toContain(
+      'frozen historical'
+    )
+    expect(audit?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'ACTIVE_UTILITY_CATEGORY_WITHOUT_BILL',
+          severity: 'warning'
+        }),
+        expect.objectContaining({
+          code: 'RENT_MODE_DEFERS_BALANCE_ADJUSTMENT_TO_RENT',
+          severity: 'info'
+        })
+      ])
+    )
     expect(audit?.settings.utilityCategories[0]).toEqual(
       expect.objectContaining({
         name: 'Gas',
@@ -1835,6 +1857,14 @@ describe('createFinanceCommandService', () => {
         currency: 'GEL',
         display: '100.00 ₾'
       })
+    )
+    expect(audit?.rawInputs.settlementSnapshot).toEqual(
+      expect.objectContaining({
+        isFrozenHistoricalSnapshot: true
+      })
+    )
+    expect(audit?.utilityPlan.fieldSemantics.planPayloadFairShareByMember).toContain(
+      'fair-share input passed into that plan version'
     )
     expect(audit?.utilityPlan.explanation).toContain('deferred to rent')
     expect(audit?.dashboard.snapshot).toEqual(

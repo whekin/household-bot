@@ -315,7 +315,17 @@ export interface FinanceBillingAuditExport {
     sections: Record<string, string>
     adjustmentPolicies: Record<'utilities' | 'rent' | 'separate', string>
     derivedFields: Record<string, string>
+    snapshotSemantics: {
+      settlementSnapshotLines: string
+      utilityPlanPayloadFairShareByMember: string
+    }
   }
+  warnings: readonly {
+    code: string
+    severity: 'info' | 'warning'
+    section: string
+    message: string
+  }[]
   household: {
     householdId: string
   }
@@ -456,13 +466,17 @@ export interface FinanceBillingAuditExport {
       createdAt: string
       payload: FinanceUtilityBillingPlanPayload
     }[]
-    settlementSnapshotLines: readonly {
-      memberId: string
-      rentShare: FinanceAuditMoney
-      utilityShare: FinanceAuditMoney
-      purchaseOffset: FinanceAuditMoney
-      netDue: FinanceAuditMoney
-    }[]
+    settlementSnapshot: {
+      isFrozenHistoricalSnapshot: boolean
+      description: string
+      lines: readonly {
+        memberId: string
+        rentShare: FinanceAuditMoney
+        utilityShare: FinanceAuditMoney
+        purchaseOffset: FinanceAuditMoney
+        netDue: FinanceAuditMoney
+      }[]
+    }
   }
   derived: {
     totals: {
@@ -492,6 +506,21 @@ export interface FinanceBillingAuditExport {
   }
   utilityPlan: {
     explanation: string
+    fieldSemantics: {
+      rawCycleFairShareByMember: string
+      adjustedTargetByMember: string
+      planPayloadFairShareByMember: string
+    }
+    rawCycleFairShareByMember: readonly {
+      memberId: string
+      displayName: string
+      amount: FinanceAuditMoney
+    }[]
+    adjustedTargetByMember: readonly {
+      memberId: string
+      displayName: string
+      amount: FinanceAuditMoney
+    }[]
     plan: FinanceAuditJsonObject | null
   }
   rentState: {
@@ -827,6 +856,15 @@ function serializeDashboardUtilityBillingPlan(
       projectedDeltaAfterPlan: serializeMoney(summary.projectedDeltaAfterPlan)
     }))
   }
+}
+
+function auditWarning(input: {
+  code: string
+  severity: 'info' | 'warning'
+  section: string
+  message: string
+}): FinanceBillingAuditExport['warnings'][number] {
+  return input
 }
 
 function serializeDashboardRentBillingState(
@@ -3189,6 +3227,8 @@ export function createFinanceCommandService(
       const descriptions: FinanceBillingAuditExport['descriptions'] = {
         sections: {
           meta: 'Export metadata and cycle selection context.',
+          warnings:
+            'Non-fatal audit flags and interpretation notes that should be checked before trusting the cycle output.',
           settings: 'Billing settings and category metadata that shape the calculation.',
           rawInputs: 'Raw persisted finance facts and records used as calculation inputs.',
           derived:
@@ -3218,8 +3258,79 @@ export function createFinanceCommandService(
           projectedDeltaAfterPlan:
             'Expected difference between the member target and total utility vendor payments after the plan completes.',
           remaining: 'Current unpaid remainder after recorded payments.'
+        },
+        snapshotSemantics: {
+          settlementSnapshotLines:
+            'Settlement snapshot lines are frozen historical settlement inputs captured at snapshot time. They are not guaranteed to match the latest active utility plan or current dashboard state.',
+          utilityPlanPayloadFairShareByMember:
+            'utilityPlanVersions[].payload.fairShareByMember stores the fair-share input passed into that plan version. In utilities mode this may already include purchase-balance adjustment. Use derived.members.rawUtilityFairShare for raw cycle utility share and derived.members.adjustedUtilityTarget for the current adjusted target.'
         }
       }
+
+      const adjustmentPolicy = resolvedPaymentBalanceAdjustmentPolicy(settings)
+      const billedUtilityNames = new Set(
+        utilityBills.map((bill) => bill.billName.trim().toLowerCase())
+      )
+      const warnings: FinanceBillingAuditExport['warnings'] = [
+        ...utilityCategories
+          .filter(
+            (category) =>
+              category.isActive && !billedUtilityNames.has(category.name.trim().toLowerCase())
+          )
+          .map((category) =>
+            auditWarning({
+              code: 'ACTIVE_UTILITY_CATEGORY_WITHOUT_BILL',
+              severity: 'warning',
+              section: 'rawInputs.utilityBills',
+              message: `Active utility category "${category.name}" has no bill entered for cycle ${dashboard.period}.`
+            })
+          ),
+        ...(settlementSnapshotLines.length > 0
+          ? [
+              auditWarning({
+                code: 'SETTLEMENT_SNAPSHOT_IS_HISTORICAL',
+                severity: 'info',
+                section: 'rawInputs.settlementSnapshot',
+                message:
+                  'Settlement snapshot lines are frozen historical data and may differ from the latest active utility plan or dashboard-derived targets.'
+              })
+            ]
+          : []),
+        ...(utilityPlanVersions.length > 0
+          ? [
+              auditWarning({
+                code: 'UTILITY_PLAN_PAYLOAD_FAIR_SHARE_IS_PLAN_INPUT',
+                severity: 'info',
+                section: 'rawInputs.utilityPlanVersions',
+                message:
+                  'utilityPlanVersions[].payload.fairShareByMember reflects the fair-share input passed into that plan version, not necessarily the raw cycle utility fair share.'
+              })
+            ]
+          : []),
+        adjustmentPolicy === 'utilities'
+          ? auditWarning({
+              code: 'UTILITIES_MODE_APPLIES_PURCHASE_BALANCE_TO_UTILITY_TARGETS',
+              severity: 'info',
+              section: 'derived.members',
+              message:
+                'Utilities mode is active, so purchase offsets are routed into adjusted utility targets instead of rent.'
+            })
+          : adjustmentPolicy === 'rent'
+            ? auditWarning({
+                code: 'RENT_MODE_DEFERS_BALANCE_ADJUSTMENT_TO_RENT',
+                severity: 'info',
+                section: 'derived.members',
+                message:
+                  'Rent mode is active, so utility assignments stay raw and purchase offsets are routed into adjusted rent targets.'
+              })
+            : auditWarning({
+                code: 'MANUAL_MODE_DISABLES_AUTOMATIC_BALANCE_ADJUSTMENT',
+                severity: 'info',
+                section: 'derived.members',
+                message:
+                  'Manual mode is active, so utilities and rent stay raw and purchase offsets remain informational only.'
+              })
+      ]
 
       return {
         meta: {
@@ -3233,6 +3344,7 @@ export function createFinanceCommandService(
           timezone: dashboard.timezone
         },
         descriptions,
+        warnings,
         household: {
           householdId: dependencies.householdId
         },
@@ -3387,17 +3499,21 @@ export function createFinanceCommandService(
             createdAt: plan.createdAt.toString(),
             payload: plan.payload
           })),
-          settlementSnapshotLines: settlementSnapshotLines.map((line) => ({
-            memberId: line.memberId,
-            rentShare: serializeMoney(Money.fromMinor(line.rentShareMinor, dashboard.currency)),
-            utilityShare: serializeMoney(
-              Money.fromMinor(line.utilityShareMinor, dashboard.currency)
-            ),
-            purchaseOffset: serializeMoney(
-              Money.fromMinor(line.purchaseOffsetMinor, dashboard.currency)
-            ),
-            netDue: serializeMoney(Money.fromMinor(line.netDueMinor, dashboard.currency))
-          }))
+          settlementSnapshot: {
+            isFrozenHistoricalSnapshot: true,
+            description: descriptions.snapshotSemantics.settlementSnapshotLines,
+            lines: settlementSnapshotLines.map((line) => ({
+              memberId: line.memberId,
+              rentShare: serializeMoney(Money.fromMinor(line.rentShareMinor, dashboard.currency)),
+              utilityShare: serializeMoney(
+                Money.fromMinor(line.utilityShareMinor, dashboard.currency)
+              ),
+              purchaseOffset: serializeMoney(
+                Money.fromMinor(line.purchaseOffsetMinor, dashboard.currency)
+              ),
+              netDue: serializeMoney(Money.fromMinor(line.netDueMinor, dashboard.currency))
+            }))
+          }
         },
         derived: {
           totals: {
@@ -3447,18 +3563,46 @@ export function createFinanceCommandService(
         },
         utilityPlan: {
           explanation:
-            resolvedPaymentBalanceAdjustmentPolicy(settings) === 'utilities'
+            adjustmentPolicy === 'utilities'
               ? 'Utility planning includes purchase-balance adjustment in the member targets.'
-              : resolvedPaymentBalanceAdjustmentPolicy(settings) === 'rent'
+              : adjustmentPolicy === 'rent'
                 ? 'Utility planning stays raw and convenience-first; purchase-balance adjustment is deferred to rent.'
                 : 'Manual mode keeps utility planning raw with no automatic balance adjustment.',
+          fieldSemantics: {
+            rawCycleFairShareByMember:
+              'Raw cycle utility fair share before automatic balance adjustment.',
+            adjustedTargetByMember:
+              'Current utility target after applying the selected adjustment policy.',
+            planPayloadFairShareByMember:
+              descriptions.snapshotSemantics.utilityPlanPayloadFairShareByMember
+          },
+          rawCycleFairShareByMember: dashboard.members.map((member) => ({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            amount: serializeMoney(member.utilityShare)
+          })),
+          adjustedTargetByMember: dashboard.members.map((member) => ({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            amount: serializeMoney(
+              Money.fromMinor(
+                actionablePaymentDueMinor({
+                  kind: 'utilities',
+                  baseMinor: member.utilityShare.amountMinor,
+                  purchaseOffsetMinor: member.purchaseOffset.amountMinor,
+                  settings
+                }),
+                dashboard.currency
+              )
+            )
+          })),
           plan: serializeDashboardUtilityBillingPlan(dashboard.utilityBillingPlan)
         },
         rentState: {
           explanation:
-            resolvedPaymentBalanceAdjustmentPolicy(settings) === 'rent'
+            adjustmentPolicy === 'rent'
               ? 'Rent dues include purchase-balance adjustment in this mode.'
-              : resolvedPaymentBalanceAdjustmentPolicy(settings) === 'utilities'
+              : adjustmentPolicy === 'utilities'
                 ? 'Rent dues stay close to raw rent share because purchase-balance adjustment happens through utilities.'
                 : 'Manual mode keeps rent dues raw with no automatic balance adjustment.',
           state: serializeDashboardRentBillingState(dashboard.rentBillingState)
