@@ -1,4 +1,5 @@
 import { Show, For, Index, createEffect, createMemo, createSignal } from 'solid-js'
+import type { JSX } from 'solid-js'
 import { ArrowLeft, Globe, Plus, User } from 'lucide-solid'
 import { useNavigate } from '@solidjs/router'
 
@@ -14,7 +15,6 @@ import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Select } from '../components/ui/select'
 import { Input, Textarea } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
-import { Collapsible } from '../components/ui/collapsible'
 import { Field } from '../components/ui/field'
 import { Toggle } from '../components/ui/toggle'
 import {
@@ -64,6 +64,19 @@ function truncateValue(value: string | null | undefined, maxLength = 40): string
   return `${normalized.slice(0, maxLength - 1)}…`
 }
 
+function SettingsSummaryRow(props: {
+  label: string
+  value: JSX.Element | string
+  stack?: boolean
+}) {
+  return (
+    <div classList={{ 'settings-summary-row': true, 'settings-summary-row--stack': props.stack }}>
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  )
+}
+
 export default function SettingsRoute() {
   const navigate = useNavigate()
   const {
@@ -91,6 +104,8 @@ export default function SettingsRoute() {
 
   const [profileEditing, setProfileEditing] = createSignal(false)
   const [billingEditing, setBillingEditing] = createSignal(false)
+  const [assistantEditing, setAssistantEditing] = createSignal(false)
+  const [utilitiesEditorOpen, setUtilitiesEditorOpen] = createSignal(false)
   const [editingCategorySlug, setEditingCategorySlug] = createSignal<string | null>(null)
   const [savingCategory, setSavingCategory] = createSignal(false)
   const [categoryForm, setCategoryForm] = createSignal({
@@ -103,6 +118,7 @@ export default function SettingsRoute() {
     note: ''
   })
   const [savingSettings, setSavingSettings] = createSignal(false)
+  const [savingAssistant, setSavingAssistant] = createSignal(false)
   const [billingForm, setBillingForm] = createSignal<BillingFormState>({
     householdName: '',
     settlementCurrency: 'GEL',
@@ -136,6 +152,21 @@ export default function SettingsRoute() {
   const editingMember = createMemo(
     () => adminSettings()?.members.find((member) => member.id === editMemberId()) ?? null
   )
+  const settingsMembers = createMemo(() => adminSettings()?.members ?? [])
+  const sortedCategories = createMemo(() =>
+    [...(adminSettings()?.categories ?? [])].sort(
+      (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
+    )
+  )
+  const activeUtilityCategories = createMemo(() =>
+    sortedCategories().filter((category) => category.isActive)
+  )
+  const awayMembersCount = createMemo(
+    () => settingsMembers().filter((member) => member.status === 'away').length
+  )
+  const leftMembersCount = createMemo(
+    () => settingsMembers().filter((member) => member.status === 'left').length
+  )
 
   function buildBillingFormValue(): BillingFormState {
     const settings = adminSettings()
@@ -159,12 +190,6 @@ export default function SettingsRoute() {
     }
   }
 
-  const sortedCategories = createMemo(() =>
-    [...(adminSettings()?.categories ?? [])].sort(
-      (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
-    )
-  )
-
   const dashboardMemberById = createMemo(() => {
     const lines = dashboard()?.members ?? []
     return new Map(lines.map((member) => [member.memberId, member]))
@@ -184,7 +209,7 @@ export default function SettingsRoute() {
   })
 
   createEffect(() => {
-    if (billingEditing()) return
+    if (billingEditing() || assistantEditing()) return
     setBillingForm(buildBillingFormValue())
   })
 
@@ -206,6 +231,16 @@ export default function SettingsRoute() {
   function closeBillingEditor() {
     setBillingForm(buildBillingFormValue())
     setBillingEditing(false)
+  }
+
+  function openAssistantEditor() {
+    setBillingForm(buildBillingFormValue())
+    setAssistantEditing(true)
+  }
+
+  function closeAssistantEditor() {
+    setBillingForm(buildBillingFormValue())
+    setAssistantEditing(false)
   }
 
   function billingPolicyLabel(policy: 'utilities' | 'rent' | 'separate') {
@@ -230,6 +265,7 @@ export default function SettingsRoute() {
   }
 
   function openAddCategory() {
+    setUtilitiesEditorOpen(true)
     setEditingCategorySlug(NEW_CATEGORY_SLUG)
     setCategoryForm({
       name: '',
@@ -243,6 +279,7 @@ export default function SettingsRoute() {
   }
 
   function openEditCategory(category: MiniAppUtilityCategory) {
+    setUtilitiesEditorOpen(true)
     setEditingCategorySlug(category.slug)
     setCategoryForm({
       name: category.name,
@@ -266,6 +303,16 @@ export default function SettingsRoute() {
       paymentLink: '',
       note: ''
     })
+  }
+
+  function openUtilitiesEditor() {
+    closeCategoryEditor()
+    setUtilitiesEditorOpen(true)
+  }
+
+  function closeUtilitiesEditor() {
+    closeCategoryEditor()
+    setUtilitiesEditorOpen(false)
   }
 
   async function handleApprove(telegramUserId: string) {
@@ -328,6 +375,33 @@ export default function SettingsRoute() {
       )
     } finally {
       setSavingSettings(false)
+    }
+  }
+
+  async function handleSaveAssistant() {
+    const data = initData()
+    if (!data) return
+
+    setSavingAssistant(true)
+    try {
+      const { householdName, settings, assistantConfig } = await updateMiniAppBillingSettings(
+        data,
+        billingForm()
+      )
+      setAdminSettings((prev) =>
+        prev ? { ...prev, householdName, settings, assistantConfig } : prev
+      )
+      setAssistantEditing(false)
+      await refreshHouseholdData(true, true)
+    } catch (error) {
+      showError(
+        error,
+        locale() === 'ru'
+          ? 'Не получилось сохранить настройки бота.'
+          : 'Failed to save assistant settings.'
+      )
+    } finally {
+      setSavingAssistant(false)
     }
   }
 
@@ -458,6 +532,17 @@ export default function SettingsRoute() {
     }
   }
 
+  function topicRoleLabel(role: string) {
+    const labels: Record<string, string> = {
+      chat: copy().topicChat,
+      purchase: copy().topicPurchase,
+      feedback: copy().topicFeedback,
+      reminders: copy().topicReminders,
+      payments: copy().topicPayments
+    }
+    return labels[role] ?? role
+  }
+
   return (
     <div class="route route--settings">
       <div class="settings-header">
@@ -469,89 +554,52 @@ export default function SettingsRoute() {
         <p>{effectiveIsAdmin() ? copy().householdSettingsBody : copy().residentHouseBody}</p>
       </div>
 
-      <Card class="settings-section">
-        <div class="statement-section-heading">
-          <div>
-            <strong>{copy().houseSectionGeneral}</strong>
-            <p>{copy().generalSettingsBody}</p>
+      <Card class="settings-hub-card settings-hub-card--personal">
+        <div class="settings-hub-card__header">
+          <div class="settings-hub-card__copy">
+            <span class="settings-card-eyebrow">{copy().houseSectionGeneral}</span>
+            <strong>{copy().generalSettingsBody}</strong>
           </div>
+          <Button variant="secondary" size="sm" onClick={openProfileEditor}>
+            {copy().manageProfileAction}
+          </Button>
         </div>
 
-        <div class="settings-section__body">
-          <div class="settings-inline-item">
-            <div class="settings-detail-row">
-              <div class="settings-detail-row__icon">
-                <User size={16} />
-              </div>
-              <div class="settings-detail-row__copy">
-                <span class="settings-profile__label">{copy().displayNameLabel}</span>
-                <strong>{readySession()?.member.displayName ?? '—'}</strong>
-              </div>
-              <Show when={!profileEditing()}>
-                <Button variant="ghost" size="sm" onClick={openProfileEditor}>
-                  {copy().manageProfileAction}
-                </Button>
-              </Show>
+        <div class="settings-profile-grid">
+          <div class="settings-profile-chip">
+            <div class="settings-detail-row__icon">
+              <User size={16} />
             </div>
-
-            <Show when={profileEditing()}>
-              <div class="settings-inline-editor">
-                <Field label={copy().displayNameLabel} hint={copy().displayNameHint} wide>
-                  <Input
-                    value={displayNameDraft()}
-                    onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
-                  />
-                </Field>
-                <div class="settings-inline-editor__actions">
-                  <Button variant="ghost" onClick={closeProfileEditor}>
-                    {copy().closeEditorAction}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    disabled={
-                      savingOwnDisplayName() ||
-                      displayNameDraft().trim().length < 2 ||
-                      displayNameDraft().trim() === readySession()?.member.displayName
-                    }
-                    loading={savingOwnDisplayName()}
-                    onClick={async () => {
-                      await handleSaveOwnDisplayName()
-                      setProfileEditing(false)
-                    }}
-                  >
-                    {savingOwnDisplayName() ? copy().savingDisplayName : copy().saveDisplayName}
-                  </Button>
-                </div>
-              </div>
-            </Show>
+            <div class="settings-profile-chip__copy">
+              <span>{copy().displayNameLabel}</span>
+              <strong>{readySession()?.member.displayName ?? '—'}</strong>
+            </div>
           </div>
 
-          <div class="settings-inline-item">
-            <div class="settings-detail-row">
-              <div class="settings-detail-row__icon">
-                <Globe size={16} />
-              </div>
-              <div class="settings-detail-row__copy">
-                <span class="settings-profile__label">{copy().language}</span>
-                <strong>{locale() === 'en' ? 'English' : 'Русский'}</strong>
-              </div>
-              <div class="locale-switch locale-switch--compact">
-                <div class="locale-switch__buttons">
-                  <button
-                    classList={{ 'is-active': locale() === 'en' }}
-                    type="button"
-                    onClick={() => void handleMemberLocaleChange('en')}
-                  >
-                    EN
-                  </button>
-                  <button
-                    classList={{ 'is-active': locale() === 'ru' }}
-                    type="button"
-                    onClick={() => void handleMemberLocaleChange('ru')}
-                  >
-                    RU
-                  </button>
-                </div>
+          <div class="settings-profile-chip">
+            <div class="settings-detail-row__icon">
+              <Globe size={16} />
+            </div>
+            <div class="settings-profile-chip__copy">
+              <span>{copy().language}</span>
+              <strong>{locale() === 'en' ? 'English' : 'Русский'}</strong>
+            </div>
+            <div class="locale-switch locale-switch--compact">
+              <div class="locale-switch__buttons">
+                <button
+                  classList={{ 'is-active': locale() === 'en' }}
+                  type="button"
+                  onClick={() => void handleMemberLocaleChange('en')}
+                >
+                  EN
+                </button>
+                <button
+                  classList={{ 'is-active': locale() === 'ru' }}
+                  type="button"
+                  onClick={() => void handleMemberLocaleChange('ru')}
+                >
+                  RU
+                </button>
               </div>
             </div>
           </div>
@@ -559,806 +607,849 @@ export default function SettingsRoute() {
       </Card>
 
       <Show when={effectiveIsAdmin()}>
-        <Card class="settings-section">
-          <div class="statement-section-heading">
-            <div>
-              <strong>{copy().houseSectionBilling}</strong>
-              <p>{copy().billingSettingsEditorBody}</p>
-            </div>
-            <Show when={!billingEditing()}>
-              <Button variant="secondary" size="sm" onClick={openBillingEditor}>
-                {copy().manageSettingsAction}
-              </Button>
-            </Show>
-          </div>
-
-          <div class="settings-cycle-strip">
-            <div class="settings-cycle-strip__header">
-              <strong>{copy().currentCycleLabel}</strong>
-              <Show when={cycleState()?.cycle}>
-                {(cycle) => (
-                  <Badge variant="accent">{formatCyclePeriod(cycle().period, locale())}</Badge>
-                )}
-              </Show>
-            </div>
-            <Show
-              when={cycleState()?.cycle}
-              fallback={<p class="empty-state">{copy().billingCycleOpenHint}</p>}
-            >
-              {(cycle) => (
-                <div class="settings-summary-list">
-                  <div class="settings-summary-row">
-                    <span>{copy().billingCyclePeriod}</span>
-                    <strong>{formatCyclePeriod(cycle().period, locale())}</strong>
-                  </div>
-                  <div class="settings-summary-row">
-                    <span>{copy().currencyLabel}</span>
-                    <Badge variant="muted">{cycle().currency}</Badge>
-                  </div>
-                </div>
-              )}
-            </Show>
-          </div>
-
+        <div class="settings-hub-stack">
           <Show when={adminSettings()}>
             {(settings) => (
-              <Show
-                when={billingEditing()}
-                fallback={
-                  <div class="settings-summary-grid">
-                    <div class="settings-summary-group">
-                      <div class="settings-summary-row">
-                        <span>{copy().householdNameLabel}</span>
-                        <strong>{settings().householdName}</strong>
+              <>
+                <div class="settings-hub-grid">
+                  <Card class="settings-hub-card settings-hub-card--hero">
+                    <div class="settings-hub-card__header">
+                      <div class="settings-hub-card__copy">
+                        <span class="settings-card-eyebrow">{copy().houseSectionBilling}</span>
+                        <strong>{copy().billingSettingsEditorBody}</strong>
                       </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().settlementCurrency}</span>
-                        <Badge variant="muted">{settings().settings.settlementCurrency}</Badge>
-                      </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().timezone}</span>
-                        <strong>{settings().settings.timezone}</strong>
-                      </div>
+                      <Button variant="primary" size="sm" onClick={openBillingEditor}>
+                        {copy().manageBillingAction}
+                      </Button>
                     </div>
 
-                    <div class="settings-summary-group">
-                      <div class="settings-summary-row">
+                    <div class="settings-hub-stats">
+                      <div class="settings-hub-stat">
+                        <span>{copy().currentCycleLabel}</span>
+                        <strong>
+                          {cycleState()?.cycle
+                            ? formatCyclePeriod(cycleState()!.cycle!.period, locale())
+                            : '—'}
+                        </strong>
+                      </div>
+                      <div class="settings-hub-stat">
                         <span>{copy().defaultRentAmount}</span>
                         <strong>
                           {minorToMajorString(BigInt(settings().settings.rentAmountMinor ?? '0'))}{' '}
                           {settings().settings.rentCurrency}
                         </strong>
                       </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().rentWarningDay}</span>
-                        <strong>{settings().settings.rentWarningDay}</strong>
+                    </div>
+
+                    <div class="settings-summary-list">
+                      <SettingsSummaryRow
+                        label={copy().paymentBalanceAdjustmentPolicy}
+                        value={billingPolicyLabel(
+                          settings().settings.paymentBalanceAdjustmentPolicy
+                        )}
+                      />
+                      <SettingsSummaryRow
+                        label={copy().settlementCurrency}
+                        value={settings().settings.settlementCurrency}
+                      />
+                      <SettingsSummaryRow
+                        label={copy().timezone}
+                        value={settings().settings.timezone}
+                      />
+                      <SettingsSummaryRow
+                        label={copy().rentDueDay}
+                        value={String(settings().settings.rentDueDay)}
+                      />
+                      <SettingsSummaryRow
+                        label={copy().utilitiesDueDay}
+                        value={String(settings().settings.utilitiesDueDay)}
+                      />
+                      <SettingsSummaryRow
+                        label={copy().rentPaymentDestinationsTitle}
+                        value={String(settings().settings.rentPaymentDestinations?.length ?? 0)}
+                      />
+                    </div>
+                  </Card>
+
+                  <Card class="settings-hub-card">
+                    <div class="settings-hub-card__header">
+                      <div class="settings-hub-card__copy">
+                        <span class="settings-card-eyebrow">{copy().houseSectionMembers}</span>
+                        <strong>{copy().membersBody}</strong>
                       </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().rentDueDay}</span>
-                        <strong>{settings().settings.rentDueDay}</strong>
+                      <Badge variant="accent">{settingsMembers().length}</Badge>
+                    </div>
+
+                    <div class="settings-hub-stats settings-hub-stats--triple">
+                      <div class="settings-hub-stat">
+                        <span>{copy().membersCount}</span>
+                        <strong>{settingsMembers().length}</strong>
+                      </div>
+                      <div class="settings-hub-stat">
+                        <span>{copy().memberStatusAway}</span>
+                        <strong>{awayMembersCount()}</strong>
+                      </div>
+                      <div class="settings-hub-stat">
+                        <span>{copy().memberStatusLeft}</span>
+                        <strong>{leftMembersCount()}</strong>
                       </div>
                     </div>
 
-                    <div class="settings-summary-group">
-                      <div class="settings-summary-row">
-                        <span>{copy().utilitiesReminderDay}</span>
-                        <strong>{settings().settings.utilitiesReminderDay}</strong>
-                      </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().utilitiesDueDay}</span>
-                        <strong>{settings().settings.utilitiesDueDay}</strong>
-                      </div>
-                      <div class="settings-summary-row">
-                        <span>{copy().paymentBalanceAdjustmentPolicy}</span>
-                        <strong>
-                          {billingPolicyLabel(settings().settings.paymentBalanceAdjustmentPolicy)}
-                        </strong>
-                      </div>
+                    <div class="settings-member-preview-list">
+                      <For each={settingsMembers()}>
+                        {(member) => (
+                          <button
+                            class="settings-member-preview"
+                            onClick={() => openEditMember(member)}
+                          >
+                            <div class="settings-member-preview__copy">
+                              <strong>{member.displayName}</strong>
+                              <span>
+                                {copy().presenceDaysLabel}:{' '}
+                                {currentPresenceDaysForMember(member.id, member.status)}
+                              </span>
+                            </div>
+                            <div class="settings-member-preview__meta">
+                              <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
+                                {member.isAdmin ? copy().adminTag : copy().residentTag}
+                              </Badge>
+                              <Badge variant="muted">
+                                {member.status === 'active'
+                                  ? copy().memberStatusActive
+                                  : member.status === 'away'
+                                    ? copy().memberStatusAway
+                                    : copy().memberStatusLeft}
+                              </Badge>
+                            </div>
+                          </button>
+                        )}
+                      </For>
                     </div>
+                  </Card>
 
-                    <div class="settings-summary-group">
-                      <div class="settings-summary-row">
-                        <span>{copy().rentPaymentDestinationsTitle}</span>
-                        <strong>{settings().settings.rentPaymentDestinations?.length ?? 0}</strong>
+                  <Card class="settings-hub-card">
+                    <div class="settings-hub-card__header">
+                      <div class="settings-hub-card__copy">
+                        <span class="settings-card-eyebrow">{copy().houseSectionUtilities}</span>
+                        <strong>{copy().utilityCategoriesBody}</strong>
                       </div>
-                      <div class="settings-summary-row settings-summary-row--stack">
-                        <span>{copy().assistantToneLabel}</span>
-                        <strong>{truncateValue(settings().assistantConfig?.assistantTone)}</strong>
-                      </div>
-                      <div class="settings-summary-row settings-summary-row--stack">
-                        <span>{copy().assistantContextLabel}</span>
-                        <strong>
-                          {truncateValue(settings().assistantConfig?.assistantContext, 80)}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                }
-              >
-                <div class="settings-form-stack">
-                  <div class="settings-form-section">
-                    <div class="settings-form-grid">
-                      <Field label={copy().householdNameLabel} hint={copy().householdNameHint} wide>
-                        <Input
-                          value={billingForm().householdName}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              householdName: e.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().settlementCurrency}>
-                        <CurrencyToggle
-                          value={billingForm().settlementCurrency}
-                          ariaLabel={copy().settlementCurrency}
-                          onChange={(value) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              settlementCurrency: value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().timezone} hint={copy().timezoneHint}>
-                        <Input
-                          value={billingForm().timezone}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({ ...form, timezone: e.currentTarget.value }))
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  <div class="settings-form-section">
-                    <div class="settings-form-grid settings-form-grid--compact">
-                      <Field label={copy().defaultRentAmount}>
-                        <Input
-                          type="number"
-                          value={billingForm().rentAmountMajor}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              rentAmountMajor: e.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().rentCurrencyLabel}>
-                        <CurrencyToggle
-                          value={billingForm().rentCurrency}
-                          ariaLabel={copy().rentCurrencyLabel}
-                          onChange={(value) =>
-                            setBillingForm((form) => ({ ...form, rentCurrency: value }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().rentWarningDay}>
-                        <Input
-                          type="number"
-                          value={String(billingForm().rentWarningDay)}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              rentWarningDay: Number(e.currentTarget.value) || 0
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().rentDueDay}>
-                        <Input
-                          type="number"
-                          value={String(billingForm().rentDueDay)}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              rentDueDay: Number(e.currentTarget.value) || 0
-                            }))
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  <div class="settings-form-section">
-                    <div class="settings-form-grid settings-form-grid--compact">
-                      <Field label={copy().utilitiesReminderDay}>
-                        <Input
-                          type="number"
-                          value={String(billingForm().utilitiesReminderDay)}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              utilitiesReminderDay: Number(e.currentTarget.value) || 0
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().utilitiesDueDay}>
-                        <Input
-                          type="number"
-                          value={String(billingForm().utilitiesDueDay)}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              utilitiesDueDay: Number(e.currentTarget.value) || 0
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().paymentBalanceAdjustmentPolicy} wide>
-                        <Select
-                          value={billingForm().paymentBalanceAdjustmentPolicy}
-                          ariaLabel={copy().paymentBalanceAdjustmentPolicy}
-                          options={[
-                            {
-                              value: 'utilities',
-                              label: copy().paymentBalanceAdjustmentUtilities
-                            },
-                            { value: 'rent', label: copy().paymentBalanceAdjustmentRent },
-                            {
-                              value: 'separate',
-                              label: copy().paymentBalanceAdjustmentSeparate
-                            }
-                          ]}
-                          onChange={(value) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              paymentBalanceAdjustmentPolicy: value as
-                                | 'utilities'
-                                | 'rent'
-                                | 'separate'
-                            }))
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  <div class="settings-form-section">
-                    <div class="settings-form-section__header">
-                      <strong>{copy().rentPaymentDestinationsTitle}</strong>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() =>
-                          setBillingForm((form) => ({
-                            ...form,
-                            rentPaymentDestinations: [
-                              ...form.rentPaymentDestinations,
-                              {
-                                label: '',
-                                recipientName: null,
-                                bankName: null,
-                                account: '',
-                                note: null,
-                                link: null
-                              }
-                            ]
-                          }))
-                        }
-                      >
-                        {copy().rentPaymentDestinationAddAction}
+                      <Button variant="secondary" size="sm" onClick={openUtilitiesEditor}>
+                        {copy().manageUtilitiesAction}
                       </Button>
+                    </div>
+
+                    <div class="settings-hub-stats">
+                      <div class="settings-hub-stat">
+                        <span>{copy().utilityCategoriesTitle}</span>
+                        <strong>{sortedCategories().length}</strong>
+                      </div>
+                      <div class="settings-hub-stat">
+                        <span>{copy().onLabel}</span>
+                        <strong>{activeUtilityCategories().length}</strong>
+                      </div>
                     </div>
 
                     <Show
-                      when={billingForm().rentPaymentDestinations.length > 0}
-                      fallback={<p class="empty-state">{copy().rentPaymentDestinationsEmpty}</p>}
+                      when={sortedCategories().length > 0}
+                      fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
                     >
-                      <div class="settings-destination-list">
-                        <Index each={billingForm().rentPaymentDestinations}>
-                          {(destination, index) => (
-                            <div class="settings-destination-row">
-                              <div class="settings-destination-row__header">
-                                <strong>
-                                  {destination().label ||
-                                    `${copy().rentPaymentDestinationAddAction} ${index + 1}`}
-                                </strong>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setBillingForm((form) => ({
-                                      ...form,
-                                      rentPaymentDestinations: form.rentPaymentDestinations.filter(
-                                        (_, currentIndex) => currentIndex !== index
-                                      )
-                                    }))
-                                  }
-                                >
-                                  {copy().rentPaymentDestinationRemoveAction}
-                                </Button>
+                      <div class="settings-utility-preview-list">
+                        <For each={sortedCategories().slice(0, 4)}>
+                          {(category) => (
+                            <div class="settings-utility-preview">
+                              <div class="settings-utility-preview__copy">
+                                <strong>{category.name}</strong>
+                                <span>
+                                  {category.providerName ||
+                                    category.customerNumber ||
+                                    category.note ||
+                                    '—'}
+                                </span>
                               </div>
-                              <div class="settings-form-grid">
-                                <Field label={copy().rentPaymentDestinationLabel} wide>
-                                  <Input
-                                    value={destination().label}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          label: e.currentTarget.value
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label={copy().rentPaymentDestinationRecipient}>
-                                  <Input
-                                    value={destination().recipientName ?? ''}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          recipientName: e.currentTarget.value || null
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label={copy().rentPaymentDestinationBank}>
-                                  <Input
-                                    value={destination().bankName ?? ''}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          bankName: e.currentTarget.value || null
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label={copy().rentPaymentDestinationAccount} wide>
-                                  <Input
-                                    value={destination().account}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          account: e.currentTarget.value
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label={copy().rentPaymentDestinationLink} wide>
-                                  <Input
-                                    value={destination().link ?? ''}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          link: e.currentTarget.value || null
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label={copy().rentPaymentDestinationNote} wide>
-                                  <Textarea
-                                    value={destination().note ?? ''}
-                                    onInput={(e) =>
-                                      setBillingForm((form) => {
-                                        const next = [...form.rentPaymentDestinations]
-                                        next[index] = {
-                                          ...next[index]!,
-                                          note: e.currentTarget.value || null
-                                        }
-                                        return { ...form, rentPaymentDestinations: next }
-                                      })
-                                    }
-                                  />
-                                </Field>
-                              </div>
-                            </div>
-                          )}
-                        </Index>
-                      </div>
-                    </Show>
-                  </div>
-
-                  <div class="settings-form-section">
-                    <div class="settings-form-grid">
-                      <Field
-                        label={copy().assistantToneLabel}
-                        hint={copy().assistantTonePlaceholder}
-                      >
-                        <Input
-                          value={billingForm().assistantTone}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              assistantTone: e.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={copy().assistantContextLabel} wide>
-                        <Textarea
-                          value={billingForm().assistantContext}
-                          placeholder={copy().assistantContextPlaceholder}
-                          onInput={(e) =>
-                            setBillingForm((form) => ({
-                              ...form,
-                              assistantContext: e.currentTarget.value
-                            }))
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  <div class="settings-inline-editor__actions">
-                    <Button variant="ghost" onClick={closeBillingEditor}>
-                      {copy().closeEditorAction}
-                    </Button>
-                    <Button
-                      variant="primary"
-                      loading={savingSettings()}
-                      onClick={() => void handleSaveSettings()}
-                    >
-                      {savingSettings() ? copy().savingSettings : copy().saveSettingsAction}
-                    </Button>
-                  </div>
-                </div>
-              </Show>
-            )}
-          </Show>
-        </Card>
-
-        <Card class="settings-section">
-          <div class="statement-section-heading">
-            <div>
-              <strong>{copy().utilityCategoriesTitle}</strong>
-              <p>{copy().utilityCategoriesBody}</p>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={editingCategorySlug() !== null}
-              onClick={openAddCategory}
-            >
-              <Plus size={14} />
-              {copy().addCategoryAction}
-            </Button>
-          </div>
-
-          <div class="settings-section__body">
-            <Show when={editingCategorySlug() === NEW_CATEGORY_SLUG}>
-              <div class="settings-category-row settings-category-row--editing">
-                <div class="settings-form-grid">
-                  <Field label={copy().utilityCategoryName} wide>
-                    <Input
-                      value={categoryForm().name}
-                      onInput={(e) =>
-                        setCategoryForm((form) => ({ ...form, name: e.currentTarget.value }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Provider" wide>
-                    <Input
-                      value={categoryForm().providerName}
-                      onInput={(e) =>
-                        setCategoryForm((form) => ({
-                          ...form,
-                          providerName: e.currentTarget.value
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Customer / account number" wide>
-                    <Input
-                      value={categoryForm().customerNumber}
-                      onInput={(e) =>
-                        setCategoryForm((form) => ({
-                          ...form,
-                          customerNumber: e.currentTarget.value
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Payment link" wide>
-                    <Input
-                      value={categoryForm().paymentLink}
-                      onInput={(e) =>
-                        setCategoryForm((form) => ({
-                          ...form,
-                          paymentLink: e.currentTarget.value
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Note" wide>
-                    <Textarea
-                      value={categoryForm().note}
-                      onInput={(e) =>
-                        setCategoryForm((form) => ({ ...form, note: e.currentTarget.value }))
-                      }
-                    />
-                  </Field>
-                </div>
-                <div class="settings-category-row__controls">
-                  <Toggle
-                    checked={categoryForm().isActive}
-                    label={copy().utilityCategoryActive}
-                    onChange={(checked) =>
-                      setCategoryForm((form) => ({ ...form, isActive: checked }))
-                    }
-                  />
-                  <div class="settings-inline-editor__actions">
-                    <Button variant="ghost" size="sm" onClick={closeCategoryEditor}>
-                      {copy().closeEditorAction}
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={savingCategory()}
-                      disabled={categoryForm().name.trim().length < 1}
-                      onClick={() => void handleSaveCategory()}
-                    >
-                      {savingCategory() ? copy().savingCategory : copy().saveCategoryAction}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Show>
-
-            <Show
-              when={sortedCategories().length > 0}
-              fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
-            >
-              <div class="settings-category-list">
-                <For each={sortedCategories()}>
-                  {(category) => (
-                    <div class="settings-category-row">
-                      <Show
-                        when={editingCategorySlug() === category.slug}
-                        fallback={
-                          <>
-                            <div class="settings-category-row__copy">
-                              <strong>{category.name}</strong>
-                              <span>{category.providerName || copy().utilityCategoryName}</span>
-                            </div>
-                            <div class="settings-category-row__actions">
                               <Badge variant={category.isActive ? 'accent' : 'muted'}>
                                 {category.isActive ? copy().onLabel : copy().offLabel}
                               </Badge>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={editingCategorySlug() !== null}
-                                onClick={() => openEditCategory(category)}
-                              >
-                                {copy().editCategoryAction}
-                              </Button>
                             </div>
-                          </>
-                        }
-                      >
-                        <div class="settings-form-grid">
-                          <Field label={copy().utilityCategoryName} wide>
-                            <Input
-                              value={categoryForm().name}
-                              onInput={(e) =>
-                                setCategoryForm((form) => ({
-                                  ...form,
-                                  name: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label="Provider" wide>
-                            <Input
-                              value={categoryForm().providerName}
-                              onInput={(e) =>
-                                setCategoryForm((form) => ({
-                                  ...form,
-                                  providerName: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label="Customer / account number" wide>
-                            <Input
-                              value={categoryForm().customerNumber}
-                              onInput={(e) =>
-                                setCategoryForm((form) => ({
-                                  ...form,
-                                  customerNumber: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label="Payment link" wide>
-                            <Input
-                              value={categoryForm().paymentLink}
-                              onInput={(e) =>
-                                setCategoryForm((form) => ({
-                                  ...form,
-                                  paymentLink: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field label="Note" wide>
-                            <Textarea
-                              value={categoryForm().note}
-                              onInput={(e) =>
-                                setCategoryForm((form) => ({
-                                  ...form,
-                                  note: e.currentTarget.value
-                                }))
-                              }
-                            />
-                          </Field>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Card>
+                </div>
+
+                <div class="settings-advanced">
+                  <div class="settings-advanced__header">
+                    <div>
+                      <strong>{copy().settingsAdvancedTitle}</strong>
+                      <p>{copy().settingsAdvancedBody}</p>
+                    </div>
+                  </div>
+
+                  <Show when={pendingMembers().length > 0}>
+                    <Card class="settings-hub-card settings-hub-card--quiet">
+                      <div class="settings-hub-card__header">
+                        <div class="settings-hub-card__copy">
+                          <span class="settings-card-eyebrow">{copy().pendingMembersTitle}</span>
+                          <strong>{copy().pendingMembersBody}</strong>
                         </div>
-                        <div class="settings-category-row__controls">
-                          <Toggle
-                            checked={categoryForm().isActive}
-                            label={copy().utilityCategoryActive}
-                            onChange={(checked) =>
-                              setCategoryForm((form) => ({ ...form, isActive: checked }))
+                        <Badge variant="accent">{pendingMembers().length}</Badge>
+                      </div>
+
+                      <div class="settings-member-preview-list">
+                        <For each={pendingMembers()}>
+                          {(member) => (
+                            <div class="settings-pending-row">
+                              <div class="settings-member-preview__copy">
+                                <strong>{member.displayName}</strong>
+                                <span>{member.username ? `@${member.username}` : '—'}</span>
+                              </div>
+                              <div class="settings-pending-row__actions">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  loading={rejectingId() === member.telegramUserId}
+                                  disabled={approvingId() === member.telegramUserId}
+                                  onClick={() => void handleReject(member.telegramUserId)}
+                                >
+                                  {rejectingId() === member.telegramUserId
+                                    ? copy().rejectingMember
+                                    : copy().rejectMemberAction}
+                                </Button>
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  loading={approvingId() === member.telegramUserId}
+                                  disabled={rejectingId() === member.telegramUserId}
+                                  onClick={() => void handleApprove(member.telegramUserId)}
+                                >
+                                  {approvingId() === member.telegramUserId
+                                    ? copy().approvingMember
+                                    : copy().approveMemberAction}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Card>
+                  </Show>
+
+                  <Card class="settings-hub-card settings-hub-card--quiet">
+                    <div class="settings-hub-card__header">
+                      <div class="settings-hub-card__copy">
+                        <span class="settings-card-eyebrow">{copy().assistantSettingsTitle}</span>
+                        <strong>{copy().assistantSettingsBody}</strong>
+                      </div>
+                      <Button variant="secondary" size="sm" onClick={openAssistantEditor}>
+                        {copy().manageAssistantAction}
+                      </Button>
+                    </div>
+
+                    <div class="settings-summary-list">
+                      <SettingsSummaryRow
+                        label={copy().assistantToneLabel}
+                        value={truncateValue(settings().assistantConfig?.assistantTone)}
+                        stack
+                      />
+                      <SettingsSummaryRow
+                        label={copy().assistantContextLabel}
+                        value={truncateValue(settings().assistantConfig?.assistantContext, 96)}
+                        stack
+                      />
+                    </div>
+                  </Card>
+
+                  <Card class="settings-hub-card settings-hub-card--quiet">
+                    <div class="settings-hub-card__header">
+                      <div class="settings-hub-card__copy">
+                        <span class="settings-card-eyebrow">{copy().houseSectionTopics}</span>
+                        <strong>{copy().topicBindingsBody}</strong>
+                      </div>
+                    </div>
+
+                    <div class="settings-topic-list">
+                      <For each={settings().topics}>
+                        {(topic) => (
+                          <div class="settings-topic-row">
+                            <div class="settings-topic-row__copy">
+                              <strong>{topicRoleLabel(topic.role)}</strong>
+                              <span>{topic.topicName || copy().topicUnbound}</span>
+                            </div>
+                            <Badge variant={topic.telegramThreadId ? 'accent' : 'muted'}>
+                              {topic.telegramThreadId ? copy().topicBound : copy().topicUnbound}
+                            </Badge>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Card>
+                </div>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+
+      <Modal
+        open={profileEditing()}
+        title={copy().manageProfileAction}
+        description={copy().profileEditorBody}
+        closeLabel={copy().closeEditorAction}
+        onClose={closeProfileEditor}
+        footer={
+          <div class="modal-action-row">
+            <Button variant="ghost" onClick={closeProfileEditor}>
+              {copy().closeEditorAction}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={
+                savingOwnDisplayName() ||
+                displayNameDraft().trim().length < 2 ||
+                displayNameDraft().trim() === readySession()?.member.displayName
+              }
+              loading={savingOwnDisplayName()}
+              onClick={async () => {
+                await handleSaveOwnDisplayName()
+                setProfileEditing(false)
+              }}
+            >
+              {savingOwnDisplayName() ? copy().savingDisplayName : copy().saveDisplayName}
+            </Button>
+          </div>
+        }
+      >
+        <div class="settings-sheet-stack">
+          <div class="settings-sheet-section">
+            <Field label={copy().displayNameLabel} hint={copy().displayNameHint} wide>
+              <Input
+                value={displayNameDraft()}
+                onInput={(event) => setDisplayNameDraft(event.currentTarget.value)}
+              />
+            </Field>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={billingEditing()}
+        title={copy().manageBillingAction}
+        description={copy().billingSettingsEditorBody}
+        closeLabel={copy().closeEditorAction}
+        onClose={closeBillingEditor}
+        footer={
+          <div class="modal-action-row">
+            <Button variant="ghost" onClick={closeBillingEditor}>
+              {copy().closeEditorAction}
+            </Button>
+            <Button
+              variant="primary"
+              loading={savingSettings()}
+              onClick={() => void handleSaveSettings()}
+            >
+              {savingSettings() ? copy().savingSettings : copy().saveSettingsAction}
+            </Button>
+          </div>
+        }
+      >
+        <div class="settings-sheet-stack">
+          <div class="settings-sheet-section">
+            <div class="settings-sheet-section__header">
+              <strong>{copy().houseSectionGeneral}</strong>
+            </div>
+            <div class="settings-form-grid">
+              <Field label={copy().householdNameLabel} hint={copy().householdNameHint} wide>
+                <Input
+                  value={billingForm().householdName}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      householdName: e.currentTarget.value
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().settlementCurrency}>
+                <CurrencyToggle
+                  value={billingForm().settlementCurrency}
+                  ariaLabel={copy().settlementCurrency}
+                  onChange={(value) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      settlementCurrency: value
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().timezone} hint={copy().timezoneHint}>
+                <Input
+                  value={billingForm().timezone}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({ ...form, timezone: e.currentTarget.value }))
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div class="settings-sheet-section">
+            <div class="settings-sheet-section__header">
+              <strong>{copy().homeRentTitle}</strong>
+            </div>
+            <div class="settings-form-grid settings-form-grid--compact">
+              <Field label={copy().defaultRentAmount}>
+                <Input
+                  type="number"
+                  value={billingForm().rentAmountMajor}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      rentAmountMajor: e.currentTarget.value
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().rentCurrencyLabel}>
+                <CurrencyToggle
+                  value={billingForm().rentCurrency}
+                  ariaLabel={copy().rentCurrencyLabel}
+                  onChange={(value) => setBillingForm((form) => ({ ...form, rentCurrency: value }))}
+                />
+              </Field>
+              <Field label={copy().rentWarningDay}>
+                <Input
+                  type="number"
+                  value={String(billingForm().rentWarningDay)}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      rentWarningDay: Number(e.currentTarget.value) || 0
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().rentDueDay}>
+                <Input
+                  type="number"
+                  value={String(billingForm().rentDueDay)}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      rentDueDay: Number(e.currentTarget.value) || 0
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div class="settings-sheet-section">
+            <div class="settings-sheet-section__header">
+              <strong>{copy().homeUtilitiesTitle}</strong>
+            </div>
+            <div class="settings-form-grid settings-form-grid--compact">
+              <Field label={copy().utilitiesReminderDay}>
+                <Input
+                  type="number"
+                  value={String(billingForm().utilitiesReminderDay)}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      utilitiesReminderDay: Number(e.currentTarget.value) || 0
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().utilitiesDueDay}>
+                <Input
+                  type="number"
+                  value={String(billingForm().utilitiesDueDay)}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      utilitiesDueDay: Number(e.currentTarget.value) || 0
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().paymentBalanceAdjustmentPolicy} wide>
+                <Select
+                  value={billingForm().paymentBalanceAdjustmentPolicy}
+                  ariaLabel={copy().paymentBalanceAdjustmentPolicy}
+                  options={[
+                    { value: 'utilities', label: copy().paymentBalanceAdjustmentUtilities },
+                    { value: 'rent', label: copy().paymentBalanceAdjustmentRent },
+                    { value: 'separate', label: copy().paymentBalanceAdjustmentSeparate }
+                  ]}
+                  onChange={(value) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      paymentBalanceAdjustmentPolicy: value as 'utilities' | 'rent' | 'separate'
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div class="settings-sheet-section">
+            <div class="settings-sheet-section__header">
+              <strong>{copy().rentPaymentDestinationsTitle}</strong>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  setBillingForm((form) => ({
+                    ...form,
+                    rentPaymentDestinations: [
+                      ...form.rentPaymentDestinations,
+                      {
+                        label: '',
+                        recipientName: null,
+                        bankName: null,
+                        account: '',
+                        note: null,
+                        link: null
+                      }
+                    ]
+                  }))
+                }
+              >
+                {copy().rentPaymentDestinationAddAction}
+              </Button>
+            </div>
+
+            <Show
+              when={billingForm().rentPaymentDestinations.length > 0}
+              fallback={<p class="empty-state">{copy().rentPaymentDestinationsEmpty}</p>}
+            >
+              <div class="settings-destination-list">
+                <Index each={billingForm().rentPaymentDestinations}>
+                  {(destination, index) => (
+                    <div class="settings-destination-row settings-destination-row--sheet">
+                      <div class="settings-destination-row__header">
+                        <strong>
+                          {destination().label ||
+                            `${copy().rentPaymentDestinationAddAction} ${index + 1}`}
+                        </strong>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setBillingForm((form) => ({
+                              ...form,
+                              rentPaymentDestinations: form.rentPaymentDestinations.filter(
+                                (_, currentIndex) => currentIndex !== index
+                              )
+                            }))
+                          }
+                        >
+                          {copy().rentPaymentDestinationRemoveAction}
+                        </Button>
+                      </div>
+                      <div class="settings-form-grid">
+                        <Field label={copy().rentPaymentDestinationLabel} wide>
+                          <Input
+                            value={destination().label}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  label: e.currentTarget.value
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
                             }
                           />
-                          <div class="settings-inline-editor__actions">
-                            <Button variant="ghost" size="sm" onClick={closeCategoryEditor}>
-                              {copy().closeEditorAction}
-                            </Button>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              loading={savingCategory()}
-                              disabled={categoryForm().name.trim().length < 1}
-                              onClick={() => void handleSaveCategory()}
-                            >
-                              {savingCategory() ? copy().savingCategory : copy().saveCategoryAction}
-                            </Button>
-                          </div>
-                        </div>
-                      </Show>
+                        </Field>
+                        <Field label={copy().rentPaymentDestinationRecipient}>
+                          <Input
+                            value={destination().recipientName ?? ''}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  recipientName: e.currentTarget.value || null
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label={copy().rentPaymentDestinationBank}>
+                          <Input
+                            value={destination().bankName ?? ''}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  bankName: e.currentTarget.value || null
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label={copy().rentPaymentDestinationAccount} wide>
+                          <Input
+                            value={destination().account}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  account: e.currentTarget.value
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label={copy().rentPaymentDestinationLink} wide>
+                          <Input
+                            value={destination().link ?? ''}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  link: e.currentTarget.value || null
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label={copy().rentPaymentDestinationNote} wide>
+                          <Textarea
+                            value={destination().note ?? ''}
+                            onInput={(e) =>
+                              setBillingForm((form) => {
+                                const next = [...form.rentPaymentDestinations]
+                                next[index] = {
+                                  ...next[index]!,
+                                  note: e.currentTarget.value || null
+                                }
+                                return { ...form, rentPaymentDestinations: next }
+                              })
+                            }
+                          />
+                        </Field>
+                      </div>
                     </div>
                   )}
-                </For>
+                </Index>
               </div>
             </Show>
           </div>
-        </Card>
+        </div>
+      </Modal>
 
-        <Collapsible title={copy().pendingMembersTitle} body={copy().pendingMembersBody}>
+      <Modal
+        open={assistantEditing()}
+        title={copy().manageAssistantAction}
+        description={copy().assistantSettingsBody}
+        closeLabel={copy().closeEditorAction}
+        onClose={closeAssistantEditor}
+        footer={
+          <div class="modal-action-row">
+            <Button variant="ghost" onClick={closeAssistantEditor}>
+              {copy().closeEditorAction}
+            </Button>
+            <Button
+              variant="primary"
+              loading={savingAssistant()}
+              onClick={() => void handleSaveAssistant()}
+            >
+              {savingAssistant() ? copy().savingSettings : copy().saveSettingsAction}
+            </Button>
+          </div>
+        }
+      >
+        <div class="settings-sheet-stack">
+          <div class="settings-sheet-section">
+            <div class="settings-form-grid">
+              <Field label={copy().assistantToneLabel} hint={copy().assistantTonePlaceholder}>
+                <Input
+                  value={billingForm().assistantTone}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      assistantTone: e.currentTarget.value
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().assistantContextLabel} wide>
+                <Textarea
+                  value={billingForm().assistantContext}
+                  placeholder={copy().assistantContextPlaceholder}
+                  onInput={(e) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      assistantContext: e.currentTarget.value
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={utilitiesEditorOpen()}
+        title={
+          editingCategorySlug()
+            ? editingCategorySlug() === NEW_CATEGORY_SLUG
+              ? copy().addCategoryAction
+              : copy().editCategoryAction
+            : copy().manageUtilitiesAction
+        }
+        description={
+          editingCategorySlug()
+            ? editingCategorySlug() === NEW_CATEGORY_SLUG
+              ? copy().categoryCreateBody
+              : copy().categoryEditorBody
+            : copy().utilityCategoriesBody
+        }
+        closeLabel={copy().closeEditorAction}
+        onClose={closeUtilitiesEditor}
+        footer={
           <Show
-            when={pendingMembers().length > 0}
-            fallback={<p class="empty-state">{copy().pendingMembersEmpty}</p>}
+            when={editingCategorySlug()}
+            fallback={
+              <div class="modal-action-row">
+                <Button variant="ghost" onClick={closeUtilitiesEditor}>
+                  {copy().closeEditorAction}
+                </Button>
+              </div>
+            }
           >
-            <div class="editable-list">
-              <For each={pendingMembers()}>
-                {(member) => (
-                  <div class="editable-list-row">
-                    <div class="editable-list-row__main">
-                      <span class="editable-list-row__title">{member.displayName}</span>
-                      <Show when={member.username}>
-                        {(username) => (
-                          <span class="editable-list-row__subtitle">@{username()}</span>
-                        )}
-                      </Show>
-                    </div>
-                    <div class="editable-list-row__meta">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        loading={rejectingId() === member.telegramUserId}
-                        disabled={approvingId() === member.telegramUserId}
-                        onClick={() => void handleReject(member.telegramUserId)}
-                      >
-                        {rejectingId() === member.telegramUserId
-                          ? copy().rejectingMember
-                          : copy().rejectMemberAction}
-                      </Button>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        loading={approvingId() === member.telegramUserId}
-                        disabled={rejectingId() === member.telegramUserId}
-                        onClick={() => void handleApprove(member.telegramUserId)}
-                      >
-                        {approvingId() === member.telegramUserId
-                          ? copy().approvingMember
-                          : copy().approveMemberAction}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </For>
+            <div class="modal-action-row">
+              <Button variant="ghost" onClick={closeCategoryEditor}>
+                {copy().closeEditorAction}
+              </Button>
+              <Button
+                variant="primary"
+                loading={savingCategory()}
+                disabled={categoryForm().name.trim().length < 1}
+                onClick={() => void handleSaveCategory()}
+              >
+                {savingCategory() ? copy().savingCategory : copy().saveCategoryAction}
+              </Button>
             </div>
           </Show>
-        </Collapsible>
-
-        <Collapsible title={copy().houseSectionMembers} body={copy().membersBody}>
-          <Show when={adminSettings()?.members}>
-            {(members) => (
-              <div class="editable-list">
-                <For each={members()}>
-                  {(member) => (
-                    <button class="editable-list-row" onClick={() => openEditMember(member)}>
-                      <div class="editable-list-row__main">
-                        <span class="editable-list-row__title">{member.displayName}</span>
-                        <span class="editable-list-row__subtitle">
-                          {copy().rentWeightLabel}: {member.rentShareWeight}
-                        </span>
-                        <span class="editable-list-row__subtitle">
-                          {copy().presenceDaysLabel}:{' '}
-                          {currentPresenceDaysForMember(member.id, member.status)}
-                        </span>
-                      </div>
-                      <div class="editable-list-row__meta">
-                        <Badge variant={member.isAdmin ? 'accent' : 'muted'}>
-                          {member.isAdmin ? copy().adminTag : copy().residentTag}
-                        </Badge>
-                        <Badge variant="muted">
-                          {member.status === 'active'
-                            ? copy().memberStatusActive
-                            : member.status === 'away'
-                              ? copy().memberStatusAway
-                              : copy().memberStatusLeft}
-                        </Badge>
-                      </div>
-                    </button>
-                  )}
-                </For>
+        }
+      >
+        <Show
+          when={editingCategorySlug()}
+          fallback={
+            <div class="settings-sheet-stack">
+              <div class="settings-sheet-section">
+                <div class="settings-sheet-section__header">
+                  <strong>{copy().utilityCategoriesTitle}</strong>
+                  <Button variant="primary" size="sm" onClick={openAddCategory}>
+                    <Plus size={14} />
+                    {copy().addCategoryAction}
+                  </Button>
+                </div>
+                <Show
+                  when={sortedCategories().length > 0}
+                  fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
+                >
+                  <div class="settings-manager-list">
+                    <For each={sortedCategories()}>
+                      {(category) => (
+                        <button
+                          class="settings-manager-row"
+                          onClick={() => openEditCategory(category)}
+                        >
+                          <div class="settings-manager-row__copy">
+                            <strong>{category.name}</strong>
+                            <span>
+                              {category.providerName ||
+                                category.customerNumber ||
+                                category.note ||
+                                '—'}
+                            </span>
+                          </div>
+                          <div class="settings-manager-row__meta">
+                            <Badge variant={category.isActive ? 'accent' : 'muted'}>
+                              {category.isActive ? copy().onLabel : copy().offLabel}
+                            </Badge>
+                            <span>{copy().editCategoryAction}</span>
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
               </div>
-            )}
-          </Show>
-        </Collapsible>
-
-        <Collapsible title={copy().houseSectionTopics} body={copy().topicBindingsBody}>
-          <Show when={adminSettings()?.topics}>
-            {(topics) => (
-              <div class="editable-list">
-                <For each={topics()}>
-                  {(topic) => {
-                    const roleLabel = () => {
-                      const labels: Record<string, string> = {
-                        chat: copy().topicChat,
-                        purchase: copy().topicPurchase,
-                        feedback: copy().topicFeedback,
-                        reminders: copy().topicReminders,
-                        payments: copy().topicPayments
-                      }
-                      return labels[topic.role] ?? topic.role
+            </div>
+          }
+        >
+          <div class="settings-sheet-stack">
+            <div class="settings-sheet-section">
+              <div class="settings-form-grid">
+                <Field label={copy().utilityCategoryName} wide>
+                  <Input
+                    value={categoryForm().name}
+                    onInput={(e) =>
+                      setCategoryForm((form) => ({ ...form, name: e.currentTarget.value }))
                     }
-
-                    return (
-                      <div class="editable-list-row">
-                        <div class="editable-list-row__main">
-                          <span class="editable-list-row__title">{roleLabel()}</span>
-                        </div>
-                        <div class="editable-list-row__meta">
-                          <Badge variant={topic.telegramThreadId ? 'accent' : 'muted'}>
-                            {topic.telegramThreadId ? copy().topicBound : copy().topicUnbound}
-                          </Badge>
-                        </div>
-                      </div>
-                    )
-                  }}
-                </For>
+                  />
+                </Field>
+                <Field label="Provider" wide>
+                  <Input
+                    value={categoryForm().providerName}
+                    onInput={(e) =>
+                      setCategoryForm((form) => ({ ...form, providerName: e.currentTarget.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Customer / account number" wide>
+                  <Input
+                    value={categoryForm().customerNumber}
+                    onInput={(e) =>
+                      setCategoryForm((form) => ({
+                        ...form,
+                        customerNumber: e.currentTarget.value
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Payment link" wide>
+                  <Input
+                    value={categoryForm().paymentLink}
+                    onInput={(e) =>
+                      setCategoryForm((form) => ({ ...form, paymentLink: e.currentTarget.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Note" wide>
+                  <Textarea
+                    value={categoryForm().note}
+                    onInput={(e) =>
+                      setCategoryForm((form) => ({ ...form, note: e.currentTarget.value }))
+                    }
+                  />
+                </Field>
               </div>
-            )}
-          </Show>
-        </Collapsible>
-      </Show>
+            </div>
+            <div class="settings-sheet-section">
+              <Toggle
+                checked={categoryForm().isActive}
+                label={copy().utilityCategoryActive}
+                onChange={(checked) => setCategoryForm((form) => ({ ...form, isActive: checked }))}
+              />
+            </div>
+          </div>
+        </Show>
+      </Modal>
 
       <Modal
         open={!!editMemberId()}
@@ -1381,117 +1472,128 @@ export default function SettingsRoute() {
           </div>
         }
       >
-        <div class="editor-grid">
-          <Field label={copy().displayNameLabel} wide>
-            <Input
-              value={editMemberForm().displayName}
-              onInput={(e) =>
-                setEditMemberForm((form) => ({ ...form, displayName: e.currentTarget.value }))
-              }
-            />
-          </Field>
-          <Field label={copy().rentWeightLabel}>
-            <Input
-              type="number"
-              step="0.1"
-              value={String(editMemberForm().rentShareWeight)}
-              onInput={(e) =>
-                setEditMemberForm((form) => ({
-                  ...form,
-                  rentShareWeight: parseFloat(e.currentTarget.value) || 0
-                }))
-              }
-            />
-          </Field>
-          <Field label={copy().memberStatusLabel}>
-            <Select
-              value={editMemberForm().status}
-              ariaLabel={copy().memberStatusLabel}
-              options={[
-                { value: 'active', label: copy().memberStatusActive },
-                { value: 'away', label: copy().memberStatusAway },
-                { value: 'left', label: copy().memberStatusLeft }
-              ]}
-              onChange={(value) =>
-                setEditMemberForm((form) => {
-                  const nextStatus = value as 'active' | 'away' | 'left'
-                  return {
-                    ...form,
-                    status: nextStatus,
-                    ...(form.daysPresentDirty
-                      ? {}
-                      : {
-                          daysPresent: defaultPresenceDaysForStatus(
-                            nextStatus,
-                            effectivePeriod() ?? dashboard()?.period
-                          )
-                        })
+        <div class="settings-sheet-stack">
+          <div class="settings-sheet-section">
+            <div class="settings-form-grid">
+              <Field label={copy().displayNameLabel} wide>
+                <Input
+                  value={editMemberForm().displayName}
+                  onInput={(e) =>
+                    setEditMemberForm((form) => ({ ...form, displayName: e.currentTarget.value }))
                   }
-                })
-              }
-            />
-          </Field>
-          <Field label={copy().memberRoleLabel}>
-            <Select
-              value={editMemberForm().isAdmin ? 'admin' : 'resident'}
-              ariaLabel={copy().memberRoleLabel}
-              options={[
-                { value: 'resident', label: copy().memberRoleResident },
-                { value: 'admin', label: copy().memberRoleAdmin }
-              ]}
-              onChange={(value) =>
-                setEditMemberForm((form) => ({ ...form, isAdmin: value === 'admin' }))
-              }
-            />
-          </Field>
-          <Field label={copy().presenceDaysLabel} hint={copy().presenceDaysHint} wide>
-            <Input
-              type="number"
-              min="0"
-              max={String(daysInPeriod(effectivePeriod() ?? dashboard()?.period))}
-              value={String(editMemberForm().daysPresent)}
-              onInput={(e) =>
-                setEditMemberForm((form) => ({
-                  ...form,
-                  daysPresent: Math.max(0, parseInt(e.currentTarget.value || '0', 10) || 0),
-                  daysPresentDirty: true
-                }))
-              }
-            />
-          </Field>
+                />
+              </Field>
+              <Field label={copy().rentWeightLabel}>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={String(editMemberForm().rentShareWeight)}
+                  onInput={(e) =>
+                    setEditMemberForm((form) => ({
+                      ...form,
+                      rentShareWeight: parseFloat(e.currentTarget.value) || 0
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().memberStatusLabel}>
+                <Select
+                  value={editMemberForm().status}
+                  ariaLabel={copy().memberStatusLabel}
+                  options={[
+                    { value: 'active', label: copy().memberStatusActive },
+                    { value: 'away', label: copy().memberStatusAway },
+                    { value: 'left', label: copy().memberStatusLeft }
+                  ]}
+                  onChange={(value) =>
+                    setEditMemberForm((form) => {
+                      const nextStatus = value as 'active' | 'away' | 'left'
+                      return {
+                        ...form,
+                        status: nextStatus,
+                        ...(form.daysPresentDirty
+                          ? {}
+                          : {
+                              daysPresent: defaultPresenceDaysForStatus(
+                                nextStatus,
+                                effectivePeriod() ?? dashboard()?.period
+                              )
+                            })
+                      }
+                    })
+                  }
+                />
+              </Field>
+              <Field label={copy().memberRoleLabel}>
+                <Select
+                  value={editMemberForm().isAdmin ? 'admin' : 'resident'}
+                  ariaLabel={copy().memberRoleLabel}
+                  options={[
+                    { value: 'resident', label: copy().memberRoleResident },
+                    { value: 'admin', label: copy().memberRoleAdmin }
+                  ]}
+                  onChange={(value) =>
+                    setEditMemberForm((form) => ({ ...form, isAdmin: value === 'admin' }))
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div class="settings-sheet-section">
+            <Field label={copy().presenceDaysLabel} hint={copy().presenceDaysHint} wide>
+              <Input
+                type="number"
+                min="0"
+                max={String(daysInPeriod(effectivePeriod() ?? dashboard()?.period))}
+                value={String(editMemberForm().daysPresent)}
+                onInput={(e) =>
+                  setEditMemberForm((form) => ({
+                    ...form,
+                    daysPresent: Math.max(0, parseInt(e.currentTarget.value || '0', 10) || 0),
+                    daysPresentDirty: true
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
           <Show when={editingMember()}>
             {(member) => (
-              <Field label={copy().presenceSummaryLabel} wide>
+              <div class="settings-sheet-section">
+                <div class="settings-sheet-section__header">
+                  <strong>{copy().presenceSummaryLabel}</strong>
+                </div>
                 <div class="settings-summary-list">
-                  <div class="settings-summary-row">
-                    <span>{copy().memberStatusLabel}</span>
-                    <strong>
-                      {editMemberForm().status === 'active'
+                  <SettingsSummaryRow
+                    label={copy().memberStatusLabel}
+                    value={
+                      editMemberForm().status === 'active'
                         ? copy().memberStatusActive
                         : editMemberForm().status === 'away'
                           ? copy().memberStatusAway
-                          : copy().memberStatusLeft}
-                    </strong>
-                  </div>
-                  <div class="settings-summary-row">
-                    <span>{copy().presenceDaysLabel}</span>
-                    <strong>{editMemberForm().daysPresent}</strong>
-                  </div>
-                  <div class="settings-summary-row">
-                    <span>{copy().presenceDefaultLabel}</span>
-                    <strong>
-                      {defaultPresenceDaysForStatus(
+                          : copy().memberStatusLeft
+                    }
+                  />
+                  <SettingsSummaryRow
+                    label={copy().presenceDaysLabel}
+                    value={String(editMemberForm().daysPresent)}
+                  />
+                  <SettingsSummaryRow
+                    label={copy().presenceDefaultLabel}
+                    value={String(
+                      defaultPresenceDaysForStatus(
                         editMemberForm().status,
                         effectivePeriod() ?? dashboard()?.period
-                      )}
-                    </strong>
-                  </div>
-                  <div class="settings-summary-row">
-                    <span>{copy().currentSavedValueLabel}</span>
-                    <strong>{currentPresenceDaysForMember(member().id, member().status)}</strong>
-                  </div>
+                      )
+                    )}
+                  />
+                  <SettingsSummaryRow
+                    label={copy().currentSavedValueLabel}
+                    value={String(currentPresenceDaysForMember(member().id, member().status))}
+                  />
                 </div>
-              </Field>
+              </div>
             )}
           </Show>
         </div>

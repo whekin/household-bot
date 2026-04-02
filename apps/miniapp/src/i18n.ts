@@ -379,6 +379,9 @@ export const dictionary = {
     rentPaymentDestinationLink: 'Payment link',
     rentPaymentDestinationNote: 'Note',
     manageSettingsAction: 'Manage settings',
+    manageBillingAction: 'Manage billing',
+    manageUtilitiesAction: 'Manage utilities',
+    manageAssistantAction: 'Manage assistant',
     billingSettingsEditorBody:
       'Household defaults live here. New current cycles start from these values.',
     saveSettingsAction: 'Save settings',
@@ -402,6 +405,9 @@ export const dictionary = {
     adminsBody: 'Promote trusted household members so they can manage billing and approvals.',
     membersTitle: 'Members',
     membersBody: 'Review roles, billing weights, and status for everyone in the household.',
+    settingsAdvancedTitle: 'Advanced',
+    settingsAdvancedBody:
+      'Low-frequency controls stay here so the main settings flow stays short and calm.',
     displayNameLabel: 'Household display name',
     displayNameHint: 'This name appears in balances, activity entries, and assistant replies.',
     manageProfileAction: 'Edit profile',
@@ -832,6 +838,9 @@ export const dictionary = {
     rentPaymentDestinationLink: 'Ссылка на оплату',
     rentPaymentDestinationNote: 'Комментарий',
     manageSettingsAction: 'Управлять настройками',
+    manageBillingAction: 'Управлять биллингом',
+    manageUtilitiesAction: 'Управлять коммуналкой',
+    manageAssistantAction: 'Управлять ботом',
     billingSettingsEditorBody:
       'Здесь живут значения по умолчанию для дома. Новые текущие циклы стартуют отсюда.',
     saveSettingsAction: 'Сохранить настройки',
@@ -857,11 +866,15 @@ export const dictionary = {
       'Повышай доверенных участников, чтобы они могли управлять биллингом и подтверждениями.',
     membersTitle: 'Участники',
     membersBody: 'Здесь собраны роли, веса аренды и статусы всех участников дома.',
+    settingsAdvancedTitle: 'Дополнительно',
+    settingsAdvancedBody:
+      'Редкие админские настройки вынесены сюда, чтобы основной экран оставался короче и спокойнее.',
     displayNameLabel: 'Имя в доме',
     displayNameHint: 'Это имя будет видно в балансе, активности и ответах ассистента.',
     manageProfileAction: 'Редактировать профиль',
     profileEditorBody: 'Своё имя для дома лучше менять в отдельном окне, а не на самой странице.',
-    memberEditorBody: 'Статус, политика и админские действия по участнику собраны в одном окне.',
+    memberEditorBody:
+      'Статус, дни присутствия и админские действия по участнику собраны в одном окне.',
     editMemberAction: 'Редактировать участника',
     saveMemberChangesAction: 'Сохранить изменения',
     saveDisplayName: 'Сохранить имя',
