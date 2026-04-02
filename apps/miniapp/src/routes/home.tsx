@@ -8,6 +8,7 @@ import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { PurchaseBalanceRail, normalizedRailWidth } from '../components/purchase-balance-rail'
 import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
@@ -51,11 +52,6 @@ function splitEvenlyShareMinor(amountMajor: string, includedCount: number, index
   const leftover = amountMinor % BigInt(includedCount)
 
   return base + (BigInt(index) < leftover ? 1n : 0n)
-}
-
-function normalizedWidth(valueMinor: bigint, maxMinor: bigint): string {
-  if (maxMinor <= 0n) return '0%'
-  return `${Math.max((Number(valueMinor) / Number(maxMinor)) * 100, 6)}%`
 }
 
 function purchaseShareForMember(
@@ -823,15 +819,35 @@ export default function HomeRoute() {
                       return absolute > max ? absolute : max
                     }, 0n)
 
-                    return rows.map((row) => ({
-                      ...row,
-                      width: normalizedWidth(
-                        row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor,
-                        maxBalanceMinor
-                      ),
-                      side:
-                        row.balanceMinor < 0n ? 'left' : row.balanceMinor > 0n ? 'right' : 'none'
-                    }))
+                    return rows
+                      .map((row) => ({
+                        ...row,
+                        width: normalizedRailWidth(
+                          row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor,
+                          maxBalanceMinor
+                        ),
+                        side:
+                          row.balanceMinor < 0n
+                            ? ('left' as const)
+                            : row.balanceMinor > 0n
+                              ? ('right' as const)
+                              : ('none' as const)
+                      }))
+                      .sort((left, right) => {
+                        if (left.isCurrent) return -1
+                        if (right.isCurrent) return 1
+
+                        const leftAbsolute =
+                          left.balanceMinor < 0n ? -left.balanceMinor : left.balanceMinor
+                        const rightAbsolute =
+                          right.balanceMinor < 0n ? -right.balanceMinor : right.balanceMinor
+
+                        return rightAbsolute === leftAbsolute
+                          ? left.displayName.localeCompare(right.displayName)
+                          : rightAbsolute > leftAbsolute
+                            ? 1
+                            : -1
+                      })
                   }
                   const latestClosedPeriod = () =>
                     [...(data().paymentPeriods ?? [])]
@@ -1373,40 +1389,27 @@ export default function HomeRoute() {
 
                             <div class="home-overview-card__comparison">
                               <div class="home-overview-card__section-head">
-                                <span class="home-overview-card__section-title-text">
-                                  {copy().homeIdleComparisonTitle}
-                                </span>
+                                <div class="home-overview-card__section-title-group">
+                                  <span class="home-overview-card__section-title-text">
+                                    {copy().homePurchasePositionTitle}
+                                  </span>
+                                  <span class="home-overview-card__section-hint">
+                                    {copy().purchaseBalanceRailHint}
+                                  </span>
+                                </div>
                               </div>
-                              <div class="home-overview-card__comparison-list">
-                                <For each={purchaseComparisonRows()}>
-                                  {(row) => (
-                                    <div
-                                      class="home-overview-card__comparison-row"
-                                      classList={{ 'is-current': row.isCurrent }}
-                                    >
-                                      <div class="home-overview-card__comparison-head">
-                                        <strong>{row.displayName}</strong>
-                                        <span>{formatMajorAmount(row.balanceMajor)}</span>
-                                      </div>
-                                      <div class="home-overview-card__comparison-track">
-                                        <div class="home-overview-card__comparison-zero" />
-                                        <Show when={row.side === 'left'}>
-                                          <div
-                                            class="home-overview-card__comparison-bar is-left"
-                                            style={{ width: row.width }}
-                                          />
-                                        </Show>
-                                        <Show when={row.side === 'right'}>
-                                          <div
-                                            class="home-overview-card__comparison-bar is-right"
-                                            style={{ width: row.width }}
-                                          />
-                                        </Show>
-                                      </div>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
+                              <PurchaseBalanceRail
+                                variant="compact"
+                                rows={purchaseComparisonRows().map((row) => ({
+                                  memberId: row.memberId,
+                                  displayName: row.displayName,
+                                  balanceLabel: formatMajorAmount(row.balanceMajor),
+                                  width: row.width,
+                                  side: row.side,
+                                  isCurrent: row.isCurrent
+                                }))}
+                                currentLabel={copy().purchaseBalanceCurrentLabel}
+                              />
                             </div>
 
                             <div class="home-overview-card__timing">
