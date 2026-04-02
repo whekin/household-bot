@@ -378,9 +378,6 @@ export default function SettingsRoute() {
       if (form.rentShareWeight !== currentMember.rentShareWeight) {
         updatedMember = await updateMiniAppMemberRentWeight(data, memberId, form.rentShareWeight)
       }
-      if (form.status !== currentMember.status) {
-        updatedMember = await updateMiniAppMemberStatus(data, memberId, form.status)
-      }
       if (form.absenceDirty) {
         const updatedAbsence = await updateMiniAppMemberAbsencePolicy(
           data,
@@ -398,6 +395,9 @@ export default function SettingsRoute() {
       }
       if (form.isAdmin && !currentMember.isAdmin) {
         updatedMember = await promoteMiniAppMember(data, memberId)
+      }
+      if (form.status !== currentMember.status) {
+        updatedMember = await updateMiniAppMemberStatus(data, memberId, form.status)
       }
       if (!form.isAdmin && currentMember.isAdmin) {
         updatedMember = await demoteMiniAppMember(data, memberId)
