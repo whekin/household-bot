@@ -323,10 +323,10 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
       purchaseOffset,
       netDue,
       explanations: [
-        `rent_share_minor=${state.rentShare.amountMinor.toString()}`,
-        `utility_share_minor=${state.utilityShare.amountMinor.toString()}`,
-        `purchase_paid_minor=${state.purchasePaid.amountMinor.toString()}`,
-        `purchase_shared_minor=${state.purchaseSharedCost.amountMinor.toString()}`
+        `Rent share: ${state.rentShare.toMajorString()} ${state.rentShare.currency}`,
+        `Utility share: ${state.utilityShare.toMajorString()} ${state.utilityShare.currency}`,
+        `Purchases paid: ${state.purchasePaid.toMajorString()} ${state.purchasePaid.currency}`,
+        `Purchases shared: ${state.purchaseSharedCost.toMajorString()} ${state.purchaseSharedCost.currency}`
       ]
     }
   })
