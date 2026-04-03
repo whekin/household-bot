@@ -986,6 +986,7 @@ function buildDashboardUtilityBillingPlan(input: {
   computed: UtilityBillingPlanComputed
   memberNameById: ReadonlyMap<string, string>
   priorVersionByPlanId: ReadonlyMap<string, number>
+  utilityPaidByMemberId: ReadonlyMap<string, bigint>
 }): FinanceDashboardUtilityBillingPlan {
   return {
     version: input.planRecord.version,
@@ -1007,14 +1008,24 @@ function buildDashboardUtilityBillingPlan(input: {
       isFullAssignment: category.isFullAssignment,
       splitGroupId: category.splitGroupId
     })),
-    memberSummaries: input.computed.memberSummaries.map((summary) => ({
-      memberId: summary.memberId,
-      displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
-      fairShare: summary.fairShare,
-      vendorPaid: summary.vendorPaid,
-      assignedThisCycle: summary.assignedThisCycle,
-      projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
-    }))
+    memberSummaries: input.computed.memberSummaries.map((summary) => {
+      const currency = summary.fairShare.currency
+      const utilityPaidMinor = input.utilityPaidByMemberId.get(summary.memberId) ?? 0n
+      const effectiveVendorPaidMinor = summary.vendorPaid.amountMinor + utilityPaidMinor
+      const assignedMinor = summary.assignedThisCycle.amountMinor
+      const effectiveAssignedMinor =
+        assignedMinor > utilityPaidMinor ? assignedMinor - utilityPaidMinor : 0n
+      const effectiveProjectedDeltaMinor =
+        effectiveVendorPaidMinor + effectiveAssignedMinor - summary.fairShare.amountMinor
+      return {
+        memberId: summary.memberId,
+        displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
+        fairShare: summary.fairShare,
+        vendorPaid: Money.fromMinor(effectiveVendorPaidMinor, currency),
+        assignedThisCycle: Money.fromMinor(effectiveAssignedMinor, currency),
+        projectedDeltaAfterPlan: Money.fromMinor(effectiveProjectedDeltaMinor, currency)
+      }
+    })
   }
 }
 
@@ -1915,12 +1926,19 @@ async function buildFinanceDashboard(
 
   const memberNameById = new Map(members.map((member) => [member.id, member.displayName]))
   const paymentsByMemberId = new Map<string, Money>()
+  const utilityPaidByMemberId = new Map<string, bigint>()
   for (const payment of paymentRecords) {
     const current = paymentsByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)
     paymentsByMemberId.set(
       payment.memberId,
       current.add(Money.fromMinor(payment.amountMinor, payment.currency))
     )
+    if (payment.kind === 'utilities') {
+      utilityPaidByMemberId.set(
+        payment.memberId,
+        (utilityPaidByMemberId.get(payment.memberId) ?? 0n) + payment.amountMinor
+      )
+    }
   }
   const dashboardMembers = settlement.lines.map((line) => ({
     memberId: line.memberId.toString(),
@@ -1974,7 +1992,8 @@ async function buildFinanceDashboard(
     planRecord: ensuredUtilityPlan.record,
     computed: ensuredUtilityPlan.computed,
     memberNameById,
-    priorVersionByPlanId: utilityPlanVersionById
+    priorVersionByPlanId: utilityPlanVersionById,
+    utilityPaidByMemberId
   })
   const rentPaidByMemberId = new Map<string, Money>()
   for (const payment of paymentRecords.filter((payment) => payment.kind === 'rent')) {
@@ -2783,13 +2802,19 @@ export function createFinanceCommandService(
             kind
           })
 
-      if (
-        !periodArg &&
-        paymentTargets.every(
-          (target) => target.baseRemainingMinor <= 0n && target.cycle.id === currentCycle.id
-        )
-      ) {
-        throw new Error('Payment period is already settled')
+      if (!periodArg && paymentTargets.every((target) => target.cycle.id === currentCycle.id)) {
+        const currentCycleRemainingMinor = await getCycleKindBaseRemaining({
+          dependencies,
+          cycle: currentCycle,
+          members,
+          memberPresenceDays,
+          settings,
+          memberId,
+          kind
+        })
+        if (currentCycleRemainingMinor === 0n) {
+          throw new Error('Payment period is already settled')
+        }
       }
 
       let remainingMinor = amount.amountMinor

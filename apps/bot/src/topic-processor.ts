@@ -317,9 +317,10 @@ When classifying as "purchase":
 
 === PAYMENT TOPIC (topicRole=payments) ===
 This topic is also a workflow topic, not a casual assistant thread.
-If the message reports a completed rent or utility payment (payment verb + rent/utilities + amount), classify as "payment".
+If the message reports a completed rent or utility payment (payment verb + rent/utilities), classify as "payment".
 - Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил
-- Realistic amount for rent/utilities
+- Realistic amount for rent/utilities if explicitly stated in the message
+- CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.
 - If the message is a payment-related balance/status question, use topic_helper.
 - If the user explicitly addresses the bot with non-payment banter, use chat_reply with one short sentence.
 - Otherwise ordinary discussion in this topic stays silent.
