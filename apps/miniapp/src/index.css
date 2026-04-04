@@ -4399,6 +4399,23 @@ a {
   font-size: var(--text-sm);
 }
 
+.balances-paid-state {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.balances-paid-state > strong {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.balances-paid-state > p {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0;
+}
+
 .utility-member-card__header {
   display: flex;
   justify-content: space-between;

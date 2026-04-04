@@ -145,6 +145,15 @@ export default function BalancesRoute() {
     )
   })
 
+  const isUtilitiesFullyPaid = createMemo(() => {
+    const summary = currentUtilitySummary()
+    if (!summary) return false
+    return (
+      majorStringToMinor(summary.assignedThisCycleMajor) === 0n &&
+      majorStringToMinor(summary.vendorPaidMajor) > 0n
+    )
+  })
+
   const currentRentSummary = createMemo(() => {
     const data = dashboard()
     const member = currentMember()
@@ -319,64 +328,92 @@ export default function BalancesRoute() {
 
                         <Show when={effectiveBillingStage() === 'utilities'}>
                           <Show
-                            when={currentUtilityAssignments().length > 0}
+                            when={!isUtilitiesFullyPaid()}
                             fallback={
-                              <p class="statement-list__empty">
-                                {copy().balancesCurrentUtilitiesEmpty}
-                              </p>
+                              <div class="balances-paid-state">
+                                <strong>{copy().balancesUtilitiesPaidTitle}</strong>
+                                <p>{copy().balancesUtilitiesPaidBody}</p>
+                                <Show when={currentUtilitySummary()}>
+                                  {(summary) => (
+                                    <div class="statement-chip-grid">
+                                      <div class="statement-chip">
+                                        <span>{copy().balancesTargetLabel}</span>
+                                        <strong>
+                                          {formatAmount(summary().fairShareMajor, data().currency)}
+                                        </strong>
+                                      </div>
+                                      <div class="statement-chip">
+                                        <span>{copy().balancesPaidLabel}</span>
+                                        <strong>
+                                          {formatAmount(summary().vendorPaidMajor, data().currency)}
+                                        </strong>
+                                      </div>
+                                    </div>
+                                  )}
+                                </Show>
+                              </div>
                             }
                           >
-                            <div class="statement-list">
-                              <For each={currentUtilityAssignments()}>
-                                {(category) => (
-                                  <div class="statement-list__item">
-                                    <div>
-                                      <strong>{category.billName}</strong>
-                                      <span>
-                                        {formatAmount(
-                                          category.assignedAmountMajor,
-                                          data().currency
-                                        )}
+                            <Show
+                              when={currentUtilityAssignments().length > 0}
+                              fallback={
+                                <p class="statement-list__empty">
+                                  {copy().balancesCurrentUtilitiesEmpty}
+                                </p>
+                              }
+                            >
+                              <div class="statement-list">
+                                <For each={currentUtilityAssignments()}>
+                                  {(category) => (
+                                    <div class="statement-list__item">
+                                      <div>
+                                        <strong>{category.billName}</strong>
+                                        <span>
+                                          {formatAmount(
+                                            category.assignedAmountMajor,
+                                            data().currency
+                                          )}
+                                        </span>
+                                      </div>
+                                      <span class="ui-badge ui-badge--muted">
+                                        {category.isFullAssignment
+                                          ? copy().balancesAssignmentFullLabel
+                                          : copy().balancesAssignmentSplitLabel}
                                       </span>
                                     </div>
-                                    <span class="ui-badge ui-badge--muted">
-                                      {category.isFullAssignment
-                                        ? copy().balancesAssignmentFullLabel
-                                        : copy().balancesAssignmentSplitLabel}
-                                    </span>
+                                  )}
+                                </For>
+                              </div>
+                              <Show when={currentUtilitySummary()}>
+                                {(summary) => (
+                                  <div class="statement-chip-grid">
+                                    <div class="statement-chip">
+                                      <span>{copy().balancesTargetLabel}</span>
+                                      <strong>
+                                        {formatAmount(summary().fairShareMajor, data().currency)}
+                                      </strong>
+                                    </div>
+                                    <div class="statement-chip">
+                                      <span>{copy().balancesAssignedNowLabel}</span>
+                                      <strong>
+                                        {formatAmount(
+                                          summary().assignedThisCycleMajor,
+                                          data().currency
+                                        )}
+                                      </strong>
+                                    </div>
+                                    <div class="statement-chip">
+                                      <span>{copy().balancesAfterPlanLabel}</span>
+                                      <strong>
+                                        {formatAmount(
+                                          summary().projectedDeltaAfterPlanMajor,
+                                          data().currency
+                                        )}
+                                      </strong>
+                                    </div>
                                   </div>
                                 )}
-                              </For>
-                            </div>
-                            <Show when={currentUtilitySummary()}>
-                              {(summary) => (
-                                <div class="statement-chip-grid">
-                                  <div class="statement-chip">
-                                    <span>{copy().balancesTargetLabel}</span>
-                                    <strong>
-                                      {formatAmount(summary().fairShareMajor, data().currency)}
-                                    </strong>
-                                  </div>
-                                  <div class="statement-chip">
-                                    <span>{copy().balancesAssignedNowLabel}</span>
-                                    <strong>
-                                      {formatAmount(
-                                        summary().assignedThisCycleMajor,
-                                        data().currency
-                                      )}
-                                    </strong>
-                                  </div>
-                                  <div class="statement-chip">
-                                    <span>{copy().balancesAfterPlanLabel}</span>
-                                    <strong>
-                                      {formatAmount(
-                                        summary().projectedDeltaAfterPlanMajor,
-                                        data().currency
-                                      )}
-                                    </strong>
-                                  </div>
-                                </div>
-                              )}
+                              </Show>
                             </Show>
                           </Show>
                         </Show>

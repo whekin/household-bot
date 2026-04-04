@@ -293,6 +293,14 @@ export default function HomeRoute() {
         (summary) => summary.memberId === currentMemberId()
       ) ?? null
   )
+  const isUtilitiesFullyPaid = createMemo(() => {
+    const summary = currentUtilitySummary()
+    if (!summary) return false
+    return (
+      majorStringToMinor(summary.assignedThisCycleMajor) === 0n &&
+      majorStringToMinor(summary.vendorPaidMajor) > 0n
+    )
+  })
   const latestActivity = createMemo(() => {
     const entries = [...(dashboard()?.ledger ?? [])]
     return entries.sort((left, right) => {
@@ -1002,22 +1010,32 @@ export default function HomeRoute() {
                                   {copy().dueOnLabel.replace('{date}', utilitiesDueDate())}
                                 </span>
                               </div>
-                              {dueBadge(utilitiesDaysUntilDue())}
+                              {isUtilitiesFullyPaid() ? (
+                                <Badge variant="muted">{copy().homeSettledTitle}</Badge>
+                              ) : (
+                                dueBadge(utilitiesDaysUntilDue())
+                              )}
                             </div>
 
                             <div class="home-payment-card__hero">
                               <div class="home-payment-card__hero-copy">
                                 <strong class="home-payment-card__amount">
-                                  {formatMajorAmount(minorToMajorString(utilitiesRemainingMinor()))}
+                                  {isUtilitiesFullyPaid()
+                                    ? formatMajorAmount(currentUtilitySummary()!.vendorPaidMajor)
+                                    : formatMajorAmount(
+                                        minorToMajorString(utilitiesRemainingMinor())
+                                      )}
                                 </strong>
                                 <span class="home-payment-card__hero-note">
-                                  {currentUtilityAssignments().length > 0
-                                    ? locale() === 'ru'
-                                      ? 'Ваши назначенные коммунальные платежи на этот цикл'
-                                      : 'Your assigned utility payments for this cycle'
-                                    : locale() === 'ru'
-                                      ? 'На этот цикл новых коммунальных оплат на вас не назначено'
-                                      : 'No new utility payments are assigned to you this cycle'}
+                                  {isUtilitiesFullyPaid()
+                                    ? copy().homeUtilitiesPaidNote
+                                    : currentUtilityAssignments().length > 0
+                                      ? locale() === 'ru'
+                                        ? 'Ваши назначенные коммунальные платежи на этот цикл'
+                                        : 'Your assigned utility payments for this cycle'
+                                      : locale() === 'ru'
+                                        ? 'На этот цикл новых коммунальных оплат на вас не назначено'
+                                        : 'No new utility payments are assigned to you this cycle'}
                                 </span>
                               </div>
                               <Show when={utilitiesRemainingMinor() > 0n}>
@@ -1032,161 +1050,167 @@ export default function HomeRoute() {
                               </Show>
                             </div>
 
-                            <Show
-                              when={currentUtilityAssignments().length > 0}
-                              fallback={
-                                <div class="home-payment-card__empty">
-                                  {currentUtilitySummary()?.projectedDeltaAfterPlanMajor &&
-                                  majorStringToMinor(
-                                    currentUtilitySummary()!.projectedDeltaAfterPlanMajor
-                                  ) !== 0n
-                                    ? locale() === 'ru'
-                                      ? `Новых счетов на вас нет. Итоговое отклонение после текущего плана: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
-                                      : `No new bills are assigned to you. Projected delta after the current utility plan: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
-                                    : locale() === 'ru'
-                                      ? 'На вас нет назначенных коммунальных платежей.'
-                                      : 'No utility bills are assigned to you right now.'}
-                                </div>
-                              }
-                            >
-                              <div class="home-payment-card__body">
-                                <For each={currentUtilityAssignments()}>
-                                  {(category) => {
-                                    const details = () =>
-                                      utilityCategoryByName().get(
-                                        category.billName.trim().toLowerCase()
-                                      )
+                            <Show when={!isUtilitiesFullyPaid()}>
+                              <Show
+                                when={currentUtilityAssignments().length > 0}
+                                fallback={
+                                  <div class="home-payment-card__empty">
+                                    {currentUtilitySummary()?.projectedDeltaAfterPlanMajor &&
+                                    majorStringToMinor(
+                                      currentUtilitySummary()!.projectedDeltaAfterPlanMajor
+                                    ) !== 0n
+                                      ? locale() === 'ru'
+                                        ? `Новых счетов на вас нет. Итоговое отклонение после текущего плана: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
+                                        : `No new bills are assigned to you. Projected delta after the current utility plan: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
+                                      : locale() === 'ru'
+                                        ? 'На вас нет назначенных коммунальных платежей.'
+                                        : 'No utility bills are assigned to you right now.'}
+                                  </div>
+                                }
+                              >
+                                <div class="home-payment-card__body">
+                                  <For each={currentUtilityAssignments()}>
+                                    {(category) => {
+                                      const details = () =>
+                                        utilityCategoryByName().get(
+                                          category.billName.trim().toLowerCase()
+                                        )
 
-                                    return (
-                                      <div class="home-payment-card__item">
-                                        <div class="home-payment-card__item-head">
-                                          <div class="home-payment-card__item-copy">
-                                            <div class="home-payment-card__item-kicker">
-                                              <span
-                                                class="home-payment-card__pill"
-                                                classList={{
-                                                  'is-full': category.isFullAssignment,
-                                                  'is-split': !category.isFullAssignment
-                                                }}
-                                              >
-                                                {category.isFullAssignment
-                                                  ? locale() === 'ru'
-                                                    ? 'ПОЛНОСТЬЮ'
-                                                    : 'FULL'
-                                                  : locale() === 'ru'
-                                                    ? 'ЧАСТЬ'
-                                                    : 'SPLIT'}
+                                      return (
+                                        <div class="home-payment-card__item">
+                                          <div class="home-payment-card__item-head">
+                                            <div class="home-payment-card__item-copy">
+                                              <div class="home-payment-card__item-kicker">
+                                                <span
+                                                  class="home-payment-card__pill"
+                                                  classList={{
+                                                    'is-full': category.isFullAssignment,
+                                                    'is-split': !category.isFullAssignment
+                                                  }}
+                                                >
+                                                  {category.isFullAssignment
+                                                    ? locale() === 'ru'
+                                                      ? 'ПОЛНОСТЬЮ'
+                                                      : 'FULL'
+                                                    : locale() === 'ru'
+                                                      ? 'ЧАСТЬ'
+                                                      : 'SPLIT'}
+                                                </span>
+                                                <strong>{category.billName}</strong>
+                                              </div>
+                                              <span class="home-payment-card__item-subtle">
+                                                {details()?.providerName ??
+                                                  (locale() === 'ru'
+                                                    ? 'Провайдер не указан'
+                                                    : 'Provider not set')}
                                               </span>
-                                              <strong>{category.billName}</strong>
                                             </div>
-                                            <span class="home-payment-card__item-subtle">
-                                              {details()?.providerName ??
-                                                (locale() === 'ru'
-                                                  ? 'Провайдер не указан'
-                                                  : 'Provider not set')}
-                                            </span>
+                                            <div class="home-payment-card__item-value">
+                                              <strong>
+                                                {formatMoneyLabel(
+                                                  category.assignedAmountMajor,
+                                                  data().currency,
+                                                  locale()
+                                                )}
+                                              </strong>
+                                              <Show when={!category.isFullAssignment}>
+                                                <span class="home-payment-card__item-note">
+                                                  {locale() === 'ru'
+                                                    ? `Из счета ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                                    : `Of bill total ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                                </span>
+                                              </Show>
+                                            </div>
                                           </div>
-                                          <div class="home-payment-card__item-value">
-                                            <strong>
-                                              {formatMoneyLabel(
-                                                category.assignedAmountMajor,
-                                                data().currency,
-                                                locale()
+
+                                          <div class="home-payment-card__details">
+                                            <Show when={details()?.customerNumber}>
+                                              {(value) => (
+                                                <div class="home-payment-card__detail-row">
+                                                  <span>
+                                                    {locale() === 'ru' ? 'Счёт' : 'Account'}
+                                                  </span>
+                                                  <strong>{value()}</strong>
+                                                </div>
                                               )}
-                                            </strong>
-                                            <Show when={!category.isFullAssignment}>
-                                              <span class="home-payment-card__item-note">
-                                                {locale() === 'ru'
-                                                  ? `Из счета ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
-                                                  : `Of bill total ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
-                                              </span>
+                                            </Show>
+                                            <Show when={details()?.paymentLink}>
+                                              {(value) => (
+                                                <div class="home-payment-card__detail-row">
+                                                  <span>
+                                                    {locale() === 'ru' ? 'Ссылка' : 'Link'}
+                                                  </span>
+                                                  <strong>
+                                                    <a
+                                                      href={value()}
+                                                      target="_blank"
+                                                      rel="noreferrer"
+                                                    >
+                                                      {locale() === 'ru'
+                                                        ? 'Открыть оплату'
+                                                        : 'Open payment'}
+                                                    </a>
+                                                  </strong>
+                                                </div>
+                                              )}
+                                            </Show>
+                                            <Show when={details()?.note}>
+                                              {(value) => (
+                                                <div class="home-payment-card__detail-row">
+                                                  <span>
+                                                    {locale() === 'ru' ? 'Примечание' : 'Note'}
+                                                  </span>
+                                                  <strong>{value()}</strong>
+                                                </div>
+                                              )}
                                             </Show>
                                           </div>
                                         </div>
-
-                                        <div class="home-payment-card__details">
-                                          <Show when={details()?.customerNumber}>
-                                            {(value) => (
-                                              <div class="home-payment-card__detail-row">
-                                                <span>
-                                                  {locale() === 'ru' ? 'Счёт' : 'Account'}
-                                                </span>
-                                                <strong>{value()}</strong>
-                                              </div>
-                                            )}
-                                          </Show>
-                                          <Show when={details()?.paymentLink}>
-                                            {(value) => (
-                                              <div class="home-payment-card__detail-row">
-                                                <span>{locale() === 'ru' ? 'Ссылка' : 'Link'}</span>
-                                                <strong>
-                                                  <a
-                                                    href={value()}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                  >
-                                                    {locale() === 'ru'
-                                                      ? 'Открыть оплату'
-                                                      : 'Open payment'}
-                                                  </a>
-                                                </strong>
-                                              </div>
-                                            )}
-                                          </Show>
-                                          <Show when={details()?.note}>
-                                            {(value) => (
-                                              <div class="home-payment-card__detail-row">
-                                                <span>
-                                                  {locale() === 'ru' ? 'Примечание' : 'Note'}
-                                                </span>
-                                                <strong>{value()}</strong>
-                                              </div>
-                                            )}
-                                          </Show>
-                                        </div>
-                                      </div>
-                                    )
-                                  }}
-                                </For>
-                              </div>
-                            </Show>
-
-                            <div class="home-payment-card__meta">
-                              <div class="home-payment-card__meta-row">
-                                <span>{copy().baseDue}</span>
-                                <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
-                              </div>
-                              <Show when={policy() === 'utilities'}>
-                                <div class="home-payment-card__meta-row">
-                                  <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
-                                </div>
-                              </Show>
-                            </div>
-
-                            <Show when={utilityLedger().length > 0}>
-                              <div class="home-payment-card__context">
-                                <div class="home-payment-card__context-head">
-                                  <span>{copy().homeUtilitiesBillsTitle}</span>
-                                  <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
-                                </div>
-                                <div class="home-payment-card__context-list">
-                                  <For each={utilityLedger()}>
-                                    {(entry) => (
-                                      <div class="home-payment-card__context-row">
-                                        <span>{entry.title}</span>
-                                        <strong>
-                                          {formatMoneyLabel(
-                                            entry.displayAmountMajor,
-                                            entry.displayCurrency,
-                                            locale()
-                                          )}
-                                        </strong>
-                                      </div>
-                                    )}
+                                      )
+                                    }}
                                   </For>
                                 </div>
+                              </Show>
+
+                              <div class="home-payment-card__meta">
+                                <div class="home-payment-card__meta-row">
+                                  <span>{copy().baseDue}</span>
+                                  <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
+                                </div>
+                                <Show when={policy() === 'utilities'}>
+                                  <div class="home-payment-card__meta-row">
+                                    <span>{copy().balanceAdjustmentLabel}</span>
+                                    <strong>
+                                      {formatMajorAmount(member().purchaseOffsetMajor)}
+                                    </strong>
+                                  </div>
+                                </Show>
                               </div>
+
+                              <Show when={utilityLedger().length > 0}>
+                                <div class="home-payment-card__context">
+                                  <div class="home-payment-card__context-head">
+                                    <span>{copy().homeUtilitiesBillsTitle}</span>
+                                    <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
+                                  </div>
+                                  <div class="home-payment-card__context-list">
+                                    <For each={utilityLedger()}>
+                                      {(entry) => (
+                                        <div class="home-payment-card__context-row">
+                                          <span>{entry.title}</span>
+                                          <strong>
+                                            {formatMoneyLabel(
+                                              entry.displayAmountMajor,
+                                              entry.displayCurrency,
+                                              locale()
+                                            )}
+                                          </strong>
+                                        </div>
+                                      )}
+                                    </For>
+                                  </div>
+                                </div>
+                              </Show>
                             </Show>
                           </div>
                         </Card>
