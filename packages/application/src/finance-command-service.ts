@@ -1955,21 +1955,13 @@ async function buildFinanceDashboard(
   const paymentsByMemberId = new Map<string, Money>()
   const utilityPaidByMemberId = new Map<string, bigint>()
 
-  // Get payment IDs that are already accounted for in vendor payment facts
-  const utilitiesPlanPaymentIds = new Set(
-    paymentPurchaseAllocations
-      .filter((alloc) => alloc.resolutionMethod === 'utilities_plan')
-      .map((alloc) => alloc.paymentRecordId)
-  )
-
   for (const payment of paymentRecords) {
     const current = paymentsByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)
     paymentsByMemberId.set(
       payment.memberId,
       current.add(Money.fromMinor(payment.amountMinor, payment.currency))
     )
-    // Only count utility payments that are NOT already represented in vendor payment facts
-    if (payment.kind === 'utilities' && !utilitiesPlanPaymentIds.has(payment.id)) {
+    if (payment.kind === 'utilities') {
       utilityPaidByMemberId.set(
         payment.memberId,
         (utilityPaidByMemberId.get(payment.memberId) ?? 0n) + payment.amountMinor
@@ -3129,13 +3121,24 @@ export function createFinanceCommandService(
         recordedAt
       })
 
-      // Allocate the payment to the utility plan
+      // Resolve purchases using the payment overage
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const allocationResult = await allocatePaymentPurchaseOverage({
+        dependencies,
+        cyclePeriod: dashboard.period,
+        memberId: input.memberId,
+        kind: 'utilities',
+        paymentAmount: Money.fromMinor(totalAmountMinor, dashboard.currency),
+        settings
+      })
       await repository.replacePaymentPurchaseAllocations({
         paymentRecordId: payment.id,
         cycleId: cycle.id,
-        resolutionMethod: 'utilities_plan',
-        resolutionPlanId: dashboard.utilityBillingPlan.id,
-        allocations: []
+        resolutionMethod: allocationResult.resolutionMethod,
+        resolutionPlanId: allocationResult.resolutionPlanId,
+        allocations: allocationResult.allocations
       })
 
       const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
