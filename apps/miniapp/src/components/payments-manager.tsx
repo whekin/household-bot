@@ -21,6 +21,7 @@ import {
 import {
   addMiniAppPayment,
   deleteMiniAppPayment,
+  resolveMiniAppUtilityPlan,
   updateMiniAppPayment,
   type MiniAppDashboard
 } from '../miniapp-api'
@@ -121,13 +122,24 @@ export function PaymentsManager() {
     setProcessingMember(input.memberId)
     try {
       setPaymentActionError(null)
-      await addMiniAppPayment(data, {
-        memberId: input.memberId,
-        kind: input.kind,
-        period: current.period,
-        amountMajor: input.amountMajor,
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
-      })
+
+      // For utilities, use the utility plan resolution API which creates vendor payment facts
+      // For rent, use the regular payment API
+      if (input.kind === 'utilities') {
+        await resolveMiniAppUtilityPlan(data, {
+          memberId: input.memberId,
+          period: current.period
+        })
+      } else {
+        await addMiniAppPayment(data, {
+          memberId: input.memberId,
+          kind: input.kind,
+          period: current.period,
+          amountMajor: input.amountMajor,
+          currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+        })
+      }
+
       await refreshHouseholdData(true, true)
     } catch (error) {
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
