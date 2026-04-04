@@ -3449,6 +3449,59 @@ a {
   gap: 8px;
 }
 
+.payments-compact-list {
+  display: grid;
+  gap: 0;
+}
+
+.payment-compact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.payment-compact-row:first-child {
+  border-top: 0;
+}
+
+.payment-compact-row__info {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.payment-compact-row__info > strong {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.payment-compact-row__details {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.payment-compact-row__details > span {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.payment-compact-row__details > strong {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.payment-compact-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .payments-history {
   display: grid;
   gap: 18px;
@@ -3682,6 +3735,20 @@ a {
 
   .payment-member-row__actions {
     justify-content: flex-start;
+  }
+
+  .payment-compact-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .payment-compact-row__actions {
+    justify-content: flex-start;
+  }
+
+  .payment-compact-row__actions button {
+    flex: 1;
+    min-width: 0;
   }
 }
 

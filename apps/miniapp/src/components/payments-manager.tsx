@@ -45,56 +45,30 @@ export function PaymentsManager() {
       .map((period) => ({ value: period, label: formatCyclePeriod(period, locale()) }))
   })
   const paymentPeriodSummaries = createMemo(() => dashboard()?.paymentPeriods ?? [])
-  const visiblePeriodSummaries = createMemo(() => {
-    const stage = dashboard()?.billingStage ?? 'idle'
-    const utilityPlanActive = Boolean(dashboard()?.utilityBillingPlan?.categories.length)
-    const filterKinds = (
-      summary: (typeof paymentPeriodSummaries extends () => infer T ? T : never)[number]
-    ) =>
-      summary.kinds.filter((kindSummary) => {
-        if (kindSummary.unresolvedMembers.length === 0) {
-          return false
-        }
+  const currentPeriodSummary = createMemo(() =>
+    paymentPeriodSummaries().find((summary) => summary.isCurrentPeriod)
+  )
+  const billingStage = createMemo(() => dashboard()?.billingStage ?? 'idle')
+  const activePaymentKind = createMemo((): 'rent' | 'utilities' | null => {
+    const stage = billingStage()
+    if (stage === 'idle') return null
+    return stage
+  })
+  const memberPaymentRows = createMemo(() => {
+    const kind = activePaymentKind()
+    const current = currentPeriodSummary()
+    if (!kind || !current) return []
 
-        if (!summary.isCurrentPeriod) {
-          return true
-        }
+    const kindSummary = current.kinds.find((k) => k.kind === kind)
+    if (!kindSummary) return []
 
-        if (stage === 'idle') {
-          return false
-        }
-
-        if (stage === 'utilities') {
-          if (kindSummary.kind === 'rent') {
-            return false
-          }
-
-          return !utilityPlanActive
-        }
-
-        return true
-      })
-
-    const currentSummary = paymentPeriodSummaries().find((summary) => summary.isCurrentPeriod)
-    const current =
-      currentSummary && filterKinds(currentSummary).length > 0
-        ? {
-            ...currentSummary,
-            kinds: filterKinds(currentSummary)
-          }
-        : null
-    const overdue = sortPeriodsDesc(
-      paymentPeriodSummaries().filter(
-        (summary) => !summary.isCurrentPeriod && summary.hasOverdueBalance
-      )
-    )
-      .map((summary) => ({
-        ...summary,
-        kinds: filterKinds(summary)
-      }))
-      .filter((summary) => summary.kinds.length > 0)
-
-    return [...(current ? [current] : []), ...overdue]
+    return kindSummary.unresolvedMembers.map((member) => ({
+      memberId: member.memberId,
+      displayName: member.displayName,
+      kind,
+      remainingMajor: member.remainingMajor,
+      suggestedAmountMajor: member.suggestedAmountMajor
+    }))
   })
   const historyPeriodSummaries = createMemo(() =>
     sortPeriodsDesc(
@@ -121,6 +95,7 @@ export function PaymentsManager() {
   })
   const [addingPayment, setAddingPayment] = createSignal(false)
   const [paymentActionError, setPaymentActionError] = createSignal<string | null>(null)
+  const [processingMember, setProcessingMember] = createSignal<string | null>(null)
 
   const [editingPayment, setEditingPayment] = createSignal<
     MiniAppDashboard['ledger'][number] | null
@@ -134,6 +109,55 @@ export function PaymentsManager() {
     { value: 'utilities', label: copy().shareUtilities }
   ]
 
+  async function handleQuickPayment(input: {
+    memberId: string
+    kind: 'rent' | 'utilities'
+    amountMajor: string
+  }) {
+    const data = initData()
+    const current = currentPeriodSummary()
+    if (!data || !current) return
+
+    setProcessingMember(input.memberId)
+    try {
+      setPaymentActionError(null)
+      await addMiniAppPayment(data, {
+        memberId: input.memberId,
+        kind: input.kind,
+        period: current.period,
+        amountMajor: input.amountMajor,
+        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+      })
+      await refreshHouseholdData(true, true)
+    } catch (error) {
+      setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
+    } finally {
+      setProcessingMember(null)
+    }
+  }
+
+  function openCustomPayment(input: {
+    memberId: string
+    kind?: 'rent' | 'utilities'
+    period?: string
+  }) {
+    setPaymentActionError(null)
+    const current = currentPeriodSummary()
+    setNewPayment({
+      memberId: input.memberId,
+      kind: input.kind ?? 'rent',
+      amountMajor: computePaymentPrefill(
+        dashboard(),
+        input.memberId,
+        input.kind ?? 'rent',
+        input.period ?? current?.period ?? dashboard()?.period ?? ''
+      ),
+      currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+      period: input.period ?? current?.period ?? dashboard()?.period ?? ''
+    })
+    setAddPaymentOpen(true)
+  }
+
   function closePaymentEditor() {
     setEditingPayment(null)
     setPaymentDraft(null)
@@ -142,22 +166,6 @@ export function PaymentsManager() {
   function openPaymentEditor(entry: MiniAppDashboard['ledger'][number]) {
     setEditingPayment(entry)
     setPaymentDraft(paymentDraftForEntry(entry))
-  }
-
-  function openCustomPayment(input: {
-    memberId: string
-    kind: 'rent' | 'utilities'
-    period: string
-  }) {
-    setPaymentActionError(null)
-    setNewPayment({
-      memberId: input.memberId,
-      kind: input.kind,
-      amountMajor: computePaymentPrefill(dashboard(), input.memberId, input.kind, input.period),
-      currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-      period: input.period
-    })
-    setAddPaymentOpen(true)
   }
 
   async function handleAddPayment() {
@@ -182,33 +190,6 @@ export function PaymentsManager() {
         amountMajor: '',
         currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
         period: dashboard()?.period ?? ''
-      })
-      await refreshHouseholdData(true, true)
-    } catch (error) {
-      setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
-    } finally {
-      setAddingPayment(false)
-    }
-  }
-
-  async function handleResolveSuggestedPayment(input: {
-    memberId: string
-    kind: 'rent' | 'utilities'
-    period: string
-    amountMajor: string
-  }) {
-    const data = initData()
-    if (!data) return
-
-    setAddingPayment(true)
-    try {
-      setPaymentActionError(null)
-      await addMiniAppPayment(data, {
-        memberId: input.memberId,
-        kind: input.kind,
-        period: input.period,
-        amountMajor: input.amountMajor,
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
       })
       await refreshHouseholdData(true, true)
     } catch (error) {
@@ -255,206 +236,106 @@ export function PaymentsManager() {
     }
   }
 
-  function periodStatusLabel(
-    summary: NonNullable<ReturnType<typeof paymentPeriodSummaries>>[number]
-  ) {
-    if (summary.isCurrentPeriod) return copy().paymentsPeriodCurrentStatus
-    if (summary.hasOverdueBalance) return copy().paymentsPeriodOverdueStatus
-    return copy().paymentsPeriodSettledStatus
-  }
-
   function renderKindTitle(kind: 'rent' | 'utilities') {
     return kind === 'rent' ? copy().shareRent : copy().shareUtilities
   }
 
   return (
     <>
-      <Card>
-        <div class="statement-section-heading">
-          <div>
-            <strong>{copy().paymentsTitle}</strong>
-            <p>{copy().paymentsAdminBody}</p>
-          </div>
-          <div class="payments-manager__toolbar">
-            <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>
-              <Clock3 size={14} />
-              {copy().paymentsHistoryAction}
-            </Button>
-            <Show when={effectiveIsAdmin()}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setPaymentActionError(null)
-                  setNewPayment((payment) => ({
-                    ...payment,
-                    period: dashboard()?.period ?? ''
-                  }))
-                  setAddPaymentOpen(true)
-                }}
-              >
-                <Plus size={14} />
-                {copy().paymentsAddAction}
+      <Show when={memberPaymentRows().length > 0}>
+        <Card>
+          <div class="statement-section-heading">
+            <div>
+              <strong>{copy().paymentsTitle}</strong>
+              <p>{copy().paymentsAdminBody}</p>
+            </div>
+            <div class="payments-manager__toolbar">
+              <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>
+                <Clock3 size={14} />
+                {copy().paymentsHistoryAction}
               </Button>
-            </Show>
+              <Show when={effectiveIsAdmin()}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setPaymentActionError(null)
+                    setNewPayment((payment) => ({
+                      ...payment,
+                      memberId: '',
+                      period: dashboard()?.period ?? ''
+                    }))
+                    setAddPaymentOpen(true)
+                  }}
+                >
+                  <Plus size={14} />
+                  {copy().paymentsAddAction}
+                </Button>
+              </Show>
+            </div>
           </div>
-        </div>
 
-        <Show when={paymentActionError()}>{(error) => <p class="empty-state">{error()}</p>}</Show>
+          <Show when={paymentActionError()}>{(error) => <p class="empty-state">{error()}</p>}</Show>
 
-        <Show
-          when={visiblePeriodSummaries().length > 0}
-          fallback={<p class="empty-state">{copy().paymentsNoOpenBody}</p>}
-        >
-          <div class="payments-manager__stack">
-            <For each={visiblePeriodSummaries()}>
-              {(summary) => (
-                <section class="payments-period">
-                  <header class="payments-period__header">
-                    <div class="payments-period__copy">
-                      <div class="payments-period__title-line">
-                        <strong>
-                          {copy().paymentsPeriodTitle.replace(
-                            '{period}',
-                            formatCyclePeriod(summary.period, locale())
-                          )}
-                        </strong>
-                        <span
-                          class={`payments-period__badge ${
-                            summary.hasOverdueBalance
-                              ? 'is-overdue'
-                              : summary.isCurrentPeriod
-                                ? 'is-current'
-                                : 'is-settled'
-                          }`}
-                        >
-                          {periodStatusLabel(summary)}
-                        </span>
-                      </div>
-                      <p>
-                        {summary.hasOverdueBalance
-                          ? copy().paymentsPeriodOverdueBody
-                          : summary.isCurrentPeriod
-                            ? copy().paymentsPeriodCurrentBody
-                            : copy().paymentsPeriodHistoryBody}
-                      </p>
+          <div class="payments-compact-list">
+            <For each={memberPaymentRows()}>
+              {(row) => (
+                <div class="payment-compact-row">
+                  <div class="payment-compact-row__info">
+                    <strong>{row.displayName}</strong>
+                    <div class="payment-compact-row__details">
+                      <span>{row.kind === 'rent' ? copy().shareRent : copy().shareUtilities}</span>
+                      <strong>
+                        {formatMoneyLabel(
+                          row.remainingMajor,
+                          (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                          locale()
+                        )}
+                      </strong>
                     </div>
-                  </header>
-
-                  <div class="payments-period__body">
-                    <For each={summary.kinds}>
-                      {(kindSummary) => (
-                        <section class="payments-kind">
-                          <header class="payments-kind__header">
-                            <span>{renderKindTitle(kindSummary.kind)}</span>
-                            <Show when={kindSummary.unresolvedMembers.length === 0}>
-                              <strong>
-                                {formatMoneyLabel(
-                                  kindSummary.totalPaidMajor,
-                                  (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                  locale()
-                                )}
-                              </strong>
-                            </Show>
-                          </header>
-
-                          <Show
-                            when={kindSummary.unresolvedMembers.length > 0}
-                            fallback={
-                              <div class="payments-kind__empty">
-                                <span>{copy().homeSettledTitle}</span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    kindSummary.totalPaidMajor,
-                                    (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                            }
-                          >
-                            <div class="payments-members">
-                              <For each={kindSummary.unresolvedMembers}>
-                                {(memberSummary) => (
-                                  <div class="payment-member-row">
-                                    <div class="payment-member-row__copy">
-                                      <strong>{memberSummary.displayName}</strong>
-                                      <span>
-                                        {copy()
-                                          .paymentsBaseDueLabel.replace(
-                                            '{amount}',
-                                            formatMoneyLabel(
-                                              memberSummary.baseDueMajor,
-                                              (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                              locale()
-                                            )
-                                          )
-                                          .replace(
-                                            '{remaining}',
-                                            formatMoneyLabel(
-                                              memberSummary.remainingMajor,
-                                              (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                              locale()
-                                            )
-                                          )}
-                                      </span>
-                                    </div>
-                                    <div class="payment-member-row__side">
-                                      <strong>
-                                        {formatMoneyLabel(
-                                          memberSummary.suggestedAmountMajor,
-                                          (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
-                                          locale()
-                                        )}
-                                      </strong>
-                                      <Show when={effectiveIsAdmin()}>
-                                        <div class="payment-member-row__actions">
-                                          <Button
-                                            variant="primary"
-                                            size="sm"
-                                            loading={addingPayment()}
-                                            onClick={() =>
-                                              void handleResolveSuggestedPayment({
-                                                memberId: memberSummary.memberId,
-                                                kind: kindSummary.kind,
-                                                period: summary.period,
-                                                amountMajor: memberSummary.suggestedAmountMajor
-                                              })
-                                            }
-                                          >
-                                            {copy().paymentsResolveAction}
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() =>
-                                              openCustomPayment({
-                                                memberId: memberSummary.memberId,
-                                                kind: kindSummary.kind,
-                                                period: summary.period
-                                              })
-                                            }
-                                          >
-                                            {copy().paymentsCustomAmountAction}
-                                          </Button>
-                                        </div>
-                                      </Show>
-                                    </div>
-                                  </div>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                        </section>
-                      )}
-                    </For>
                   </div>
-                </section>
+                  <Show when={effectiveIsAdmin()}>
+                    <div class="payment-compact-row__actions">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={processingMember() === row.memberId}
+                        onClick={() =>
+                          void handleQuickPayment({
+                            memberId: row.memberId,
+                            kind: row.kind,
+                            amountMajor: row.suggestedAmountMajor
+                          })
+                        }
+                      >
+                        {row.kind === 'rent'
+                          ? locale() === 'ru'
+                            ? 'Оплатил аренду'
+                            : 'Paid rent'
+                          : locale() === 'ru'
+                            ? 'Оплатил коммуналку'
+                            : 'Paid utilities'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          openCustomPayment({
+                            memberId: row.memberId,
+                            kind: row.kind
+                          })
+                        }
+                      >
+                        {locale() === 'ru' ? 'Другая сумма' : 'Custom'}
+                      </Button>
+                    </div>
+                  </Show>
+                </div>
               )}
             </For>
           </div>
-        </Show>
-      </Card>
+        </Card>
+      </Show>
 
       <Modal
         open={historyOpen()}
