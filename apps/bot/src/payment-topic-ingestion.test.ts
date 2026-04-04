@@ -393,7 +393,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       reply_parameters: {
         message_id: 55
       },
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.'),
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 473.00 ₾.'),
       reply_markup: {
         inline_keyboard: [
           [
@@ -495,7 +495,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       text: 'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.'
     })
     expect(calls[1]?.payload).toMatchObject({
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.')
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 473.00 ₾.')
     })
   })
 
@@ -621,7 +621,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(paymentConfirmationService.submitted).toEqual([
       {
-        rawText: 'paid rent 472.50 GEL',
+        rawText: 'paid rent 473.00 GEL',
         telegramMessageId: '55',
         telegramThreadId: '888'
       }
@@ -804,7 +804,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: expect.stringContaining('Я могу записать эту оплату аренды: 472.50 ₾.')
+      text: expect.stringContaining('Я могу записать эту оплату аренды: 473.00 ₾.')
     })
   })
 

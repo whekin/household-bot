@@ -799,17 +799,20 @@ export function registerConfiguredPaymentTopicIngestion(
             }
 
             // Create payment proposal using the parsed data from topic processor
+            // Only trust the AI-extracted amount if the user's message actually contains a number.
+            // The AI may hallucinate amounts from conversation history (bill summaries, other members' figures).
+            const userMessageHasAmount = /\d+(?:[.,]\d{1,2})?/.test(record.rawText)
+            const effectiveAmountMinor = userMessageHasAmount ? processorResult.amountMinor : null
+            const effectiveCurrency = userMessageHasAmount ? processorResult.currency : null
+
             const amountMajor =
-              processorResult.amountMinor && processorResult.currency
-                ? Money.fromMinor(
-                    BigInt(processorResult.amountMinor),
-                    processorResult.currency
-                  ).toMajorString()
+              effectiveAmountMinor && effectiveCurrency
+                ? Money.fromMinor(BigInt(effectiveAmountMinor), effectiveCurrency).toMajorString()
                 : null
 
             const synthesizedText =
-              amountMajor && processorResult.currency
-                ? `paid ${processorResult.kind} ${amountMajor} ${processorResult.currency}`
+              amountMajor && effectiveCurrency
+                ? `paid ${processorResult.kind} ${amountMajor} ${effectiveCurrency}`
                 : `paid ${processorResult.kind}`
 
             const proposal = await maybeCreatePaymentProposal({

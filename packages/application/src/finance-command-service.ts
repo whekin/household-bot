@@ -875,6 +875,60 @@ function utilityPlanPayloadChanged(
   )
 }
 
+function utilityPlanBillInputsChanged(
+  stored: UtilityBillingPlanComputed,
+  freshBills: readonly { utilityBillId: string; billName: string; amount: Money }[],
+  freshVendorPayments: readonly {
+    utilityBillId: string | null
+    billName: string
+    payerMemberId: string
+    amount: Money
+  }[],
+  freshMemberIds: readonly string[]
+): boolean {
+  // Check if bills changed (different IDs, names, or amounts)
+  const freshBillIdSet = new Set(freshBills.map((b) => b.utilityBillId))
+  const storedBillIdSet = new Set(stored.categories.map((c) => c.utilityBillId))
+  if (
+    storedBillIdSet.size !== freshBillIdSet.size ||
+    [...storedBillIdSet].some((id) => !freshBillIdSet.has(id))
+  ) {
+    return true
+  }
+  // Bill totals changed
+  const storedTotalByBill = new Map(
+    stored.categories.map((c) => [c.utilityBillId, c.billTotal.amountMinor])
+  )
+  if (freshBills.some((b) => storedTotalByBill.get(b.utilityBillId) !== b.amount.amountMinor)) {
+    return true
+  }
+
+  // Check if vendor payments changed
+  const storedVendorKey = stored.categories
+    .filter((c) => c.paidAmount.amountMinor > 0n)
+    .map((c) => `${c.utilityBillId}:${c.paidAmount.amountMinor}`)
+    .sort()
+    .join('|')
+  const freshVendorKey = freshVendorPayments
+    .map((v) => `${v.utilityBillId ?? v.billName}:${v.amount.amountMinor}`)
+    .sort()
+    .join('|')
+  if (storedVendorKey !== freshVendorKey) {
+    return true
+  }
+
+  // Check if member list changed
+  const storedMemberIds = new Set(stored.memberSummaries.map((s) => s.memberId))
+  if (
+    storedMemberIds.size !== freshMemberIds.length ||
+    freshMemberIds.some((id) => !storedMemberIds.has(id))
+  ) {
+    return true
+  }
+
+  return false
+}
+
 async function ensureUtilityBillingPlan(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -945,6 +999,32 @@ async function ensureUtilityBillingPlan(input: {
       }
     }
 
+    // Only supersede the plan if bill inputs (bills, vendor payments, members) actually changed.
+    // Fair share changes from purchase offsets should NOT trigger a rebalance — the plan's
+    // category assignments are a commitment to each member.
+    const billInputs = input.convertedUtilityBills.map(({ bill, converted }) => ({
+      utilityBillId: bill.id,
+      billName: bill.billName,
+      amount: converted.settlementAmount
+    }))
+    const vendorPaymentInputs = vendorFacts.map((fact) => ({
+      utilityBillId: fact.utilityBillId,
+      billName: fact.billName,
+      payerMemberId: fact.payerMemberId,
+      amount: Money.fromMinor(fact.amountMinor, fact.currency)
+    }))
+    const freshMemberIds = input.settlementLines.map((line) => line.memberId)
+
+    if (
+      !utilityPlanBillInputsChanged(materialized, billInputs, vendorPaymentInputs, freshMemberIds)
+    ) {
+      // Bill inputs unchanged — keep the existing plan despite fair share drift
+      return {
+        record: activePlan,
+        computed: materialized
+      }
+    }
+
     const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
     await input.dependencies.repository.updateUtilityBillingPlanStatus(
       activePlan.id,
@@ -988,6 +1068,16 @@ function buildDashboardUtilityBillingPlan(input: {
   priorVersionByPlanId: ReadonlyMap<string, number>
   utilityPaidByMemberId: ReadonlyMap<string, bigint>
 }): FinanceDashboardUtilityBillingPlan {
+  // Pre-compute per-member total category assignments so we can proportionally reduce them
+  const memberCategoryTotals = new Map<string, bigint>()
+  for (const category of input.computed.categories) {
+    memberCategoryTotals.set(
+      category.assignedMemberId,
+      (memberCategoryTotals.get(category.assignedMemberId) ?? 0n) +
+        category.assignedAmount.amountMinor
+    )
+  }
+
   return {
     version: input.planRecord.version,
     status: input.planRecord.status,
@@ -996,18 +1086,33 @@ function buildDashboardUtilityBillingPlan(input: {
       ? (input.priorVersionByPlanId.get(input.planRecord.updatedFromPlanId) ?? null)
       : null,
     reason: input.planRecord.reason,
-    categories: input.computed.categories.map((category) => ({
-      utilityBillId: category.utilityBillId,
-      billName: category.billName,
-      billTotal: category.billTotal,
-      assignedAmount: category.assignedAmount,
-      assignedMemberId: category.assignedMemberId,
-      assignedDisplayName:
-        input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
-      paidAmount: category.paidAmount,
-      isFullAssignment: category.isFullAssignment,
-      splitGroupId: category.splitGroupId
-    })),
+    categories: input.computed.categories.map((category) => {
+      const utilityPaidMinor = input.utilityPaidByMemberId.get(category.assignedMemberId) ?? 0n
+      const totalAssignedMinor = memberCategoryTotals.get(category.assignedMemberId) ?? 0n
+      let effectiveAssignedMinor = category.assignedAmount.amountMinor
+      if (utilityPaidMinor > 0n && totalAssignedMinor > 0n) {
+        // Proportionally reduce this category's assignment based on member's utility payments
+        const reductionMinor =
+          totalAssignedMinor <= utilityPaidMinor
+            ? category.assignedAmount.amountMinor
+            : (category.assignedAmount.amountMinor * utilityPaidMinor) / totalAssignedMinor
+        effectiveAssignedMinor =
+          effectiveAssignedMinor > reductionMinor ? effectiveAssignedMinor - reductionMinor : 0n
+      }
+
+      return {
+        utilityBillId: category.utilityBillId,
+        billName: category.billName,
+        billTotal: category.billTotal,
+        assignedAmount: Money.fromMinor(effectiveAssignedMinor, category.assignedAmount.currency),
+        assignedMemberId: category.assignedMemberId,
+        assignedDisplayName:
+          input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
+        paidAmount: category.paidAmount,
+        isFullAssignment: category.isFullAssignment,
+        splitGroupId: category.splitGroupId
+      }
+    }),
     memberSummaries: input.computed.memberSummaries.map((summary) => {
       const currency = summary.fairShare.currency
       const utilityPaidMinor = input.utilityPaidByMemberId.get(summary.memberId) ?? 0n
