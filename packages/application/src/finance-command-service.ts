@@ -1039,17 +1039,13 @@ function buildDashboardUtilityBillingPlan(input: {
       const currency = summary.fairShare.currency
       const utilityPaidMinor = input.utilityPaidByMemberId.get(summary.memberId) ?? 0n
       const effectiveVendorPaidMinor = summary.vendorPaid.amountMinor + utilityPaidMinor
-      const effectiveProjectedDeltaMinor =
-        effectiveVendorPaidMinor +
-        summary.assignedThisCycle.amountMinor -
-        summary.fairShare.amountMinor
       return {
         memberId: summary.memberId,
         displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
         fairShare: summary.fairShare,
         vendorPaid: Money.fromMinor(effectiveVendorPaidMinor, currency),
         assignedThisCycle: summary.assignedThisCycle,
-        projectedDeltaAfterPlan: Money.fromMinor(effectiveProjectedDeltaMinor, currency)
+        projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
     })
   }

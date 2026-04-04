@@ -2212,4 +2212,187 @@ describe('createFinanceCommandService', () => {
       )
     ).toBe(true)
   })
+
+  test('resolveUtilityBillAsPlanned shows correct vendorPaid and projectedDelta on dashboard', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+
+    // Materialize initial plan
+    const initialDashboard = await service.generateDashboard('2026-04')
+    expect(initialDashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(
+      initialDashboard?.utilityBillingPlan?.memberSummaries.every(
+        (s) => s.projectedDeltaAfterPlan.amountMinor === 0n
+      )
+    ).toBe(true)
+
+    // Resolve alice's planned bills
+    const result = await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+    expect(result).not.toBeNull()
+    expect(result?.resolvedBillIds).toContain('bill-gas')
+
+    // Verify vendor facts created with matchedPlan
+    expect(repository.utilityVendorPaymentFacts.length).toBeGreaterThan(0)
+    expect(repository.utilityVendorPaymentFacts.every((f) => f.matchedPlan)).toBe(true)
+    expect(repository.utilityVendorPaymentFacts.every((f) => f.payerMemberId === 'alice')).toBe(
+      true
+    )
+
+    // Verify payment record created
+    expect(repository.addedPaymentRecords).toHaveLength(1)
+    expect(repository.addedPaymentRecords[0]).toMatchObject({
+      memberId: 'alice',
+      kind: 'utilities'
+    })
+
+    // Bridge stub gap: make payment records visible to listPaymentRecordsForCycle
+    repository.paymentRecords = repository.addedPaymentRecords.map((r, i) => ({
+      id: `payment-record-${i + 1}`,
+      cycleId: r.cycleId,
+      cyclePeriod: '2026-04',
+      memberId: r.memberId,
+      kind: r.kind,
+      amountMinor: r.amountMinor,
+      currency: r.currency,
+      recordedAt: r.recordedAt
+    }))
+
+    // Generate dashboard after resolve
+    const afterDashboard = await service.generateDashboard('2026-04')
+    const summaries = afterDashboard?.utilityBillingPlan?.memberSummaries ?? []
+    const aliceSummary = summaries.find((s) => s.memberId === 'alice')
+    const bobSummary = summaries.find((s) => s.memberId === 'bob')
+
+    // Alice: already paid her share, projected delta should be 0
+    expect(aliceSummary?.vendorPaid.amountMinor).toBe(
+      repository.addedPaymentRecords[0]!.amountMinor
+    )
+    expect(aliceSummary?.projectedDeltaAfterPlan.amountMinor).toBe(0n)
+
+    // Bob: hasn't paid, projected delta should also be 0 (plan assigns his fair share)
+    expect(bobSummary?.vendorPaid.amountMinor).toBe(0n)
+    expect(bobSummary?.projectedDeltaAfterPlan.amountMinor).toBe(0n)
+
+    // Plan version should not have changed (on-plan payment doesn't rebalance)
+    expect(afterDashboard?.utilityBillingPlan?.version).toBe(1)
+  })
+
+  test('resolveUtilityBillAsPlanned resolves purchases when policy is utilities', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Shared supplies',
+        occurredAt: instantFromIso('2026-04-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+
+    // Materialize initial plan (includes purchase offset)
+    await service.generateDashboard('2026-04')
+
+    // Resolve bob's planned bills (bob owes on the purchase, so his payment triggers allocation)
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'bob',
+      periodArg: '2026-04'
+    })
+
+    // Verify purchase allocations were created
+    const allocations = repository.lastReplacedPaymentPurchaseAllocations
+    expect(allocations).not.toBeNull()
+    expect(allocations?.resolutionMethod).toBe('utilities_plan')
+    expect((allocations?.allocations?.length ?? 0) > 0).toBe(true)
+  })
 })
