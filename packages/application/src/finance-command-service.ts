@@ -875,60 +875,6 @@ function utilityPlanPayloadChanged(
   )
 }
 
-function utilityPlanBillInputsChanged(
-  stored: UtilityBillingPlanComputed,
-  freshBills: readonly { utilityBillId: string; billName: string; amount: Money }[],
-  freshVendorPayments: readonly {
-    utilityBillId: string | null
-    billName: string
-    payerMemberId: string
-    amount: Money
-  }[],
-  freshMemberIds: readonly string[]
-): boolean {
-  // Check if bills changed (different IDs, names, or amounts)
-  const freshBillIdSet = new Set(freshBills.map((b) => b.utilityBillId))
-  const storedBillIdSet = new Set(stored.categories.map((c) => c.utilityBillId))
-  if (
-    storedBillIdSet.size !== freshBillIdSet.size ||
-    [...storedBillIdSet].some((id) => !freshBillIdSet.has(id))
-  ) {
-    return true
-  }
-  // Bill totals changed
-  const storedTotalByBill = new Map(
-    stored.categories.map((c) => [c.utilityBillId, c.billTotal.amountMinor])
-  )
-  if (freshBills.some((b) => storedTotalByBill.get(b.utilityBillId) !== b.amount.amountMinor)) {
-    return true
-  }
-
-  // Check if vendor payments changed
-  const storedVendorKey = stored.categories
-    .filter((c) => c.paidAmount.amountMinor > 0n)
-    .map((c) => `${c.utilityBillId}:${c.paidAmount.amountMinor}`)
-    .sort()
-    .join('|')
-  const freshVendorKey = freshVendorPayments
-    .map((v) => `${v.utilityBillId ?? v.billName}:${v.amount.amountMinor}`)
-    .sort()
-    .join('|')
-  if (storedVendorKey !== freshVendorKey) {
-    return true
-  }
-
-  // Check if member list changed
-  const storedMemberIds = new Set(stored.memberSummaries.map((s) => s.memberId))
-  if (
-    storedMemberIds.size !== freshMemberIds.length ||
-    freshMemberIds.some((id) => !storedMemberIds.has(id))
-  ) {
-    return true
-  }
-
-  return false
-}
-
 async function ensureUtilityBillingPlan(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -939,6 +885,7 @@ async function ensureUtilityBillingPlan(input: {
     utilityShare: Money
     purchaseOffset: Money
   }[]
+  skipRebalance?: boolean
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
     converted: ConvertedCycleMoney
@@ -957,6 +904,15 @@ async function ensureUtilityBillingPlan(input: {
     [...existingPlans]
       .reverse()
       .find((plan) => plan.status === 'active' || plan.status === 'settled') ?? null
+
+  // When called from payment overage allocation, don't rebalance the plan —
+  // recording a payment should never shift other members' bill assignments.
+  if (input.skipRebalance && activePlan) {
+    return {
+      record: activePlan,
+      computed: materializeUtilityBillingPlanRecord(activePlan)
+    }
+  }
 
   const computed = computeUtilityBillingPlan({
     currency: input.cycle.currency,
@@ -993,32 +949,6 @@ async function ensureUtilityBillingPlan(input: {
   if (activePlan) {
     const materialized = materializeUtilityBillingPlanRecord(activePlan)
     if (!utilityPlanPayloadChanged(materialized, computed)) {
-      return {
-        record: activePlan,
-        computed: materialized
-      }
-    }
-
-    // Only supersede the plan if bill inputs (bills, vendor payments, members) actually changed.
-    // Fair share changes from purchase offsets should NOT trigger a rebalance — the plan's
-    // category assignments are a commitment to each member.
-    const billInputs = input.convertedUtilityBills.map(({ bill, converted }) => ({
-      utilityBillId: bill.id,
-      billName: bill.billName,
-      amount: converted.settlementAmount
-    }))
-    const vendorPaymentInputs = vendorFacts.map((fact) => ({
-      utilityBillId: fact.utilityBillId,
-      billName: fact.billName,
-      payerMemberId: fact.payerMemberId,
-      amount: Money.fromMinor(fact.amountMinor, fact.currency)
-    }))
-    const freshMemberIds = input.settlementLines.map((line) => line.memberId)
-
-    if (
-      !utilityPlanBillInputsChanged(materialized, billInputs, vendorPaymentInputs, freshMemberIds)
-    ) {
-      // Bill inputs unchanged — keep the existing plan despite fair share drift
       return {
         record: activePlan,
         computed: materialized
@@ -1753,6 +1683,7 @@ async function buildFinanceDashboard(
   periodArg?: string,
   options: {
     todayOverride?: string
+    skipPlanRebalance?: boolean
   } = {}
 ): Promise<FinanceDashboard | null> {
   const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
@@ -2077,7 +2008,8 @@ async function buildFinanceDashboard(
       utilityShare: line.utilityShare,
       purchaseOffset: line.purchaseOffset
     })),
-    convertedUtilityBills
+    convertedUtilityBills,
+    ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
   })
   const paymentPeriods = await buildPaymentPeriodSummaries({
     dependencies,
@@ -2271,7 +2203,9 @@ async function allocatePaymentPurchaseOverage(input: {
     return []
   }
 
-  const dashboard = await buildFinanceDashboard(input.dependencies, input.cyclePeriod)
+  const dashboard = await buildFinanceDashboard(input.dependencies, input.cyclePeriod, {
+    skipPlanRebalance: true
+  })
   if (!dashboard) {
     return []
   }

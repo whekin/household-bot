@@ -215,12 +215,30 @@ function formatUtilityMemberBlock(input: {
   categories: readonly string[]
   viewerOnly: boolean
 }): string {
+  const isFullyPaid =
+    input.payNow.amountMinor === 0n && input.summary && input.summary.vendorPaid.amountMinor > 0n
+
+  if (isFullyPaid && !input.viewerOnly) {
+    const paidAmount = formatUserFacingMoney(
+      input.summary!.vendorPaid.toMajorString(),
+      input.currency
+    )
+    return `${input.displayName}\n${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${paidAmount}`
+  }
+
   const lines = input.viewerOnly
-    ? [
-        `${
-          input.locale === 'ru' ? 'Сейчас тебе оплатить' : 'You pay now'
-        }: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
-      ]
+    ? input.payNow.amountMinor === 0n && isFullyPaid
+      ? [
+          `${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(
+            input.summary!.vendorPaid.toMajorString(),
+            input.currency
+          )}`
+        ]
+      : [
+          `${
+            input.locale === 'ru' ? 'Сейчас тебе оплатить' : 'You pay now'
+          }: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
+        ]
     : [
         input.displayName,
         `${input.locale === 'ru' ? 'К оплате сейчас' : 'Pay now'}: ${formatUserFacingMoney(
@@ -546,46 +564,64 @@ export function createFinanceCommandsService(options: {
         : input.viewerMemberId
           ? [input.viewerMemberId]
           : fallbackMemberIds
-    const memberBlocks =
-      memberIds.length > 0
-        ? memberIds.map((memberId) => {
-            const summary = relevantSummaries.find((item) => item.memberId === memberId) ?? null
-            const memberCategories = relevantCategories.filter(
-              (category) => category.assignedMemberId === memberId
-            )
-            const payNow =
-              summary?.assignedThisCycle ??
-              memberCategories.reduce(
-                (sum, category) => sum.add(category.assignedAmount),
-                Money.zero(input.currency)
-              )
-            const displayName =
-              summary?.displayName ?? memberCategories[0]?.assignedDisplayName ?? memberId
+    const memberEntries = memberIds.map((memberId) => {
+      const summary = relevantSummaries.find((item) => item.memberId === memberId) ?? null
+      const memberCategories = relevantCategories.filter(
+        (category) => category.assignedMemberId === memberId
+      )
+      const payNow =
+        summary?.assignedThisCycle ??
+        memberCategories.reduce(
+          (sum, category) => sum.add(category.assignedAmount),
+          Money.zero(input.currency)
+        )
+      const displayName =
+        summary?.displayName ?? memberCategories[0]?.assignedDisplayName ?? memberId
 
-            return formatUtilityMemberBlock({
+      return { memberId, summary, memberCategories, payNow, displayName }
+    })
+
+    // Sort: unpaid members first, then paid members
+    if (!input.viewerMemberId) {
+      memberEntries.sort((a, b) => {
+        const aPaid = a.payNow.amountMinor === 0n ? 1 : 0
+        const bPaid = b.payNow.amountMinor === 0n ? 1 : 0
+        return aPaid - bPaid
+      })
+    }
+
+    const memberBlocks =
+      memberEntries.length > 0
+        ? memberEntries.map((entry) =>
+            formatUtilityMemberBlock({
               locale: input.locale,
               currency: input.currency,
-              displayName,
-              payNow,
-              summary,
-              categories: memberCategories.map((category) => {
-                const details = categoryDetailsByName.get(category.billName.trim().toLowerCase())
-                return details
-                  ? formatUtilityAssignmentLine({
-                      locale: input.locale,
-                      currency: input.currency,
-                      category,
-                      details
-                    })
-                  : formatUtilityAssignmentLine({
-                      locale: input.locale,
-                      currency: input.currency,
-                      category
-                    })
-              }),
+              displayName: entry.displayName,
+              payNow: entry.payNow,
+              summary: entry.summary,
+              categories:
+                entry.payNow.amountMinor === 0n && !input.viewerMemberId
+                  ? []
+                  : entry.memberCategories.map((category) => {
+                      const details = categoryDetailsByName.get(
+                        category.billName.trim().toLowerCase()
+                      )
+                      return details
+                        ? formatUtilityAssignmentLine({
+                            locale: input.locale,
+                            currency: input.currency,
+                            category,
+                            details
+                          })
+                        : formatUtilityAssignmentLine({
+                            locale: input.locale,
+                            currency: input.currency,
+                            category
+                          })
+                    }),
               viewerOnly: Boolean(input.viewerMemberId)
             })
-          })
+          )
         : [
             input.locale === 'ru'
               ? 'В этом цикле по коммуналке активных назначений нет.'
@@ -931,6 +967,94 @@ export function createFinanceCommandsService(options: {
             : {
                 viewerMemberId: membership.id
               }),
+          forcedMode
+        })
+        return
+      }
+
+      const households = await Promise.all(
+        memberships.map(async (membership) => ({
+          membership,
+          household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+            membership.householdId
+          )
+        }))
+      )
+      await storeBillPendingAction({
+        ctx,
+        payload: {
+          kind: 'show',
+          choices: households.map(({ membership }) => ({
+            householdId: membership.householdId,
+            memberId: membership.id
+          }))
+        }
+      })
+      await ctx.reply(
+        locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
+        {
+          reply_markup: {
+            inline_keyboard: households.map(({ membership, household }, index) => [
+              {
+                text: household?.householdName ?? membership.householdId,
+                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${forcedMode ?? 'auto'}`
+              }
+            ])
+          }
+        }
+      )
+    })
+
+    bot.command('bill_all', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const args = commandArgs(ctx)
+      const forcedMode = parseBillMode(args.find((arg) => parseBillMode(arg) !== null))
+      const telegramUserId = ctx.from?.id?.toString()
+      if (!telegramUserId) {
+        await ctx.reply(getBotTranslations(locale).finance.unableToIdentifySender)
+        return
+      }
+
+      if (isGroupChat(ctx)) {
+        const resolved = await requireAdmin(ctx)
+        if (!resolved) {
+          return
+        }
+
+        await replyWithBillPlan({
+          ctx,
+          service: resolved.service,
+          householdId: resolved.householdId,
+          orderMemberId: resolved.member.id,
+          forcedMode
+        })
+        return
+      }
+
+      const memberships =
+        await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+          telegramUserId
+        )
+      if (memberships.length === 0) {
+        await ctx.reply(getBotTranslations(locale).finance.notMember)
+        return
+      }
+
+      if (memberships.length === 1) {
+        const membership = memberships[0]!
+        const household =
+          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+            membership.householdId
+          )
+        await replyWithBillPlan({
+          ctx,
+          service: options.financeServiceForHousehold(membership.householdId),
+          householdId: membership.householdId,
+          householdName: household?.householdName ?? membership.householdId,
+          orderMemberId: membership.id,
           forcedMode
         })
         return
