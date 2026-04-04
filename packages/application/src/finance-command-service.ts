@@ -3684,8 +3684,16 @@ export function createFinanceCommandService(
 
     generateDashboard(periodArg, options) {
       return periodArg
-        ? buildFinanceDashboard(dependencies, periodArg, options)
-        : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies, undefined, options))
+        ? buildFinanceDashboard(dependencies, periodArg, {
+            skipPlanRebalance: true,
+            ...options
+          })
+        : ensureExpectedCycle().then(() =>
+            buildFinanceDashboard(dependencies, undefined, {
+              skipPlanRebalance: true,
+              ...options
+            })
+          )
     },
 
     async manuallyResolvePurchase(input) {
