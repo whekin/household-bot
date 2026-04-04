@@ -2238,14 +2238,30 @@ async function allocatePaymentPurchaseOverage(input: {
       input.paymentAmount.amountMinor <= plannedAmountMinor + 100n // Allow small rounding differences
 
     if (paymentMatchesPlan) {
-      // Payment matches plan - allocate based on purchase offset
-      // The purchase offset represents how much was shifted due to purchase imbalances
-      const purchaseOffsetMinor = memberLine.purchaseOffset.amountMinor
+      // Payment matches plan - allocate based on gross outstanding purchase debt.
+      // The net purchaseOffset can be 0 when paid/owed purchases cancel out,
+      // but individual purchases still need resolution. The plan's fairShare
+      // guarantees all debts are covered when every member pays their share.
+      const grossOutstandingMinor = dashboard.ledger
+        .filter(
+          (
+            entry
+          ): entry is FinanceDashboardLedgerEntry & {
+            kind: 'purchase'
+            outstandingByMember: readonly { memberId: string; amount: Money }[]
+          } =>
+            entry.kind === 'purchase' &&
+            entry.resolutionStatus === 'unresolved' &&
+            Array.isArray(entry.outstandingByMember)
+        )
+        .reduce((sum, entry) => {
+          const memberOutstanding = entry.outstandingByMember.find(
+            (o) => o.memberId === input.memberId
+          )
+          return sum + (memberOutstanding?.amount.amountMinor ?? 0n)
+        }, 0n)
 
-      // If offset is positive, member owes for purchases (paid more utilities to compensate)
-      // If offset is negative, member is owed for purchases (paid less utilities)
-      // We allocate the absolute value to settle the purchases
-      remainingMinor = purchaseOffsetMinor > 0n ? purchaseOffsetMinor : -purchaseOffsetMinor
+      remainingMinor = grossOutstandingMinor
     } else {
       // Payment doesn't match plan - use traditional overage calculation with BASE amount
       const baseAmount = memberLine.utilityShare

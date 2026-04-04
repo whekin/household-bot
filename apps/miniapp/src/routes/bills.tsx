@@ -11,7 +11,7 @@ import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Skeleton } from '../components/ui/skeleton'
 import { formatMoneyLabel } from '../lib/ledger-helpers'
-import { minorToMajorString } from '../lib/money'
+import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
@@ -96,6 +96,14 @@ export default function BillsRoute() {
         (summary) => summary.memberId === currentMemberId()
       ) ?? null
   )
+  const isUtilitiesFullyPaid = createMemo(() => {
+    const summary = currentUtilitySummary()
+    if (!summary) return false
+    return (
+      majorStringToMinor(summary.assignedThisCycleMajor) === 0n &&
+      majorStringToMinor(summary.vendorPaidMajor) > 0n
+    )
+  })
   const householdUtilityPlanMembers = createMemo(() => {
     const plan = utilityBillingPlan()
     if (!plan) return []
@@ -394,17 +402,19 @@ export default function BillsRoute() {
                             </div>
                           )}
                         </Show>
-                        <div class="statement-actions statement-actions--single">
-                          <Button
-                            variant="primary"
-                            loading={utilityActionKey() === `resolve:${currentMemberId()}`}
-                            onClick={() =>
-                              currentMemberId() && void handleResolvePlanned(currentMemberId()!)
-                            }
-                          >
-                            {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve my plan'}
-                          </Button>
-                        </div>
+                        <Show when={!isUtilitiesFullyPaid()}>
+                          <div class="statement-actions statement-actions--single">
+                            <Button
+                              variant="primary"
+                              loading={utilityActionKey() === `resolve:${currentMemberId()}`}
+                              onClick={() =>
+                                currentMemberId() && void handleResolvePlanned(currentMemberId()!)
+                              }
+                            >
+                              {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve my plan'}
+                            </Button>
+                          </div>
+                        </Show>
                       </Show>
                     </Card>
                   </Match>

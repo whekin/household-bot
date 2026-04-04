@@ -2428,4 +2428,102 @@ describe('createFinanceCommandService', () => {
     expect(allocations?.resolutionMethod).toBe('utilities_plan')
     expect((allocations?.allocations?.length ?? 0) > 0).toBe(true)
   })
+
+  test('resolveUtilityBillAsPlanned resolves purchases even when purchaseOffset nets to zero', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    // Two symmetric purchases: alice paid 6000 shared equally, bob paid 6000 shared equally
+    // Net offset for both members is 0 (they owe each other the same amount)
+    repository.purchases = [
+      {
+        id: 'purchase-alice',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        description: 'Alice supplies',
+        occurredAt: instantFromIso('2026-04-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        id: 'purchase-bob',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'bob',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        description: 'Bob supplies',
+        occurredAt: instantFromIso('2026-04-02T11:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+
+    // Materialize initial plan (purchase offsets should net to 0)
+    const initialDashboard = await service.generateDashboard('2026-04')
+    const aliceLine = initialDashboard?.members.find((m) => m.memberId === 'alice')
+    expect(aliceLine?.purchaseOffset.amountMinor).toBe(0n)
+
+    // Resolve alice's planned bills
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    // Despite zero net offset, alice owes 3000 on bob's purchase
+    // The allocation should still resolve that debt
+    const allocations = repository.lastReplacedPaymentPurchaseAllocations
+    expect(allocations).not.toBeNull()
+    expect(allocations?.resolutionMethod).toBe('utilities_plan')
+    expect(allocations?.allocations?.length).toBeGreaterThan(0)
+
+    const aliceAllocation = allocations?.allocations?.find(
+      (a) => a.purchaseId === 'purchase-bob' && a.memberId === 'alice'
+    )
+    expect(aliceAllocation).toBeDefined()
+    expect(aliceAllocation?.amountMinor).toBe(3000n)
+  })
 })

@@ -724,10 +724,16 @@ export default function HomeRoute() {
                   const policy = () => data().paymentBalanceAdjustmentPolicy
                   const rentRemainingMinor = () =>
                     paymentRemainingMinor(data(), member().memberId, 'rent')
-                  const utilitiesRemainingMinor = () =>
-                    data().utilityBillingPlan
-                      ? utilityPlanAssignedMinor(data(), member().memberId)
-                      : paymentRemainingMinor(data(), member().memberId, 'utilities')
+                  const utilitiesRemainingMinor = () => {
+                    const plan = data().utilityBillingPlan
+                    if (plan) {
+                      const summary = plan.memberSummaries.find(
+                        (s) => s.memberId === member().memberId
+                      )
+                      return summary ? majorStringToMinor(summary.assignedThisCycleMajor) : 0n
+                    }
+                    return paymentRemainingMinor(data(), member().memberId, 'utilities')
+                  }
 
                   const modes = () => currentPaymentModes()
                   const formatMajorAmount = (
