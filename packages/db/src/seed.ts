@@ -13,7 +13,6 @@ import {
   paymentRecords,
   presenceOverrides,
   processedBotMessages,
-  purchaseEntries,
   rentRules,
   settlementLines,
   settlements,
@@ -233,21 +232,6 @@ async function seed(): Promise<void> {
       reason: 'full month'
     }
   ])
-
-  await db.insert(purchaseEntries).values({
-    householdId: FIXTURE_IDS.household,
-    cycleId: FIXTURE_IDS.cycle,
-    payerMemberId: FIXTURE_IDS.memberDima,
-    amountMinor: 3000n,
-    currency: 'GEL',
-    rawText: 'Купил туалетную бумагу. 30 gel',
-    normalizedText: 'купил туалетную бумагу 30 gel',
-    parserMode: 'rules',
-    parserConfidence: 93,
-    telegramChatId: '-1003000000001',
-    telegramMessageId: '501',
-    telegramThreadId: '1001'
-  })
 
   await db.insert(processedBotMessages).values({
     householdId: FIXTURE_IDS.household,

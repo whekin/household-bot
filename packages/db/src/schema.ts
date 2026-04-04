@@ -376,45 +376,6 @@ export const presenceOverrides = pgTable(
   })
 )
 
-export const purchaseEntries = pgTable(
-  'purchase_entries',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    householdId: uuid('household_id')
-      .notNull()
-      .references(() => households.id, { onDelete: 'cascade' }),
-    cycleId: uuid('cycle_id').references(() => billingCycles.id, {
-      onDelete: 'set null'
-    }),
-    payerMemberId: uuid('payer_member_id')
-      .notNull()
-      .references(() => members.id, { onDelete: 'restrict' }),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
-    currency: text('currency').notNull(),
-    rawText: text('raw_text').notNull(),
-    normalizedText: text('normalized_text'),
-    parserMode: text('parser_mode').notNull(),
-    parserConfidence: integer('parser_confidence').notNull(),
-    telegramChatId: text('telegram_chat_id'),
-    telegramMessageId: text('telegram_message_id'),
-    telegramThreadId: text('telegram_thread_id'),
-    messageSentAt: timestamp('message_sent_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
-  },
-  (table) => ({
-    householdCycleIdx: index('purchase_entries_household_cycle_idx').on(
-      table.householdId,
-      table.cycleId
-    ),
-    payerIdx: index('purchase_entries_payer_idx').on(table.payerMemberId),
-    tgMessageUnique: uniqueIndex('purchase_entries_household_tg_message_unique').on(
-      table.householdId,
-      table.telegramChatId,
-      table.telegramMessageId
-    )
-  })
-)
-
 export const purchaseMessages = pgTable(
   'purchase_messages',
   {
@@ -955,7 +916,6 @@ export type Member = typeof members.$inferSelect
 export type BillingCycle = typeof billingCycles.$inferSelect
 export type BillingCycleExchangeRate = typeof billingCycleExchangeRates.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect
-export type PurchaseEntry = typeof purchaseEntries.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect
 export type TopicMessage = typeof topicMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
