@@ -3087,6 +3087,9 @@ export function createFinanceCommandService(
         return null
       }
 
+      const recordedAt = nowInstant()
+
+      // Create vendor payment facts for each assigned bill
       for (const category of categories) {
         await repository.addUtilityVendorPaymentFact({
           cycleId: cycle.id,
@@ -3099,9 +3102,32 @@ export function createFinanceCommandService(
           planVersion: dashboard.utilityBillingPlan.version,
           matchedPlan: true,
           recordedByMemberId: input.actorMemberId ?? input.memberId,
-          recordedAt: nowInstant()
+          recordedAt
         })
       }
+
+      // Create a payment record for the total amount paid
+      const totalAmountMinor = categories.reduce(
+        (sum, category) => sum + category.assignedAmount.amountMinor,
+        0n
+      )
+      const payment = await repository.addPaymentRecord({
+        cycleId: cycle.id,
+        memberId: input.memberId,
+        kind: 'utilities',
+        amountMinor: totalAmountMinor,
+        currency: dashboard.currency,
+        recordedAt
+      })
+
+      // Allocate the payment to the utility plan
+      await repository.replacePaymentPurchaseAllocations({
+        paymentRecordId: payment.id,
+        cycleId: cycle.id,
+        resolutionMethod: 'utilities_plan',
+        resolutionPlanId: dashboard.utilityBillingPlan.id,
+        allocations: []
+      })
 
       const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
       return {
