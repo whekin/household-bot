@@ -1954,13 +1954,22 @@ async function buildFinanceDashboard(
   const memberNameById = new Map(members.map((member) => [member.id, member.displayName]))
   const paymentsByMemberId = new Map<string, Money>()
   const utilityPaidByMemberId = new Map<string, bigint>()
+
+  // Get payment IDs that are already accounted for in vendor payment facts
+  const utilitiesPlanPaymentIds = new Set(
+    paymentPurchaseAllocations
+      .filter((alloc) => alloc.resolutionMethod === 'utilities_plan')
+      .map((alloc) => alloc.paymentRecordId)
+  )
+
   for (const payment of paymentRecords) {
     const current = paymentsByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)
     paymentsByMemberId.set(
       payment.memberId,
       current.add(Money.fromMinor(payment.amountMinor, payment.currency))
     )
-    if (payment.kind === 'utilities') {
+    // Only count utility payments that are NOT already represented in vendor payment facts
+    if (payment.kind === 'utilities' && !utilitiesPlanPaymentIds.has(payment.id)) {
       utilityPaidByMemberId.set(
         payment.memberId,
         (utilityPaidByMemberId.get(payment.memberId) ?? 0n) + payment.amountMinor
