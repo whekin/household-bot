@@ -916,38 +916,46 @@ async function ensureUtilityBillingPlan(input: {
     }
   }
 
-  const computed = computeUtilityBillingPlan({
-    currency: input.cycle.currency,
-    members: input.settlementLines.map((line) => ({
-      memberId: line.memberId,
-      displayName:
-        input.members.find((member) => member.id === line.memberId)?.displayName ?? line.memberId,
-      fairShare: Money.fromMinor(
-        adjustmentPolicy === 'utilities'
-          ? adjustedPaymentBaseMinor({
-              kind: 'utilities',
-              baseMinor: line.utilityShare.amountMinor,
-              purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-              settings: input.settings
-            })
-          : line.utilityShare.amountMinor,
-        input.cycle.currency
-      )
-    })),
-    bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
-      utilityBillId: bill.id,
-      billName: bill.billName,
-      amount: converted.settlementAmount
-    })),
-    vendorPayments: vendorFacts.map((fact) => ({
-      utilityBillId: fact.utilityBillId,
-      billName: fact.billName,
-      payerMemberId: fact.payerMemberId,
-      amount: Money.fromMinor(fact.amountMinor, fact.currency)
-    })),
-    strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
-    purchaseIds: input.purchaseIds ?? []
-  })
+  // Only recompute the plan if there's no active plan, or if there are off-plan vendor payments.
+  // On-plan payments should never trigger rebalancing - they're just tracking who paid what.
+  const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
+  const shouldRecompute = !activePlan || hadOffPlanFact
+
+  const computed = shouldRecompute
+    ? computeUtilityBillingPlan({
+        currency: input.cycle.currency,
+        members: input.settlementLines.map((line) => ({
+          memberId: line.memberId,
+          displayName:
+            input.members.find((member) => member.id === line.memberId)?.displayName ??
+            line.memberId,
+          fairShare: Money.fromMinor(
+            adjustmentPolicy === 'utilities'
+              ? adjustedPaymentBaseMinor({
+                  kind: 'utilities',
+                  baseMinor: line.utilityShare.amountMinor,
+                  purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+                  settings: input.settings
+                })
+              : line.utilityShare.amountMinor,
+            input.cycle.currency
+          )
+        })),
+        bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
+          utilityBillId: bill.id,
+          billName: bill.billName,
+          amount: converted.settlementAmount
+        })),
+        vendorPayments: vendorFacts.map((fact) => ({
+          utilityBillId: fact.utilityBillId,
+          billName: fact.billName,
+          payerMemberId: fact.payerMemberId,
+          amount: Money.fromMinor(fact.amountMinor, fact.currency)
+        })),
+        strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
+        purchaseIds: input.purchaseIds ?? []
+      })
+    : materializeUtilityBillingPlanRecord(activePlan)
 
   if (activePlan) {
     const materialized = materializeUtilityBillingPlanRecord(activePlan)
@@ -958,7 +966,6 @@ async function ensureUtilityBillingPlan(input: {
       }
     }
 
-    const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
     await input.dependencies.repository.updateUtilityBillingPlanStatus(
       activePlan.id,
       hadOffPlanFact ? 'diverged' : 'superseded'
