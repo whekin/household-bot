@@ -247,7 +247,11 @@ function createFinanceService(): FinanceCommandService & {
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => null,
     generateBillingAuditExport: async () => null,
-    generateStatement: async () => null
+    generateStatement: async () => null,
+    manuallyResolvePurchase: async () => ({
+      purchaseId: 'test-purchase',
+      resolvedAmount: Money.fromMajor('0.00', 'GEL')
+    })
   }
 }
 

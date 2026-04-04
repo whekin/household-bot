@@ -1,0 +1,6 @@
+ALTER TABLE "payment_purchase_allocations" ADD COLUMN "resolution_cycle_id" uuid;--> statement-breakpoint
+ALTER TABLE "payment_purchase_allocations" ADD COLUMN "resolution_method" text;--> statement-breakpoint
+ALTER TABLE "payment_purchase_allocations" ADD COLUMN "resolution_plan_id" uuid;--> statement-breakpoint
+ALTER TABLE "payment_purchase_allocations" ADD CONSTRAINT "payment_purchase_allocations_resolution_cycle_id_billing_cycles_id_fk" FOREIGN KEY ("resolution_cycle_id") REFERENCES "public"."billing_cycles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_purchase_allocations" ADD CONSTRAINT "payment_purchase_allocations_resolution_plan_id_utility_billing_plans_id_fk" FOREIGN KEY ("resolution_plan_id") REFERENCES "public"."utility_billing_plans"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "payment_purchase_allocations_resolution_cycle_idx" ON "payment_purchase_allocations" USING btree ("resolution_cycle_id");

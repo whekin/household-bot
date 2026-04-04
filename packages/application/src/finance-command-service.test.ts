@@ -307,6 +307,10 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.lastReplacedPaymentPurchaseAllocations = input
   }
 
+  async createManualPurchaseAllocations() {
+    // Stub implementation
+  }
+
   async updatePaymentRecord() {
     return null
   }
@@ -1544,6 +1548,9 @@ describe('createFinanceCommandService', () => {
 
     expect(repository.lastReplacedPaymentPurchaseAllocations).toEqual({
       paymentRecordId: 'payment-record-1',
+      cycleId: 'cycle-2026-04',
+      resolutionMethod: 'utilities_plan',
+      resolutionPlanId: '1',
       allocations: [
         {
           purchaseId: 'purchase-oldest',

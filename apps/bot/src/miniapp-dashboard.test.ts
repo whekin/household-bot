@@ -161,6 +161,7 @@ function repository(
       }
     ],
     listPaymentPurchaseAllocations: async () => [],
+    createManualPurchaseAllocations: async () => {},
     getActiveUtilityBillingPlan: async () => latestUtilityPlan,
     listUtilityBillingPlansForCycle: async () => (latestUtilityPlan ? [latestUtilityPlan] : []),
     saveUtilityBillingPlan: async (input) => {

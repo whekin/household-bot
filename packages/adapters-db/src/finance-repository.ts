@@ -795,7 +795,10 @@ export function createDbFinanceRepository(
             paymentRecordId: input.paymentRecordId,
             purchaseId: allocation.purchaseId,
             memberId: allocation.memberId,
-            amountMinor: allocation.amountMinor
+            amountMinor: allocation.amountMinor,
+            resolutionCycleId: input.cycleId,
+            resolutionMethod: input.resolutionMethod,
+            resolutionPlanId: input.resolutionPlanId ?? null
           }))
         )
       })
@@ -1334,6 +1337,9 @@ export function createDbFinanceRepository(
           purchaseId: schema.paymentPurchaseAllocations.purchaseId,
           memberId: schema.paymentPurchaseAllocations.memberId,
           amountMinor: schema.paymentPurchaseAllocations.amountMinor,
+          resolutionCycleId: schema.paymentPurchaseAllocations.resolutionCycleId,
+          resolutionMethod: schema.paymentPurchaseAllocations.resolutionMethod,
+          resolutionPlanId: schema.paymentPurchaseAllocations.resolutionPlanId,
           recordedAt: schema.paymentRecords.recordedAt
         })
         .from(schema.paymentPurchaseAllocations)
@@ -1350,8 +1356,46 @@ export function createDbFinanceRepository(
 
       return rows.map((row) => ({
         ...row,
+        resolutionMethod: row.resolutionMethod as 'utilities_plan' | 'rent_plan' | 'manual' | null,
         recordedAt: instantFromDatabaseValue(row.recordedAt)!
       }))
+    },
+
+    async createManualPurchaseAllocations(input) {
+      if (input.allocations.length === 0) {
+        return
+      }
+
+      // Create a synthetic payment record to track manual allocations
+      const paymentRecord = await db
+        .insert(schema.paymentRecords)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          memberId: sql`(SELECT payer_member_id FROM purchase_messages WHERE id = ${input.purchaseId})`,
+          kind: 'utilities',
+          amountMinor: 0n,
+          currency: sql`(SELECT parsed_currency FROM purchase_messages WHERE id = ${input.purchaseId})`,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .returning({ id: schema.paymentRecords.id })
+
+      const paymentRecordId = paymentRecord[0]?.id
+      if (!paymentRecordId) {
+        throw new Error('Failed to create manual payment record')
+      }
+
+      await db.insert(schema.paymentPurchaseAllocations).values(
+        input.allocations.map((allocation) => ({
+          paymentRecordId,
+          purchaseId: input.purchaseId,
+          memberId: allocation.memberId,
+          amountMinor: allocation.amountMinor,
+          resolutionCycleId: input.cycleId,
+          resolutionMethod: 'manual' as const,
+          resolutionPlanId: null
+        }))
+      )
     },
 
     async getSettlementSnapshotLines(cycleId) {

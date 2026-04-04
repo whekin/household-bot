@@ -58,6 +58,9 @@ export interface FinancePaymentPurchaseAllocationRecord {
   purchaseId: string
   memberId: string
   amountMinor: bigint
+  resolutionCycleId: string | null
+  resolutionMethod: 'utilities_plan' | 'rent_plan' | 'manual' | null
+  resolutionPlanId: string | null
   recordedAt: Instant
 }
 
@@ -318,6 +321,9 @@ export interface FinanceRepository {
   getPaymentRecord(paymentId: string): Promise<FinancePaymentRecord | null>
   replacePaymentPurchaseAllocations(input: {
     paymentRecordId: string
+    cycleId: string
+    resolutionMethod: 'utilities_plan' | 'rent_plan'
+    resolutionPlanId?: string | null
     allocations: readonly {
       purchaseId: string
       memberId: string
@@ -393,6 +399,15 @@ export interface FinanceRepository {
   ): Promise<readonly FinanceParsedPurchaseRecord[]>
   listParsedPurchases(): Promise<readonly FinanceParsedPurchaseRecord[]>
   listPaymentPurchaseAllocations(): Promise<readonly FinancePaymentPurchaseAllocationRecord[]>
+  createManualPurchaseAllocations(input: {
+    purchaseId: string
+    cycleId: string
+    allocations: readonly {
+      memberId: string
+      amountMinor: bigint
+    }[]
+    recordedAt: Instant
+  }): Promise<void>
   getSettlementSnapshotLines(
     cycleId: string
   ): Promise<readonly FinanceSettlementSnapshotLineRecord[]>

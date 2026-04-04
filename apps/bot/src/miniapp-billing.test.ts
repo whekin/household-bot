@@ -313,7 +313,11 @@ function createFinanceServiceStub(): FinanceCommandService & {
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => createDashboardStub(),
     generateBillingAuditExport: async () => null,
-    generateStatement: async () => null
+    generateStatement: async () => null,
+    manuallyResolvePurchase: async () => ({
+      purchaseId: 'test-purchase',
+      resolvedAmount: Money.fromMajor('0.00', 'GEL')
+    })
   }
 }
 

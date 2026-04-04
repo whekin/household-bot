@@ -841,6 +841,13 @@ export const paymentPurchaseAllocations = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    resolutionCycleId: uuid('resolution_cycle_id').references(() => billingCycles.id, {
+      onDelete: 'set null'
+    }),
+    resolutionMethod: text('resolution_method'),
+    resolutionPlanId: uuid('resolution_plan_id').references(() => utilityBillingPlans.id, {
+      onDelete: 'set null'
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
@@ -848,6 +855,9 @@ export const paymentPurchaseAllocations = pgTable(
     purchaseMemberIdx: index('payment_purchase_allocations_purchase_member_idx').on(
       table.purchaseId,
       table.memberId
+    ),
+    resolutionCycleIdx: index('payment_purchase_allocations_resolution_cycle_idx').on(
+      table.resolutionCycleId
     )
   })
 )

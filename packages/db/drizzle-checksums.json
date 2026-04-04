@@ -30,6 +30,7 @@
     "0026_exact_absence_and_utility_destinations.sql": "8754e29177749c7d0d873f9b9c9b82f6a65420ce0c91dd79e43e4d893e821ae1",
     "0027_clever_presence_days.sql": "a777354bf9c73f2668ed6a22476e4634f57491986322d89188ecb6db08941e9d",
     "0028_simple_presence_model.sql": "eec1339f8178d27f8f0451b223dce1a4b37067db23601ba414a54e8be4795caf",
-    "0029_drop_purchase_entries.sql": "1a442e590fcb0133d9715c26fd6e39c93e1ce25902c1e617bdf29121797c665e"
+    "0029_pale_doctor_doom.sql": "1a442e590fcb0133d9715c26fd6e39c93e1ce25902c1e617bdf29121797c665e",
+    "0030_magenta_genesis.sql": "8591f499a23180503ea6a46c9fbb143e735a4ba2d501de5918d5869c6f3f95d9"
   }
 }

@@ -2194,28 +2194,42 @@ async function allocatePaymentPurchaseOverage(input: {
   kind: FinancePaymentKind
   paymentAmount: Money
   settings: HouseholdBillingSettingsRecord
-}): Promise<
-  readonly {
+}): Promise<{
+  allocations: readonly {
     purchaseId: string
     memberId: string
     amountMinor: bigint
   }[]
-> {
+  resolutionMethod: 'utilities_plan' | 'rent_plan'
+  resolutionPlanId: string | null
+}> {
   const policy = input.settings.paymentBalanceAdjustmentPolicy ?? 'utilities'
   if (policy === 'separate' || policy !== input.kind) {
-    return []
+    return {
+      allocations: [],
+      resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+      resolutionPlanId: null
+    }
   }
 
   const dashboard = await buildFinanceDashboard(input.dependencies, input.cyclePeriod, {
     skipPlanRebalance: true
   })
   if (!dashboard) {
-    return []
+    return {
+      allocations: [],
+      resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+      resolutionPlanId: null
+    }
   }
 
   const memberLine = dashboard.members.find((member) => member.memberId === input.memberId)
   if (!memberLine) {
-    return []
+    return {
+      allocations: [],
+      resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+      resolutionPlanId: null
+    }
   }
 
   // Check if there's an active utility billing plan with rebalanced amounts
@@ -2256,7 +2270,11 @@ async function allocatePaymentPurchaseOverage(input: {
   }
 
   if (remainingMinor <= 0n) {
-    return []
+    return {
+      allocations: [],
+      resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+      resolutionPlanId: utilityPlan?.version ? String(utilityPlan.version) : null
+    }
   }
 
   const purchaseEntries = dashboard.ledger
@@ -2312,7 +2330,11 @@ async function allocatePaymentPurchaseOverage(input: {
     }
   }
 
-  return allocations
+  return {
+    allocations,
+    resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+    resolutionPlanId: utilityPlan?.version ? String(utilityPlan.version) : null
+  }
 }
 
 export interface FinanceCommandService {
@@ -2451,6 +2473,16 @@ export interface FinanceCommandService {
     plan: FinanceDashboardUtilityBillingPlan | null
   } | null>
   rebalanceUtilityPlan(periodArg?: string): Promise<FinanceDashboardUtilityBillingPlan | null>
+  manuallyResolvePurchase(input: {
+    purchaseId: string
+    allocations: readonly {
+      memberId: string
+      amountMajor: string
+    }[]
+  }): Promise<{
+    purchaseId: string
+    resolvedAmount: Money
+  }>
   generateDashboard(
     periodArg?: string,
     options?: {
@@ -2924,7 +2956,7 @@ export function createFinanceCommandService(
           firstPayment = payment
         }
 
-        const allocations = target.allowOverflow
+        const allocationResult = target.allowOverflow
           ? await allocatePaymentPurchaseOverage({
               dependencies,
               cyclePeriod: target.cycle.period,
@@ -2933,10 +2965,18 @@ export function createFinanceCommandService(
               paymentAmount: Money.fromMinor(amountMinor, currency),
               settings
             })
-          : []
+          : {
+              allocations: [],
+              resolutionMethod:
+                kind === 'utilities' ? ('utilities_plan' as const) : ('rent_plan' as const),
+              resolutionPlanId: null
+            }
         await repository.replacePaymentPurchaseAllocations({
           paymentRecordId: payment.id,
-          allocations
+          cycleId: target.cycle.id,
+          resolutionMethod: allocationResult.resolutionMethod,
+          resolutionPlanId: allocationResult.resolutionPlanId,
+          allocations: allocationResult.allocations
         })
 
         remainingMinor -= amountMinor
@@ -2978,10 +3018,13 @@ export function createFinanceCommandService(
 
       await repository.replacePaymentPurchaseAllocations({
         paymentRecordId: paymentId,
+        cycleId: existingPayment.cycleId,
+        resolutionMethod: kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+        resolutionPlanId: null,
         allocations: []
       })
 
-      const allocations = await allocatePaymentPurchaseOverage({
+      const allocationResult = await allocatePaymentPurchaseOverage({
         dependencies,
         cyclePeriod:
           existingPayment.cyclePeriod ?? expectedOpenCyclePeriod(settings, nowInstant()).toString(),
@@ -2992,7 +3035,10 @@ export function createFinanceCommandService(
       })
       await repository.replacePaymentPurchaseAllocations({
         paymentRecordId: paymentId,
-        allocations
+        cycleId: existingPayment.cycleId,
+        resolutionMethod: allocationResult.resolutionMethod,
+        resolutionPlanId: allocationResult.resolutionPlanId,
+        allocations: allocationResult.allocations
       })
 
       return {
@@ -3633,6 +3679,45 @@ export function createFinanceCommandService(
       return periodArg
         ? buildFinanceDashboard(dependencies, periodArg, options)
         : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies, undefined, options))
+    },
+
+    async manuallyResolvePurchase(input) {
+      // Get the purchase to find its cycle
+      const purchases = await dependencies.repository.listParsedPurchases()
+      const purchase = purchases.find((p) => p.id === input.purchaseId)
+      if (!purchase) {
+        throw new Error(`Purchase not found: ${input.purchaseId}`)
+      }
+
+      // Use the current open cycle for resolution
+      const cycle = await dependencies.repository.getOpenCycle()
+      if (!cycle) {
+        throw new Error('No open billing cycle')
+      }
+
+      // Parse and validate allocations
+      const allocations = input.allocations.map((allocation) => {
+        const amount = Money.fromMajor(allocation.amountMajor, 'GEL')
+        return {
+          memberId: allocation.memberId,
+          amountMinor: amount.amountMinor
+        }
+      })
+
+      const totalResolved = allocations.reduce((sum, alloc) => sum + alloc.amountMinor, 0n)
+
+      // Create manual allocations
+      await dependencies.repository.createManualPurchaseAllocations({
+        purchaseId: input.purchaseId,
+        cycleId: cycle.id,
+        allocations,
+        recordedAt: nowInstant()
+      })
+
+      return {
+        purchaseId: input.purchaseId,
+        resolvedAmount: Money.fromMinor(totalResolved, 'GEL')
+      }
     }
   }
 }
