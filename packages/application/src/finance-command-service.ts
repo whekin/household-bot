@@ -890,6 +890,7 @@ async function ensureUtilityBillingPlan(input: {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
     converted: ConvertedCycleMoney
   }[]
+  purchaseIds?: readonly string[]
 }): Promise<{
   record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
   computed: UtilityBillingPlanComputed
@@ -943,7 +944,8 @@ async function ensureUtilityBillingPlan(input: {
       payerMemberId: fact.payerMemberId,
       amount: Money.fromMinor(fact.amountMinor, fact.currency)
     })),
-    strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle'
+    strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
+    purchaseIds: input.purchaseIds ?? []
   })
 
   if (activePlan) {
@@ -2009,6 +2011,7 @@ async function buildFinanceDashboard(
       purchaseOffset: line.purchaseOffset
     })),
     convertedUtilityBills,
+    purchaseIds: [...currentCyclePurchaseIds],
     ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
   })
   const paymentPeriods = await buildPaymentPeriodSummaries({
@@ -2215,9 +2218,43 @@ async function allocatePaymentPurchaseOverage(input: {
     return []
   }
 
-  const baseAmount = input.kind === 'rent' ? memberLine.rentShare : memberLine.utilityShare
-  const baseThresholdMinor = roundSuggestedPaymentMinor(input.kind, baseAmount.amountMinor)
-  let remainingMinor = input.paymentAmount.amountMinor - baseThresholdMinor
+  // Check if there's an active utility billing plan with rebalanced amounts
+  const utilityPlan = dashboard.utilityBillingPlan
+  const plannedSummary = utilityPlan?.memberSummaries.find(
+    (summary) => summary.memberId === input.memberId
+  )
+
+  let remainingMinor: bigint
+
+  if (plannedSummary && input.kind === 'utilities') {
+    // When paying utilities with an active plan, check if payment matches the planned amount
+    const plannedAmountMinor = plannedSummary.fairShare.amountMinor
+    const paymentMatchesPlan =
+      input.paymentAmount.amountMinor >= plannedAmountMinor &&
+      input.paymentAmount.amountMinor <= plannedAmountMinor + 100n // Allow small rounding differences
+
+    if (paymentMatchesPlan) {
+      // Payment matches plan - allocate based on purchase offset
+      // The purchase offset represents how much was shifted due to purchase imbalances
+      const purchaseOffsetMinor = memberLine.purchaseOffset.amountMinor
+
+      // If offset is positive, member owes for purchases (paid more utilities to compensate)
+      // If offset is negative, member is owed for purchases (paid less utilities)
+      // We allocate the absolute value to settle the purchases
+      remainingMinor = purchaseOffsetMinor > 0n ? purchaseOffsetMinor : -purchaseOffsetMinor
+    } else {
+      // Payment doesn't match plan - use traditional overage calculation with BASE amount
+      const baseAmount = memberLine.utilityShare
+      const baseThresholdMinor = roundSuggestedPaymentMinor(input.kind, baseAmount.amountMinor)
+      remainingMinor = input.paymentAmount.amountMinor - baseThresholdMinor
+    }
+  } else {
+    // No plan or not utilities - use traditional overage calculation
+    const baseAmount = input.kind === 'rent' ? memberLine.rentShare : memberLine.utilityShare
+    const baseThresholdMinor = roundSuggestedPaymentMinor(input.kind, baseAmount.amountMinor)
+    remainingMinor = input.paymentAmount.amountMinor - baseThresholdMinor
+  }
+
   if (remainingMinor <= 0n) {
     return []
   }

@@ -101,6 +101,7 @@ export interface FinanceUtilityBillingPlanPayload {
   fairShareByMember: readonly FinanceUtilityBillingPlanMemberPayload[]
   categories: readonly FinanceUtilityBillingPlanCategoryPayload[]
   memberSummaries: readonly FinanceUtilityBillingPlanMemberSummaryPayload[]
+  purchaseIds?: readonly string[]
 }
 
 export interface FinanceUtilityBillingPlanRecord {

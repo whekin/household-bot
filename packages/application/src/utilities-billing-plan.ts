@@ -52,6 +52,7 @@ export interface UtilityBillingPlanComputed {
     memberId: string
     amount: Money
   }[]
+  purchaseIds: readonly string[]
 }
 
 export type UtilityBillingPlanStrategy = 'same_cycle' | 'whole_bills_first'
@@ -99,6 +100,7 @@ type LegacyFinanceUtilityBillingPlanPayload = {
     carryoverBeforeMinor?: string
     carryoverAfterMinor?: string
   }[]
+  purchaseIds?: readonly string[]
 }
 
 function absMinor(value: bigint): bigint {
@@ -479,6 +481,7 @@ export function computeUtilityBillingPlan(input: {
   bills: readonly UtilityBillingBill[]
   vendorPayments: readonly UtilityVendorPaymentFactInput[]
   strategy?: UtilityBillingPlanStrategy
+  purchaseIds?: readonly string[]
 }): UtilityBillingPlanComputed {
   const paidByBillId = candidatePaidByBill(input.bills, input.vendorPayments)
   const vendorPaidByMemberId = new Map<string, bigint>()
@@ -510,7 +513,8 @@ export function computeUtilityBillingPlan(input: {
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
         amount: member.fairShare
-      }))
+      })),
+      purchaseIds: input.purchaseIds ?? []
     }
   }
 
@@ -531,7 +535,8 @@ export function computeUtilityBillingPlan(input: {
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
         amount: member.fairShare
-      }))
+      })),
+      purchaseIds: input.purchaseIds ?? []
     }
   }
 
@@ -560,7 +565,8 @@ export function computeUtilityBillingPlan(input: {
     fairShareByMember: input.members.map((member) => ({
       memberId: member.memberId,
       amount: member.fairShare
-    }))
+    })),
+    purchaseIds: input.purchaseIds ?? []
   }
 }
 
@@ -588,7 +594,8 @@ export function serializeUtilityBillingPlanPayload(
       vendorPaidMinor: toMinorString(summary.vendorPaid),
       assignedThisCycleMinor: toMinorString(summary.assignedThisCycle),
       projectedDeltaAfterPlanMinor: toMinorString(summary.projectedDeltaAfterPlan)
-    }))
+    })),
+    purchaseIds: plan.purchaseIds
   }
 }
 
@@ -727,6 +734,7 @@ export function materializeUtilityBillingPlanRecord(
     fairShareByMember: (payload.fairShareByMember ?? []).map((member) => ({
       memberId: member.memberId,
       amount: Money.fromMinor(member.amountMinor, currency)
-    }))
+    })),
+    purchaseIds: payload.purchaseIds ?? []
   }
 }
