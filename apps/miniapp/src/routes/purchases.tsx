@@ -526,6 +526,23 @@ export default function PurchasesRoute() {
       )
   }
 
+  function participantChips(entry: MiniAppDashboard['ledger'][number]) {
+    const outstanding = entry.outstandingByMember ?? []
+    return (entry.purchaseParticipants ?? [])
+      .filter((participant) => participant.included)
+      .map((participant) => {
+        const owes = outstanding.find((o) => o.memberId === participant.memberId)
+        const settled = !owes || majorStringToMinor(owes.amountMajor) === 0n
+        return {
+          name:
+            memberNames().get(participant.memberId) ??
+            participant.memberId ??
+            copy().ledgerActorFallback,
+          settled
+        }
+      })
+  }
+
   function splitSummary(entry: MiniAppDashboard['ledger'][number]) {
     const participantCount = participantNames(entry).length
     const splitLabel =
@@ -701,10 +718,13 @@ export default function PurchasesRoute() {
                                   </div>
                                   <p class="purchase-entry__meta">{metaSummary(entry)}</p>
                                   <div class="purchase-entry__chips">
-                                    <For each={participantNames(entry).slice(0, 4)}>
-                                      {(name) => (
-                                        <span class="purchase-entry__chip" title={name}>
-                                          {initialsForName(name)}
+                                    <For each={participantChips(entry).slice(0, 4)}>
+                                      {(chip) => (
+                                        <span
+                                          class={`purchase-entry__chip${chip.settled ? ' purchase-entry__chip--settled' : ''}`}
+                                          title={chip.name}
+                                        >
+                                          {initialsForName(chip.name)}
                                         </span>
                                       )}
                                     </For>
