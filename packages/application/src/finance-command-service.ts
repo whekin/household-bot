@@ -225,6 +225,7 @@ export interface FinanceDashboard {
 }
 
 export interface FinanceDashboardUtilityBillingPlan {
+  id: string
   version: number
   status: FinanceUtilityBillingPlanStatus
   dueDate: string
@@ -1011,6 +1012,7 @@ function buildDashboardUtilityBillingPlan(input: {
   }
 
   return {
+    id: input.planRecord.id,
     version: input.planRecord.version,
     status: input.planRecord.status,
     dueDate: input.planRecord.dueDate,
@@ -2273,7 +2275,7 @@ async function allocatePaymentPurchaseOverage(input: {
     return {
       allocations: [],
       resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
-      resolutionPlanId: utilityPlan?.version ? String(utilityPlan.version) : null
+      resolutionPlanId: utilityPlan?.id ?? null
     }
   }
 
@@ -2333,7 +2335,7 @@ async function allocatePaymentPurchaseOverage(input: {
   return {
     allocations,
     resolutionMethod: input.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
-    resolutionPlanId: utilityPlan?.version ? String(utilityPlan.version) : null
+    resolutionPlanId: utilityPlan?.id ?? null
   }
 }
 

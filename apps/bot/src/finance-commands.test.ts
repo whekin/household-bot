@@ -497,6 +497,7 @@ describe('createFinanceCommandsService', () => {
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
         utilityBillingPlan: {
+          id: 'utility-plan-1',
           version: 1,
           status: 'active',
           dueDate: '2026-04-04',
@@ -599,6 +600,7 @@ describe('createFinanceCommandsService', () => {
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
         utilityBillingPlan: {
+          id: 'utility-plan-1',
           version: 1,
           status: 'active',
           dueDate: '2026-04-04',
@@ -841,6 +843,7 @@ describe('createFinanceCommandsService', () => {
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
         utilityBillingPlan: {
+          id: 'utility-plan-1',
           version: 1,
           status: 'active',
           dueDate: '2026-04-04',

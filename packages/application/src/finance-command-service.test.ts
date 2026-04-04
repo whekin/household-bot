@@ -1550,7 +1550,7 @@ describe('createFinanceCommandService', () => {
       paymentRecordId: 'payment-record-1',
       cycleId: 'cycle-2026-04',
       resolutionMethod: 'utilities_plan',
-      resolutionPlanId: '1',
+      resolutionPlanId: 'utility-plan-1',
       allocations: [
         {
           purchaseId: 'purchase-oldest',
