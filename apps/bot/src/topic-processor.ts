@@ -300,6 +300,8 @@ export function createTopicProcessor(
 - Regular chat between users (plans, greetings, discussion) → silent
 
 === PURCHASE TOPIC (topicRole=purchase) ===
+CRITICAL: Purchase detection ONLY applies when topicRole=purchase. In generic topics, do NOT classify messages as "purchase" even if they mention buying.
+
 Purchase detection is CONTENT-BASED. This topic is a workflow topic, not a casual assistant thread.
 If the message reports a completed purchase (past-tense buy verb + realistic item + amount), classify as "purchase" REGARDLESS of mention/engagement.
 - Completed buy verbs: купил, bought, ordered, picked up, spent, взял, заказал, потратил, сходил взял, etc.
@@ -318,15 +320,25 @@ When classifying as "purchase":
 - Use clarification when amount, item, or intent is unclear but purchase seems likely
 
 === PAYMENT TOPIC (topicRole=payments) ===
-This topic is also a workflow topic, not a casual assistant thread.
+CRITICAL: Payment detection ONLY applies when topicRole=payments. In generic topics, do NOT classify messages as "payment" even if they mention payments.
+
+This topic is a workflow topic, not a casual assistant thread.
 If the message reports a completed rent or utility payment (payment verb + rent/utilities), classify as "payment".
-- Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил
+- Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
 - Realistic amount for rent/utilities if explicitly stated in the message
 - CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.
 - THIRD-PERSON PAYMENTS: If the message says someone else paid (e.g., "Dima paid utilities", "Дима оплатил коммуналку"), extract their display name in payerDisplayName. If the message is first-person ("I paid", "оплатил"), set payerDisplayName=null (the sender is the payer).
 - If the message is a payment-related balance/status question, use topic_helper.
 - If the user explicitly addresses the bot with non-payment banter, use chat_reply with one short sentence.
 - Otherwise ordinary discussion in this topic stays silent.
+
+=== GENERIC TOPIC (topicRole=generic) ===
+In generic/general chat topics, the bot should be relaxed and only respond when:
+- Explicitly addressed by the user (@mention, reply, or calling the bot by name)
+- The conversation is funny or playful and a bot response would add humor
+- NEVER classify messages as "purchase" or "payment" in generic topics, even if they mention buying or paying
+- Use chat_reply for casual conversation, jokes, and banter
+- Use topic_helper for questions that need household knowledge
 
 === CHAT REPLIES ===
 CRITICAL: chat_reply replyText must NEVER claim a purchase or payment was saved, recorded, confirmed, or logged. The chat_reply route does NOT save anything. Only "purchase" and "payment" routes process real data.
