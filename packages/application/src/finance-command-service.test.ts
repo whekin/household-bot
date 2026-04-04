@@ -2306,18 +2306,51 @@ describe('createFinanceCommandService', () => {
     const aliceSummary = summaries.find((s) => s.memberId === 'alice')
     const bobSummary = summaries.find((s) => s.memberId === 'bob')
 
-    // Alice: already paid her share, projected delta should be 0
+    // Alice: already paid her share, assigned remaining should be 0
     expect(aliceSummary?.vendorPaid.amountMinor).toBe(
       repository.addedPaymentRecords[0]!.amountMinor
     )
+    expect(aliceSummary?.assignedThisCycle.amountMinor).toBe(0n)
     expect(aliceSummary?.projectedDeltaAfterPlan.amountMinor).toBe(0n)
 
-    // Bob: hasn't paid, projected delta should also be 0 (plan assigns his fair share)
+    // Bob: hasn't paid, assigned should still be his full share
     expect(bobSummary?.vendorPaid.amountMinor).toBe(0n)
+    expect(bobSummary?.assignedThisCycle.amountMinor).toBeGreaterThan(0n)
     expect(bobSummary?.projectedDeltaAfterPlan.amountMinor).toBe(0n)
 
     // Plan version should not have changed (on-plan payment doesn't rebalance)
     expect(afterDashboard?.utilityBillingPlan?.version).toBe(1)
+
+    // Plan should NOT be settled yet (bob hasn't resolved)
+    expect(afterDashboard?.utilityBillingPlan?.status).toBe('active')
+
+    // Now resolve bob too
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'bob',
+      periodArg: '2026-04'
+    })
+
+    // Bridge bob's payment record
+    repository.paymentRecords = repository.addedPaymentRecords.map((r, i) => ({
+      id: `payment-record-${i + 1}`,
+      cycleId: r.cycleId,
+      cyclePeriod: '2026-04',
+      memberId: r.memberId,
+      kind: r.kind,
+      amountMinor: r.amountMinor,
+      currency: r.currency,
+      recordedAt: r.recordedAt
+    }))
+
+    const settledDashboard = await service.generateDashboard('2026-04')
+
+    // Plan should now be settled since all members resolved
+    expect(settledDashboard?.utilityBillingPlan?.status).toBe('settled')
+
+    // Both members should show 0 remaining assignment
+    const settledSummaries = settledDashboard?.utilityBillingPlan?.memberSummaries ?? []
+    expect(settledSummaries.every((s) => s.assignedThisCycle.amountMinor === 0n)).toBe(true)
+    expect(settledSummaries.every((s) => s.projectedDeltaAfterPlan.amountMinor === 0n)).toBe(true)
   })
 
   test('resolveUtilityBillAsPlanned resolves purchases when policy is utilities', async () => {

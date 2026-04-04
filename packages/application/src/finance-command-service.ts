@@ -1039,12 +1039,16 @@ function buildDashboardUtilityBillingPlan(input: {
       const currency = summary.fairShare.currency
       const utilityPaidMinor = input.utilityPaidByMemberId.get(summary.memberId) ?? 0n
       const effectiveVendorPaidMinor = summary.vendorPaid.amountMinor + utilityPaidMinor
+      const remainingAssignedMinor =
+        summary.assignedThisCycle.amountMinor > utilityPaidMinor
+          ? summary.assignedThisCycle.amountMinor - utilityPaidMinor
+          : 0n
       return {
         memberId: summary.memberId,
         displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
         fairShare: summary.fairShare,
         vendorPaid: Money.fromMinor(effectiveVendorPaidMinor, currency),
-        assignedThisCycle: summary.assignedThisCycle,
+        assignedThisCycle: Money.fromMinor(remainingAssignedMinor, currency),
         projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
     })
@@ -3136,6 +3140,20 @@ export function createFinanceCommandService(
         resolutionPlanId: allocationResult.resolutionPlanId,
         allocations: allocationResult.allocations
       })
+
+      // Check if all plan categories are now covered by vendor facts → settle the plan
+      const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      const allCategoriesCovered = dashboard.utilityBillingPlan.categories.every((category) =>
+        vendorFacts.some(
+          (fact) =>
+            fact.utilityBillId === category.utilityBillId &&
+            fact.payerMemberId === category.assignedMemberId &&
+            fact.amountMinor >= category.assignedAmount.amountMinor
+        )
+      )
+      if (allCategoriesCovered) {
+        await repository.updateUtilityBillingPlanStatus(dashboard.utilityBillingPlan.id, 'settled')
+      }
 
       const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period)
       return {
