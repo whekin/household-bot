@@ -1008,16 +1008,6 @@ function buildDashboardUtilityBillingPlan(input: {
   priorVersionByPlanId: ReadonlyMap<string, number>
   utilityPaidByMemberId: ReadonlyMap<string, bigint>
 }): FinanceDashboardUtilityBillingPlan {
-  // Pre-compute per-member total category assignments so we can proportionally reduce them
-  const memberCategoryTotals = new Map<string, bigint>()
-  for (const category of input.computed.categories) {
-    memberCategoryTotals.set(
-      category.assignedMemberId,
-      (memberCategoryTotals.get(category.assignedMemberId) ?? 0n) +
-        category.assignedAmount.amountMinor
-    )
-  }
-
   return {
     id: input.planRecord.id,
     version: input.planRecord.version,
@@ -1027,48 +1017,32 @@ function buildDashboardUtilityBillingPlan(input: {
       ? (input.priorVersionByPlanId.get(input.planRecord.updatedFromPlanId) ?? null)
       : null,
     reason: input.planRecord.reason,
-    categories: input.computed.categories.map((category) => {
-      const utilityPaidMinor = input.utilityPaidByMemberId.get(category.assignedMemberId) ?? 0n
-      const totalAssignedMinor = memberCategoryTotals.get(category.assignedMemberId) ?? 0n
-      let effectiveAssignedMinor = category.assignedAmount.amountMinor
-      if (utilityPaidMinor > 0n && totalAssignedMinor > 0n) {
-        // Proportionally reduce this category's assignment based on member's utility payments
-        const reductionMinor =
-          totalAssignedMinor <= utilityPaidMinor
-            ? category.assignedAmount.amountMinor
-            : (category.assignedAmount.amountMinor * utilityPaidMinor) / totalAssignedMinor
-        effectiveAssignedMinor =
-          effectiveAssignedMinor > reductionMinor ? effectiveAssignedMinor - reductionMinor : 0n
-      }
-
-      return {
-        utilityBillId: category.utilityBillId,
-        billName: category.billName,
-        billTotal: category.billTotal,
-        assignedAmount: Money.fromMinor(effectiveAssignedMinor, category.assignedAmount.currency),
-        assignedMemberId: category.assignedMemberId,
-        assignedDisplayName:
-          input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
-        paidAmount: category.paidAmount,
-        isFullAssignment: category.isFullAssignment,
-        splitGroupId: category.splitGroupId
-      }
-    }),
+    categories: input.computed.categories.map((category) => ({
+      utilityBillId: category.utilityBillId,
+      billName: category.billName,
+      billTotal: category.billTotal,
+      assignedAmount: category.assignedAmount,
+      assignedMemberId: category.assignedMemberId,
+      assignedDisplayName:
+        input.memberNameById.get(category.assignedMemberId) ?? category.assignedMemberId,
+      paidAmount: category.paidAmount,
+      isFullAssignment: category.isFullAssignment,
+      splitGroupId: category.splitGroupId
+    })),
     memberSummaries: input.computed.memberSummaries.map((summary) => {
       const currency = summary.fairShare.currency
       const utilityPaidMinor = input.utilityPaidByMemberId.get(summary.memberId) ?? 0n
       const effectiveVendorPaidMinor = summary.vendorPaid.amountMinor + utilityPaidMinor
-      const assignedMinor = summary.assignedThisCycle.amountMinor
-      const effectiveAssignedMinor =
-        assignedMinor > utilityPaidMinor ? assignedMinor - utilityPaidMinor : 0n
       const effectiveProjectedDeltaMinor =
-        effectiveVendorPaidMinor + effectiveAssignedMinor - summary.fairShare.amountMinor
+        effectiveVendorPaidMinor +
+        summary.assignedThisCycle.amountMinor -
+        summary.fairShare.amountMinor
       return {
         memberId: summary.memberId,
         displayName: input.memberNameById.get(summary.memberId) ?? summary.memberId,
         fairShare: summary.fairShare,
         vendorPaid: Money.fromMinor(effectiveVendorPaidMinor, currency),
-        assignedThisCycle: Money.fromMinor(effectiveAssignedMinor, currency),
+        assignedThisCycle: summary.assignedThisCycle,
         projectedDeltaAfterPlan: Money.fromMinor(effectiveProjectedDeltaMinor, currency)
       }
     })
