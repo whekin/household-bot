@@ -580,7 +580,13 @@ describe('createMiniAppDashboardHandler', () => {
           {
             displayName: 'Stan',
             netDueMajor: '2010.00',
-            overduePayments: [],
+            overduePayments: [
+              {
+                amountMajor: '120.00',
+                kind: 'utilities',
+                periods: ['2026-04']
+              }
+            ],
             paidMajor: '500.00',
             remainingMajor: '1510.00',
             rentShareMajor: '1890.00',
