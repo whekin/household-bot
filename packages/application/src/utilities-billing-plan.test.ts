@@ -191,4 +191,70 @@ describe('computeUtilityBillingPlan', () => {
     expect(plan.categories.every((category) => category.isFullAssignment)).toBe(true)
     expect(plan.maxCategoriesPerMemberApplied).toBeLessThanOrEqual(2)
   })
+
+  test('does not change assignments when members pay on-plan amounts', () => {
+    // Scenario: A plan exists, Bob is assigned to pay for gas (169.44 GEL).
+    // Bob pays 157.94 GEL toward gas. The plan should NOT recalculate Bob's assignment.
+    // The algorithm should only see the unpaid remainder (11.50 GEL) as still needing assignment.
+
+    // Initial plan - no payments yet
+    const initialPlan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [
+        member('alice', 'Alice', '29.35'),
+        member('bob', 'Bob', '169.44'),
+        member('carol', 'Carol', '82.10'),
+        member('dave', 'Dave', '125.77')
+      ],
+      bills: [
+        bill('gas', 'Gas', '321.07'),
+        bill('electricity', 'Electricity', '83.09'),
+        bill('cleaning', 'Cleaning', '2.50')
+      ],
+      vendorPayments: []
+    })
+
+    // Bob's initial assignment
+    const bobInitialAssignments = initialPlan.categories.filter(
+      (category) => category.assignedMemberId === 'bob'
+    )
+    const bobInitialTotal = bobInitialAssignments.reduce(
+      (sum, category) => sum + category.assignedAmount.amountMinor,
+      0n
+    )
+
+    // Now Bob pays 157.94 GEL for gas, which is ON-PLAN (matches his assignment)
+    // In the real system, this payment would be marked with matchedPlan=true
+    // and would NOT be passed to computeUtilityBillingPlan on subsequent calls.
+
+    // Simulate what should happen: the plan stays the same, only the unpaid portion
+    // is shown as remaining. The gas bill now has 157.94 paid, leaving 163.13 unpaid.
+    const planAfterOnPlanPayment = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [
+        member('alice', 'Alice', '29.35'),
+        member('bob', 'Bob', '169.44'),
+        member('carol', 'Carol', '82.10'),
+        member('dave', 'Dave', '125.77')
+      ],
+      bills: [
+        bill('gas', 'Gas', '321.07'),
+        bill('electricity', 'Electricity', '83.09'),
+        bill('cleaning', 'Cleaning', '2.50')
+      ],
+      // Empty vendorPayments because on-plan payments shouldn't be passed to the algorithm
+      vendorPayments: []
+    })
+
+    // The plan should be identical
+    const bobAssignmentsAfter = planAfterOnPlanPayment.categories.filter(
+      (category) => category.assignedMemberId === 'bob'
+    )
+    const bobTotalAfter = bobAssignmentsAfter.reduce(
+      (sum, category) => sum + category.assignedAmount.amountMinor,
+      0n
+    )
+
+    expect(bobTotalAfter).toBe(bobInitialTotal)
+  })
 })

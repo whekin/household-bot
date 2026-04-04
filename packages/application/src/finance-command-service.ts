@@ -921,6 +921,12 @@ async function ensureUtilityBillingPlan(input: {
   const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
   const shouldRecompute = !activePlan || hadOffPlanFact
 
+  // When recomputing, only include off-plan vendor payments in the algorithm.
+  // On-plan payments are already accounted for and shouldn't affect assignments.
+  const vendorPaymentsForCompute = activePlan
+    ? vendorFacts.filter((fact) => !fact.matchedPlan)
+    : vendorFacts
+
   const computed = shouldRecompute
     ? computeUtilityBillingPlan({
         currency: input.cycle.currency,
@@ -946,7 +952,7 @@ async function ensureUtilityBillingPlan(input: {
           billName: bill.billName,
           amount: converted.settlementAmount
         })),
-        vendorPayments: vendorFacts.map((fact) => ({
+        vendorPayments: vendorPaymentsForCompute.map((fact) => ({
           utilityBillId: fact.utilityBillId,
           billName: fact.billName,
           payerMemberId: fact.payerMemberId,
