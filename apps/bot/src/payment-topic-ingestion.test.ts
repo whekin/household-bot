@@ -140,6 +140,15 @@ function createFinanceService(): FinanceCommandService {
       rentShareWeight: 1,
       isAdmin: false
     }),
+    listMembers: async () => [
+      {
+        id: 'member-1',
+        telegramUserId: '10002',
+        displayName: 'Mia',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ],
     getOpenCycle: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-1',
@@ -277,6 +286,7 @@ function createMockPaymentTopicProcessor(
       kind: 'rent',
       amountMinor: '47250',
       currency: 'GEL',
+      payerDisplayName: null,
       confidence: 95,
       reason: 'test'
     }
@@ -477,6 +487,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
         kind: 'rent',
         amountMinor: '47250',
         currency: 'GEL',
+        payerDisplayName: null,
         confidence: 95,
         reason: 'test'
       }

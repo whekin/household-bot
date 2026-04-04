@@ -30,6 +30,7 @@ export interface TopicProcessorPaymentResult {
   kind: 'rent' | 'utilities'
   amountMinor: string | null
   currency: 'GEL' | 'USD' | null
+  payerDisplayName: string | null
   confidence: number
   reason: string
 }
@@ -171,6 +172,7 @@ interface OpenAiStructuredResult {
   calculationExplanation?: string | null
   participantMemberIds?: string[] | null
   kind?: 'rent' | 'utilities' | null
+  payerDisplayName?: string | null
   confidence?: number
   reason?: string | null
 }
@@ -321,6 +323,7 @@ If the message reports a completed rent or utility payment (payment verb + rent/
 - Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил
 - Realistic amount for rent/utilities if explicitly stated in the message
 - CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.
+- THIRD-PERSON PAYMENTS: If the message says someone else paid (e.g., "Dima paid utilities", "Дима оплатил коммуналку"), extract their display name in payerDisplayName. If the message is first-person ("I paid", "оплатил"), set payerDisplayName=null (the sender is the payer).
 - If the message is a payment-related balance/status question, use topic_helper.
 - If the user explicitly addresses the bot with non-payment banter, use chat_reply with one short sentence.
 - Otherwise ordinary discussion in this topic stays silent.
@@ -398,6 +401,9 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
                   kind: {
                     anyOf: [{ type: 'string', enum: ['rent', 'utilities'] }, { type: 'null' }]
                   },
+                  payerDisplayName: {
+                    anyOf: [{ type: 'string' }, { type: 'null' }]
+                  },
                   confidence: {
                     type: 'number',
                     minimum: 0,
@@ -418,6 +424,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
                   'calculationExplanation',
                   'participantMemberIds',
                   'kind',
+                  'payerDisplayName',
                   'confidence',
                   'reason'
                 ]
@@ -547,6 +554,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
           const amountMinor = asOptionalBigInt(parsed.amountMinor ?? null)
           const currency = normalizeCurrency(parsed.currency ?? null)
           const kind = parsed.kind === 'rent' || parsed.kind === 'utilities' ? parsed.kind : null
+          const payerDisplayName =
+            typeof parsed.payerDisplayName === 'string' && parsed.payerDisplayName.trim().length > 0
+              ? parsed.payerDisplayName.trim()
+              : null
 
           if (!kind) {
             logger?.warn(
@@ -571,6 +582,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
             kind,
             amountMinor: amountMinor?.toString() ?? null,
             currency,
+            payerDisplayName,
             confidence,
             reason
           }

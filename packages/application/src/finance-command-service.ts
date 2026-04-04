@@ -2341,6 +2341,7 @@ async function allocatePaymentPurchaseOverage(input: {
 
 export interface FinanceCommandService {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
+  listMembers(): Promise<readonly FinanceMemberRecord[]>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
   ensureExpectedCycle(referenceInstant?: Temporal.Instant): Promise<FinanceCycleRecord>
   getAdminCycleState(periodArg?: string): Promise<FinanceAdminCycleState>
@@ -2531,6 +2532,10 @@ export function createFinanceCommandService(
   return {
     getMemberByTelegramUserId(telegramUserId) {
       return repository.getMemberByTelegramUserId(telegramUserId)
+    },
+
+    listMembers() {
+      return repository.listMembers()
     },
 
     getOpenCycle() {

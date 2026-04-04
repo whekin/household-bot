@@ -789,13 +789,28 @@ export function registerConfiguredPaymentTopicIngestion(
           case 'payment': {
             const t = getBotTranslations(locale).payments
             const financeService = financeServiceForHousehold(record.householdId)
-            const member = await financeService.getMemberByTelegramUserId(
+            const senderMember = await financeService.getMemberByTelegramUserId(
               record.senderTelegramUserId
             )
 
-            if (!member) {
+            if (!senderMember) {
               await next()
               return
+            }
+
+            // Resolve the payer: if payerDisplayName is provided, try to find that member
+            // Otherwise, the sender is the payer
+            let payerMember = senderMember
+            if (processorResult.payerDisplayName) {
+              const allMembers = await financeService.listMembers()
+              const matchedMember = allMembers.find(
+                (m) =>
+                  m.displayName.toLowerCase() === processorResult.payerDisplayName?.toLowerCase()
+              )
+              if (matchedMember) {
+                payerMember = matchedMember
+              }
+              // If we can't find the member, fall back to sender (maybe they misspelled)
             }
 
             // Create payment proposal using the parsed data from topic processor
@@ -818,7 +833,7 @@ export function registerConfiguredPaymentTopicIngestion(
             const proposal = await maybeCreatePaymentProposal({
               rawText: synthesizedText,
               householdId: record.householdId,
-              memberId: member.id,
+              memberId: payerMember.id,
               financeService,
               householdConfigurationRepository
             })

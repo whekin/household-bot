@@ -376,6 +376,15 @@ function createFinanceService(): FinanceCommandService {
             isAdmin: true
           }
         : null,
+    listMembers: async () => [
+      {
+        id: 'member-1',
+        telegramUserId: '123456',
+        displayName: 'Стас',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ],
     getOpenCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',
