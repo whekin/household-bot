@@ -20,6 +20,7 @@ import {
   updateMiniAppCycleRent,
   updateMiniAppUtilityBill
 } from '../miniapp-api'
+import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 
 function rateMicrosToString(value: string | null): string {
   if (!value) return ''
@@ -45,7 +46,7 @@ function sameCategory(left: string, right: string): boolean {
 
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
-  const { initData, refreshHouseholdData, readySession } = useSession()
+  const { initData, readySession } = useSession()
   const {
     adminSettings,
     cycleState,
@@ -191,7 +192,8 @@ export default function BillsRoute() {
         })
       }
 
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } finally {
       setSavingUtilityName(null)
     }
@@ -212,7 +214,8 @@ export default function BillsRoute() {
         period: current.period,
         ...(fxRateMicros ? { fxRateMicros } : {})
       })
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } finally {
       setSavingRent(false)
     }
@@ -223,7 +226,10 @@ export default function BillsRoute() {
     setUtilityActionKey(key)
     try {
       await action()
-      await refreshHouseholdData(true, true)
+      const data = initData()
+      if (data) {
+        await invalidateHouseholdQueries(data)
+      }
     } finally {
       setUtilityActionKey(null)
     }

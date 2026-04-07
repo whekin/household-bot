@@ -30,6 +30,7 @@ import {
   upsertMiniAppUtilityCategory,
   type MiniAppUtilityCategory
 } from '../miniapp-api'
+import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 import { minorToMajorString } from '../lib/money'
 
 const NEW_CATEGORY_SLUG = '__new__'
@@ -82,7 +83,6 @@ export default function SettingsRoute() {
   const {
     readySession,
     initData,
-    refreshHouseholdData,
     handleMemberLocaleChange,
     displayNameDraft,
     setDisplayNameDraft,
@@ -323,7 +323,8 @@ export default function SettingsRoute() {
     try {
       await approveMiniAppPendingMember(data, telegramUserId)
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       showError(
         error,
@@ -342,7 +343,8 @@ export default function SettingsRoute() {
     try {
       await rejectMiniAppPendingMember(data, telegramUserId)
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       showError(
         error,
@@ -367,7 +369,7 @@ export default function SettingsRoute() {
         prev ? { ...prev, householdName, settings, assistantConfig } : prev
       )
       setBillingEditing(false)
-      await refreshHouseholdData(true, true)
+      // No need to refresh - we already have the updated data
     } catch (error) {
       showError(
         error,
@@ -392,7 +394,7 @@ export default function SettingsRoute() {
         prev ? { ...prev, householdName, settings, assistantConfig } : prev
       )
       setAssistantEditing(false)
-      await refreshHouseholdData(true, true)
+      // No need to refresh - we already have the updated data
     } catch (error) {
       showError(
         error,
@@ -439,7 +441,8 @@ export default function SettingsRoute() {
       })
 
       closeCategoryEditor()
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       showError(
         error,
@@ -521,7 +524,8 @@ export default function SettingsRoute() {
         }
       })
       setEditMemberId(null)
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       showError(
         error,

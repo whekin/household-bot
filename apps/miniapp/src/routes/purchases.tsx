@@ -334,7 +334,7 @@ function PurchaseDraftFields(props: {
 }
 
 export default function PurchasesRoute() {
-  const { initData, refreshHouseholdData, session } = useSession()
+  const { initData, session } = useSession()
   const { copy, locale } = useI18n()
   const { dashboard, effectiveIsAdmin, loading, purchaseLedger, setDashboard } = useDashboard()
 
@@ -454,7 +454,7 @@ export default function PurchasesRoute() {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )
-      await refreshHouseholdData(true, true)
+      // On error, just show the error - no need to refresh
     } finally {
       setAddingPurchase(false)
     }
@@ -486,7 +486,7 @@ export default function PurchasesRoute() {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )
-      await refreshHouseholdData(true, true)
+      // On error, just show the error - no need to refresh
     } finally {
       setSavingPurchase(false)
     }
@@ -509,7 +509,7 @@ export default function PurchasesRoute() {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )
-      await refreshHouseholdData(true, true)
+      // On error, just show the error - no need to refresh
     } finally {
       setDeletingPurchase(false)
     }

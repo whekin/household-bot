@@ -32,6 +32,7 @@ import {
   updateMiniAppNotification,
   cancelMiniAppNotification
 } from '../miniapp-api'
+import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 function entryOccurredAtSortValue(entry: MiniAppDashboard['ledger'][number]): string {
@@ -227,7 +228,7 @@ function notificationInputValue(iso: string, timeZone: string) {
 
 export default function HomeRoute() {
   const navigate = useNavigate()
-  const { readySession, initData, refreshHouseholdData } = useSession()
+  const { readySession, initData } = useSession()
   const { copy, locale } = useI18n()
   const {
     dashboard,
@@ -521,7 +522,8 @@ export default function HomeRoute() {
       setUtilityAmounts(
         Object.fromEntries(utilityCategories().map((category) => [category.name, '']))
       )
-      await refreshHouseholdData(false, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } finally {
       setSubmittingUtilities(false)
     }
@@ -571,7 +573,8 @@ export default function HomeRoute() {
         message: copy().quickPaymentSuccess,
         type: 'success'
       })
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch {
       setToastState({
         visible: true,
@@ -626,7 +629,8 @@ export default function HomeRoute() {
         message: locale() === 'ru' ? 'Напоминание обновлено.' : 'Notification updated.',
         type: 'success'
       })
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch {
       setToastState({
         visible: true,
@@ -656,7 +660,8 @@ export default function HomeRoute() {
         message: locale() === 'ru' ? 'Напоминание отменено.' : 'Notification cancelled.',
         type: 'success'
       })
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch {
       setToastState({
         visible: true,

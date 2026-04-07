@@ -25,13 +25,14 @@ import {
   updateMiniAppPayment,
   type MiniAppDashboard
 } from '../miniapp-api'
+import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 
 function sortPeriodsDesc<T extends { period: string }>(items: readonly T[]): T[] {
   return [...items].sort((left, right) => right.period.localeCompare(left.period))
 }
 
 export function PaymentsManager() {
-  const { initData, refreshHouseholdData } = useSession()
+  const { initData } = useSession()
   const { copy, locale } = useI18n()
   const { dashboard, effectiveIsAdmin, paymentLedger } = useDashboard()
 
@@ -140,7 +141,8 @@ export function PaymentsManager() {
         })
       }
 
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
@@ -203,7 +205,8 @@ export function PaymentsManager() {
         currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
         period: dashboard()?.period ?? ''
       })
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } catch (error) {
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
@@ -227,7 +230,8 @@ export function PaymentsManager() {
         currency: draft.currency
       })
       closePaymentEditor()
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } finally {
       setSavingPayment(false)
     }
@@ -242,7 +246,8 @@ export function PaymentsManager() {
     try {
       await deleteMiniAppPayment(data, entry.id)
       closePaymentEditor()
-      await refreshHouseholdData(true, true)
+      // Invalidate cache to ensure next load gets fresh data
+      await invalidateHouseholdQueries(data)
     } finally {
       setDeletingPayment(false)
     }
