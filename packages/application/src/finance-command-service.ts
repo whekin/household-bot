@@ -1874,10 +1874,7 @@ async function buildFinanceDashboard(
       }
     }),
     purchases: purchaseHistory
-      .filter(
-        ({ purchase, outstandingTotal }) =>
-          currentCyclePurchaseIds.has(purchase.id) || outstandingTotal.amountMinor > 0n
-      )
+      .filter(({ outstandingTotal }) => outstandingTotal.amountMinor > 0n)
       .map(({ purchase, converted, outstandingByMemberId, outstandingTotal }) => {
         const nextPurchase: {
           purchaseId: PurchaseEntryId

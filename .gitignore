@@ -40,3 +40,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # pulumi state
 infra/pulumi/aws/.pulumi
+
+# omx runtime state
+.omx
+
+# kiro specs and config
+.kiro

@@ -6,6 +6,7 @@ import type {
   FinanceCycleExchangeRateRecord,
   FinanceCycleRecord,
   FinanceMemberRecord,
+  FinancePaymentPurchaseAllocationRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
@@ -109,6 +110,7 @@ class FinanceRepositoryStub implements FinanceRepository {
     | Parameters<FinanceRepository['replacePaymentPurchaseAllocations']>[0]
     | null = null
   addedPaymentRecords: Parameters<FinanceRepository['addPaymentRecord']>[0][] = []
+  paymentPurchaseAllocations: readonly FinancePaymentPurchaseAllocationRecord[] = []
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
@@ -485,7 +487,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async listPaymentPurchaseAllocations() {
-    return []
+    return this.paymentPurchaseAllocations
   }
 
   async getSettlementSnapshotLines() {
@@ -1454,6 +1456,89 @@ describe('createFinanceCommandService', () => {
         memberId: 'bob',
         amount: Money.fromMinor(1500n, 'GEL')
       }
+    ])
+  })
+
+  test('generateDashboard zeroes purchase offsets for fully resolved current-cycle purchases', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 0n,
+      currency: 'GEL'
+    }
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Soap',
+        occurredAt: instantFromIso('2026-04-07T11:00:00.000Z'),
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'alice',
+            included: true,
+            shareAmountMinor: 1500n
+          },
+          {
+            memberId: 'bob',
+            included: true,
+            shareAmountMinor: 1500n
+          }
+        ]
+      }
+    ]
+    repository.paymentPurchaseAllocations = [
+      {
+        id: 'allocation-1',
+        paymentRecordId: 'payment-1',
+        purchaseId: 'purchase-1',
+        memberId: 'bob',
+        amountMinor: 1500n,
+        resolutionCycleId: 'cycle-2026-04',
+        resolutionMethod: 'manual',
+        resolutionPlanId: null,
+        recordedAt: instantFromIso('2026-04-08T10:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-04')
+    const purchaseEntry = dashboard?.ledger.find((entry) => entry.id === 'purchase-1')
+
+    expect(purchaseEntry?.resolutionStatus).toBe('resolved')
+    expect(purchaseEntry?.outstandingByMember).toEqual([])
+    expect(
+      dashboard?.members.map((member) => ({
+        memberId: member.memberId,
+        purchaseOffset: member.purchaseOffset.amountMinor
+      }))
+    ).toEqual([
+      { memberId: 'alice', purchaseOffset: 0n },
+      { memberId: 'bob', purchaseOffset: 0n }
     ])
   })
 
