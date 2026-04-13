@@ -307,6 +307,8 @@ If the message reports a completed purchase (past-tense buy verb + realistic ite
 - Completed buy verbs: купил, bought, ordered, picked up, spent, взял, заказал, потратил, сходил взял, etc.
 - Realistic household items: food, groceries, household goods, toiletries, medicine, transport, cafe, restaurant
 - Amount under 500 currency units for household purchases
+- Third-person reports still count as purchases: "Дима купил швабру за 39 лари" should be "purchase", not "silent"
+- The payer may be someone other than the sender; do not require first-person phrasing
 - Gifts for household members ARE shared purchases
 - Plans, wishes, future intent → silent (NOT purchases)
 - Fantastical items (car, plane, island) or excessive amounts (>500) → chat_reply with playful response

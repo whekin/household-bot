@@ -3015,6 +3015,62 @@ export function registerConfiguredPurchaseTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            if (options.interpreter && looksLikeLikelyCompletedPurchase(record.rawText)) {
+              options.logger?.info(
+                {
+                  event: 'purchase.topic_processor_fallback',
+                  reason: processorResult.reason,
+                  messageText: record.rawText
+                },
+                'Falling back to purchase interpreter after topic processor stayed silent'
+              )
+
+              typingIndicator = startTypingIndicator(ctx)
+              const pendingReply = await sendPurchaseProcessingReply(
+                ctx,
+                getBotTranslations(householdContext.locale).purchase.processing
+              )
+              const result = await repository.save(
+                record,
+                options.interpreter,
+                householdContext.defaultCurrency,
+                {
+                  householdContext: householdContext.householdContext,
+                  assistantTone: householdContext.assistantTone
+                }
+              )
+
+              if (result.status === 'ignored_not_purchase') {
+                cacheTopicMessageRoute(ctx, 'purchase', {
+                  route: 'silent',
+                  replyText: null,
+                  helperKind: null,
+                  shouldStartTyping: false,
+                  shouldClearWorkflow: false,
+                  confidence: 80,
+                  reason: processorResult.reason
+                })
+                await next()
+                return
+              }
+
+              await handlePurchaseMessageResult(
+                ctx,
+                record,
+                result,
+                householdContext.locale,
+                options.logger,
+                pendingReply,
+                options.historyRepository
+              )
+              rememberAssistantTurn(
+                options.memoryStore,
+                record,
+                buildPurchaseAcknowledgement(result, householdContext.locale)
+              )
+              return
+            }
+
             cacheTopicMessageRoute(ctx, 'purchase', {
               route: 'silent',
               replyText: null,

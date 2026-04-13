@@ -702,6 +702,68 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('replies when explicitly mentioned even if the topic processor stays silent', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor('silent') }
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot Значит игнор') as never)
+
+    expect(paymentConfirmationService.submitted).toHaveLength(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -10012345,
+        reply_parameters: {
+          message_id: 55
+        }
+      }
+    })
+    expect(calls[0]?.payload).toHaveProperty('text')
+  })
+
   test('does not ingest slash commands sent in the payments topic', async () => {
     const bot = createTelegramBot('000000:test-token')
     const promptRepository = createPromptRepository()

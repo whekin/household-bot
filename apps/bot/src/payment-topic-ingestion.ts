@@ -683,6 +683,27 @@ export function registerConfiguredPaymentTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            if (conversationContext.explicitMention) {
+              const { botSleepsMessage } = await import('./topic-processor')
+              const replyText = botSleepsMessage(locale === 'ru' ? 'ru' : 'en')
+
+              options.logger?.info(
+                {
+                  event: 'payment.topic_processor_explicit_fallback',
+                  reason: processorResult.reason,
+                  messageText: record.rawText
+                },
+                'Replying after topic processor stayed silent on an explicit mention'
+              )
+
+              await replyToPaymentMessage(ctx, replyText, undefined, {
+                repository: options.historyRepository,
+                record
+              })
+              appendConversation(options.memoryStore, record, record.rawText, replyText)
+              return
+            }
+
             cacheTopicMessageRoute(ctx, 'payments', {
               route: 'silent',
               replyText: null,

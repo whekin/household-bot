@@ -2307,6 +2307,178 @@ Confirm or cancel below.`,
     })
   })
 
+  test('falls back to the purchase interpreter when the topic processor stays silent on an obvious third-person purchase', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+    let saveWithInterpretationCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(_record, interpreter, defaultCurrency, options) {
+        saveCalls += 1
+
+        expect(interpreter).toBeDefined()
+        expect(defaultCurrency).toBe('GEL')
+        expect(options).toEqual({
+          householdContext: null,
+          assistantTone: null
+        })
+
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-1',
+          parsedAmountMinor: 3900n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'швабра',
+          payerMemberId: 'member-2',
+          payerDisplayName: 'Дима',
+          parserConfidence: 92,
+          parserMode: 'llm',
+          participants: [
+            {
+              id: 'participant-1',
+              memberId: 'member-1',
+              displayName: 'Стас',
+              included: false
+            },
+            {
+              id: 'participant-2',
+              memberId: 'member-2',
+              displayName: 'Дима',
+              included: true
+            }
+          ]
+        }
+      },
+      async saveWithInterpretation() {
+        saveWithInterpretationCalls += 1
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: config.householdId,
+        telegramThreadId: '777',
+        role: 'purchase' as const,
+        topicName: 'Purchases'
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'ru' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        interpreter: async () => ({
+          decision: 'purchase',
+          amountMinor: 3900n,
+          currency: 'GEL',
+          itemDescription: 'швабра',
+          confidence: 92,
+          parserMode: 'llm',
+          clarificationQuestion: null
+        }),
+        topicProcessor: async () => ({
+          route: 'silent',
+          reason: 'misclassified_third_person_purchase'
+        })
+      }
+    )
+
+    await bot.handleUpdate(purchaseUpdate('Дима купил швабру за 39 лари') as never)
+
+    expect(saveCalls).toBe(1)
+    expect(saveWithInterpretationCalls).toBe(0)
+    expect(calls).toHaveLength(3)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Checking that purchase...'
+      }
+    })
+    expect(calls[2]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: expect.stringContaining('I think this shared purchase was: швабра - 39.00 GEL.'),
+        reply_markup: {
+          inline_keyboard: expect.any(Array)
+        }
+      }
+    })
+  })
+
   test('confirms a pending proposal and edits the bot message', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
