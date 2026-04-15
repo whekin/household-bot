@@ -27,6 +27,7 @@ import {
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
+import { looksLikeLikelyCompletedPurchase } from './purchase-topic-ingestion'
 import { stripExplicitBotMention } from './telegram-mentions'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
@@ -258,6 +259,10 @@ export function buildPaymentAcknowledgement(
     case 'needs_review':
       return null
   }
+}
+
+function buildWrongTopicPurchaseReply(locale: BotLocale): string {
+  return getBotTranslations(locale).payments.purchaseRedirect
 }
 
 function parsePaymentClarificationPayload(
@@ -683,6 +688,26 @@ export function registerConfiguredPaymentTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            if (looksLikeLikelyCompletedPurchase(record.rawText)) {
+              const replyText = buildWrongTopicPurchaseReply(locale)
+
+              options.logger?.info(
+                {
+                  event: 'payment.topic_processor_purchase_redirect',
+                  reason: processorResult.reason,
+                  messageText: record.rawText
+                },
+                'Redirecting purchase-like message out of the payments topic'
+              )
+
+              await replyToPaymentMessage(ctx, replyText, undefined, {
+                repository: options.historyRepository,
+                record
+              })
+              appendConversation(options.memoryStore, record, record.rawText, replyText)
+              return
+            }
+
             if (conversationContext.explicitMention) {
               const { botSleepsMessage } = await import('./topic-processor')
               const replyText = botSleepsMessage(locale === 'ru' ? 'ru' : 'en')

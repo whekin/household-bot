@@ -352,6 +352,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     unsupportedCurrency:
       'I can only record payments in the household settlement currency for this topic right now.',
     noBalance: 'There is no payable balance for that payment type right now.',
+    purchaseRedirect:
+      'That looks like a shared purchase, but this thread is for payments. Toss it into the purchases topic and I will confirm it there.',
     breakdownBase: (kind, amount, currency) =>
       `${kind === 'rent' ? 'Rent due' : 'Utilities due'}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownPurchaseBalance: (amount, currency) =>

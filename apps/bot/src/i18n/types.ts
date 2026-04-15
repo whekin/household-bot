@@ -320,6 +320,7 @@ export interface BotTranslationCatalog {
     clarification: string
     unsupportedCurrency: string
     noBalance: string
+    purchaseRedirect: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPurchaseBalance: (amount: string, currency: string) => string
     breakdownSuggestedTotal: (amount: string, currency: string, policy: string) => string

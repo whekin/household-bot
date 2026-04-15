@@ -2479,6 +2479,164 @@ Confirm or cancel below.`,
     })
   })
 
+  test('falls back to the purchase interpreter for shorthand lari amounts mixed with quantity text', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record, interpreter, defaultCurrency, options) {
+        saveCalls += 1
+
+        expect(record.rawText).toBe('Купила жигу большую и 2 ножика маленьких 10 лар')
+        expect(interpreter).toBeDefined()
+        expect(defaultCurrency).toBe('GEL')
+        expect(options).toEqual({
+          householdContext: null,
+          assistantTone: null
+        })
+
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-short-lari',
+          parsedAmountMinor: 1000n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'жига большая и 2 ножика маленьких',
+          payerMemberId: 'member-1',
+          payerDisplayName: 'Mia',
+          parserConfidence: 91,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async saveWithInterpretation() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: config.householdId,
+        telegramThreadId: '777',
+        role: 'purchase' as const,
+        topicName: 'Purchases'
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'ru' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        interpreter: async () => ({
+          decision: 'purchase',
+          amountMinor: 1000n,
+          currency: 'GEL',
+          itemDescription: 'жига большая и 2 ножика маленьких',
+          confidence: 91,
+          parserMode: 'llm',
+          clarificationQuestion: null
+        }),
+        topicProcessor: async () => ({
+          route: 'silent',
+          reason: 'missed_short_lari'
+        })
+      }
+    )
+
+    await bot.handleUpdate(
+      purchaseUpdate('Купила жигу большую и 2 ножика маленьких 10 лар') as never
+    )
+
+    expect(saveCalls).toBe(1)
+    expect(calls).toHaveLength(3)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Checking that purchase...'
+      }
+    })
+    expect(calls[2]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: expect.stringContaining(
+          'I think this shared purchase was: жига большая и 2 ножика маленьких - 10.00 GEL.'
+        )
+      }
+    })
+  })
+
   test('confirms a pending proposal and edits the bot message', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []

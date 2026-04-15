@@ -355,6 +355,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     unsupportedCurrency:
       'Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
     noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    purchaseRedirect:
+      'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
     breakdownBase: (kind, amount, currency) =>
       `${kind === 'rent' ? 'Аренда к оплате' : 'Коммуналка к оплате'}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownPurchaseBalance: (amount, currency) =>

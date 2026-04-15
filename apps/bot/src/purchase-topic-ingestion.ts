@@ -49,7 +49,7 @@ const LIKELY_PURCHASE_VERB_PATTERN =
 const PLANNING_PURCHASE_PATTERN =
   /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|(?:^|[^\p{L}])(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:купим|возьмем|возьмём|закажем|оплатим)(?=$|[^\p{L}])/iu
 const MONEY_SIGNAL_PATTERN =
-  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лари|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
+  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лар|лари|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
 const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
 
 type StoredPurchaseProcessingStatus =
@@ -318,7 +318,7 @@ function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
   return replyAuthor.id === ctx.me.id
 }
 
-function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
+export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
   if (PLANNING_PURCHASE_PATTERN.test(rawText)) {
     return false
   }
