@@ -113,29 +113,29 @@ function purchaseUpdate(
             ]
           }
         : options.asCaption
-        ? {
-            caption: text,
-            photo: [
-              {
-                file_id: 'photo-1',
-                file_unique_id: 'photo-1',
-                width: 100,
-                height: 100
-              }
-            ]
-          }
-        : {
-            text,
-            entities: text.startsWith('/')
-              ? [
-                  {
-                    offset: 0,
-                    length: commandToken.length,
-                    type: 'bot_command'
-                  }
-                ]
-              : []
-          })
+          ? {
+              caption: text,
+              photo: [
+                {
+                  file_id: 'photo-1',
+                  file_unique_id: 'photo-1',
+                  width: 100,
+                  height: 100
+                }
+              ]
+            }
+          : {
+              text,
+              entities: text.startsWith('/')
+                ? [
+                    {
+                      offset: 0,
+                      length: commandToken.length,
+                      type: 'bot_command'
+                    }
+                  ]
+                : []
+            })
     }
   }
 }
@@ -867,8 +867,7 @@ Confirm or cancel below.`,
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text:
-          'I can see the photo, but I still need the item and total. What exactly was bought and for how much?'
+        text: 'I can see the photo, but I still need the item and total. What exactly was bought and for how much?'
       }
     })
     expect(calls[1]).toMatchObject({

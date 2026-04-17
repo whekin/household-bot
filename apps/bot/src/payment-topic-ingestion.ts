@@ -269,10 +269,7 @@ function buildWrongTopicPurchaseReply(locale: BotLocale): string {
   return getBotTranslations(locale).payments.purchaseRedirect
 }
 
-function hasClearPaymentTopicIntent(
-  rawText: string,
-  defaultCurrency: 'GEL' | 'USD'
-): boolean {
+function hasClearPaymentTopicIntent(rawText: string, defaultCurrency: 'GEL' | 'USD'): boolean {
   return parsePaymentConfirmationMessage(rawText, defaultCurrency).kind !== null
 }
 
@@ -338,12 +335,7 @@ async function replyWithTopicPaymentProposal(input: {
       repository: input.historyRepository,
       record: input.record
     })
-    appendConversation(
-      input.memoryStore,
-      input.record,
-      input.record.rawText,
-      t.unsupportedCurrency
-    )
+    appendConversation(input.memoryStore, input.record, input.record.rawText, t.unsupportedCurrency)
     return true
   }
 
@@ -823,8 +815,16 @@ export function registerConfiguredPaymentTopicIngestion(
                 financeService: financeServiceForHousehold(record.householdId),
                 householdConfigurationRepository,
                 promptRepository,
-                memoryStore: options.memoryStore,
-                historyRepository: options.historyRepository
+                ...(options.memoryStore
+                  ? {
+                      memoryStore: options.memoryStore
+                    }
+                  : {}),
+                ...(options.historyRepository
+                  ? {
+                      historyRepository: options.historyRepository
+                    }
+                  : {})
               })
 
               if (handled) {

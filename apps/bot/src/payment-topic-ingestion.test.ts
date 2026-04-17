@@ -807,14 +807,15 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       { topicProcessor: createMockPaymentTopicProcessor('silent') }
     )
 
-    await bot.handleUpdate(paymentUpdate('Купила жигу большую и 2 ножика маленьких 10 лар') as never)
+    await bot.handleUpdate(
+      paymentUpdate('Купила жигу большую и 2 ножика маленьких 10 лар') as never
+    )
 
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text:
-          'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.'
+        text: 'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.'
       }
     })
   })

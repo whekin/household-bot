@@ -7,7 +7,7 @@ import type {
 } from '@household/ports'
 import { InputFile, type Bot, type Context } from 'grammy'
 
-import { getBotTranslations } from './i18n'
+import { getBotTranslations, type BotLocale } from './i18n'
 import { formatUserFacingMoney } from './i18n/money'
 import { resolveReplyLocale } from './bot-locale'
 import {
@@ -1173,8 +1173,7 @@ export function createFinanceCommandsService(options: {
           ? pendingAction.payload.choices
           : []
         const showMode =
-          pendingAction?.payload.kind === 'show' &&
-          pendingAction.payload.showMode === 'household'
+          pendingAction?.payload.kind === 'show' && pendingAction.payload.showMode === 'household'
             ? 'household'
             : 'viewer'
         const choice = choices[choiceIndex]

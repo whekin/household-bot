@@ -1600,7 +1600,7 @@ Confirm or cancel below.`,
       },
       purchaseRepository: createPurchaseRepository(),
       purchaseInterpreter: async () => null,
-      householdConfigurationRepository: createHouseholdRepository(),
+      householdConfigurationRepository: createBoundHouseholdRepository('purchase'),
       promptRepository: createPromptRepository(),
       financeServiceForHousehold: () => createFinanceService(),
       memoryStore: createInMemoryAssistantConversationMemoryStore(12),
@@ -1709,8 +1709,7 @@ Confirm or cancel below.`,
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text:
-          'That sounds like a shared purchase. Drop it in "Purchases" and I will handle it there.'
+        text: 'That sounds like a shared purchase. Drop it in "Purchases" and I will handle it there.'
       }
     })
   })
@@ -1781,8 +1780,7 @@ Confirm or cancel below.`,
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text:
-          'That sounds like a payment update. Send it in "Payments" and I will confirm it there.'
+        text: 'That sounds like a payment update. Send it in "Payments" and I will confirm it there.'
       }
     })
   })
@@ -1834,9 +1832,10 @@ Confirm or cancel below.`,
     expect(calls).toHaveLength(0)
   })
 
-  test('creates a purchase proposal in a household topic without an explicit mention', async () => {
+  test('stays silent in a purchase topic when dedicated purchase ingestion is not registered', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
 
     bot.api.config.use(async (_prev, method, payload) => {
       calls.push({ method, payload })
@@ -1865,14 +1864,10 @@ Confirm or cancel below.`,
     registerDmAssistant({
       bot,
       assistant: {
-        async respond(input) {
-          expect(input.authoritativeFacts).toEqual([
-            'The purchase has not been saved yet.',
-            'Detected shared purchase: door handle - 30.00 GEL.',
-            'Buttons shown to the user are Confirm and Cancel.'
-          ])
+        async respond() {
+          assistantCalls += 1
           return {
-            text: 'Looks like a shared purchase: door handle - 30.00 GEL.',
+            text: 'wrong path',
             usage: {
               inputTokens: 10,
               outputTokens: 2,
@@ -1883,7 +1878,7 @@ Confirm or cancel below.`,
       },
       purchaseRepository: createPurchaseRepository(),
       purchaseInterpreter: async () => null,
-      householdConfigurationRepository: createHouseholdRepository(),
+      householdConfigurationRepository: createBoundHouseholdRepository('purchase'),
       promptRepository: createPromptRepository(),
       financeServiceForHousehold: () => createFinanceService(),
       memoryStore: createInMemoryAssistantConversationMemoryStore(12),
@@ -1898,29 +1893,8 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(topicMessageUpdate('I bought a door handle for 30 lari') as never)
 
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -100123,
-        message_thread_id: 777,
-        text: 'Looks like a shared purchase: door handle - 30.00 GEL.',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: 'Confirm',
-                callback_data: 'assistant_purchase:confirm:purchase-1'
-              },
-              {
-                text: 'Cancel',
-                callback_data: 'assistant_purchase:cancel:purchase-1'
-              }
-            ]
-          ]
-        }
-      }
-    })
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(0)
   })
 
   test('replies when a household member answers the bot message in a topic', async () => {
