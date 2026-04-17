@@ -321,10 +321,23 @@ export interface BotTranslationCatalog {
     topicMissing: string
     balanceReply: (kind: 'rent' | 'utilities') => string
     recorded: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    recordedReported: (
+      displayName: string,
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string
+    ) => string
     proposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    proposalReported: (
+      displayName: string,
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string
+    ) => string
     clarification: string
     unsupportedCurrency: string
     noBalance: string
+    alreadySettled: (kind: 'rent' | 'utilities', displayName?: string | null) => string
     purchaseRedirect: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPurchaseBalance: (amount: string, currency: string) => string

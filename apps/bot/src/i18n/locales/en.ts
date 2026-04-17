@@ -342,7 +342,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     alreadyConfirmed: 'This purchase was already confirmed.',
     alreadyCancelled: 'This purchase was already cancelled.',
     atLeastOneParticipant: 'Keep at least one participant in the purchase split.',
-    notYourProposal: 'Only the original sender can confirm or cancel this purchase.',
+    notYourProposal:
+      'Only the original sender or the named buyer can confirm or cancel this purchase.',
     proposalUnavailable: 'This purchase proposal is no longer available.',
     parseFailed:
       "I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
@@ -354,11 +355,17 @@ export const enBotTranslations: BotTranslationCatalog = {
       kind === 'rent' ? 'Current rent payment guidance:' : 'Current utilities payment guidance:',
     proposal: (kind, amount, currency) =>
       `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`,
+    proposalReported: (displayName, kind, amount, currency) =>
+      `It looks like ${displayName} paid ${kind === 'rent' ? 'rent' : 'utilities'}: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`,
     clarification:
       'I could not confirm this payment yet. Please clarify whether this was rent or utilities and include the amount/currency if needed.',
     unsupportedCurrency:
       'I can only record payments in the household settlement currency for this topic right now.',
     noBalance: 'There is no payable balance for that payment type right now.',
+    alreadySettled: (kind, displayName) =>
+      displayName
+        ? `${displayName} already has ${kind === 'rent' ? 'rent' : 'utilities'} settled.`
+        : `${kind === 'rent' ? 'Rent' : 'Utilities'} are already settled.`,
     purchaseRedirect:
       'That looks like a shared purchase, but this thread is for payments. Toss it into the purchases topic and I will confirm it there.',
     breakdownBase: (kind, amount, currency) =>
@@ -385,9 +392,12 @@ export const enBotTranslations: BotTranslationCatalog = {
     cancelButton: 'Cancel',
     recorded: (kind, amount, currency) =>
       `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}`,
+    recordedReported: (displayName, kind, amount, currency) =>
+      `${displayName} paid ${kind === 'rent' ? 'rent' : 'utilities'}: ${formatUserFacingMoney(amount, currency)}`,
     cancelled: 'Payment proposal cancelled.',
     proposalUnavailable: 'This payment proposal is no longer available.',
-    notYourProposal: 'Only the original sender can confirm or cancel this payment.',
+    notYourProposal:
+      'Only the original sender or the named payer can confirm or cancel this payment.',
     savedForReview: 'Saved this payment confirmation for review.',
     duplicate: 'This payment confirmation was already processed.'
   }

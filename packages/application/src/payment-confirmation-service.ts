@@ -103,6 +103,7 @@ async function convertIntoCycleCurrency(
 
 export interface PaymentConfirmationMessageInput {
   senderTelegramUserId: string
+  memberId?: string | null
   rawText: string
   telegramChatId: string
   telegramMessageId: string
@@ -115,6 +116,10 @@ export interface PaymentConfirmationMessageInput {
 export type PaymentConfirmationSubmitResult =
   | {
       status: 'duplicate'
+    }
+  | {
+      status: 'already_settled'
+      kind: FinancePaymentKind
     }
   | {
       status: 'recorded'
@@ -156,10 +161,12 @@ export function createPaymentConfirmationService(input: {
 }): PaymentConfirmationService {
   return {
     async submit(message) {
-      const member = await input.financeService.getMemberByTelegramUserId(
-        message.senderTelegramUserId
-      )
-      if (!member) {
+      const reporter = message.memberId
+        ? null
+        : await input.financeService.getMemberByTelegramUserId(message.senderTelegramUserId)
+      const targetMemberId = message.memberId ?? reporter?.id ?? null
+
+      if (!targetMemberId) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
           normalizedText: message.rawText.trim().replaceAll(/\s+/g, ' '),
@@ -195,7 +202,7 @@ export function createPaymentConfirmationService(input: {
           normalizedText: message.rawText.trim().replaceAll(/\s+/g, ' '),
           status: 'needs_review',
           cycleId: null,
-          memberId: member.id,
+          memberId: targetMemberId,
           kind: null,
           amountMinor: null,
           currency: null,
@@ -220,7 +227,7 @@ export function createPaymentConfirmationService(input: {
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
-          memberId: member.id,
+          memberId: targetMemberId,
           kind: parsed.kind,
           amountMinor: null,
           currency: null,
@@ -244,7 +251,7 @@ export function createPaymentConfirmationService(input: {
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
-          memberId: member.id,
+          memberId: targetMemberId,
           kind: parsed.kind,
           amountMinor: null,
           currency: null,
@@ -261,14 +268,14 @@ export function createPaymentConfirmationService(input: {
             }
       }
 
-      const memberLine = dashboard.members.find((line) => line.memberId === member.id)
+      const memberLine = dashboard.members.find((line) => line.memberId === targetMemberId)
       if (!memberLine) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
-          memberId: member.id,
+          memberId: targetMemberId,
           kind: parsed.kind,
           amountMinor: null,
           currency: null,
@@ -283,6 +290,13 @@ export function createPaymentConfirmationService(input: {
               status: 'needs_review',
               reason: 'settlement_not_ready'
             }
+      }
+
+      if (memberLine.remaining.amountMinor <= 0n) {
+        return {
+          status: 'already_settled',
+          kind: parsed.kind
+        }
       }
 
       const guidance = buildMemberPaymentGuidance({
@@ -311,26 +325,10 @@ export function createPaymentConfirmationService(input: {
         : guidance.proposalAmount
 
       if (resolvedAmount.amountMinor <= 0n) {
-        const saveResult = await input.repository.savePaymentConfirmation({
-          ...message,
-          normalizedText: parsed.normalizedText,
-          status: 'needs_review',
-          cycleId: cycle.id,
-          memberId: member.id,
-          kind: parsed.kind,
-          amountMinor: null,
-          currency: null,
-          explicitAmountMinor: parsed.explicitAmount?.amountMinor ?? null,
-          explicitCurrency: parsed.explicitAmount?.currency ?? null,
-          reviewReason: 'non_positive_amount'
-        })
-
-        return saveResult.status === 'duplicate'
-          ? saveResult
-          : {
-              status: 'needs_review',
-              reason: 'non_positive_amount'
-            }
+        return {
+          status: 'already_settled',
+          kind: parsed.kind
+        }
       }
 
       const saveResult = await input.repository.savePaymentConfirmation({
@@ -338,7 +336,7 @@ export function createPaymentConfirmationService(input: {
         normalizedText: parsed.normalizedText,
         status: 'recorded',
         cycleId: cycle.id,
-        memberId: member.id,
+        memberId: targetMemberId,
         kind: parsed.kind,
         amountMinor: resolvedAmount.amountMinor,
         currency: resolvedAmount.currency,

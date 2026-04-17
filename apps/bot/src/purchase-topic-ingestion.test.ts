@@ -2907,6 +2907,66 @@ Participants:
     })
   })
 
+  test('allows the reported buyer to confirm a third-person purchase proposal', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm(purchaseMessageId, actorTelegramUserId) {
+        expect(purchaseMessageId).toBe('proposal-1')
+        expect(actorTelegramUserId).toBe('20002')
+
+        return {
+          status: 'confirmed' as const,
+          purchaseMessageId: 'proposal-1',
+          householdId: config.householdId,
+          parsedAmountMinor: 3900n,
+          parsedCurrency: 'GEL' as const,
+          parsedItemDescription: 'швабра',
+          payerMemberId: 'member-2',
+          payerDisplayName: 'Dima',
+          parserConfidence: 92,
+          parserMode: 'llm' as const,
+          participants: participants()
+        }
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(callbackUpdate('purchase:confirm:proposal-1', 20002) as never)
+
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        text: 'Purchase confirmed.'
+      }
+    })
+  })
+
   test('requests amount correction for calculated purchase proposals', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []

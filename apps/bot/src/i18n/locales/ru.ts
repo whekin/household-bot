@@ -345,7 +345,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     alreadyConfirmed: 'Эта покупка уже подтверждена.',
     alreadyCancelled: 'Это предложение покупки уже отменено.',
     atLeastOneParticipant: 'В распределении покупки должен остаться хотя бы один участник.',
-    notYourProposal: 'Подтвердить или отменить эту покупку может только отправитель сообщения.',
+    notYourProposal:
+      'Подтвердить или отменить эту покупку может только отправитель сообщения или указанный покупатель.',
     proposalUnavailable: 'Это предложение покупки уже недоступно.',
     parseFailed:
       'Пока не удалось распознать это как общую покупку. Напишите предмет, сумму и валюту явно.'
@@ -357,11 +358,17 @@ export const ruBotTranslations: BotTranslationCatalog = {
       kind === 'rent' ? 'Текущая сводка по аренде:' : 'Текущая сводка по коммуналке:',
     proposal: (kind, amount, currency) =>
       `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
+    proposalReported: (displayName, kind, amount, currency) =>
+      `Похоже, ${displayName} оплатил${kind === 'rent' ? ' аренду' : ' коммуналку'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
     clarification:
       'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
     unsupportedCurrency:
       'Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
     noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    alreadySettled: (kind, displayName) =>
+      displayName
+        ? `${displayName} уже закрыл${kind === 'rent' ? ' аренду' : ' коммуналку'}.`
+        : `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта.`,
     purchaseRedirect:
       'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
     breakdownBase: (kind, amount, currency) =>
@@ -388,9 +395,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     cancelButton: 'Отменить',
     recorded: (kind, amount, currency) =>
       `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
+    recordedReported: (displayName, kind, amount, currency) =>
+      `${displayName} оплатил${kind === 'rent' ? ' аренду' : ' коммуналку'}: ${formatUserFacingMoney(amount, currency)}`,
     cancelled: 'Предложение оплаты отменено.',
     proposalUnavailable: 'Это предложение оплаты уже недоступно.',
-    notYourProposal: 'Подтвердить или отменить эту оплату может только отправитель сообщения.',
+    notYourProposal:
+      'Подтвердить или отменить эту оплату может только отправитель сообщения или указанный плательщик.',
     savedForReview: 'Это подтверждение оплаты сохранено на проверку.',
     duplicate: 'Это подтверждение оплаты уже было обработано.'
   }

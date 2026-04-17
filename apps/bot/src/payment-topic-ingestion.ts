@@ -69,6 +69,9 @@ interface PaymentTopicConfirmationPayload {
   currency: 'GEL' | 'USD'
   rawText: string
   senderTelegramUserId: string
+  reportedTelegramUserId: string | null
+  reportedDisplayName: string | null
+  isThirdParty: boolean
   telegramChatId: string
   telegramMessageId: string
   telegramThreadId: string
@@ -246,6 +249,10 @@ export function buildPaymentAcknowledgement(
   result:
     | { status: 'duplicate' }
     | {
+        status: 'already_settled'
+        kind: 'rent' | 'utilities'
+      }
+    | {
         status: 'recorded'
         kind: 'rent' | 'utilities'
         amountMajor: string
@@ -258,6 +265,8 @@ export function buildPaymentAcknowledgement(
   switch (result.status) {
     case 'duplicate':
       return null
+    case 'already_settled':
+      return t.alreadySettled(result.kind)
     case 'recorded':
       return t.recorded(result.kind, result.amountMajor, result.currency)
     case 'needs_review':
@@ -339,36 +348,44 @@ async function replyWithTopicPaymentProposal(input: {
     return true
   }
 
-  if (proposal.status === 'no_balance') {
-    await replyToPaymentMessage(input.ctx, t.noBalance, undefined, {
+  if (proposal.status === 'already_settled') {
+    const alreadySettledText = t.alreadySettled(proposal.kind)
+    await replyToPaymentMessage(input.ctx, alreadySettledText, undefined, {
       repository: input.historyRepository,
       record: input.record
     })
-    appendConversation(input.memoryStore, input.record, input.record.rawText, t.noBalance)
+    appendConversation(input.memoryStore, input.record, input.record.rawText, alreadySettledText)
     return true
   }
 
-  await input.promptRepository.upsertPendingAction({
-    telegramUserId: input.record.senderTelegramUserId,
+  const confirmationPayload: PaymentTopicConfirmationPayload = {
+    ...proposal.payload,
+    senderTelegramUserId: input.record.senderTelegramUserId,
+    reportedTelegramUserId: input.record.senderTelegramUserId,
+    reportedDisplayName: null,
+    isThirdParty: false,
+    rawText: input.combinedText,
     telegramChatId: input.record.chatId,
-    action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
-    payload: {
-      ...proposal.payload,
-      senderTelegramUserId: input.record.senderTelegramUserId,
-      rawText: input.combinedText,
-      telegramChatId: input.record.chatId,
-      telegramMessageId: input.record.messageId,
-      telegramThreadId: input.record.threadId,
-      telegramUpdateId: String(input.record.updateId),
-      attachmentCount: input.record.attachmentCount
-    },
-    expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
-  })
+    telegramMessageId: input.record.messageId,
+    telegramThreadId: input.record.threadId,
+    telegramUpdateId: String(input.record.updateId),
+    attachmentCount: input.record.attachmentCount,
+    messageSentAt: input.record.messageSentAt
+  }
+
+  await upsertPaymentProposalPendingActions(
+    input.promptRepository,
+    confirmationPayload,
+    nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+  )
 
   const proposalText = formatPaymentProposalText({
     locale: input.locale,
     surface: 'topic',
-    proposal
+    proposal: {
+      payload: confirmationPayload,
+      breakdown: proposal.breakdown
+    }
   })
   await replyToPaymentMessage(
     input.ctx,
@@ -404,6 +421,17 @@ function parsePaymentTopicConfirmationPayload(
     !proposal ||
     typeof payload.rawText !== 'string' ||
     typeof payload.senderTelegramUserId !== 'string' ||
+    !(
+      typeof payload.reportedTelegramUserId === 'string' ||
+      payload.reportedTelegramUserId === null ||
+      payload.reportedTelegramUserId === undefined
+    ) ||
+    !(
+      typeof payload.reportedDisplayName === 'string' ||
+      payload.reportedDisplayName === null ||
+      payload.reportedDisplayName === undefined
+    ) ||
+    !(typeof payload.isThirdParty === 'boolean' || payload.isThirdParty === undefined) ||
     typeof payload.telegramChatId !== 'string' ||
     typeof payload.telegramMessageId !== 'string' ||
     typeof payload.telegramThreadId !== 'string' ||
@@ -417,6 +445,11 @@ function parsePaymentTopicConfirmationPayload(
     ...proposal,
     rawText: payload.rawText,
     senderTelegramUserId: payload.senderTelegramUserId,
+    reportedTelegramUserId:
+      typeof payload.reportedTelegramUserId === 'string' ? payload.reportedTelegramUserId : null,
+    reportedDisplayName:
+      typeof payload.reportedDisplayName === 'string' ? payload.reportedDisplayName : null,
+    isThirdParty: payload.isThirdParty === true,
     telegramChatId: payload.telegramChatId,
     telegramMessageId: payload.telegramMessageId,
     telegramThreadId: payload.telegramThreadId,
@@ -424,6 +457,76 @@ function parsePaymentTopicConfirmationPayload(
     attachmentCount: payload.attachmentCount,
     messageSentAt: null
   }
+}
+
+function actorCanManagePaymentProposal(
+  actorTelegramUserId: string,
+  payload: PaymentTopicConfirmationPayload
+): boolean {
+  return (
+    actorTelegramUserId === payload.senderTelegramUserId ||
+    actorTelegramUserId === payload.reportedTelegramUserId
+  )
+}
+
+async function clearPaymentProposalPendingActions(
+  promptRepository: TelegramPendingActionRepository,
+  payload: PaymentTopicConfirmationPayload
+) {
+  await promptRepository.clearPendingAction(payload.telegramChatId, payload.senderTelegramUserId)
+  if (
+    payload.reportedTelegramUserId &&
+    payload.reportedTelegramUserId !== payload.senderTelegramUserId
+  ) {
+    await promptRepository.clearPendingAction(
+      payload.telegramChatId,
+      payload.reportedTelegramUserId
+    )
+  }
+}
+
+async function upsertPaymentProposalPendingActions(
+  promptRepository: TelegramPendingActionRepository,
+  payload: PaymentTopicConfirmationPayload,
+  expiresAt: Instant
+) {
+  await promptRepository.upsertPendingAction({
+    telegramUserId: payload.senderTelegramUserId,
+    telegramChatId: payload.telegramChatId,
+    action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+    payload: { ...payload },
+    expiresAt
+  })
+
+  if (
+    payload.reportedTelegramUserId &&
+    payload.reportedTelegramUserId !== payload.senderTelegramUserId
+  ) {
+    await promptRepository.upsertPendingAction({
+      telegramUserId: payload.reportedTelegramUserId,
+      telegramChatId: payload.telegramChatId,
+      action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+      payload: { ...payload },
+      expiresAt
+    })
+  }
+}
+
+function formatRecordedPaymentText(
+  locale: BotLocale,
+  payload: PaymentTopicConfirmationPayload,
+  amount: Money
+): string {
+  const t = getBotTranslations(locale).payments
+
+  return payload.isThirdParty && payload.reportedDisplayName
+    ? t.recordedReported(
+        payload.reportedDisplayName,
+        payload.kind,
+        amount.toMajorString(),
+        amount.currency
+      )
+    : t.recorded(payload.kind, amount.toMajorString(), amount.currency)
 }
 
 function isLikelyUtilityTemplate(rawText: string): boolean {
@@ -550,7 +653,7 @@ export function registerConfiguredPaymentTopicIngestion(
         return
       }
 
-      if (payload.senderTelegramUserId !== actorTelegramUserId) {
+      if (!actorCanManagePaymentProposal(actorTelegramUserId, payload)) {
         await ctx.answerCallbackQuery({
           text: t.notYourProposal,
           show_alert: true
@@ -564,7 +667,22 @@ export function registerConfiguredPaymentTopicIngestion(
         rawText: synthesizePaymentConfirmationText(payload)
       })
 
-      await promptRepository.clearPendingAction(ctx.chat.id.toString(), actorTelegramUserId)
+      await clearPaymentProposalPendingActions(promptRepository, payload)
+
+      if (result.status === 'already_settled') {
+        await ctx.answerCallbackQuery({
+          text: t.alreadySettled(result.kind, payload.reportedDisplayName),
+          show_alert: true
+        })
+        if (ctx.msg) {
+          await ctx.editMessageText(t.alreadySettled(result.kind, payload.reportedDisplayName), {
+            reply_markup: {
+              inline_keyboard: []
+            }
+          })
+        }
+        return
+      }
 
       if (result.status !== 'recorded') {
         await ctx.answerCallbackQuery({
@@ -574,11 +692,7 @@ export function registerConfiguredPaymentTopicIngestion(
         return
       }
 
-      const recordedText = t.recorded(
-        result.kind,
-        result.amount.toMajorString(),
-        result.amount.currency
-      )
+      const recordedText = formatRecordedPaymentText(locale, payload, result.amount)
       await ctx.answerCallbackQuery({
         text: recordedText
       })
@@ -624,7 +738,7 @@ export function registerConfiguredPaymentTopicIngestion(
       return
     }
 
-    if (payload.senderTelegramUserId !== actorTelegramUserId) {
+    if (!actorCanManagePaymentProposal(actorTelegramUserId, payload)) {
       await ctx.answerCallbackQuery({
         text: t.notYourProposal,
         show_alert: true
@@ -632,7 +746,7 @@ export function registerConfiguredPaymentTopicIngestion(
       return
     }
 
-    await promptRepository.clearPendingAction(ctx.chat.id.toString(), actorTelegramUserId)
+    await clearPaymentProposalPendingActions(promptRepository, payload)
     await ctx.answerCallbackQuery({
       text: t.cancelled
     })
@@ -988,9 +1102,8 @@ export function registerConfiguredPaymentTopicIngestion(
               return
             }
 
-            // Resolve the payer: if payerDisplayName is provided, try to find that member
-            // Otherwise, the sender is the payer
             let payerMember = senderMember
+            let isThirdParty = false
             if (processorResult.payerDisplayName) {
               const allMembers = await financeService.listMembers()
               const matchedMember = allMembers.find(
@@ -999,8 +1112,26 @@ export function registerConfiguredPaymentTopicIngestion(
               )
               if (matchedMember) {
                 payerMember = matchedMember
+                isThirdParty = matchedMember.id !== senderMember.id
+              } else {
+                await promptRepository.upsertPendingAction({
+                  telegramUserId: record.senderTelegramUserId,
+                  telegramChatId: record.chatId,
+                  action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
+                  payload: {
+                    threadId: record.threadId,
+                    rawText: combinedText
+                  },
+                  expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+                })
+
+                await replyToPaymentMessage(ctx, t.clarification, undefined, {
+                  repository: options.historyRepository,
+                  record
+                })
+                appendConversation(options.memoryStore, record, record.rawText, t.clarification)
+                return
               }
-              // If we can't find the member, fall back to sender (maybe they misspelled)
             }
 
             // Create payment proposal using the parsed data from topic processor
@@ -1059,37 +1190,48 @@ export function registerConfiguredPaymentTopicIngestion(
               return
             }
 
-            if (proposal.status === 'no_balance') {
-              await replyToPaymentMessage(ctx, t.noBalance, undefined, {
+            if (proposal.status === 'already_settled') {
+              const alreadySettledText = t.alreadySettled(
+                proposal.kind,
+                isThirdParty ? payerMember.displayName : null
+              )
+              await replyToPaymentMessage(ctx, alreadySettledText, undefined, {
                 repository: options.historyRepository,
                 record
               })
-              appendConversation(options.memoryStore, record, record.rawText, t.noBalance)
+              appendConversation(options.memoryStore, record, record.rawText, alreadySettledText)
               return
             }
 
             if (proposal.status === 'proposal') {
-              await promptRepository.upsertPendingAction({
-                telegramUserId: record.senderTelegramUserId,
+              const confirmationPayload: PaymentTopicConfirmationPayload = {
+                ...proposal.payload,
+                senderTelegramUserId: record.senderTelegramUserId,
+                reportedTelegramUserId: payerMember.telegramUserId ?? null,
+                reportedDisplayName: isThirdParty ? payerMember.displayName : null,
+                isThirdParty,
+                rawText: combinedText,
                 telegramChatId: record.chatId,
-                action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
-                payload: {
-                  ...proposal.payload,
-                  senderTelegramUserId: record.senderTelegramUserId,
-                  rawText: combinedText,
-                  telegramChatId: record.chatId,
-                  telegramMessageId: record.messageId,
-                  telegramThreadId: record.threadId,
-                  telegramUpdateId: String(record.updateId),
-                  attachmentCount: record.attachmentCount
-                },
-                expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
-              })
+                telegramMessageId: record.messageId,
+                telegramThreadId: record.threadId,
+                telegramUpdateId: String(record.updateId),
+                attachmentCount: record.attachmentCount,
+                messageSentAt: record.messageSentAt
+              }
+
+              await upsertPaymentProposalPendingActions(
+                promptRepository,
+                confirmationPayload,
+                nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+              )
 
               const proposalText = formatPaymentProposalText({
                 locale,
                 surface: 'topic',
-                proposal
+                proposal: {
+                  payload: confirmationPayload,
+                  breakdown: proposal.breakdown
+                }
               })
               await replyToPaymentMessage(
                 ctx,

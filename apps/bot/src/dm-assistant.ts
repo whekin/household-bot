@@ -1232,7 +1232,7 @@ export function registerDmAssistant(options: {
         return
       }
 
-      if (paymentProposal.status === 'no_balance') {
+      if (paymentProposal.status === 'already_settled') {
         await ctx.reply(t.paymentNoBalance)
         return
       }

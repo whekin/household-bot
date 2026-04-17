@@ -239,44 +239,32 @@ function formatUtilityMemberBlock(input: {
   const isFullyPaid =
     input.payNow.amountMinor === 0n && input.summary && input.summary.vendorPaid.amountMinor > 0n
 
-  if (isFullyPaid && !input.viewerOnly) {
-    const paidAmount = formatUserFacingMoney(
-      input.summary!.vendorPaid.toMajorString(),
-      input.currency
-    )
-    return `${input.displayName}\n${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${paidAmount}`
-  }
-
   const lines = input.viewerOnly
-    ? input.payNow.amountMinor === 0n && isFullyPaid
+    ? input.payNow.amountMinor === 0n
       ? [
-          `${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(
-            input.summary!.vendorPaid.toMajorString(),
-            input.currency
-          )}`
+          input.locale === 'ru'
+            ? isFullyPaid
+              ? 'Уже оплачено.'
+              : 'В этом цикле платить не нужно.'
+            : isFullyPaid
+              ? 'Already paid.'
+              : 'Nothing to pay this cycle.'
         ]
       : [
-          `${
-            input.locale === 'ru' ? 'Сейчас тебе оплатить' : 'You pay now'
-          }: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
+          `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
         ]
     : [
         input.displayName,
-        `${input.locale === 'ru' ? 'К оплате сейчас' : 'Pay now'}: ${formatUserFacingMoney(
-          input.payNow.toMajorString(),
-          input.currency
-        )}`
+        input.payNow.amountMinor === 0n
+          ? input.locale === 'ru'
+            ? 'Уже оплачено.'
+            : 'Already paid.'
+          : `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
       ]
 
-  if (input.categories.length > 0) {
+  if (input.payNow.amountMinor > 0n && input.categories.length > 0) {
     lines.push(...input.categories)
-  } else if (
-    input.summary &&
-    input.summary.fairShare.amountMinor > 0n &&
-    input.summary.vendorPaid.amountMinor >= input.summary.fairShare.amountMinor
-  ) {
-    lines.push(input.locale === 'ru' ? 'Уже закрыто.' : 'Already settled.')
-  } else {
+  } else if (input.payNow.amountMinor > 0n) {
     lines.push(
       input.locale === 'ru'
         ? 'В этом цикле по коммуналке платить не нужно.'
@@ -317,6 +305,27 @@ function formatRentDestinationLines(input: {
       ? [`- ${destination.label}`, `  ${detailLines.join('\n  ')}`]
       : [`- ${destination.label}`]
   })
+}
+
+function formatRentDestinationSection(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  destinations: readonly {
+    label: string
+    recipientName: string | null
+    bankName: string | null
+    account: string
+    note: string | null
+    link: string | null
+  }[]
+}): string[] {
+  if (input.destinations.length === 0) {
+    return []
+  }
+
+  return [
+    input.locale === 'ru' ? 'Реквизиты для оплаты:' : 'Payment details:',
+    ...formatRentDestinationLines(input)
+  ]
 }
 
 export function createFinanceCommandsService(options: {
@@ -678,7 +687,7 @@ export function createFinanceCommandsService(options: {
       input.orderMemberId ?? input.viewerMemberId
     )
     const destinationLines = input.state.paymentDestinations
-      ? formatRentDestinationLines({
+      ? formatRentDestinationSection({
           locale: input.locale,
           destinations: input.state.paymentDestinations
         })
@@ -688,32 +697,26 @@ export function createFinanceCommandsService(options: {
       `${input.locale === 'ru' ? 'Аренда' : 'Rent state'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
       ...(input.householdName ? [input.householdName] : []),
       `${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.state.dueDate)}`,
+      ...(destinationLines.length > 0 ? ['', ...destinationLines] : []),
       '',
       visibleMembers
         .map((member) =>
           [
             ...(input.viewerMemberId
               ? [
-                  `${input.locale === 'ru' ? 'Сейчас тебе оплатить' : 'You pay now'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+                  member.remaining.amountMinor > 0n
+                    ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+                    : input.locale === 'ru'
+                      ? 'Уже оплачено.'
+                      : 'Already paid.'
                 ]
               : [
                   member.displayName,
-                  `${input.locale === 'ru' ? 'К оплате сейчас' : 'Pay now'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
-                ]),
-            ...(member.remaining.amountMinor > 0n && destinationLines.length > 0
-              ? destinationLines
-              : [
-                  member.remaining.amountMinor === 0n
-                    ? input.locale === 'ru'
-                      ? 'Уже закрыто.'
-                      : 'Already settled.'
-                    : input.adjustmentPolicy === 'rent'
-                      ? input.locale === 'ru'
-                        ? 'Сумма уже учитывает поправку по балансу.'
-                        : 'This amount already reflects balance adjustment.'
-                      : input.locale === 'ru'
-                        ? 'Оплати аренду по реквизитам дома.'
-                        : 'Pay rent to the household destination.'
+                  member.remaining.amountMinor > 0n
+                    ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+                    : input.locale === 'ru'
+                      ? 'Уже оплачено.'
+                      : 'Already paid.'
                 ])
           ].join('\n')
         )

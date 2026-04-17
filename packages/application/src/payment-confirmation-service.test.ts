@@ -288,4 +288,161 @@ describe('createPaymentConfirmationService', () => {
       reason: 'kind_ambiguous'
     })
   })
+
+  test('records third-person confirmations against the reported member id', async () => {
+    const repository = createRepositoryStub()
+    const service = createPaymentConfirmationService({
+      householdId: 'household-1',
+      financeService: {
+        getMemberByTelegramUserId: async () => ({
+          id: 'member-reporter',
+          telegramUserId: '123',
+          displayName: 'Stas',
+          rentShareWeight: 1,
+          isAdmin: false
+        }),
+        generateDashboard: async () => ({
+          period: '2026-03',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentWarningDay: 17,
+          rentDueDay: 20,
+          utilitiesReminderDay: 3,
+          utilitiesDueDay: 4,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentPaymentDestinations: null,
+          totalDue: Money.fromMajor('1030', 'GEL'),
+          totalPaid: Money.zero('GEL'),
+          totalRemaining: Money.fromMajor('1030', 'GEL'),
+          billingStage: 'rent',
+          rentSourceAmount: Money.fromMajor('700', 'USD'),
+          rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
+          rentFxRateMicros: 2_700_000n,
+          rentFxEffectiveDate: '2026-03-17',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-03-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
+          members: [
+            {
+              memberId: 'member-ion',
+              displayName: 'Ion',
+              rentShare: Money.fromMajor('472.50', 'GEL'),
+              utilityShare: Money.fromMajor('40', 'GEL'),
+              purchaseOffset: Money.fromMajor('-12', 'GEL'),
+              netDue: Money.fromMajor('500.50', 'GEL'),
+              paid: Money.zero('GEL'),
+              remaining: Money.fromMajor('500.50', 'GEL'),
+              overduePayments: [],
+              explanations: []
+            }
+          ],
+          ledger: []
+        })
+      },
+      repository,
+      householdConfigurationRepository: settingsRepository,
+      exchangeRateProvider
+    })
+
+    const result = await service.submit({
+      senderTelegramUserId: '123',
+      memberId: 'member-ion',
+      rawText: 'Ion paid rent',
+      telegramChatId: '-1001',
+      telegramMessageId: '13',
+      telegramThreadId: '4',
+      telegramUpdateId: '203',
+      attachmentCount: 0,
+      messageSentAt: instantFromIso('2026-03-20T09:00:00.000Z')
+    })
+
+    expect(result).toEqual({
+      status: 'recorded',
+      kind: 'rent',
+      amount: Money.fromMajor('473.00', 'GEL')
+    })
+    expect(repository.saved[0]).toMatchObject({
+      status: 'recorded',
+      memberId: 'member-ion'
+    })
+  })
+
+  test('returns already_settled when the target member balance is already closed', async () => {
+    const repository = createRepositoryStub()
+    const service = createPaymentConfirmationService({
+      householdId: 'household-1',
+      financeService: {
+        getMemberByTelegramUserId: async () => ({
+          id: 'member-1',
+          telegramUserId: '123',
+          displayName: 'Stas',
+          rentShareWeight: 1,
+          isAdmin: false
+        }),
+        generateDashboard: async () => ({
+          period: '2026-03',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentWarningDay: 17,
+          rentDueDay: 20,
+          utilitiesReminderDay: 3,
+          utilitiesDueDay: 4,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentPaymentDestinations: null,
+          totalDue: Money.zero('GEL'),
+          totalPaid: Money.fromMajor('500.50', 'GEL'),
+          totalRemaining: Money.zero('GEL'),
+          billingStage: 'rent',
+          rentSourceAmount: Money.fromMajor('700', 'USD'),
+          rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
+          rentFxRateMicros: 2_700_000n,
+          rentFxEffectiveDate: '2026-03-17',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-03-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
+          members: [
+            {
+              memberId: 'member-1',
+              displayName: 'Stas',
+              rentShare: Money.fromMajor('472.50', 'GEL'),
+              utilityShare: Money.fromMajor('40', 'GEL'),
+              purchaseOffset: Money.fromMajor('-12', 'GEL'),
+              netDue: Money.fromMajor('500.50', 'GEL'),
+              paid: Money.fromMajor('500.50', 'GEL'),
+              remaining: Money.zero('GEL'),
+              overduePayments: [],
+              explanations: []
+            }
+          ],
+          ledger: []
+        })
+      },
+      repository,
+      householdConfigurationRepository: settingsRepository,
+      exchangeRateProvider
+    })
+
+    const result = await service.submit({
+      senderTelegramUserId: '123',
+      rawText: 'я уже закинул за жилье',
+      telegramChatId: '-1001',
+      telegramMessageId: '14',
+      telegramThreadId: '4',
+      telegramUpdateId: '204',
+      attachmentCount: 0,
+      messageSentAt: instantFromIso('2026-03-20T09:00:00.000Z')
+    })
+
+    expect(result).toEqual({
+      status: 'already_settled',
+      kind: 'rent'
+    })
+    expect(repository.saved).toHaveLength(0)
+  })
 })

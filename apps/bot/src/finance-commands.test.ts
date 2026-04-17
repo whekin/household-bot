@@ -584,7 +584,7 @@ describe('createFinanceCommandsService', () => {
       | undefined
 
     expect(payload?.text).toContain('Коммуналка')
-    expect(payload?.text).toContain('Сейчас тебе оплатить: 300.00 ₾')
+    expect(payload?.text).toContain('Осталось оплатить: 300.00 ₾')
     expect(payload?.text).toContain('- Gas — 300.00 ₾')
     expect(payload?.text).not.toContain('FULL ·')
     expect(payload?.text).not.toContain('Сводка:')
@@ -717,8 +717,8 @@ describe('createFinanceCommandsService', () => {
     const payload = calls[0]?.payload as { text?: string } | undefined
     const text = payload?.text ?? ''
     expect(text).toContain('Коммуналка')
-    expect(text.indexOf('Стас\nК оплате сейчас: 300.00 ₾')).toBeLessThan(
-      text.indexOf('Ион\nК оплате сейчас: 80.00 ₾')
+    expect(text.indexOf('Стас\nОсталось оплатить: 300.00 ₾')).toBeLessThan(
+      text.indexOf('Ион\nОсталось оплатить: 80.00 ₾')
     )
     expect(text).toContain('- Gas — 300.00 ₾')
     expect(text).toContain('- Internet — 80.00 ₾')
@@ -825,10 +825,143 @@ describe('createFinanceCommandsService', () => {
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     expect(text).toContain('Аренда')
-    expect(text).toContain('Сейчас тебе оплатить: 500.00 ₾')
+    expect(text).toContain('Осталось оплатить: 500.00 ₾')
     expect(text).toContain('- Landlord')
     expect(text).toContain('получатель: Nino')
     expect(text).toContain('счёт: GE00TB123')
+  })
+
+  test('renders /bill rent with shared payment details once and natural settled wording', async () => {
+    const repository: HouseholdConfigurationRepository = {
+      ...createRepository(),
+      getHouseholdBillingSettings: async () => ({
+        householdId: 'household-1',
+        settlementCurrency: 'GEL',
+        paymentBalanceAdjustmentPolicy: 'rent',
+        rentAmountMinor: 70000n,
+        rentCurrency: 'USD',
+        rentDueDay: 20,
+        rentWarningDay: 17,
+        utilitiesDueDay: 4,
+        utilitiesReminderDay: 3,
+        timezone: 'Asia/Tbilisi',
+        rentPaymentDestinations: [
+          {
+            label: 'Аренда дома',
+            recipientName: 'Magda C.',
+            bankName: 'TBC',
+            account: 'GE86TB7298445064300062',
+            note: null,
+            link: null
+          }
+        ]
+      }),
+      getHouseholdMember: async () => ({
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: 'ru',
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      })
+    }
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      getMemberByTelegramUserId: async (telegramUserId) =>
+        telegramUserId === '123456'
+          ? {
+              id: 'member-1',
+              telegramUserId,
+              displayName: 'Стас',
+              rentShareWeight: 1,
+              isAdmin: false
+            }
+          : null,
+      generateCurrentBillPlan: async () => ({
+        period: '2026-04',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'rent',
+        utilityBillingPlan: null,
+        rentBillingState: {
+          dueDate: '2026-04-20',
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Стас',
+              due: Money.fromMajor('472.00', 'GEL'),
+              paid: Money.fromMajor('472.00', 'GEL'),
+              remaining: Money.zero('GEL')
+            },
+            {
+              memberId: 'member-2',
+              displayName: 'Алиса',
+              due: Money.fromMajor('472.00', 'GEL'),
+              paid: Money.zero('GEL'),
+              remaining: Money.fromMajor('472.00', 'GEL')
+            }
+          ],
+          paymentDestinations: [
+            {
+              label: 'Аренда дома',
+              recipientName: 'Magda C.',
+              bankName: 'TBC',
+              account: 'GE86TB7298445064300062',
+              note: null,
+              link: null
+            }
+          ]
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill rent', 'ru') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).toContain('Реквизиты для оплаты:')
+    expect(text.match(/получатель: Magda C\./g)?.length ?? 0).toBe(1)
+    expect(text).toContain('Стас\nУже оплачено.')
+    expect(text).not.toContain('Стас\nК оплате')
+    expect(text).toContain('Алиса\nОсталось оплатить: 472.00 ₾')
   })
 
   test('uses short callback data for /bill quick actions with long ids', async () => {

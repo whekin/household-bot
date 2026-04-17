@@ -104,47 +104,67 @@ function paymentCallbackUpdate(data: string, fromId = 10002) {
 }
 
 function createPromptRepository(): TelegramPendingActionRepository {
-  let pending: TelegramPendingActionRecord | null = null
+  const pending = new Map<string, TelegramPendingActionRecord>()
+  const key = (telegramChatId: string, telegramUserId: string) =>
+    `${telegramChatId}:${telegramUserId}`
 
   return {
     async upsertPendingAction(input) {
-      pending = input
+      pending.set(key(input.telegramChatId, input.telegramUserId), input)
       return input
     },
-    async getPendingAction() {
-      return pending
+    async getPendingAction(telegramChatId, telegramUserId) {
+      return pending.get(key(telegramChatId, telegramUserId)) ?? null
     },
-    async clearPendingAction() {
-      pending = null
+    async clearPendingAction(telegramChatId, telegramUserId) {
+      pending.delete(key(telegramChatId, telegramUserId))
     },
     async clearPendingActionsForChat(telegramChatId, action) {
-      if (!pending || pending.telegramChatId !== telegramChatId) {
-        return
-      }
+      for (const [entryKey, entry] of pending.entries()) {
+        if (entry.telegramChatId !== telegramChatId) {
+          continue
+        }
 
-      if (action && pending.action !== action) {
-        return
-      }
+        if (action && entry.action !== action) {
+          continue
+        }
 
-      pending = null
+        pending.delete(entryKey)
+      }
     }
   }
 }
 
 function createFinanceService(): FinanceCommandService {
   return {
-    getMemberByTelegramUserId: async () => ({
-      id: 'member-1',
-      telegramUserId: '10002',
-      displayName: 'Mia',
-      rentShareWeight: 1,
-      isAdmin: false
-    }),
+    getMemberByTelegramUserId: async (telegramUserId) =>
+      telegramUserId === '20002'
+        ? {
+            id: 'member-2',
+            telegramUserId: '20002',
+            displayName: 'Ion',
+            rentShareWeight: 1,
+            isAdmin: false
+          }
+        : {
+            id: 'member-1',
+            telegramUserId: '10002',
+            displayName: 'Mia',
+            rentShareWeight: 1,
+            isAdmin: false
+          },
     listMembers: async () => [
       {
         id: 'member-1',
         telegramUserId: '10002',
         displayName: 'Mia',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'member-2',
+        telegramUserId: '20002',
+        displayName: 'Ion',
         rentShareWeight: 1,
         isAdmin: false
       }
@@ -221,6 +241,18 @@ function createFinanceService(): FinanceCommandService {
           remaining: Money.fromMajor('500.50', 'GEL'),
           overduePayments: [],
           explanations: []
+        },
+        {
+          memberId: 'member-2',
+          displayName: 'Ion',
+          rentShare: Money.fromMajor('472.50', 'GEL'),
+          utilityShare: Money.fromMajor('40', 'GEL'),
+          purchaseOffset: Money.fromMajor('-12', 'GEL'),
+          netDue: Money.fromMajor('500.50', 'GEL'),
+          paid: Money.zero('GEL'),
+          remaining: Money.fromMajor('500.50', 'GEL'),
+          overduePayments: [],
+          explanations: []
         }
       ],
       ledger: []
@@ -236,6 +268,7 @@ function createFinanceService(): FinanceCommandService {
 
 function createPaymentConfirmationService(): PaymentConfirmationService & {
   submitted: Array<{
+    memberId?: string | null
     rawText: string
     telegramMessageId: string
     telegramThreadId: string
@@ -245,6 +278,7 @@ function createPaymentConfirmationService(): PaymentConfirmationService & {
     submitted: [],
     async submit(input) {
       this.submitted.push({
+        memberId: input.memberId ?? null,
         rawText: input.rawText,
         telegramMessageId: input.telegramMessageId,
         telegramThreadId: input.telegramThreadId
@@ -573,6 +607,310 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     })
   })
 
+  test('creates a third-person payment proposal for the reported payer and lets either person confirm', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService,
+      {
+        topicProcessor: async () => ({
+          route: 'payment',
+          kind: 'rent',
+          amountMinor: null,
+          currency: null,
+          payerDisplayName: 'Ion',
+          confidence: 96,
+          reason: 'third_party'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('Ион оплатил аренду') as never)
+
+    expect(calls[0]?.payload).toMatchObject({
+      text: expect.stringContaining('Похоже, Ion оплатил аренду: 473.00 ₾.')
+    })
+    const reporterPending = await promptRepository.getPendingAction('-10012345', '10002')
+    const reportedPending = await promptRepository.getPendingAction('-10012345', '20002')
+    expect(reporterPending?.action).toBe('payment_topic_confirmation')
+    expect(reportedPending?.action).toBe('payment_topic_confirmation')
+
+    const proposalId = (reportedPending?.payload as { proposalId?: string } | null)?.proposalId
+    await bot.handleUpdate(
+      paymentCallbackUpdate(`payment_topic:confirm:${proposalId ?? 'missing'}`, 20002) as never
+    )
+
+    expect(paymentConfirmationService.submitted.at(-1)).toMatchObject({
+      memberId: 'member-2',
+      rawText: 'Ion paid rent 473.00 GEL'
+    })
+    expect(calls.at(-2)).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        text: 'Ion paid rent: 472.50 ₾'
+      }
+    })
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+    expect(await promptRepository.getPendingAction('-10012345', '20002')).toBeNull()
+  })
+
+  test('rejects duplicate payment proposals when the target balance is already settled', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => ({
+        period: '2026-03',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        rentWarningDay: 17,
+        rentDueDay: 20,
+        utilitiesReminderDay: 3,
+        utilitiesDueDay: 4,
+        paymentBalanceAdjustmentPolicy: 'utilities',
+        rentPaymentDestinations: null,
+        totalDue: Money.zero('GEL'),
+        totalPaid: Money.fromMajor('1000', 'GEL'),
+        totalRemaining: Money.zero('GEL'),
+        billingStage: 'rent',
+        rentSourceAmount: Money.fromMajor('700', 'USD'),
+        rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
+        rentFxRateMicros: null,
+        rentFxEffectiveDate: null,
+        utilityBillingPlan: null,
+        rentBillingState: {
+          dueDate: '2026-03-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        },
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Mia',
+            rentShare: Money.fromMajor('472.50', 'GEL'),
+            utilityShare: Money.fromMajor('40', 'GEL'),
+            purchaseOffset: Money.fromMajor('-12', 'GEL'),
+            netDue: Money.fromMajor('500.50', 'GEL'),
+            paid: Money.fromMajor('500.50', 'GEL'),
+            remaining: Money.zero('GEL'),
+            overduePayments: [],
+            explanations: []
+          }
+        ],
+        ledger: []
+      })
+    }
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => financeService,
+      () => createPaymentConfirmationService(),
+      {
+        topicProcessor: async () => ({
+          route: 'payment',
+          kind: 'rent',
+          amountMinor: null,
+          currency: null,
+          payerDisplayName: null,
+          confidence: 96,
+          reason: 'duplicate_attempt'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('я уже закинул за оплату жилья') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.payload).toMatchObject({
+      text: 'Аренда уже закрыта.'
+    })
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+  })
+
+  test('does not record a stale third-person payment confirm after the balance is already settled', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '10002',
+      telegramChatId: '-10012345',
+      action: 'payment_topic_confirmation',
+      payload: {
+        proposalId: 'proposal-1',
+        householdId: 'household-1',
+        memberId: 'member-2',
+        kind: 'rent',
+        amountMinor: '47250',
+        currency: 'GEL',
+        rawText: 'Ион оплатил аренду',
+        senderTelegramUserId: '10002',
+        reportedTelegramUserId: '20002',
+        reportedDisplayName: 'Ion',
+        isThirdParty: true,
+        telegramChatId: '-10012345',
+        telegramMessageId: '55',
+        telegramThreadId: '888',
+        telegramUpdateId: '1001',
+        attachmentCount: 0,
+        messageSentAt: null
+      },
+      expiresAt: null
+    })
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '20002',
+      telegramChatId: '-10012345',
+      action: 'payment_topic_confirmation',
+      payload: {
+        proposalId: 'proposal-1',
+        householdId: 'household-1',
+        memberId: 'member-2',
+        kind: 'rent',
+        amountMinor: '47250',
+        currency: 'GEL',
+        rawText: 'Ион оплатил аренду',
+        senderTelegramUserId: '10002',
+        reportedTelegramUserId: '20002',
+        reportedDisplayName: 'Ion',
+        isThirdParty: true,
+        telegramChatId: '-10012345',
+        telegramMessageId: '55',
+        telegramThreadId: '888',
+        telegramUpdateId: '1001',
+        attachmentCount: 0,
+        messageSentAt: null
+      },
+      expiresAt: null
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => ({
+        async submit() {
+          return {
+            status: 'already_settled' as const,
+            kind: 'rent' as const
+          }
+        }
+      }),
+      {}
+    )
+
+    await bot.handleUpdate(
+      paymentCallbackUpdate('payment_topic:confirm:proposal-1', 20002) as never
+    )
+
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        show_alert: true
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'editMessageText',
+      payload: expect.objectContaining({
+        text: expect.stringContaining('Ion')
+      })
+    })
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+    expect(await promptRepository.getPendingAction('-10012345', '20002')).toBeNull()
+  })
+
   test('clears a pending payment confirmation when a followup has no payment intent', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -695,6 +1033,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
 
     expect(paymentConfirmationService.submitted).toEqual([
       {
+        memberId: 'member-1',
         rawText: 'paid rent 473.00 GEL',
         telegramMessageId: '55',
         telegramThreadId: '888'

@@ -36,6 +36,10 @@ export interface PaymentProposalPayload {
   kind: 'rent' | 'utilities'
   amountMinor: string
   currency: 'GEL' | 'USD'
+  reporterTelegramUserId?: string
+  reportedTelegramUserId?: string | null
+  reportedDisplayName?: string | null
+  isThirdParty?: boolean
 }
 
 export interface PaymentProposalBreakdown {
@@ -72,7 +76,32 @@ export function parsePaymentProposalPayload(
     memberId: payload.memberId,
     kind: payload.kind,
     amountMinor: payload.amountMinor,
-    currency: payload.currency
+    currency: payload.currency,
+    ...(typeof payload.reporterTelegramUserId === 'string'
+      ? {
+          reporterTelegramUserId: payload.reporterTelegramUserId
+        }
+      : {}),
+    ...(typeof payload.reportedTelegramUserId === 'string' ||
+    payload.reportedTelegramUserId === null
+      ? {
+          reportedTelegramUserId:
+            typeof payload.reportedTelegramUserId === 'string'
+              ? payload.reportedTelegramUserId
+              : null
+        }
+      : {}),
+    ...(typeof payload.reportedDisplayName === 'string' || payload.reportedDisplayName === null
+      ? {
+          reportedDisplayName:
+            typeof payload.reportedDisplayName === 'string' ? payload.reportedDisplayName : null
+        }
+      : {}),
+    ...(typeof payload.isThirdParty === 'boolean'
+      ? {
+          isThirdParty: payload.isThirdParty
+        }
+      : {})
   }
 }
 
@@ -215,11 +244,18 @@ export function formatPaymentProposalText(input: {
           amount.toMajorString(),
           amount.currency
         )
-      : getBotTranslations(input.locale).payments.proposal(
-          input.proposal.payload.kind,
-          amount.toMajorString(),
-          amount.currency
-        )
+      : input.proposal.payload.isThirdParty && input.proposal.payload.reportedDisplayName
+        ? getBotTranslations(input.locale).payments.proposalReported(
+            input.proposal.payload.reportedDisplayName,
+            input.proposal.payload.kind,
+            amount.toMajorString(),
+            amount.currency
+          )
+        : getBotTranslations(input.locale).payments.proposal(
+            input.proposal.payload.kind,
+            amount.toMajorString(),
+            amount.currency
+          )
 
   if (
     shouldUseCompactTopicProposal({
@@ -265,7 +301,8 @@ export async function maybeCreatePaymentProposal(input: {
       status: 'unsupported_currency'
     }
   | {
-      status: 'no_balance'
+      status: 'already_settled'
+      kind: 'rent' | 'utilities'
     }
   | {
       status: 'proposal'
@@ -304,6 +341,13 @@ export async function maybeCreatePaymentProposal(input: {
     }
   }
 
+  if (memberLine.remaining.amountMinor <= 0n) {
+    return {
+      status: 'already_settled',
+      kind: parsed.kind
+    }
+  }
+
   if (parsed.explicitAmount && parsed.explicitAmount.currency !== dashboard.currency) {
     return {
       status: 'unsupported_currency'
@@ -320,7 +364,8 @@ export async function maybeCreatePaymentProposal(input: {
 
   if (amount.amountMinor <= 0n) {
     return {
-      status: 'no_balance'
+      status: 'already_settled',
+      kind: parsed.kind
     }
   }
 
@@ -380,6 +425,10 @@ export async function maybeCreatePaymentBalanceReply(input: {
 export function synthesizePaymentConfirmationText(payload: PaymentProposalPayload): string {
   const amount = Money.fromMinor(BigInt(payload.amountMinor), payload.currency)
   const kindText = payload.kind === 'rent' ? 'rent' : 'utilities'
+  const subject =
+    payload.isThirdParty && payload.reportedDisplayName ? payload.reportedDisplayName : 'paid'
 
-  return `paid ${kindText} ${amount.toMajorString()} ${amount.currency}`
+  return subject === 'paid'
+    ? `paid ${kindText} ${amount.toMajorString()} ${amount.currency}`
+    : `${subject} paid ${kindText} ${amount.toMajorString()} ${amount.currency}`
 }

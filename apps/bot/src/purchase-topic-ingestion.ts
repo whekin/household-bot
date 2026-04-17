@@ -1254,7 +1254,27 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       }
     }
 
-    if (existing.senderTelegramUserId !== actorTelegramUserId) {
+    const actorRows = await db
+      .select({
+        memberId: schema.members.id,
+        isAdmin: schema.members.isAdmin
+      })
+      .from(schema.members)
+      .where(
+        and(
+          eq(schema.members.householdId, existing.householdId),
+          eq(schema.members.telegramUserId, actorTelegramUserId)
+        )
+      )
+      .limit(1)
+
+    const actor = actorRows[0]
+    const actorIsAllowed =
+      existing.senderTelegramUserId === actorTelegramUserId ||
+      actor?.isAdmin === 1 ||
+      (actor?.memberId !== undefined && actor.memberId === existing.payerMemberId)
+
+    if (!actorIsAllowed) {
       return {
         status: 'forbidden',
         householdId: existing.householdId
@@ -1291,7 +1311,6 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       .where(
         and(
           eq(schema.purchaseMessages.id, purchaseMessageId),
-          eq(schema.purchaseMessages.senderTelegramUserId, actorTelegramUserId),
           eq(schema.purchaseMessages.processingStatus, 'pending_confirmation')
         )
       )
