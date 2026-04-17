@@ -289,6 +289,35 @@ function createBoundHouseholdRepository(
   }
 }
 
+function createHouseholdRepositoryWithFinanceTopics(): HouseholdConfigurationRepository {
+  const repository = createHouseholdRepository()
+
+  return {
+    ...repository,
+    getHouseholdTopicBinding: async (_householdId, role) => {
+      if (role === 'purchase') {
+        return {
+          householdId: 'household-1',
+          role: 'purchase',
+          telegramThreadId: '777',
+          topicName: 'Purchases'
+        }
+      }
+
+      if (role === 'payments') {
+        return {
+          householdId: 'household-1',
+          role: 'payments',
+          telegramThreadId: '778',
+          topicName: 'Payments'
+        }
+      }
+
+      return null
+    }
+  }
+}
+
 function createFinanceService(): FinanceCommandService {
   return {
     getMemberByTelegramUserId: async () => ({
@@ -1585,6 +1614,221 @@ Confirm or cancel below.`,
     })
 
     await bot.handleUpdate(topicMessageUpdate('Dima is joking with Stas again') as never)
+
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('redirects tagged purchase messages in generic chat to the purchases topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+    let purchaseSaveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'wrong path',
+            usage: {
+              inputTokens: 1,
+              outputTokens: 1,
+              totalTokens: 2
+            }
+          }
+        }
+      },
+      purchaseRepository: {
+        async hasClarificationContext() {
+          return false
+        },
+        async save() {
+          purchaseSaveCalls += 1
+          throw new Error('not used')
+        },
+        async saveWithInterpretation() {
+          throw new Error('not used')
+        },
+        async confirm() {
+          throw new Error('not used')
+        },
+        async cancel() {
+          throw new Error('not used')
+        },
+        async toggleParticipant() {
+          throw new Error('not used')
+        }
+      },
+      purchaseInterpreter: async () => null,
+      householdConfigurationRepository: createHouseholdRepositoryWithFinanceTopics(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(
+      topicMentionUpdate('@household_test_bot I bought a dog collar for 24 lari') as never
+    )
+
+    expect(assistantCalls).toBe(0)
+    expect(purchaseSaveCalls).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text:
+          'That sounds like a shared purchase. Drop it in "Purchases" and I will handle it there.'
+      }
+    })
+  })
+
+  test('redirects tagged payment messages in generic chat to the payments topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: -100123,
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'wrong path',
+            usage: {
+              inputTokens: 1,
+              outputTokens: 1,
+              totalTokens: 2
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepositoryWithFinanceTopics(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(
+      topicMentionUpdate('@household_test_bot I already paid the rent') as never
+    )
+
+    expect(assistantCalls).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text:
+          'That sounds like a payment update. Send it in "Payments" and I will confirm it there.'
+      }
+    })
+  })
+
+  test('stays silent for untagged finance writes in generic chat', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let assistantCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      assistant: {
+        async respond() {
+          assistantCalls += 1
+          return {
+            text: 'wrong path',
+            usage: {
+              inputTokens: 1,
+              outputTokens: 1,
+              totalTokens: 2
+            }
+          }
+        }
+      },
+      householdConfigurationRepository: createHouseholdRepositoryWithFinanceTopics(),
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(topicMessageUpdate('I already paid the rent') as never)
 
     expect(assistantCalls).toBe(0)
     expect(calls).toHaveLength(0)

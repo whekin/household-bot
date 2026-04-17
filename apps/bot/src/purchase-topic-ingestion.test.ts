@@ -61,6 +61,7 @@ function purchaseUpdate(
     replyToBot?: boolean
     threadId?: number
     asCaption?: boolean
+    asPhotoOnly?: boolean
   } = {}
 ) {
   const commandToken = text.split(' ')[0] ?? text
@@ -100,7 +101,18 @@ function purchaseUpdate(
             }
           }
         : {}),
-      ...(options.asCaption
+      ...(options.asPhotoOnly
+        ? {
+            photo: [
+              {
+                file_id: 'photo-1',
+                file_unique_id: 'photo-1',
+                width: 100,
+                height: 100
+              }
+            ]
+          }
+        : options.asCaption
         ? {
             caption: text,
             photo: [
@@ -695,6 +707,184 @@ Confirm or cancel below.`,
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
       text: expect.stringContaining('toilet paper - 30.00 GEL')
+    })
+  })
+
+  test('keeps photo-only purchase messages in clarification flow and accepts price-only followups', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let hasClarificationContext = false
+    let saveCalls = 0
+    let saveWithInterpretationCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: (payload as { text?: string }).text ?? 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return hasClarificationContext
+      },
+      async save(record, interpreter, defaultCurrency, options) {
+        saveCalls += 1
+        expect(record.rawText).toBe('24лар')
+        expect(interpreter).toBeDefined()
+        expect(defaultCurrency).toBe('GEL')
+        expect(options).toEqual({
+          householdContext: null,
+          assistantTone: null
+        })
+
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-price-followup',
+          clarificationQuestion: null,
+          parsedAmountMinor: 2400n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: null,
+          payerMemberId: 'member-1',
+          payerDisplayName: 'Mia',
+          parserConfidence: 66,
+          parserMode: 'llm'
+        }
+      },
+      async saveWithInterpretation(_record, interpretation) {
+        saveWithInterpretationCalls += 1
+        hasClarificationContext = true
+        expect(interpretation).toMatchObject({
+          decision: 'clarification',
+          amountMinor: null,
+          currency: null,
+          itemDescription: null
+        })
+
+        return {
+          status: 'clarification_needed',
+          purchaseMessageId: 'proposal-photo-only',
+          clarificationQuestion:
+            'I can see the photo, but I still need the item and total. What exactly was bought and for how much?',
+          parsedAmountMinor: null,
+          parsedCurrency: null,
+          parsedItemDescription: null,
+          payerMemberId: 'member-1',
+          payerDisplayName: 'Mia',
+          parserConfidence: 0,
+          parserMode: 'llm'
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: config.householdId,
+        telegramThreadId: '777',
+        role: 'purchase' as const,
+        topicName: 'Purchases'
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'en' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        interpreter: async () => ({
+          decision: 'clarification',
+          amountMinor: 2400n,
+          currency: 'GEL',
+          itemDescription: null,
+          confidence: 66,
+          parserMode: 'llm',
+          clarificationQuestion: null
+        }),
+        topicProcessor: async () => ({
+          route: 'silent',
+          reason: 'followup_needs_interpreter'
+        })
+      }
+    )
+
+    await bot.handleUpdate(purchaseUpdate('', { asPhotoOnly: true }) as never)
+    await bot.handleUpdate(purchaseUpdate('24лар') as never)
+
+    expect(saveWithInterpretationCalls).toBe(1)
+    expect(saveCalls).toBe(1)
+    expect(calls).toHaveLength(4)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text:
+          'I can see the photo, but I still need the item and total. What exactly was bought and for how much?'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[2]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: 'Checking that purchase...'
+      }
+    })
+    expect(calls[3]).toMatchObject({
+      method: 'editMessageText',
+      payload: {
+        text: 'What exactly was purchased?'
+      }
     })
   })
 

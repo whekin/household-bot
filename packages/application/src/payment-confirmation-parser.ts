@@ -8,7 +8,7 @@ export interface ParsedPaymentConfirmation {
   reviewReason: FinancePaymentConfirmationReviewReason | null
 }
 
-const rentKeywords = [/\b(rent|housing|apartment|landlord)\b/i, /жиль[её]/i, /аренд/i] as const
+const rentKeywords = [/\b(rent|housing|apartment|landlord)\b/i, /жиль[еёя]/i, /аренд/i] as const
 
 const utilityKeywords = [
   /\b(utilities|utility|gas|water|electricity|internet|cleaning)\b/i,

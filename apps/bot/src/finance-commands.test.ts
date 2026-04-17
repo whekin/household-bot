@@ -572,7 +572,7 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill utilities', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
 
     const payload = calls[0]?.payload as
       | {
@@ -599,10 +599,20 @@ describe('createFinanceCommandsService', () => {
     expect(promptRepository.current()?.action).toBe('bill_command')
   })
 
-  test('renders /bill all for group admins with the current member first', async () => {
+  test('renders /bill for non-admin members with the current member first', async () => {
     const repository = createRepository()
     const financeService: FinanceCommandService = {
       ...createFinanceService(),
+      getMemberByTelegramUserId: async (telegramUserId) =>
+        telegramUserId === '123456'
+          ? {
+              id: 'member-1',
+              telegramUserId,
+              displayName: 'Стас',
+              rentShareWeight: 1,
+              isAdmin: false
+            }
+          : null,
       generateCurrentBillPlan: async () => ({
         period: '2026-04',
         currency: 'GEL',
@@ -702,7 +712,7 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill all', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/bill', 'ru') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
     const text = payload?.text ?? ''
@@ -811,7 +821,7 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill rent', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/my_bill rent', 'ru') as never)
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     expect(text).toContain('Аренда')
@@ -918,7 +928,7 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill utilities', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
 
     const payload = calls[0]?.payload as
       | {
@@ -934,6 +944,42 @@ describe('createFinanceCommandsService', () => {
     expect(payload?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data).toBe(
       'bill:resolve:current'
     )
+  })
+
+  test('does not handle removed /bill_all command', async () => {
+    const repository = createRepository()
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => createFinanceService()
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill_all', 'ru') as never)
+
+    expect(calls).toHaveLength(0)
   })
 
   test('arms the template reply flow for /utilities in the reminders topic', async () => {

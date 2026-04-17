@@ -5,7 +5,8 @@ export const enBotTranslations: BotTranslationCatalog = {
   localeName: 'English',
   commands: {
     help: 'Show command list',
-    bill: 'Show the current billing plan and status',
+    bill: 'Show the household bill view',
+    my_bill: 'Show only your current bill',
     bill_json: 'Export the current billing calculation audit as JSON',
     household_status: 'Show current household status',
     utilities: 'Post the utility entry template for this topic',
@@ -174,6 +175,10 @@ export const enBotTranslations: BotTranslationCatalog = {
       'I can help after your Telegram account is linked to a household. Open the household group and complete the join flow first.',
     multipleHouseholds:
       'You belong to multiple households. Open the target household from its group until direct household selection is added.',
+    purchaseTopicRedirect: (topicName) =>
+      `That sounds like a shared purchase. Drop it in ${topicName ? `"${topicName}"` : 'the purchases topic'} and I will handle it there.`,
+    paymentTopicRedirect: (topicName) =>
+      `That sounds like a payment update. Send it in ${topicName ? `"${topicName}"` : 'the payments topic'} and I will confirm it there.`,
     rateLimited: (retryDelay) => `Assistant rate limit reached. Try again ${retryDelay}.`,
     retryInLessThanMinute: 'in less than a minute',
     retryIn: (parts) => `in ${parts}`,
@@ -290,6 +295,8 @@ export const enBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     processing: 'Checking that purchase...',
+    clarificationPhotoOnly:
+      'I can see the photo, but I still need the item and total. What exactly was bought and for how much?',
     proposal: (
       summary: string,
       payer: string | null,

@@ -96,8 +96,29 @@ function parseBillMode(raw: string | undefined): 'utilities' | 'rent' | null {
   return null
 }
 
-function hasAllFlag(args: readonly string[]): boolean {
-  return args.some((arg) => arg.trim().toLowerCase() === 'all')
+function parseBillArgs(args: readonly string[]): {
+  forcedMode: 'utilities' | 'rent' | null
+  hasInvalidArgs: boolean
+} {
+  let forcedMode: 'utilities' | 'rent' | null = null
+
+  for (const arg of args) {
+    const parsedMode = parseBillMode(arg)
+    if (parsedMode) {
+      forcedMode = parsedMode
+      continue
+    }
+
+    return {
+      forcedMode: null,
+      hasInvalidArgs: true
+    }
+  }
+
+  return {
+    forcedMode,
+    hasInvalidArgs: false
+  }
 }
 
 function sortCurrentMemberFirst<T extends { memberId: string }>(
@@ -903,194 +924,143 @@ export function createFinanceCommandsService(options: {
     })
   }
 
+  async function replyWithRequestedBillPlan(input: {
+    ctx: Context
+    locale: BotLocale
+    forcedMode: 'utilities' | 'rent' | null
+    showMode: 'household' | 'viewer'
+  }) {
+    const telegramUserId = input.ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      await input.ctx.reply(getBotTranslations(input.locale).finance.unableToIdentifySender)
+      return
+    }
+
+    if (isGroupChat(input.ctx)) {
+      const resolved = await requireMember(input.ctx)
+      if (!resolved) {
+        return
+      }
+
+      await replyWithBillPlan({
+        ctx: input.ctx,
+        service: resolved.service,
+        householdId: resolved.householdId,
+        ...(input.showMode === 'household'
+          ? {
+              orderMemberId: resolved.member.id
+            }
+          : {
+              viewerMemberId: resolved.member.id
+            }),
+        forcedMode: input.forcedMode
+      })
+      return
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+    if (memberships.length === 0) {
+      await input.ctx.reply(getBotTranslations(input.locale).finance.notMember)
+      return
+    }
+
+    if (memberships.length === 1) {
+      const membership = memberships[0]!
+      const household =
+        await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      await replyWithBillPlan({
+        ctx: input.ctx,
+        service: options.financeServiceForHousehold(membership.householdId),
+        householdId: membership.householdId,
+        householdName: household?.householdName ?? membership.householdId,
+        ...(input.showMode === 'household'
+          ? {
+              orderMemberId: membership.id
+            }
+          : {
+              viewerMemberId: membership.id
+            }),
+        forcedMode: input.forcedMode
+      })
+      return
+    }
+
+    const households = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      }))
+    )
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'show',
+        showMode: input.showMode,
+        choices: households.map(({ membership }) => ({
+          householdId: membership.householdId,
+          memberId: membership.id
+        }))
+      }
+    })
+    await input.ctx.reply(
+      input.locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
+      {
+        reply_markup: {
+          inline_keyboard: households.map(({ membership, household }, index) => [
+            {
+              text: household?.householdName ?? membership.householdId,
+              callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${input.forcedMode ?? 'auto'}`
+            }
+          ])
+        }
+      }
+    )
+  }
+
   function register(bot: Bot): void {
     bot.command('bill', async (ctx) => {
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
       })
-      const args = commandArgs(ctx)
-      const forcedMode = parseBillMode(args.find((arg) => parseBillMode(arg) !== null))
-      const showAll = hasAllFlag(args)
-      const telegramUserId = ctx.from?.id?.toString()
-      if (!telegramUserId) {
-        await ctx.reply(getBotTranslations(locale).finance.unableToIdentifySender)
+      const { forcedMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      if (hasInvalidArgs) {
+        await ctx.reply(getBotTranslations(locale).common.useHelp)
         return
       }
 
-      if (isGroupChat(ctx)) {
-        const resolved = showAll ? await requireAdmin(ctx) : await requireMember(ctx)
-        if (!resolved) {
-          return
-        }
-
-        await replyWithBillPlan({
-          ctx,
-          service: resolved.service,
-          householdId: resolved.householdId,
-          ...(showAll
-            ? {
-                orderMemberId: resolved.member.id
-              }
-            : {
-                viewerMemberId: resolved.member.id
-              }),
-          forcedMode
-        })
-        return
-      }
-
-      const memberships =
-        await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
-          telegramUserId
-        )
-      if (memberships.length === 0) {
-        await ctx.reply(getBotTranslations(locale).finance.notMember)
-        return
-      }
-
-      if (memberships.length === 1) {
-        const membership = memberships[0]!
-        const household =
-          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
-            membership.householdId
-          )
-        await replyWithBillPlan({
-          ctx,
-          service: options.financeServiceForHousehold(membership.householdId),
-          householdId: membership.householdId,
-          householdName: household?.householdName ?? membership.householdId,
-          ...(showAll
-            ? {
-                orderMemberId: membership.id
-              }
-            : {
-                viewerMemberId: membership.id
-              }),
-          forcedMode
-        })
-        return
-      }
-
-      const households = await Promise.all(
-        memberships.map(async (membership) => ({
-          membership,
-          household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
-            membership.householdId
-          )
-        }))
-      )
-      await storeBillPendingAction({
+      await replyWithRequestedBillPlan({
         ctx,
-        payload: {
-          kind: 'show',
-          choices: households.map(({ membership }) => ({
-            householdId: membership.householdId,
-            memberId: membership.id
-          }))
-        }
+        locale,
+        forcedMode,
+        showMode: 'household'
       })
-      await ctx.reply(
-        locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
-        {
-          reply_markup: {
-            inline_keyboard: households.map(({ membership, household }, index) => [
-              {
-                text: household?.householdName ?? membership.householdId,
-                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${forcedMode ?? 'auto'}`
-              }
-            ])
-          }
-        }
-      )
     })
 
-    bot.command('bill_all', async (ctx) => {
+    bot.command('my_bill', async (ctx) => {
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
       })
-      const args = commandArgs(ctx)
-      const forcedMode = parseBillMode(args.find((arg) => parseBillMode(arg) !== null))
-      const telegramUserId = ctx.from?.id?.toString()
-      if (!telegramUserId) {
-        await ctx.reply(getBotTranslations(locale).finance.unableToIdentifySender)
+      const { forcedMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      if (hasInvalidArgs) {
+        await ctx.reply(getBotTranslations(locale).common.useHelp)
         return
       }
 
-      if (isGroupChat(ctx)) {
-        const resolved = await requireAdmin(ctx)
-        if (!resolved) {
-          return
-        }
-
-        await replyWithBillPlan({
-          ctx,
-          service: resolved.service,
-          householdId: resolved.householdId,
-          orderMemberId: resolved.member.id,
-          forcedMode
-        })
-        return
-      }
-
-      const memberships =
-        await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
-          telegramUserId
-        )
-      if (memberships.length === 0) {
-        await ctx.reply(getBotTranslations(locale).finance.notMember)
-        return
-      }
-
-      if (memberships.length === 1) {
-        const membership = memberships[0]!
-        const household =
-          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
-            membership.householdId
-          )
-        await replyWithBillPlan({
-          ctx,
-          service: options.financeServiceForHousehold(membership.householdId),
-          householdId: membership.householdId,
-          householdName: household?.householdName ?? membership.householdId,
-          orderMemberId: membership.id,
-          forcedMode
-        })
-        return
-      }
-
-      const households = await Promise.all(
-        memberships.map(async (membership) => ({
-          membership,
-          household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
-            membership.householdId
-          )
-        }))
-      )
-      await storeBillPendingAction({
+      await replyWithRequestedBillPlan({
         ctx,
-        payload: {
-          kind: 'show',
-          choices: households.map(({ membership }) => ({
-            householdId: membership.householdId,
-            memberId: membership.id
-          }))
-        }
+        locale,
+        forcedMode,
+        showMode: 'viewer'
       })
-      await ctx.reply(
-        locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
-        {
-          reply_markup: {
-            inline_keyboard: households.map(({ membership, household }, index) => [
-              {
-                text: household?.householdName ?? membership.householdId,
-                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${forcedMode ?? 'auto'}`
-              }
-            ])
-          }
-        }
-      )
     })
 
     bot.command('bill_json', async (ctx) => {
@@ -1202,6 +1172,11 @@ export function createFinanceCommandsService(options: {
         const choices = Array.isArray(pendingAction?.payload.choices)
           ? pendingAction.payload.choices
           : []
+        const showMode =
+          pendingAction?.payload.kind === 'show' &&
+          pendingAction.payload.showMode === 'household'
+            ? 'household'
+            : 'viewer'
         const choice = choices[choiceIndex]
         const householdId =
           choice &&
@@ -1254,7 +1229,13 @@ export function createFinanceCommandsService(options: {
               })),
             adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
             forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
-            viewerMemberId: memberId
+            ...(showMode === 'household'
+              ? {
+                  orderMemberId: memberId
+                }
+              : {
+                  viewerMemberId: memberId
+                })
           })
         )
         await ctx.answerCallbackQuery()

@@ -1,4 +1,8 @@
-import { buildMemberPaymentGuidance, type FinanceCommandService } from '@household/application'
+import {
+  buildMemberPaymentGuidance,
+  parsePaymentConfirmationMessage,
+  type FinanceCommandService
+} from '@household/application'
 import { instantFromEpochSeconds, Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -262,44 +266,6 @@ function createDmPurchaseRecord(ctx: Context, householdId: string): PurchaseTopi
   }
 }
 
-function createGroupPurchaseRecord(
-  ctx: Context,
-  householdId: string,
-  rawText: string
-): PurchaseTopicRecord | null {
-  if (!isGroupChat(ctx) || !ctx.msg || !ctx.from) {
-    return null
-  }
-
-  const normalized = rawText.trim()
-  if (normalized.length === 0) {
-    return null
-  }
-
-  const senderDisplayName = [ctx.from.first_name, ctx.from.last_name]
-    .filter((part) => !!part && part.trim().length > 0)
-    .join(' ')
-
-  return {
-    updateId: ctx.update.update_id,
-    householdId,
-    chatId: ctx.chat!.id.toString(),
-    messageId: ctx.msg.message_id.toString(),
-    threadId:
-      'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
-        ? ctx.msg.message_thread_id.toString()
-        : ctx.chat!.id.toString(),
-    senderTelegramUserId: ctx.from.id.toString(),
-    rawText: normalized,
-    messageSentAt: instantFromEpochSeconds(ctx.msg.date),
-    ...(senderDisplayName.length > 0
-      ? {
-          senderDisplayName
-        }
-      : {})
-  }
-}
-
 function looksLikePurchaseIntent(rawText: string): boolean {
   const normalized = rawText.trim()
   if (normalized.length === 0) {
@@ -311,6 +277,40 @@ function looksLikePurchaseIntent(rawText: string): boolean {
   }
 
   return PURCHASE_MONEY_PATTERN.test(normalized) && /\p{L}/u.test(normalized)
+}
+
+function detectGenericFinanceWriteIntent(
+  rawText: string,
+  defaultCurrency: 'GEL' | 'USD'
+): 'purchase' | 'payment' | null {
+  const payment = parsePaymentConfirmationMessage(rawText, defaultCurrency)
+  if (payment.kind) {
+    return 'payment'
+  }
+
+  if (looksLikePurchaseIntent(rawText)) {
+    return 'purchase'
+  }
+
+  return null
+}
+
+async function buildGenericTopicFinanceRedirect(input: {
+  locale: BotLocale
+  householdId: string
+  kind: 'purchase' | 'payment'
+  householdConfigurationRepository: HouseholdConfigurationRepository
+}): Promise<string> {
+  const topicBinding = await input.householdConfigurationRepository.getHouseholdTopicBinding(
+    input.householdId,
+    input.kind === 'purchase' ? 'purchase' : 'payments'
+  )
+  const topicName = topicBinding?.topicName ?? null
+  const t = getBotTranslations(input.locale).assistant
+
+  return input.kind === 'purchase'
+    ? t.purchaseTopicRedirect(topicName)
+    : t.paymentTopicRedirect(topicName)
 }
 
 async function resolveAssistantConfig(
@@ -1437,6 +1437,47 @@ export function registerDmAssistant(options: {
               )
             })
           : null)
+      const financeService = options.financeServiceForHousehold(household.householdId)
+      const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
+        household.householdId
+      )
+      const isExplicitlyAddressed = isExplicitMention || isReplyToBot
+      const genericFinanceWriteIntent =
+        topicRole === 'generic'
+          ? detectGenericFinanceWriteIntent(messageText, settings.settlementCurrency)
+          : null
+
+      if (genericFinanceWriteIntent) {
+        if (!isExplicitlyAddressed) {
+          await next()
+          return
+        }
+
+        const replyText = await buildGenericTopicFinanceRedirect({
+          locale,
+          householdId: household.householdId,
+          kind: genericFinanceWriteIntent,
+          householdConfigurationRepository: options.householdConfigurationRepository
+        })
+
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'user',
+          text: messageText
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'assistant',
+          text: replyText
+        })
+        await replyAndPersistTopicMessage({
+          ctx,
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          telegramThreadId,
+          text: replyText
+        })
+        return
+      }
 
       if (route) {
         if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
@@ -1467,10 +1508,6 @@ export function registerDmAssistant(options: {
         }
       }
 
-      const financeService = options.financeServiceForHousehold(household.householdId)
-      const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
-        household.householdId
-      )
       let householdContextPromise: Promise<string> | null = null
       const householdContext = () =>
         (householdContextPromise ??= buildHouseholdContext({
@@ -1481,105 +1518,6 @@ export function registerDmAssistant(options: {
           householdConfigurationRepository: options.householdConfigurationRepository,
           financeService
         }))
-
-      if (!binding && options.purchaseRepository && options.purchaseInterpreter) {
-        const purchaseRecord = createGroupPurchaseRecord(ctx, household.householdId, messageText)
-
-        if (
-          purchaseRecord &&
-          (!route || route.route === 'purchase_candidate' || route.route === 'topic_helper')
-        ) {
-          const purchaseResult = await options.purchaseRepository.save(
-            purchaseRecord,
-            options.purchaseInterpreter,
-            settings.settlementCurrency,
-            {
-              householdContext: assistantConfig.assistantContext,
-              assistantTone: assistantConfig.assistantTone
-            }
-          )
-
-          if (purchaseResult.status === 'pending_confirmation') {
-            const fallbackText = getBotTranslations(locale).purchase.proposal(
-              formatPurchaseSummary(locale, purchaseResult),
-              null,
-              null,
-              null
-            )
-            const purchaseText = await composeAssistantReplyText({
-              assistant: options.assistant,
-              locale,
-              topicRole: 'purchase',
-              householdContext: await householdContext(),
-              userMessage: messageText,
-              recentTurns: options.memoryStore.get(memoryKey).turns,
-              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-              recentChatMessages: toAssistantMessages(
-                conversationContext.rollingChatMessages.slice(-40)
-              ),
-              authoritativeFacts: [
-                'The purchase has not been saved yet.',
-                `Detected shared purchase: ${formatPurchaseSummary(locale, purchaseResult)}.`,
-                'Buttons shown to the user are Confirm and Cancel.'
-              ],
-              responseInstructions:
-                'Write a short natural purchase confirmation proposal. Mention that the buttons below handle the action, but do not invent any other state changes.',
-              fallbackText,
-              logger: options.logger,
-              logEvent: 'assistant.compose_purchase_reply_failed'
-            })
-
-            await replyAndPersistTopicMessage({
-              ctx,
-              repository: options.topicMessageHistoryRepository,
-              householdId: household.householdId,
-              telegramChatId,
-              telegramThreadId,
-              text: purchaseText,
-              replyOptions: {
-                reply_markup: purchaseProposalReplyMarkup(locale, purchaseResult.purchaseMessageId)
-              }
-            })
-            return
-          }
-
-          if (purchaseResult.status === 'clarification_needed') {
-            const fallbackText = buildPurchaseClarificationText(locale, purchaseResult)
-            const clarificationText = await composeAssistantReplyText({
-              assistant: options.assistant,
-              locale,
-              topicRole: 'purchase',
-              householdContext: await householdContext(),
-              userMessage: messageText,
-              recentTurns: options.memoryStore.get(memoryKey).turns,
-              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-              recentChatMessages: toAssistantMessages(
-                conversationContext.rollingChatMessages.slice(-40)
-              ),
-              authoritativeFacts: [
-                'The purchase has not been saved yet.',
-                purchaseResult.clarificationQuestion
-                  ? `The authoritative clarification question is: ${purchaseResult.clarificationQuestion}`
-                  : 'More details are required before saving the purchase.'
-              ],
-              responseInstructions:
-                'Write a short natural clarification reply for the purchase flow. Keep it conversational and do not invent saved state.',
-              fallbackText,
-              logger: options.logger,
-              logEvent: 'assistant.compose_purchase_clarification_failed'
-            })
-            await replyAndPersistTopicMessage({
-              ctx,
-              repository: options.topicMessageHistoryRepository,
-              householdId: household.householdId,
-              telegramChatId,
-              telegramThreadId,
-              text: clarificationText
-            })
-            return
-          }
-        }
-      }
 
       const shouldRespond =
         messageText.length > 0 &&

@@ -11,6 +11,14 @@ describe('parsePaymentConfirmationMessage', () => {
     expect(result.reviewReason).toBeNull()
   })
 
+  test('detects rent confirmation for genitive housing phrasing', () => {
+    const result = parsePaymentConfirmationMessage('я уже закинул за оплату жилья', 'GEL')
+
+    expect(result.kind).toBe('rent')
+    expect(result.explicitAmount).toBeNull()
+    expect(result.reviewReason).toBeNull()
+  })
+
   test('detects utility confirmation with explicit default-currency amount', () => {
     const result = parsePaymentConfirmationMessage('оплатил газ 120', 'GEL')
 

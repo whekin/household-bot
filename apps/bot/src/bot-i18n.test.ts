@@ -185,6 +185,7 @@ describe('createTelegramBot i18n', () => {
 
     const payload = calls[0]?.payload as { text?: string } | undefined
     expect(payload?.text).toContain('Бот для дома подключен.')
+    expect(payload?.text).toContain('/my_bill - Показать только ваш текущий счёт')
     expect(payload?.text).toContain('/anon - Отправить анонимное сообщение по дому')
     expect(payload?.text).not.toContain('/setup')
   })

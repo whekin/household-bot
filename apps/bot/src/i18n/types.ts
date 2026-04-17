@@ -3,6 +3,7 @@ export type BotLocale = 'en' | 'ru'
 export type TelegramCommandName =
   | 'help'
   | 'bill'
+  | 'my_bill'
   | 'bill_json'
   | 'household_status'
   | 'utilities'
@@ -22,6 +23,7 @@ export type TelegramCommandName =
 export interface BotCommandDescriptions {
   help: string
   bill: string
+  my_bill: string
   bill_json: string
   household_status: string
   utilities: string
@@ -159,6 +161,8 @@ export interface BotTranslationCatalog {
     unavailable: string
     noHousehold: string
     multipleHouseholds: string
+    purchaseTopicRedirect: (topicName: string | null) => string
+    paymentTopicRedirect: (topicName: string | null) => string
     rateLimited: (retryDelay: string) => string
     retryInLessThanMinute: string
     retryIn: (parts: string) => string
@@ -270,6 +274,7 @@ export interface BotTranslationCatalog {
   purchase: {
     sharedPurchaseFallback: string
     processing: string
+    clarificationPhotoOnly: string
     proposal: (
       summary: string,
       payer: string | null,

@@ -9,7 +9,11 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 
-const RENT_BALANCE_KEYWORDS = [/\b(rent|housing|apartment|landlord)\b/i, /аренд/i, /жиль[её]/i]
+const RENT_BALANCE_KEYWORDS = [
+  /\b(rent|housing|apartment|landlord)\b/i,
+  /аренд/i,
+  /жиль[еёя]/i
+]
 const UTILITIES_BALANCE_KEYWORDS = [
   /\b(utilities|utility|gas|water|electricity|internet|cleaning)\b/i,
   /коммун/i,

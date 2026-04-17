@@ -44,6 +44,7 @@ const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
 const PURCHASE_PAYER_CALLBACK_PREFIX = 'purchase:payer:'
 const PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX = 'purchase:fix_amount:'
 const MIN_PROPOSAL_CONFIDENCE = 70
+const PHOTO_ONLY_PURCHASE_PLACEHOLDER = '[photo]'
 const LIKELY_PURCHASE_VERB_PATTERN =
   /\b(?:bought|purchased|paid|spent|ordered|picked up|grabbed|got)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|куплено|заказал(?:а|и)?|оплатил(?:а|и)?|потратил(?:а|и)?|взял(?:а|и)?)(?=$|[^\p{L}])/iu
 const PLANNING_PURCHASE_PATTERN =
@@ -824,6 +825,40 @@ function readPurchaseMessageText(ctx: Pick<Context, 'message' | 'msg' | 'me'>): 
   return null
 }
 
+function hasPurchaseAttachment(ctx: Pick<Context, 'message'>): boolean {
+  const message = ctx.message
+  if (!message) {
+    return false
+  }
+
+  if ('photo' in message && Array.isArray(message.photo) && message.photo.length > 0) {
+    return true
+  }
+
+  if ('document' in message && message.document) {
+    return true
+  }
+
+  return false
+}
+
+function isPhotoOnlyPurchaseMessage(record: PurchaseTopicRecord): boolean {
+  return record.rawText === PHOTO_ONLY_PURCHASE_PLACEHOLDER
+}
+
+function photoOnlyPurchaseInterpretation(locale: BotLocale): PurchaseInterpretation {
+  return {
+    decision: 'clarification',
+    amountMinor: null,
+    currency: null,
+    itemDescription: null,
+    payerMemberId: null,
+    confidence: 0,
+    parserMode: 'llm',
+    clarificationQuestion: getBotTranslations(locale).purchase.clarificationPhotoOnly
+  }
+}
+
 async function finalizePurchaseReply(
   ctx: Context,
   pendingReply: PendingPurchaseReply | null,
@@ -884,7 +919,9 @@ async function finalizePurchaseReply(
 
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
   const message = ctx.message
-  const rawText = readPurchaseMessageText(ctx)
+  const rawText =
+    readPurchaseMessageText(ctx) ??
+    (hasPurchaseAttachment(ctx) ? PHOTO_ONLY_PURCHASE_PLACEHOLDER : null)
   if (!message || !rawText) {
     return null
   }
@@ -2744,6 +2781,33 @@ export function registerPurchaseTopicIngestion(
     let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
 
     try {
+      if (
+        isPhotoOnlyPurchaseMessage(record) &&
+        !(await repository.hasClarificationContext(record))
+      ) {
+        rememberUserTurn(options.memoryStore, record)
+        const locale = botLocaleFromContext(ctx)
+        const result = await repository.saveWithInterpretation(
+          record,
+          photoOnlyPurchaseInterpretation(locale)
+        )
+        await handlePurchaseMessageResult(
+          ctx,
+          record,
+          result,
+          locale,
+          options.logger,
+          null,
+          options.historyRepository
+        )
+        rememberAssistantTurn(
+          options.memoryStore,
+          record,
+          buildPurchaseAcknowledgement(result, locale)
+        )
+        return
+      }
+
       const route =
         getCachedTopicMessageRoute(ctx, 'purchase') ??
         (await routePurchaseTopicMessage({
@@ -2909,11 +2973,34 @@ export function registerConfiguredPurchaseTopicIngestion(
             cachedAt: Date.now()
           }
 
-      // Build conversation context
       const activeWorkflow = (await repository.hasClarificationContext(record))
         ? 'purchase_clarification'
         : null
 
+      if (isPhotoOnlyPurchaseMessage(record) && activeWorkflow === null) {
+        rememberUserTurn(options.memoryStore, record)
+        const result = await repository.saveWithInterpretation(
+          record,
+          photoOnlyPurchaseInterpretation(householdContext.locale)
+        )
+        await handlePurchaseMessageResult(
+          ctx,
+          record,
+          result,
+          householdContext.locale,
+          options.logger,
+          null,
+          options.historyRepository
+        )
+        rememberAssistantTurn(
+          options.memoryStore,
+          record,
+          buildPurchaseAcknowledgement(result, householdContext.locale)
+        )
+        return
+      }
+
+      // Build conversation context
       const conversationContext = await buildConversationContext({
         repository: options.historyRepository,
         householdId: record.householdId,
@@ -3015,7 +3102,11 @@ export function registerConfiguredPurchaseTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
-            if (options.interpreter && looksLikeLikelyCompletedPurchase(record.rawText)) {
+            if (
+              options.interpreter &&
+              (looksLikeLikelyCompletedPurchase(record.rawText) ||
+                activeWorkflow === 'purchase_clarification')
+            ) {
               options.logger?.info(
                 {
                   event: 'purchase.topic_processor_fallback',

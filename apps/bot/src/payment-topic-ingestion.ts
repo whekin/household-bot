@@ -1,4 +1,8 @@
-import type { FinanceCommandService, PaymentConfirmationService } from '@household/application'
+import {
+  parsePaymentConfirmationMessage,
+  type FinanceCommandService,
+  type PaymentConfirmationService
+} from '@household/application'
 import { instantFromEpochSeconds, Money, nowInstant, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
@@ -263,6 +267,128 @@ export function buildPaymentAcknowledgement(
 
 function buildWrongTopicPurchaseReply(locale: BotLocale): string {
   return getBotTranslations(locale).payments.purchaseRedirect
+}
+
+function hasClearPaymentTopicIntent(
+  rawText: string,
+  defaultCurrency: 'GEL' | 'USD'
+): boolean {
+  return parsePaymentConfirmationMessage(rawText, defaultCurrency).kind !== null
+}
+
+async function replyWithTopicPaymentProposal(input: {
+  ctx: Context
+  locale: BotLocale
+  record: PaymentTopicRecord
+  combinedText: string
+  financeService: FinanceCommandService
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  promptRepository: TelegramPendingActionRepository
+  memoryStore?: AssistantConversationMemoryStore
+  historyRepository?: TopicMessageHistoryRepository
+}) {
+  const t = getBotTranslations(input.locale).payments
+  const senderMember = await input.financeService.getMemberByTelegramUserId(
+    input.record.senderTelegramUserId
+  )
+
+  if (!senderMember) {
+    return false
+  }
+
+  const proposal = await maybeCreatePaymentProposal({
+    rawText: input.combinedText,
+    householdId: input.record.householdId,
+    memberId: senderMember.id,
+    financeService: input.financeService,
+    householdConfigurationRepository: input.householdConfigurationRepository
+  })
+
+  if (proposal.status === 'no_intent') {
+    return false
+  }
+
+  if (proposal.status === 'clarification') {
+    await input.promptRepository.upsertPendingAction({
+      telegramUserId: input.record.senderTelegramUserId,
+      telegramChatId: input.record.chatId,
+      action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
+      payload: {
+        threadId: input.record.threadId,
+        rawText: input.combinedText
+      },
+      expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+    })
+
+    await replyToPaymentMessage(input.ctx, t.clarification, undefined, {
+      repository: input.historyRepository,
+      record: input.record
+    })
+    appendConversation(input.memoryStore, input.record, input.record.rawText, t.clarification)
+    return true
+  }
+
+  await input.promptRepository.clearPendingAction(
+    input.record.chatId,
+    input.record.senderTelegramUserId
+  )
+
+  if (proposal.status === 'unsupported_currency') {
+    await replyToPaymentMessage(input.ctx, t.unsupportedCurrency, undefined, {
+      repository: input.historyRepository,
+      record: input.record
+    })
+    appendConversation(
+      input.memoryStore,
+      input.record,
+      input.record.rawText,
+      t.unsupportedCurrency
+    )
+    return true
+  }
+
+  if (proposal.status === 'no_balance') {
+    await replyToPaymentMessage(input.ctx, t.noBalance, undefined, {
+      repository: input.historyRepository,
+      record: input.record
+    })
+    appendConversation(input.memoryStore, input.record, input.record.rawText, t.noBalance)
+    return true
+  }
+
+  await input.promptRepository.upsertPendingAction({
+    telegramUserId: input.record.senderTelegramUserId,
+    telegramChatId: input.record.chatId,
+    action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+    payload: {
+      ...proposal.payload,
+      senderTelegramUserId: input.record.senderTelegramUserId,
+      rawText: input.combinedText,
+      telegramChatId: input.record.chatId,
+      telegramMessageId: input.record.messageId,
+      telegramThreadId: input.record.threadId,
+      telegramUpdateId: String(input.record.updateId),
+      attachmentCount: input.record.attachmentCount
+    },
+    expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+  })
+
+  const proposalText = formatPaymentProposalText({
+    locale: input.locale,
+    surface: 'topic',
+    proposal
+  })
+  await replyToPaymentMessage(
+    input.ctx,
+    proposalText,
+    paymentProposalReplyMarkup(input.locale, proposal.payload.proposalId),
+    {
+      repository: input.historyRepository,
+      record: input.record
+    }
+  )
+  appendConversation(input.memoryStore, input.record, input.record.rawText, proposalText)
+  return true
 }
 
 function parsePaymentClarificationPayload(
@@ -688,6 +814,24 @@ export function registerConfiguredPaymentTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
+            if (hasClearPaymentTopicIntent(combinedText, householdContext.defaultCurrency)) {
+              const handled = await replyWithTopicPaymentProposal({
+                ctx,
+                locale,
+                record,
+                combinedText,
+                financeService: financeServiceForHousehold(record.householdId),
+                householdConfigurationRepository,
+                promptRepository,
+                memoryStore: options.memoryStore,
+                historyRepository: options.historyRepository
+              })
+
+              if (handled) {
+                return
+              }
+            }
+
             if (looksLikeLikelyCompletedPurchase(record.rawText)) {
               const replyText = buildWrongTopicPurchaseReply(locale)
 

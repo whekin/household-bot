@@ -5,7 +5,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
   commands: {
     help: 'Показать список команд',
-    bill: 'Показать текущий платежный план',
+    bill: 'Показать общий счёт по дому',
+    my_bill: 'Показать только ваш текущий счёт',
     bill_json: 'Выгрузить расчёты по платежам в JSON',
     household_status: 'Показать текущий статус дома',
     utilities: 'Показать шаблон для ввода коммуналки в этом топике',
@@ -177,6 +178,10 @@ export const ruBotTranslations: BotTranslationCatalog = {
       'Я смогу помочь после того, как ваш Telegram-профиль будет привязан к дому. Сначала откройте группу дома и завершите вступление.',
     multipleHouseholds:
       'Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока прямой выбор дома ещё не добавлен.',
+    purchaseTopicRedirect: (topicName) =>
+      `Это похоже на общую покупку. Закиньте сообщение в ${topicName ? `топик «${topicName}»` : 'топик покупок'}, и я там всё оформлю.`,
+    paymentTopicRedirect: (topicName) =>
+      `Это похоже на сообщение про оплату. Отправьте его в ${topicName ? `топик «${topicName}»` : 'топик оплат'}, и я там всё подтвержу.`,
     rateLimited: (retryDelay) => `Лимит сообщений ассистенту исчерпан. Попробуйте ${retryDelay}.`,
     retryInLessThanMinute: 'меньше чем через минуту',
     retryIn: (parts) => `через ${parts}`,
@@ -293,6 +298,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     processing: 'Проверяю покупку...',
+    clarificationPhotoOnly:
+      'Фото вижу, но мне всё ещё нужны предмет и итоговая сумма. Что именно купили и на сколько?',
     proposal: (
       summary: string,
       payer: string | null,
