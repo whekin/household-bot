@@ -297,7 +297,6 @@ export const ruBotTranslations: BotTranslationCatalog = {
   },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
-    processing: 'Проверяю покупку...',
     clarificationPhotoOnly:
       'Фото вижу, но мне всё ещё нужны предмет и итоговая сумма. Что именно купили и на сколько?',
     proposal: (

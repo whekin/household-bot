@@ -11,6 +11,8 @@ import { createTelegramBot } from './bot'
 import {
   buildPurchaseAcknowledgement,
   extractPurchaseTopicCandidate,
+  explicitPurchaseParticipantMemberIds,
+  looksLikeLikelyCompletedPurchase,
   registerConfiguredPurchaseTopicIngestion,
   registerPurchaseTopicIngestion,
   resolveProposalParticipantSelection,
@@ -278,6 +280,18 @@ describe('resolveConfiguredPurchaseTopicRecord', () => {
   })
 })
 
+describe('looksLikeLikelyCompletedPurchase', () => {
+  test('accepts Russian item-first completed purchases with trailing lari amount', () => {
+    expect(looksLikeLikelyCompletedPurchase('стиральный порошок уже купил 12 лари')).toBe(true)
+  })
+
+  test('does not treat shopping-list chatter as a completed purchase', () => {
+    expect(
+      looksLikeLikelyCompletedPurchase('Сейчас заканчивается туалетка и стиральный порошок')
+    ).toBe(false)
+  })
+})
+
 describe('buildPurchaseAcknowledgement', () => {
   test('returns proposal acknowledgement for a likely purchase', () => {
     const result = buildPurchaseAcknowledgement({
@@ -485,6 +499,66 @@ describe('resolveProposalParticipantSelection', () => {
         included: false
       }
     ])
+  })
+
+  test('includes all active members by default and excludes away members', () => {
+    const participants = resolveProposalParticipantSelection({
+      members: [
+        {
+          memberId: 'member-ion',
+          telegramUserId: '10002',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-stas',
+          telegramUserId: '10003',
+          lifecycleStatus: 'active'
+        },
+        {
+          memberId: 'member-alice',
+          telegramUserId: '10004',
+          lifecycleStatus: 'away'
+        }
+      ],
+      senderTelegramUserId: '10002',
+      senderMemberId: 'member-ion',
+      explicitParticipantMemberIds: null
+    })
+
+    expect(participants).toEqual([
+      {
+        memberId: 'member-ion',
+        included: true
+      },
+      {
+        memberId: 'member-stas',
+        included: true
+      },
+      {
+        memberId: 'member-alice',
+        included: false
+      }
+    ])
+  })
+})
+
+describe('explicitPurchaseParticipantMemberIds', () => {
+  test('ignores sender-only model participants when the text does not narrow the split', () => {
+    expect(
+      explicitPurchaseParticipantMemberIds({
+        rawText: 'стиральный порошок уже купил 12 лари',
+        participantMemberIds: ['member-ion']
+      })
+    ).toBeNull()
+  })
+
+  test('keeps participants when the text explicitly narrows the split', () => {
+    expect(
+      explicitPurchaseParticipantMemberIds({
+        rawText: 'купил туалетку для меня и Димы 12 лари',
+        participantMemberIds: ['member-ion', 'member-dima']
+      })
+    ).toEqual(['member-ion', 'member-dima'])
   })
 })
 
@@ -863,7 +937,7 @@ Confirm or cancel below.`,
 
     expect(saveWithInterpretationCalls).toBe(1)
     expect(saveCalls).toBe(1)
-    expect(calls).toHaveLength(4)
+    expect(calls).toHaveLength(3)
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
@@ -875,12 +949,6 @@ Confirm or cancel below.`,
     })
     expect(calls[2]).toMatchObject({
       method: 'sendMessage',
-      payload: {
-        text: 'Checking that purchase...'
-      }
-    })
-    expect(calls[3]).toMatchObject({
-      method: 'editMessageText',
       payload: {
         text: 'What exactly was purchased?'
       }
@@ -1049,25 +1117,19 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(purchaseUpdate('Bought toilet paper 30') as never)
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendChatAction'
     })
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: 'Checking that purchase...'
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
         text: 'Which currency was this purchase in?'
       }
     })
   })
 
-  test('sends a processing reply and edits it when an interpreter is configured', async () => {
+  test('sends a final purchase reply without a visible processing message', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
 
@@ -1139,7 +1201,7 @@ Confirm or cancel below.`,
 
     await bot.handleUpdate(purchaseUpdate('Bought toilet paper 30 gel') as never)
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendChatAction',
       payload: {
@@ -1152,23 +1214,15 @@ Confirm or cancel below.`,
       method: 'sendMessage',
       payload: {
         chat_id: Number(config.householdChatId),
-        text: 'Checking that purchase...',
-        reply_parameters: {
-          message_id: 55
-        }
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
-        chat_id: Number(config.householdChatId),
-        message_id: 2,
         text: `I think this shared purchase was: toilet paper - 30.00 GEL.
 
 Participants:
 - Mia
 - Dima (excluded)
 Confirm or cancel below.`,
+        reply_parameters: {
+          message_id: 55
+        },
         reply_markup: {
           inline_keyboard: [
             [
@@ -1255,6 +1309,61 @@ Confirm or cancel below.`,
     expect(calls).toHaveLength(0)
   })
 
+  test('stays silent for Russian shopping-list chatter without sending a processing message', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        saveCalls += 1
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'not_purchase',
+        amountMinor: null,
+        currency: null,
+        itemDescription: null,
+        confidence: 96,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(
+      purchaseUpdate('Сейчас заканчивается туалетка и стиральный порошок') as never
+    )
+
+    expect(saveCalls).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
+
   test('treats colloquial completed purchase reports as likely purchases', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -1334,15 +1443,9 @@ Confirm or cancel below.`,
       ) as never
     )
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
-      payload: {
-        text: 'Checking that purchase...'
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
       payload: {
         text: `I think this shared purchase was: ковер - 150.00 GEL.
 
@@ -1350,6 +1453,87 @@ Participants:
 - Mia
 - Dima (excluded)
 Confirm or cancel below.`
+      }
+    })
+  })
+
+  test('treats Russian item-first completed purchase reports as purchases', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: Number(config.householdChatId),
+            type: 'supergroup'
+          },
+          text: (payload as { text?: string }).text ?? 'ok'
+        }
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record) {
+        saveCalls += 1
+        expect(record.rawText).toBe('стиральный порошок уже купил 12 лари')
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-detergent',
+          parsedAmountMinor: 1200n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'стиральный порошок',
+          parserConfidence: 92,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      interpreter: async () => ({
+        decision: 'purchase',
+        amountMinor: 1200n,
+        currency: 'GEL',
+        itemDescription: 'стиральный порошок',
+        confidence: 92,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      })
+    })
+
+    await bot.handleUpdate(purchaseUpdate('стиральный порошок уже купил 12 лари') as never)
+
+    expect(saveCalls).toBe(1)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining('стиральный порошок - 12.00 GEL')
       }
     })
   })
@@ -1430,8 +1614,8 @@ Confirm or cancel below.`
 
     await bot.handleUpdate(purchaseUpdate('Bought 5 bottles of water, 6 lari each') as never)
 
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
       payload: {
         reply_markup: {
           inline_keyboard: [
@@ -2647,23 +2831,168 @@ Confirm or cancel below.`,
 
     expect(saveCalls).toBe(1)
     expect(saveWithInterpretationCalls).toBe(0)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendChatAction'
     })
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: 'Checking that purchase...'
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
-      payload: {
         text: expect.stringContaining('I think this shared purchase was: швабра - 39.00 GEL.'),
         reply_markup: {
           inline_keyboard: expect.any(Array)
         }
+      }
+    })
+  })
+
+  test('falls back to the purchase interpreter when the topic processor asks clarification for an obvious purchase', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveCalls = 0
+    let saveWithInterpretationCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'sendMessage') {
+        return {
+          ok: true,
+          result: {
+            message_id: calls.length,
+            date: Math.floor(Date.now() / 1000),
+            chat: {
+              id: Number(config.householdChatId),
+              type: 'supergroup'
+            },
+            text: (payload as { text?: string }).text ?? 'ok'
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save(record, interpreter, defaultCurrency, options) {
+        saveCalls += 1
+        expect(record.rawText).toBe('стиральный порошок уже купил 12 лари')
+        expect(interpreter).toBeDefined()
+        expect(defaultCurrency).toBe('GEL')
+        expect(options).toEqual({
+          householdContext: null,
+          assistantTone: null
+        })
+
+        return {
+          status: 'pending_confirmation',
+          purchaseMessageId: 'proposal-detergent',
+          parsedAmountMinor: 1200n,
+          parsedCurrency: 'GEL',
+          parsedItemDescription: 'стиральный порошок',
+          parserConfidence: 92,
+          parserMode: 'llm',
+          participants: participants()
+        }
+      },
+      async saveWithInterpretation() {
+        saveWithInterpretationCalls += 1
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: config.householdId,
+        telegramThreadId: '777',
+        role: 'purchase' as const,
+        topicName: 'Purchases'
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'ru' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        interpreter: async () => ({
+          decision: 'purchase',
+          amountMinor: 1200n,
+          currency: 'GEL',
+          itemDescription: 'стиральный порошок',
+          confidence: 92,
+          parserMode: 'llm',
+          clarificationQuestion: null
+        }),
+        topicProcessor: async () => ({
+          route: 'purchase_clarification',
+          clarificationQuestion: 'Что именно купили?',
+          reason: 'overcautious'
+        })
+      }
+    )
+
+    await bot.handleUpdate(purchaseUpdate('стиральный порошок уже купил 12 лари') as never)
+
+    expect(saveCalls).toBe(1)
+    expect(saveWithInterpretationCalls).toBe(0)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      method: 'sendChatAction'
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining(
+          'I think this shared purchase was: стиральный порошок - 12.00 GEL.'
+        )
       }
     })
   })
@@ -2806,18 +3135,12 @@ Confirm or cancel below.`,
     )
 
     expect(saveCalls).toBe(1)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     expect(calls[0]).toMatchObject({
       method: 'sendChatAction'
     })
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
-      payload: {
-        text: 'Checking that purchase...'
-      }
-    })
-    expect(calls[2]).toMatchObject({
-      method: 'editMessageText',
       payload: {
         text: expect.stringContaining(
           'I think this shared purchase was: жига большая и 2 ножика маленьких - 10.00 GEL.'

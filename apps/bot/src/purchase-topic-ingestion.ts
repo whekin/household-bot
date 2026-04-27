@@ -50,7 +50,9 @@ const LIKELY_PURCHASE_VERB_PATTERN =
 const PLANNING_PURCHASE_PATTERN =
   /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|(?:^|[^\p{L}])(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:купим|возьмем|возьмём|закажем|оплатим)(?=$|[^\p{L}])/iu
 const MONEY_SIGNAL_PATTERN =
-  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лар|лари|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
+  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лар(?:и|а|ов)?|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
+const EXPLICIT_PARTICIPANT_SUBSET_PATTERN =
+  /\b(?:split\s+(?:with|between)|share\s+with|for\s+(?:me|us|myself)\s+and|for\s+me\s+only|only\s+for|just\s+for)\b|(?:^|[^\p{L}])(?:на\s+нас|для\s+(?:меня|нас|себя)\s+и|только\s+(?:для|на)|лишь\s+(?:для|на)|между\s+нами|делим\s+(?:с|между)|раздели(?:ть|м)?\s+(?:с|между))(?=$|[^\p{L}])/iu
 const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
 
 type StoredPurchaseProcessingStatus =
@@ -441,6 +443,17 @@ export function toPurchaseInterpretation(
   }
 }
 
+export function explicitPurchaseParticipantMemberIds(input: {
+  rawText: string
+  participantMemberIds: readonly string[] | null
+}): readonly string[] | null {
+  if (!input.participantMemberIds || input.participantMemberIds.length === 0) {
+    return null
+  }
+
+  return EXPLICIT_PARTICIPANT_SUBSET_PATTERN.test(input.rawText) ? input.participantMemberIds : null
+}
+
 export function toPurchaseClarificationInterpretation(
   result: import('./topic-processor').TopicProcessorClarificationResult
 ): PurchaseInterpretation {
@@ -757,52 +770,6 @@ async function replyToPurchaseMessage(
   })
 }
 
-interface PendingPurchaseReply {
-  chatId: number
-  messageId: number
-}
-
-async function sendPurchaseProcessingReply(
-  ctx: Context,
-  text: string
-): Promise<PendingPurchaseReply | null> {
-  const message = ctx.msg
-  if (!message) {
-    return null
-  }
-
-  const reply = await ctx.reply(text, {
-    reply_parameters: {
-      message_id: message.message_id
-    }
-  })
-
-  if (!reply?.chat?.id || typeof reply.message_id !== 'number') {
-    return null
-  }
-
-  return {
-    chatId: reply.chat.id,
-    messageId: reply.message_id
-  }
-}
-
-function shouldShowProcessingReply(
-  ctx: Pick<Context, 'msg' | 'me'>,
-  record: PurchaseTopicRecord,
-  route: TopicMessageRoutingResult
-): boolean {
-  if (route.route !== 'purchase_candidate' || !route.shouldStartTyping) {
-    return false
-  }
-
-  if (stripExplicitBotMention(ctx) !== null || isReplyToCurrentBot(ctx)) {
-    return looksLikeLikelyCompletedPurchase(record.rawText)
-  }
-
-  return true
-}
-
 function readPurchaseMessageText(ctx: Pick<Context, 'message' | 'msg' | 'me'>): string | null {
   const strippedMention = stripExplicitBotMention(ctx)
   if (strippedMention) {
@@ -861,7 +828,6 @@ function photoOnlyPurchaseInterpretation(locale: BotLocale): PurchaseInterpretat
 
 async function finalizePurchaseReply(
   ctx: Context,
-  pendingReply: PendingPurchaseReply | null,
   text: string | null,
   replyMarkup?: {
     inline_keyboard: Array<
@@ -877,44 +843,10 @@ async function finalizePurchaseReply(
   }
 ): Promise<void> {
   if (!text) {
-    if (pendingReply) {
-      try {
-        await ctx.api.deleteMessage(pendingReply.chatId, pendingReply.messageId)
-      } catch {}
-    }
-
     return
   }
 
-  if (!pendingReply) {
-    await replyToPurchaseMessage(ctx, text, replyMarkup, history)
-    return
-  }
-
-  try {
-    await ctx.api.editMessageText(
-      pendingReply.chatId,
-      pendingReply.messageId,
-      text,
-      replyMarkup ? { reply_markup: replyMarkup } : {}
-    )
-
-    await persistTopicHistoryMessage({
-      repository: history?.repository,
-      householdId: history?.record.householdId ?? '',
-      telegramChatId: history?.record.chatId ?? '',
-      telegramThreadId: history?.record.threadId ?? null,
-      telegramMessageId: pendingReply.messageId.toString(),
-      telegramUpdateId: null,
-      senderTelegramUserId: ctx.me?.id?.toString() ?? null,
-      senderDisplayName: null,
-      isBot: true,
-      rawText: text,
-      messageSentAt: nowInstant()
-    })
-  } catch {
-    await replyToPurchaseMessage(ctx, text, replyMarkup, history)
-  }
+  await replyToPurchaseMessage(ctx, text, replyMarkup, history)
 }
 
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
@@ -1511,7 +1443,10 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             senderMemberId,
             payerMemberId: decision.payerMemberId,
             messageSentAt: record.messageSentAt,
-            explicitParticipantMemberIds: decision.participantMemberIds
+            explicitParticipantMemberIds: explicitPurchaseParticipantMemberIds({
+              rawText: record.rawText,
+              participantMemberIds: decision.participantMemberIds
+            })
           })
 
           if (participants.length > 0) {
@@ -1645,7 +1580,10 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             senderMemberId,
             payerMemberId: decision.payerMemberId,
             messageSentAt: record.messageSentAt,
-            explicitParticipantMemberIds: decision.participantMemberIds
+            explicitParticipantMemberIds: explicitPurchaseParticipantMemberIds({
+              rawText: record.rawText,
+              participantMemberIds: decision.participantMemberIds
+            })
           })
 
           if (participants.length > 0) {
@@ -2342,7 +2280,6 @@ async function handlePurchaseMessageResult(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale,
   logger: Logger | undefined,
-  pendingReply: PendingPurchaseReply | null = null,
   historyRepository?: TopicMessageHistoryRepository
 ): Promise<void> {
   if (result.status !== 'duplicate') {
@@ -2364,7 +2301,6 @@ async function handlePurchaseMessageResult(
   const acknowledgement = buildPurchaseAcknowledgement(result, locale)
   await finalizePurchaseReply(
     ctx,
-    pendingReply,
     acknowledgement,
     result.status === 'pending_confirmation'
       ? purchaseProposalReplyMarkup(
@@ -2816,7 +2752,6 @@ export function registerPurchaseTopicIngestion(
           result,
           locale,
           options.logger,
-          null,
           options.historyRepository
         )
         rememberAssistantTurn(
@@ -2876,11 +2811,6 @@ export function registerPurchaseTopicIngestion(
       rememberUserTurn(options.memoryStore, record)
       typingIndicator =
         options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
-      const locale = botLocaleFromContext(ctx)
-      const pendingReply =
-        options.interpreter && shouldShowProcessingReply(ctx, record, route)
-          ? await sendPurchaseProcessingReply(ctx, getBotTranslations(locale).purchase.processing)
-          : null
       const result = await repository.save(record, options.interpreter, 'GEL')
 
       if (result.status === 'ignored_not_purchase') {
@@ -2895,7 +2825,6 @@ export function registerPurchaseTopicIngestion(
         result,
         'en',
         options.logger,
-        pendingReply,
         options.historyRepository
       )
       rememberAssistantTurn(options.memoryStore, record, buildPurchaseAcknowledgement(result, 'en'))
@@ -3008,7 +2937,6 @@ export function registerConfiguredPurchaseTopicIngestion(
           result,
           householdContext.locale,
           options.logger,
-          null,
           options.historyRepository
         )
         rememberAssistantTurn(
@@ -3136,10 +3064,6 @@ export function registerConfiguredPurchaseTopicIngestion(
               )
 
               typingIndicator = startTypingIndicator(ctx)
-              const pendingReply = await sendPurchaseProcessingReply(
-                ctx,
-                getBotTranslations(householdContext.locale).purchase.processing
-              )
               const result = await repository.save(
                 record,
                 options.interpreter,
@@ -3170,7 +3094,6 @@ export function registerConfiguredPurchaseTopicIngestion(
                 result,
                 householdContext.locale,
                 options.logger,
-                pendingReply,
                 options.historyRepository
               )
               rememberAssistantTurn(
@@ -3230,6 +3153,48 @@ export function registerConfiguredPurchaseTopicIngestion(
           }
 
           case 'purchase_clarification': {
+            if (options.interpreter && looksLikeLikelyCompletedPurchase(record.rawText)) {
+              options.logger?.info(
+                {
+                  event: 'purchase.topic_processor_clarification_fallback',
+                  reason: processorResult.reason,
+                  messageText: record.rawText
+                },
+                'Falling back to purchase interpreter after topic processor requested clarification for a likely purchase'
+              )
+
+              typingIndicator = startTypingIndicator(ctx)
+              const result = await repository.save(
+                record,
+                options.interpreter,
+                householdContext.defaultCurrency,
+                {
+                  householdContext: householdContext.householdContext,
+                  assistantTone: householdContext.assistantTone
+                }
+              )
+
+              if (result.status === 'ignored_not_purchase') {
+                await next()
+                return
+              }
+
+              await handlePurchaseMessageResult(
+                ctx,
+                record,
+                result,
+                householdContext.locale,
+                options.logger,
+                options.historyRepository
+              )
+              rememberAssistantTurn(
+                options.memoryStore,
+                record,
+                buildPurchaseAcknowledgement(result, householdContext.locale)
+              )
+              return
+            }
+
             typingIndicator = startTypingIndicator(ctx)
             const interpretation = toPurchaseClarificationInterpretation(processorResult)
             const result = await repository.saveWithInterpretation(record, interpretation)
@@ -3239,7 +3204,6 @@ export function registerConfiguredPurchaseTopicIngestion(
               result,
               householdContext.locale,
               options.logger,
-              null,
               options.historyRepository
             )
             rememberAssistantTurn(
@@ -3253,10 +3217,6 @@ export function registerConfiguredPurchaseTopicIngestion(
           case 'purchase': {
             typingIndicator = startTypingIndicator(ctx)
             const interpretation = toPurchaseInterpretation(processorResult)
-            const pendingReply = await sendPurchaseProcessingReply(
-              ctx,
-              getBotTranslations(householdContext.locale).purchase.processing
-            )
             const result = await repository.saveWithInterpretation(record, interpretation)
 
             if (result.status === 'ignored_not_purchase') {
@@ -3271,7 +3231,6 @@ export function registerConfiguredPurchaseTopicIngestion(
               result,
               householdContext.locale,
               options.logger,
-              pendingReply,
               options.historyRepository
             )
             rememberAssistantTurn(

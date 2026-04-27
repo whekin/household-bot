@@ -305,6 +305,7 @@ CRITICAL: Purchase detection ONLY applies when topicRole=purchase. In generic to
 Purchase detection is CONTENT-BASED. This topic is a workflow topic, not a casual assistant thread.
 If the message reports a completed purchase (past-tense buy verb + realistic item + amount), classify as "purchase" REGARDLESS of mention/engagement.
 - Completed buy verbs: купил, bought, ordered, picked up, spent, взял, заказал, потратил, сходил взял, etc.
+- Russian completed-purchase word order can be item + completed verb + amount, for example "стиральный порошок уже купил 12 лари". This is a purchase, not clarification.
 - Realistic household items: food, groceries, household goods, toiletries, medicine, transport, cafe, restaurant
 - Amount under 500 currency units for household purchases
 - Third-person reports still count as purchases: "Дима купил швабру за 39 лари" should be "purchase", not "silent"
@@ -319,6 +320,7 @@ When classifying as "purchase":
 - amountMinor in minor currency units (350 GEL → 35000, 3.50 → 350)
 - Compute totals from quantity × price when needed, set amountSource="calculated"
 - If user names specific household members as participants, return their memberIds
+- Do not return participantMemberIds just because the sender bought the item. Return null unless the message explicitly narrows who shares it.
 - Use clarification when amount, item, or intent is unclear but purchase seems likely
 
 === PAYMENT TOPIC (topicRole=payments) ===

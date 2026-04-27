@@ -273,7 +273,6 @@ export interface BotTranslationCatalog {
   }
   purchase: {
     sharedPurchaseFallback: string
-    processing: string
     clarificationPhotoOnly: string
     proposal: (
       summary: string,

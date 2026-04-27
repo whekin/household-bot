@@ -294,7 +294,6 @@ export const enBotTranslations: BotTranslationCatalog = {
   },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
-    processing: 'Checking that purchase...',
     clarificationPhotoOnly:
       'I can see the photo, but I still need the item and total. What exactly was bought and for how much?',
     proposal: (
