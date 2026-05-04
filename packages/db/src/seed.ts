@@ -61,6 +61,7 @@ async function seed(): Promise<void> {
     rentWarningDay: 17,
     utilitiesDueDay: 4,
     utilitiesReminderDay: 3,
+    preferredUtilityPayerMemberId: null,
     timezone: 'Asia/Tbilisi'
   })
 

@@ -38,6 +38,7 @@ export const householdBillingSettings = pgTable(
     rentWarningDay: integer('rent_warning_day').default(17).notNull(),
     utilitiesDueDay: integer('utilities_due_day').default(4).notNull(),
     utilitiesReminderDay: integer('utilities_reminder_day').default(3).notNull(),
+    preferredUtilityPayerMemberId: uuid('preferred_utility_payer_member_id'),
     timezone: text('timezone').default('Asia/Tbilisi').notNull(),
     rentPaymentDestinations: jsonb('rent_payment_destinations'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

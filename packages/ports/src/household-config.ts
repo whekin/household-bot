@@ -91,6 +91,7 @@ export interface HouseholdBillingSettingsRecord {
   rentWarningDay: number
   utilitiesDueDay: number
   utilitiesReminderDay: number
+  preferredUtilityPayerMemberId: string | null
   timezone: string
   rentPaymentDestinations: readonly HouseholdRentPaymentDestination[] | null
 }
@@ -196,6 +197,7 @@ export interface HouseholdConfigurationRepository {
     rentWarningDay?: number
     utilitiesDueDay?: number
     utilitiesReminderDay?: number
+    preferredUtilityPayerMemberId?: string | null
     timezone?: string
     rentPaymentDestinations?: readonly HouseholdRentPaymentDestination[] | null
   }): Promise<HouseholdBillingSettingsRecord>

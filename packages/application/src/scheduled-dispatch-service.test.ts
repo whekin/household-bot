@@ -193,6 +193,7 @@ function billingSettings(
     rentDueDay: 5,
     rentWarningDay: 3,
     utilitiesReminderDay: 12,
+    preferredUtilityPayerMemberId: null,
     utilitiesDueDay: 15,
     rentAmountMinor: null,
     rentCurrency: 'GEL',

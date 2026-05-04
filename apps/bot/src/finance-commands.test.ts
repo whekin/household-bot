@@ -183,6 +183,7 @@ function createRepository(): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }),
@@ -739,6 +740,7 @@ describe('createFinanceCommandsService', () => {
         rentWarningDay: 17,
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
         timezone: 'Asia/Tbilisi',
         rentPaymentDestinations: [
           {
@@ -844,6 +846,7 @@ describe('createFinanceCommandsService', () => {
         rentWarningDay: 17,
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
         timezone: 'Asia/Tbilisi',
         rentPaymentDestinations: [
           {
@@ -1300,6 +1303,7 @@ describe('createFinanceCommandsService', () => {
           rentWarningDay: 17,
           utilitiesDueDay: 4,
           utilitiesReminderDay: 3,
+          preferredUtilityPayerMemberId: null,
           paymentBalanceAdjustmentPolicy: 'utilities',
           rentAmount: {
             amountMinor: '241500',

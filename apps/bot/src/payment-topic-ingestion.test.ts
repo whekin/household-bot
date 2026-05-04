@@ -73,6 +73,7 @@ function createHouseholdRepository() {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi'
     })
   }
@@ -212,6 +213,7 @@ function createFinanceService(): FinanceCommandService {
       rentWarningDay: 17,
       rentDueDay: 20,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       utilitiesDueDay: 4,
       paymentBalanceAdjustmentPolicy: 'utilities',
       rentPaymentDestinations: null,
@@ -704,6 +706,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
         rentWarningDay: 17,
         rentDueDay: 20,
         utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
         utilitiesDueDay: 4,
         paymentBalanceAdjustmentPolicy: 'utilities',
         rentPaymentDestinations: null,

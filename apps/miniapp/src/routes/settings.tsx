@@ -45,6 +45,7 @@ type BillingFormState = {
   rentWarningDay: number
   utilitiesDueDay: number
   utilitiesReminderDay: number
+  preferredUtilityPayerMemberId: string | null
   timezone: string
   rentPaymentDestinations: {
     label: string
@@ -129,6 +130,7 @@ export default function SettingsRoute() {
     rentWarningDay: 17,
     utilitiesDueDay: 4,
     utilitiesReminderDay: 3,
+    preferredUtilityPayerMemberId: null,
     timezone: 'Asia/Tbilisi',
     rentPaymentDestinations: [],
     assistantContext: '',
@@ -183,6 +185,7 @@ export default function SettingsRoute() {
       rentWarningDay: settings?.settings.rentWarningDay ?? 17,
       utilitiesDueDay: settings?.settings.utilitiesDueDay ?? 4,
       utilitiesReminderDay: settings?.settings.utilitiesReminderDay ?? 3,
+      preferredUtilityPayerMemberId: settings?.settings.preferredUtilityPayerMemberId ?? null,
       timezone: settings?.settings.timezone ?? 'Asia/Tbilisi',
       rentPaymentDestinations: [...(settings?.settings.rentPaymentDestinations ?? [])],
       assistantContext: settings?.assistantConfig?.assistantContext ?? '',
@@ -669,6 +672,15 @@ export default function SettingsRoute() {
                         value={String(settings().settings.utilitiesDueDay)}
                       />
                       <SettingsSummaryRow
+                        label={copy().preferredUtilityPayer}
+                        value={
+                          settingsMembers().find(
+                            (member) =>
+                              member.id === settings().settings.preferredUtilityPayerMemberId
+                          )?.displayName ?? copy().preferredUtilityPayerAutomatic
+                        }
+                      />
+                      <SettingsSummaryRow
                         label={copy().rentPaymentDestinationsTitle}
                         value={String(settings().settings.rentPaymentDestinations?.length ?? 0)}
                       />
@@ -1089,6 +1101,27 @@ export default function SettingsRoute() {
                     setBillingForm((form) => ({
                       ...form,
                       paymentBalanceAdjustmentPolicy: value as 'utilities' | 'rent' | 'separate'
+                    }))
+                  }
+                />
+              </Field>
+              <Field label={copy().preferredUtilityPayer} wide>
+                <Select
+                  value={billingForm().preferredUtilityPayerMemberId ?? ''}
+                  ariaLabel={copy().preferredUtilityPayer}
+                  options={[
+                    { value: '', label: copy().preferredUtilityPayerAutomatic },
+                    ...settingsMembers()
+                      .filter((member) => member.status !== 'left')
+                      .map((member) => ({
+                        value: member.id,
+                        label: member.displayName
+                      }))
+                  ]}
+                  onChange={(value) =>
+                    setBillingForm((form) => ({
+                      ...form,
+                      preferredUtilityPayerMemberId: value || null
                     }))
                   }
                 />

@@ -100,6 +100,7 @@ function createRepository(isAdmin = false): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }),

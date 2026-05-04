@@ -878,6 +878,7 @@ function utilityPlanPayloadChanged(
 
 function utilityPlanInputsChangedAfterPlan(input: {
   activePlan: Awaited<ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>>[number]
+  preferredUtilityPayerMemberId: string | null
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
     converted: ConvertedCycleMoney
@@ -895,8 +896,11 @@ function utilityPlanInputsChangedAfterPlan(input: {
   const purchasesChanged =
     currentPurchaseIds.size !== plannedPurchaseIds.size ||
     [...currentPurchaseIds].some((purchaseId) => !plannedPurchaseIds.has(purchaseId))
+  const preferredUtilityPayerChanged =
+    (input.activePlan.payload.preferredUtilityPayerMemberId ?? null) !==
+    input.preferredUtilityPayerMemberId
 
-  return utilityBillsChanged || purchasesChanged
+  return utilityBillsChanged || purchasesChanged || preferredUtilityPayerChanged
 }
 
 async function ensureUtilityBillingPlan(input: {
@@ -932,6 +936,7 @@ async function ensureUtilityBillingPlan(input: {
   const inputsChanged = activePlan
     ? utilityPlanInputsChangedAfterPlan({
         activePlan,
+        preferredUtilityPayerMemberId: input.settings.preferredUtilityPayerMemberId,
         convertedUtilityBills: input.convertedUtilityBills,
         ...(input.purchaseIds === undefined ? {} : { purchaseIds: input.purchaseIds })
       })
@@ -989,6 +994,7 @@ async function ensureUtilityBillingPlan(input: {
           amount: Money.fromMinor(fact.amountMinor, fact.currency)
         })),
         strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
+        preferredUtilityPayerMemberId: input.settings.preferredUtilityPayerMemberId,
         purchaseIds: input.purchaseIds ?? []
       })
     : materializeUtilityBillingPlanRecord(activePlan)

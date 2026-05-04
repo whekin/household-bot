@@ -56,6 +56,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
   rentWarningDay: number
   utilitiesDueDay: number
   utilitiesReminderDay: number
+  preferredUtilityPayerMemberId?: string | null
   timezone: string
   rentPaymentDestinations?: unknown
   assistantContext?: string
@@ -78,6 +79,7 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     rentWarningDay?: number
     utilitiesDueDay?: number
     utilitiesReminderDay?: number
+    preferredUtilityPayerMemberId?: string | null
     timezone?: string
     rentPaymentDestinations?: unknown
     assistantContext?: string
@@ -145,6 +147,12 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     rentWarningDay: parsed.rentWarningDay,
     utilitiesDueDay: parsed.utilitiesDueDay,
     utilitiesReminderDay: parsed.utilitiesReminderDay,
+    ...(parsed.preferredUtilityPayerMemberId === null ||
+    typeof parsed.preferredUtilityPayerMemberId === 'string'
+      ? {
+          preferredUtilityPayerMemberId: parsed.preferredUtilityPayerMemberId
+        }
+      : {}),
     timezone: parsed.timezone
   }
 }
@@ -393,6 +401,7 @@ function serializeBillingSettings(settings: HouseholdBillingSettingsRecord) {
     rentWarningDay: settings.rentWarningDay,
     utilitiesDueDay: settings.utilitiesDueDay,
     utilitiesReminderDay: settings.utilitiesReminderDay,
+    preferredUtilityPayerMemberId: settings.preferredUtilityPayerMemberId,
     timezone: settings.timezone,
     rentPaymentDestinations: settings.rentPaymentDestinations ?? null
   }
@@ -681,6 +690,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
           rentWarningDay: payload.rentWarningDay,
           utilitiesDueDay: payload.utilitiesDueDay,
           utilitiesReminderDay: payload.utilitiesReminderDay,
+          ...(payload.preferredUtilityPayerMemberId !== undefined
+            ? {
+                preferredUtilityPayerMemberId: payload.preferredUtilityPayerMemberId
+              }
+            : {}),
           timezone: payload.timezone,
           ...(payload.rentPaymentDestinations !== undefined
             ? {

@@ -46,6 +46,7 @@ export interface UtilityBillingMemberSummary {
 export interface UtilityBillingPlanComputed {
   status: FinanceUtilityBillingPlanStatus
   maxCategoriesPerMemberApplied: number
+  preferredUtilityPayerMemberId: string | null
   categories: readonly UtilityBillingCategoryAssignment[]
   memberSummaries: readonly UtilityBillingMemberSummary[]
   fairShareByMember: readonly {
@@ -76,6 +77,8 @@ interface SearchResult {
   maxCategoriesPerMemberApplied: number
   memberSummaries: readonly UtilityBillingMemberSummary[]
 }
+
+type SearchScore = readonly [bigint, bigint, number, number, number, number, number, string]
 
 type LegacyFinanceUtilityBillingPlanPayload = {
   fairShareByMember?: readonly {
@@ -291,10 +294,7 @@ function generateAllocationCandidates(input: {
   return [...candidates.values()]
 }
 
-function compareScore(
-  left: readonly [bigint, bigint, number, number, number, number, string],
-  right: readonly [bigint, bigint, number, number, number, number, string]
-): number {
+function compareScore(left: SearchScore, right: SearchScore): number {
   for (let index = 0; index < left.length - 1; index += 1) {
     const leftValue = left[index]!
     const rightValue = right[index]!
@@ -310,23 +310,24 @@ function compareScore(
 
 function compareStrategyScore(
   strategy: UtilityBillingPlanStrategy,
-  left: readonly [bigint, bigint, number, number, number, number, string],
-  right: readonly [bigint, bigint, number, number, number, number, string]
+  left: SearchScore,
+  right: SearchScore
 ): number {
   if (strategy === 'same_cycle') {
     return compareScore(left, right)
   }
 
   const remap = (
-    score: readonly [bigint, bigint, number, number, number, number, string]
-  ): readonly [number, number, number, bigint, bigint, number, string] => [
-    score[2],
+    score: SearchScore
+  ): readonly [number, number, number, number, bigint, bigint, number, string] => [
     score[3],
+    score[2],
     score[4],
+    score[5],
     score[0],
     score[1],
-    score[5],
-    score[6]
+    score[6],
+    score[7]
   ]
 
   const leftMapped = remap(left)
@@ -353,12 +354,13 @@ function searchAssignments(input: {
   vendorPaidByMemberId: ReadonlyMap<string, bigint>
   bills: readonly SearchBill[]
   strategy: UtilityBillingPlanStrategy
+  preferredUtilityPayerMemberId?: string | null
 }): SearchResult | null {
   if (input.members.length === 0) {
     return null
   }
 
-  let bestScore: readonly [bigint, bigint, number, number, number, number, string] | null = null
+  let bestScore: SearchScore | null = null
   let bestResult: SearchResult | null = null
 
   const assignedActionCount = new Map<string, number>()
@@ -389,6 +391,22 @@ function searchAssignments(input: {
         )
         .map((bill) => bill.utilityBillId)
     ).size
+    const preferredWholeBillMissCount = input.preferredUtilityPayerMemberId
+      ? input.bills.reduce((count, bill) => {
+          const billAssignments = assignments.filter(
+            (assignment) => assignment.bill.utilityBillId === bill.utilityBillId
+          )
+          if (billAssignments.length === 0) {
+            return count
+          }
+
+          return billAssignments.some(
+            (assignment) => assignment.assignedMemberId === input.preferredUtilityPayerMemberId
+          )
+            ? count
+            : count + 1
+        }, 0)
+      : 0
     const actionCounts = input.members.map(
       (member) => assignedActionCount.get(member.memberId) ?? 0
     )
@@ -396,9 +414,10 @@ function searchAssignments(input: {
     const maxActionsPerMember = actionCounts.reduce((max, count) => (count > max ? count : max), 0)
     const totalActions = actionCounts.reduce((sum, count) => sum + count, 0)
     const lexical = assignmentLexicalKey(assignments)
-    const score: readonly [bigint, bigint, number, number, number, number, string] = [
+    const score: SearchScore = [
       maxFrontingMinor,
       totalAbsDeviationMinor,
+      preferredWholeBillMissCount,
       splitCategoryCount,
       excessActionCount,
       maxActionsPerMember,
@@ -481,6 +500,7 @@ export function computeUtilityBillingPlan(input: {
   bills: readonly UtilityBillingBill[]
   vendorPayments: readonly UtilityVendorPaymentFactInput[]
   strategy?: UtilityBillingPlanStrategy
+  preferredUtilityPayerMemberId?: string | null
   purchaseIds?: readonly string[]
 }): UtilityBillingPlanComputed {
   const paidByBillId = candidatePaidByBill(input.bills, input.vendorPayments)
@@ -508,6 +528,7 @@ export function computeUtilityBillingPlan(input: {
     return {
       status: 'settled',
       maxCategoriesPerMemberApplied: 0,
+      preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       categories: [],
       memberSummaries: emptySummary,
       fairShareByMember: input.members.map((member) => ({
@@ -523,13 +544,15 @@ export function computeUtilityBillingPlan(input: {
     members: input.members,
     vendorPaidByMemberId,
     bills: searchBills,
-    strategy: input.strategy ?? 'same_cycle'
+    strategy: input.strategy ?? 'same_cycle',
+    preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null
   })
 
   if (!best) {
     return {
       status: 'settled',
       maxCategoriesPerMemberApplied: 0,
+      preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       categories: [],
       memberSummaries: emptySummary,
       fairShareByMember: input.members.map((member) => ({
@@ -548,6 +571,7 @@ export function computeUtilityBillingPlan(input: {
   return {
     status: best.assignments.length === 0 ? 'settled' : 'active',
     maxCategoriesPerMemberApplied: best.maxCategoriesPerMemberApplied,
+    preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
     categories: best.assignments.map((assignment) => ({
       utilityBillId: assignment.bill.utilityBillId,
       billName: assignment.bill.billName,
@@ -574,6 +598,7 @@ export function serializeUtilityBillingPlanPayload(
   plan: UtilityBillingPlanComputed
 ): FinanceUtilityBillingPlanPayload {
   return {
+    preferredUtilityPayerMemberId: plan.preferredUtilityPayerMemberId,
     fairShareByMember: plan.fairShareByMember.map((member) => ({
       memberId: member.memberId,
       amountMinor: toMinorString(member.amount)
@@ -658,6 +683,10 @@ export function materializeUtilityBillingPlanRecord(
   return {
     status: record.status,
     maxCategoriesPerMemberApplied: record.maxCategoriesPerMemberApplied,
+    preferredUtilityPayerMemberId:
+      'preferredUtilityPayerMemberId' in payload
+        ? (payload.preferredUtilityPayerMemberId ?? null)
+        : null,
     categories: (payload.categories ?? []).map((category) => {
       const nextCategory = category as FinanceUtilityBillingPlanPayload['categories'][number] & {
         amountMinor?: string

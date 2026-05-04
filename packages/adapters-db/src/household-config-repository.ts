@@ -249,6 +249,7 @@ function toHouseholdBillingSettingsRecord(row: {
   rentWarningDay: number
   utilitiesDueDay: number
   utilitiesReminderDay: number
+  preferredUtilityPayerMemberId: string | null
   timezone: string
   rentPaymentDestinations: unknown
 }): HouseholdBillingSettingsRecord {
@@ -264,6 +265,7 @@ function toHouseholdBillingSettingsRecord(row: {
     rentWarningDay: row.rentWarningDay,
     utilitiesDueDay: row.utilitiesDueDay,
     utilitiesReminderDay: row.utilitiesReminderDay,
+    preferredUtilityPayerMemberId: row.preferredUtilityPayerMemberId,
     timezone: row.timezone,
     rentPaymentDestinations: parseRentPaymentDestinations(row.rentPaymentDestinations)
   }
@@ -987,6 +989,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           rentWarningDay: schema.householdBillingSettings.rentWarningDay,
           utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
           utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
+          preferredUtilityPayerMemberId:
+            schema.householdBillingSettings.preferredUtilityPayerMemberId,
           timezone: schema.householdBillingSettings.timezone,
           rentPaymentDestinations: schema.householdBillingSettings.rentPaymentDestinations
         })
@@ -1067,6 +1071,11 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
                 utilitiesReminderDay: input.utilitiesReminderDay
               }
             : {}),
+          ...(input.preferredUtilityPayerMemberId !== undefined
+            ? {
+                preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId
+              }
+            : {}),
           ...(input.timezone
             ? {
                 timezone: input.timezone
@@ -1091,6 +1100,8 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
           rentWarningDay: schema.householdBillingSettings.rentWarningDay,
           utilitiesDueDay: schema.householdBillingSettings.utilitiesDueDay,
           utilitiesReminderDay: schema.householdBillingSettings.utilitiesReminderDay,
+          preferredUtilityPayerMemberId:
+            schema.householdBillingSettings.preferredUtilityPayerMemberId,
           timezone: schema.householdBillingSettings.timezone,
           rentPaymentDestinations: schema.householdBillingSettings.rentPaymentDestinations
         })

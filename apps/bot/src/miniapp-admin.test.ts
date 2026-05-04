@@ -168,6 +168,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }),
@@ -180,6 +181,7 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       rentWarningDay: input.rentWarningDay ?? 17,
       utilitiesDueDay: input.utilitiesDueDay ?? 4,
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
+      preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       timezone: input.timezone ?? 'Asia/Tbilisi',
       rentPaymentDestinations: input.rentPaymentDestinations ?? null
     }),
@@ -541,6 +543,7 @@ describe('createMiniAppSettingsHandler', () => {
         rentWarningDay: 17,
         utilitiesDueDay: 4,
         utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
         timezone: 'Asia/Tbilisi',
         paymentBalanceAdjustmentPolicy: 'utilities',
         rentPaymentDestinations: null
@@ -624,6 +627,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
           rentWarningDay: 19,
           utilitiesDueDay: 6,
           utilitiesReminderDay: 5,
+          preferredUtilityPayerMemberId: 'member-123456',
           timezone: 'Asia/Tbilisi'
         })
       })
@@ -643,6 +647,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         rentWarningDay: 19,
         utilitiesDueDay: 6,
         utilitiesReminderDay: 5,
+        preferredUtilityPayerMemberId: 'member-123456',
         timezone: 'Asia/Tbilisi',
         paymentBalanceAdjustmentPolicy: 'utilities',
         rentPaymentDestinations: null
@@ -701,6 +706,7 @@ describe('createMiniAppUpdateSettingsHandler', () => {
           rentWarningDay: 19,
           utilitiesDueDay: 6,
           utilitiesReminderDay: 5,
+          preferredUtilityPayerMemberId: null,
           timezone: 'Moon/Base'
         })
       })

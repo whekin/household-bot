@@ -87,6 +87,7 @@ export interface MiniAppAdminService {
     rentWarningDay: number
     utilitiesDueDay: number
     utilitiesReminderDay: number
+    preferredUtilityPayerMemberId?: string | null
     timezone: string
     rentPaymentDestinations?: unknown
     assistantContext?: string
@@ -464,6 +465,22 @@ export function createMiniAppAdminService(
           }
         }
       }
+      const preferredUtilityPayerMemberId =
+        input.preferredUtilityPayerMemberId === undefined
+          ? undefined
+          : input.preferredUtilityPayerMemberId?.trim() || null
+      if (preferredUtilityPayerMemberId) {
+        const members = await repository.listHouseholdMembers(input.householdId)
+        const preferredMember = members.find(
+          (member) => member.id === preferredUtilityPayerMemberId
+        )
+        if (!preferredMember || preferredMember.status === 'left') {
+          return {
+            status: 'rejected',
+            reason: 'invalid_settings'
+          }
+        }
+      }
 
       const shouldUpdateAssistantConfig =
         assistantContext !== undefined || assistantTone !== undefined
@@ -495,6 +512,11 @@ export function createMiniAppAdminService(
           rentWarningDay: input.rentWarningDay,
           utilitiesDueDay: input.utilitiesDueDay,
           utilitiesReminderDay: input.utilitiesReminderDay,
+          ...(preferredUtilityPayerMemberId !== undefined
+            ? {
+                preferredUtilityPayerMemberId
+              }
+            : {}),
           timezone,
           ...(rentPaymentDestinations !== undefined
             ? {

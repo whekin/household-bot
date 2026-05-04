@@ -64,6 +64,7 @@ export interface MiniAppBillingSettings {
   rentWarningDay: number
   utilitiesDueDay: number
   utilitiesReminderDay: number
+  preferredUtilityPayerMemberId: string | null
   timezone: string
   rentPaymentDestinations: readonly MiniAppRentPaymentDestination[] | null
 }
@@ -637,6 +638,7 @@ export async function updateMiniAppBillingSettings(
     rentWarningDay: number
     utilitiesDueDay: number
     utilitiesReminderDay: number
+    preferredUtilityPayerMemberId?: string | null
     timezone: string
     rentPaymentDestinations?: readonly MiniAppRentPaymentDestination[] | null
     assistantContext?: string

@@ -105,6 +105,7 @@ export interface FinanceUtilityBillingPlanPayload {
   categories: readonly FinanceUtilityBillingPlanCategoryPayload[]
   memberSummaries: readonly FinanceUtilityBillingPlanMemberSummaryPayload[]
   purchaseIds?: readonly string[]
+  preferredUtilityPayerMemberId?: string | null
 }
 
 export interface FinanceUtilityBillingPlanRecord {

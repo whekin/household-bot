@@ -524,6 +524,7 @@ const householdConfigurationRepository: Pick<
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }
@@ -1221,6 +1222,70 @@ describe('createFinanceCommandService', () => {
       'superseded',
       'active'
     ])
+  })
+
+  test('generateDashboard regenerates the utility plan when the preferred utility payer changes', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        billName: 'Gas',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:05:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialDashboard = await service.generateDashboard('2026-04')
+
+    expect(initialDashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(repository.utilityBillingPlans[0]?.payload.preferredUtilityPayerMemberId).toBeNull()
+
+    repository.billingSettingsOverride = {
+      preferredUtilityPayerMemberId: 'bob'
+    }
+
+    const refreshedDashboard = await service.generateDashboard('2026-04')
+
+    expect(refreshedDashboard?.utilityBillingPlan?.version).toBe(2)
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'superseded',
+      'active'
+    ])
+    expect(repository.utilityBillingPlans[1]?.payload.preferredUtilityPayerMemberId).toBe('bob')
   })
 
   test('generateDashboard exposes purchase participant splits in the ledger', async () => {

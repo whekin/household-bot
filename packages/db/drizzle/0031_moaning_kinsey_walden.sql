@@ -1,0 +1,1 @@
+ALTER TABLE "household_billing_settings" ADD COLUMN "preferred_utility_payer_member_id" uuid;

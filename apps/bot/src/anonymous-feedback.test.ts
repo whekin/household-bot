@@ -231,6 +231,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       rentWarningDay: 17,
       utilitiesDueDay: 4,
       utilitiesReminderDay: 3,
+      preferredUtilityPayerMemberId: null,
       timezone: 'Asia/Tbilisi',
       rentPaymentDestinations: null
     }),
@@ -243,6 +244,7 @@ function createHouseholdConfigurationRepository(): HouseholdConfigurationReposit
       rentWarningDay: input.rentWarningDay ?? 17,
       utilitiesDueDay: input.utilitiesDueDay ?? 4,
       utilitiesReminderDay: input.utilitiesReminderDay ?? 3,
+      preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       timezone: input.timezone ?? 'Asia/Tbilisi',
       rentPaymentDestinations: input.rentPaymentDestinations ?? null
     }),

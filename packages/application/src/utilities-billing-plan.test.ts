@@ -88,6 +88,45 @@ describe('computeUtilityBillingPlan', () => {
     ).toBe(true)
   })
 
+  test('prefers the selected member for extra utility categories when balance stays fair', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [
+        member('alice', 'Alice', '75.17'),
+        member('dima', 'Dima', '100.10'),
+        member('ion', 'Ion', '137.42'),
+        member('stas', 'Stas', '0.00')
+      ],
+      bills: [
+        bill('cleaning', 'Cleaning', '2.50'),
+        bill('electricity', 'Electricity', '56.86'),
+        bill('gas', 'Gas (Water)', '253.33')
+      ],
+      vendorPayments: [],
+      preferredUtilityPayerMemberId: 'dima'
+    })
+
+    const dimaBillNames = plan.categories
+      .filter((category) => category.assignedMemberId === 'dima')
+      .map((category) => category.billName)
+      .sort()
+
+    expect(dimaBillNames).toEqual(['Cleaning', 'Electricity', 'Gas (Water)'])
+    expect(
+      plan.memberSummaries.find((summary) => summary.memberId === 'dima')?.assignedThisCycle
+        .amountMinor
+    ).toBe(10010n)
+    expect(
+      plan.categories.filter((category) => category.assignedMemberId === 'alice')
+    ).toHaveLength(1)
+    expect(plan.categories.filter((category) => category.assignedMemberId === 'ion')).toHaveLength(
+      1
+    )
+    expect(plan.categories.filter((category) => category.assignedMemberId === 'stas')).toHaveLength(
+      0
+    )
+  })
+
   test('assigns only the unpaid remainder when a bill was already partially paid', () => {
     const plan = computeUtilityBillingPlan({
       currency: 'GEL',
