@@ -584,7 +584,7 @@ describe('createMiniAppDashboardHandler', () => {
               {
                 amountMajor: '120.00',
                 kind: 'utilities',
-                periods: ['2026-04']
+                periods: [expectedCurrentCyclePeriod('Asia/Tbilisi', 20)]
               }
             ],
             paidMajor: '500.00',

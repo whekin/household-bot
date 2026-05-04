@@ -876,6 +876,29 @@ function utilityPlanPayloadChanged(
   )
 }
 
+function utilityPlanInputsChangedAfterPlan(input: {
+  activePlan: Awaited<ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>>[number]
+  convertedUtilityBills: readonly {
+    bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
+    converted: ConvertedCycleMoney
+  }[]
+  purchaseIds?: readonly string[]
+}): boolean {
+  const plannedUtilityBillIds = new Set(
+    input.activePlan.payload.categories.map((category) => category.utilityBillId)
+  )
+  const utilityBillsChanged = input.convertedUtilityBills.some(
+    ({ bill }) => !plannedUtilityBillIds.has(bill.id)
+  )
+  const currentPurchaseIds = new Set(input.purchaseIds ?? [])
+  const plannedPurchaseIds = new Set(input.activePlan.payload.purchaseIds ?? [])
+  const purchasesChanged =
+    currentPurchaseIds.size !== plannedPurchaseIds.size ||
+    [...currentPurchaseIds].some((purchaseId) => !plannedPurchaseIds.has(purchaseId))
+
+  return utilityBillsChanged || purchasesChanged
+}
+
 async function ensureUtilityBillingPlan(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -906,20 +929,27 @@ async function ensureUtilityBillingPlan(input: {
     [...existingPlans]
       .reverse()
       .find((plan) => plan.status === 'active' || plan.status === 'settled') ?? null
+  const inputsChanged = activePlan
+    ? utilityPlanInputsChangedAfterPlan({
+        activePlan,
+        convertedUtilityBills: input.convertedUtilityBills,
+        ...(input.purchaseIds === undefined ? {} : { purchaseIds: input.purchaseIds })
+      })
+    : false
 
   // When called from payment overage allocation, don't rebalance the plan —
   // recording a payment should never shift other members' bill assignments.
-  if (input.skipRebalance && activePlan) {
+  if (input.skipRebalance && activePlan && !inputsChanged) {
     return {
       record: activePlan,
       computed: materializeUtilityBillingPlanRecord(activePlan)
     }
   }
 
-  // Only recompute the plan if there's no active plan, or if there are off-plan vendor payments.
   // On-plan payments should never trigger rebalancing - they're just tracking who paid what.
   const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
-  const shouldRecompute = !activePlan || hadOffPlanFact
+  const shouldRecompute =
+    !activePlan || hadOffPlanFact || activePlan.status !== 'settled' || inputsChanged
 
   // When recomputing, only include off-plan vendor payments in the algorithm.
   // On-plan payments are already accounted for and shouldn't affect assignments.
@@ -1071,9 +1101,11 @@ function resolveBillingStage(input: {
   const utilitiesOpen =
     input.utilityBillingPlan &&
     input.utilityBillingPlan.status !== 'settled' &&
-    input.utilityBillingPlan.categories.length > 0 &&
-    Temporal.PlainDate.compare(localDate, utilitiesReminder) >= 0 &&
-    Temporal.PlainDate.compare(localDate, rentReminder) < 0
+    input.utilityBillingPlan.memberSummaries.some(
+      (member) => member.assignedThisCycle.amountMinor > 0n
+    ) &&
+    (Temporal.PlainDate.compare(localDate, utilitiesReminder) >= 0 ||
+      Temporal.PlainDate.compare(localDate, rentReminder) >= 0)
 
   if (utilitiesOpen) {
     return 'utilities'
@@ -2668,6 +2700,7 @@ export function createFinanceCommandService(
         currency,
         createdByMemberId
       })
+      await invalidateCurrentUtilityBillingPlan(repository)
 
       return {
         amount,
@@ -2692,6 +2725,7 @@ export function createFinanceCommandService(
       if (!updated) {
         return null
       }
+      await invalidateCurrentUtilityBillingPlan(repository)
 
       return {
         billId: updated.id,
@@ -2700,8 +2734,13 @@ export function createFinanceCommandService(
       }
     },
 
-    deleteUtilityBill(billId) {
-      return repository.deleteUtilityBill(billId)
+    async deleteUtilityBill(billId) {
+      const deleted = await repository.deleteUtilityBill(billId)
+      if (deleted) {
+        await invalidateCurrentUtilityBillingPlan(repository)
+      }
+
+      return deleted
     },
 
     async updatePurchase(

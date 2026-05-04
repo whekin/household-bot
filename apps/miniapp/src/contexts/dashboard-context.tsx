@@ -283,15 +283,18 @@ function computeEffectiveBillingStage(input: {
     data.timezone,
     input.todayOverride
   )
+  const utilityPlan = data.utilityBillingPlan
 
   const utilitiesOpen =
-    Boolean(data.utilityBillingPlan) &&
-    data.utilityBillingPlan?.status !== 'settled' &&
-    (data.utilityBillingPlan?.categories.length ?? 0) > 0 &&
+    utilityPlan !== null &&
+    utilityPlan !== undefined &&
+    utilityPlan.status !== 'settled' &&
+    utilityPlan.memberSummaries.some(
+      (member) => majorStringToMinor(member.assignedThisCycleMajor) > 0n
+    ) &&
     utilitiesReminder !== null &&
     rentReminder !== null &&
-    utilitiesReminder >= 0 &&
-    rentReminder === -1
+    (utilitiesReminder >= 0 || rentReminder >= 0)
 
   if (utilitiesOpen) {
     return 'utilities'

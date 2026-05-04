@@ -478,7 +478,7 @@ export default function HomeRoute() {
       : paymentRemainingMinor(data, member.memberId, 'utilities')
     const rentDueMinor = paymentRemainingMinor(data, member.memberId, 'rent')
     const utilitiesActive =
-      utilities.active && (Boolean(data.utilityBillingPlan) || utilitiesDueMinor > 0n)
+      utilitiesDueMinor > 0n || (utilities.active && Boolean(data.utilityBillingPlan))
     const rentActive = rent.active && rentDueMinor > 0n
 
     const modes: ('rent' | 'utilities')[] = []

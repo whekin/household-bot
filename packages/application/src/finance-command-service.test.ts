@@ -724,6 +724,41 @@ describe('createFinanceCommandService', () => {
     })
   })
 
+  test('addUtilityBill invalidates an existing utility plan for the active cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    repository.openCycleRecord = {
+      id: 'cycle-current',
+      period: currentPeriod,
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-current',
+        version: 1,
+        status: 'settled',
+        dueDate: `${currentPeriod}-04`,
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    await service.addUtilityBill('Electricity', '55.20', 'member-1')
+
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
+  })
+
   test('generateStatement settles into cycle currency and persists snapshot', async () => {
     const repository = new FinanceRepositoryStub()
     repository.latestCycleRecord = {
@@ -2436,6 +2471,149 @@ describe('createFinanceCommandService', () => {
     const settledSummaries = settledDashboard?.utilityBillingPlan?.memberSummaries ?? []
     expect(settledSummaries.every((s) => s.assignedThisCycle.amountMinor === 0n)).toBe(true)
     expect(settledSummaries.every((s) => s.projectedDeltaAfterPlan.amountMinor === 0n)).toBe(true)
+  })
+
+  test('generateDashboard keeps utilities stage after rent warning while planned utilities remain unpaid', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-04', {
+      todayOverride: '2026-04-18'
+    })
+
+    expect(dashboard?.utilityBillingPlan?.status).toBe('active')
+    expect(dashboard?.billingStage).toBe('utilities')
+  })
+
+  test('generateDashboard repairs a settled utility plan when newer utility bills were added', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-05',
+      period: '2026-05',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'bob', period: '2026-05', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        cycleId: 'cycle-2026-05',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-02T10:21:00.000Z')
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-05',
+        version: 1,
+        status: 'settled',
+        dueDate: '2026-05-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '0' },
+            { memberId: 'bob', amountMinor: '0' }
+          ]
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-05', {
+      todayOverride: '2026-05-04'
+    })
+
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'superseded',
+      'active'
+    ])
+    expect(dashboard?.utilityBillingPlan?.version).toBe(2)
+    expect(dashboard?.utilityBillingPlan?.categories).toHaveLength(2)
+    expect(dashboard?.billingStage).toBe('utilities')
   })
 
   test('resolveUtilityBillAsPlanned resolves purchases when policy is utilities', async () => {
