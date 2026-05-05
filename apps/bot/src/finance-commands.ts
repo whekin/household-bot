@@ -190,46 +190,9 @@ function formatAbsoluteDate(
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
-function utilityPlanStatusLabel(
-  locale: Parameters<typeof getBotTranslations>[0],
-  status: 'active' | 'diverged' | 'superseded' | 'settled'
-): string {
-  if (status === 'settled') {
-    return locale === 'ru' ? 'Закрыто' : 'Settled'
-  }
-  if (status === 'active') {
-    return locale === 'ru' ? 'По плану' : 'On track'
-  }
-
-  return locale === 'ru' ? 'Пересчитано' : 'Rebalanced'
-}
-
 function formatSignedMoney(amount: Money, currency: 'USD' | 'GEL'): string {
   const formatted = formatUserFacingMoney(amount.toMajorString(), currency)
   return amount.amountMinor > 0n ? `+${formatted}` : formatted
-}
-
-function formatUtilityPlanTotal(input: {
-  locale: Parameters<typeof getBotTranslations>[0]
-  currency: 'USD' | 'GEL'
-  categories: readonly {
-    utilityBillId: string
-    billTotal: Money
-  }[]
-}): string {
-  const totalsByBillId = new Map<string, Money>()
-  for (const category of input.categories) {
-    if (!totalsByBillId.has(category.utilityBillId)) {
-      totalsByBillId.set(category.utilityBillId, category.billTotal)
-    }
-  }
-
-  const total = [...totalsByBillId.values()].reduce(
-    (sum, amount) => sum.add(amount),
-    Money.zero(input.currency)
-  )
-
-  return `${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(total.toMajorString(), input.currency)}`
 }
 
 function formatPurchaseDriverLine(input: {
@@ -324,12 +287,19 @@ function formatUtilityMemberBlock(input: {
     input.balance &&
     input.balance.utilityShare.amountMinor > 0n &&
     input.balance.purchaseOffset.amountMinor < 0n
+
+  // Calculate remaining balance after this cycle
+  const remainingBalance =
+    input.balance && input.summary
+      ? input.balance.purchaseOffset.add(input.balance.utilityShare)
+      : null
+
   const balanceLine =
     input.balance && input.summary
-      ? `${input.locale === 'ru' ? 'База' : 'Base'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)} · ${
+      ? `📊 ${input.locale === 'ru' ? 'База' : 'Base'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)} · ${
           input.locale === 'ru' ? 'баланс' : 'balance'
         }: ${formatSignedMoney(input.balance.purchaseOffset, input.currency)} · ${
-          input.locale === 'ru' ? 'цель' : 'target'
+          input.locale === 'ru' ? 'к оплате' : 'to pay'
         }: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
       : null
 
@@ -373,8 +343,15 @@ function formatUtilityMemberBlock(input: {
     lines.unshift(balanceLine)
   }
 
+  // Show remaining balance for covered-by-balance case
+  if (isCoveredByBalance && remainingBalance && input.detailMode === 'full') {
+    lines.push(
+      `💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
+    )
+  }
+
   const purchaseDrivers = input.balance?.purchaseDrivers ?? []
-  if (purchaseDrivers.length > 0) {
+  if (purchaseDrivers.length > 0 && input.detailMode === 'full') {
     const sortedDrivers = [...purchaseDrivers].sort((left, right) => {
       const amountComparison = right.amount.compare(left.amount)
       if (amountComparison !== 0) {
@@ -383,7 +360,7 @@ function formatUtilityMemberBlock(input: {
 
       return left.title.localeCompare(right.title)
     })
-    const visibleDrivers = input.detailMode === 'full' ? sortedDrivers : sortedDrivers.slice(0, 3)
+    const visibleDrivers = sortedDrivers
     const overflowCount = sortedDrivers.length - visibleDrivers.length
     lines.push(
       `${input.locale === 'ru' ? 'Покупки' : 'Purchases'}: ${[
@@ -771,8 +748,64 @@ export function createFinanceCommandsService(options: {
 
     const memberBlocks =
       memberEntries.length > 0
-        ? memberEntries.map((entry) =>
-            formatUtilityMemberBlock({
+        ? memberEntries.map((entry) => {
+            const isCoveredByBalance =
+              entry.payNow.amountMinor === 0n &&
+              entry.balance &&
+              entry.balance.utilityShare.amountMinor > 0n &&
+              entry.balance.purchaseOffset.amountMinor < 0n
+            const remainingBalance =
+              entry.balance && entry.summary
+                ? entry.balance.purchaseOffset.add(entry.balance.utilityShare)
+                : null
+
+            if (input.detailMode === 'compact') {
+              // Compact format for /bill
+              const categoryLines =
+                entry.payNow.amountMinor > 0n
+                  ? entry.memberCategories.map((category) => {
+                      const amountText = formatUserFacingMoney(
+                        category.assignedAmount.toMajorString(),
+                        input.currency
+                      )
+                      return `   ${category.billName}: ${amountText}`
+                    })
+                  : []
+
+              const totalLine =
+                entry.memberCategories.length > 1 && entry.payNow.amountMinor > 0n
+                  ? `   ${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
+                  : null
+
+              if (entry.payNow.amountMinor === 0n) {
+                const statusText = isCoveredByBalance
+                  ? input.locale === 'ru'
+                    ? 'Закрыто балансом'
+                    : 'Covered by balance'
+                  : input.locale === 'ru'
+                    ? 'Уже оплачено'
+                    : 'Already paid'
+
+                return [
+                  `👤 ${entry.displayName}`,
+                  `   ✅ ${statusText}`,
+                  ...(isCoveredByBalance && remainingBalance
+                    ? [
+                        `   💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
+                      ]
+                    : [])
+                ].join('\n')
+              }
+
+              return [
+                `👤 ${entry.displayName}`,
+                ...categoryLines,
+                ...(totalLine ? [totalLine] : [])
+              ].join('\n')
+            }
+
+            // Full format for /bill_full
+            return formatUtilityMemberBlock({
               locale: input.locale,
               currency: input.currency,
               displayName: entry.displayName,
@@ -802,25 +835,66 @@ export function createFinanceCommandsService(options: {
                     }),
               viewerOnly: Boolean(input.viewerMemberId)
             })
-          )
+          })
         : [
             input.locale === 'ru'
               ? 'В этом цикле по коммуналке активных назначений нет.'
               : 'No active utility assignments for this cycle.'
           ]
 
+    // Calculate base share per person
+    const totalsByBillId = new Map<string, Money>()
+    for (const category of input.plan.categories) {
+      if (!totalsByBillId.has(category.utilityBillId)) {
+        totalsByBillId.set(category.utilityBillId, category.billTotal)
+      }
+    }
+    const totalBills = [...totalsByBillId.values()].reduce(
+      (sum, amount) => sum.add(amount),
+      Money.zero(input.currency)
+    )
+    const memberCount = input.plan.memberSummaries.length || 1
+    const baseShare = Money.fromMajor(
+      (Number(totalBills.toMajorString()) / memberCount).toFixed(2),
+      input.currency
+    )
+
+    const separator =
+      input.detailMode === 'compact' ? '───────────────────────' : '═══════════════════════'
+    const memberSeparator = input.detailMode === 'compact' ? '\n' : '\n\n'
+
+    if (input.detailMode === 'compact') {
+      return [
+        `💡 ${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
+        `📅 ${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
+        '',
+        `💰 ${input.locale === 'ru' ? 'Всего счетов' : 'Total bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
+        `💵 ${input.locale === 'ru' ? 'На человека' : 'Per person'}: ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
+        '',
+        separator,
+        `${input.locale === 'ru' ? 'К оплате' : 'To pay'}:`,
+        '',
+        memberBlocks.join(memberSeparator),
+        separator,
+        '',
+        `${input.locale === 'ru' ? 'Используй' : 'Use'} /bill_full ${input.locale === 'ru' ? 'для деталей' : 'for details'}`
+      ].join('\n')
+    }
+
     return [
-      `${input.locale === 'ru' ? 'Коммуналка' : 'Utilities plan'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
-      ...(input.householdName ? [input.householdName] : []),
-      `${input.locale === 'ru' ? 'Статус' : 'Status'}: ${utilityPlanStatusLabel(input.locale, input.plan.status)}`,
-      `${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
-      formatUtilityPlanTotal({
-        locale: input.locale,
-        currency: input.currency,
-        categories: input.plan.categories
-      }),
+      `💡 ${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
+      `📅 ${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
       '',
-      memberBlocks.join('\n\n')
+      `💰 ${input.locale === 'ru' ? 'Всего счетов' : 'Total bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
+      `💵 ${input.locale === 'ru' ? 'На человека' : 'Per person'}: ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
+      '',
+      separator,
+      '',
+      memberBlocks.join(memberSeparator),
+      '',
+      separator,
+      '',
+      `${input.locale === 'ru' ? 'Используй' : 'Use'} /balance ${input.locale === 'ru' ? 'для покупок' : 'for purchases'}`
     ].join('\n')
   }
 

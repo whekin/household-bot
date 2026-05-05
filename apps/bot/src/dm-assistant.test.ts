@@ -1099,10 +1099,14 @@ describe('registerDmAssistant', () => {
 
     const renderedBill = calls
       .map((call) => (call.payload as { text?: string }).text ?? '')
-      .find((text) => text.includes('Utilities plan'))
-    expect(renderedBill).toContain('Bills: 80.00 ₾')
-    expect(renderedBill).toContain('Base: 80.00 ₾ · balance: -15.00 ₾ · target: 65.00 ₾')
+      .find((text) => text.includes('Utilities') || text.includes('Коммуналка'))
+
+    expect(renderedBill).toBeDefined()
+    expect(renderedBill).toContain('💰 Total bills: 80.00 ₾')
+    expect(renderedBill).toContain('💵 Per person: 80.00 ₾')
+    expect(renderedBill).toContain('📊 Base: 80.00 ₾ · balance: -15.00 ₾ · to pay: 65.00 ₾')
     expect(renderedBill).toContain('Purchases: Groceries -15.00 ₾')
+    expect(renderedBill).toContain('- Gas — 65.00 ₾')
     expect(await promptRepository.getPendingAction('123456', '123456')).not.toMatchObject({
       action: 'assistant_command_suggestion'
     })

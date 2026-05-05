@@ -585,10 +585,10 @@ describe('createFinanceCommandsService', () => {
       | undefined
 
     expect(payload?.text).toContain('Коммуналка')
-    expect(payload?.text).toContain('Осталось оплатить: 300.00 ₾')
-    expect(payload?.text).toContain('- Gas — 300.00 ₾')
-    expect(payload?.text).not.toContain('FULL ·')
-    expect(payload?.text).not.toContain('Сводка:')
+    expect(payload?.text).toContain('👤 Стас')
+    expect(payload?.text).toContain('Gas: 300.00 ₾')
+    expect(payload?.text).toContain('К оплате:')
+    expect(payload?.text).toContain('/bill_full для деталей')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
         {
@@ -718,13 +718,10 @@ describe('createFinanceCommandsService', () => {
     const payload = calls[0]?.payload as { text?: string } | undefined
     const text = payload?.text ?? ''
     expect(text).toContain('Коммуналка')
-    expect(text.indexOf('Стас\nОсталось оплатить: 300.00 ₾')).toBeLessThan(
-      text.indexOf('Ион\nОсталось оплатить: 80.00 ₾')
-    )
-    expect(text).toContain('- Gas — 300.00 ₾')
-    expect(text).toContain('- Internet — 80.00 ₾')
-    expect(text).not.toContain('цель 95.00 ₾')
-    expect(text).not.toContain('FULL ·')
+    expect(text.indexOf('👤 Стас')).toBeLessThan(text.indexOf('👤 Ион'))
+    expect(text).toContain('Gas: 300.00 ₾')
+    expect(text).toContain('Internet: 80.00 ₾')
+    expect(text).toContain('К оплате:')
   })
 
   test('renders utility totals and balance-covered members transparently', async () => {
@@ -939,15 +936,17 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill utilities', 'ru') as never)
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('Счета: 310.19 ₾')
-    expect(text).toContain(
-      'Стас\nБаза: 78.17 ₾ · баланс: -101.10 ₾ · цель: 0.00 ₾\nЗакрыто балансом.'
-    )
-    expect(text).toContain('Покупки: Groceries -72.00 ₾; Soap -29.10 ₾')
-    expect(text).not.toContain('Стас\nУже оплачено.')
-    expect(text).toContain('Дима\nБаза: 78.17 ₾ · баланс: -1.00 ₾ · цель: 77.17 ₾')
-    expect(text).toContain('Покупки: Tea -73.00 ₾; Groceries +72.00 ₾')
-    expect(text).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; ещё 1')
+    expect(text).toContain('💰 Всего счетов: 310.19 ₾')
+    expect(text).toContain('💵 На человека: 103.40 ₾')
+    expect(text).toContain('👤 Дима')
+    expect(text).toContain('Electricity: 56.86 ₾')
+    expect(text).toContain('Gas (Water): 20.31 ₾')
+    expect(text).toContain('Итого: 77.17 ₾')
+    expect(text).toContain('👤 Стас')
+    expect(text).toContain('✅ Закрыто балансом')
+    expect(text).toContain('💳 Остаток на след. месяц: -22.93 ₾')
+    expect(text).toContain('👤 Ион')
+    expect(text).toContain('✅ Уже оплачено')
 
     calls.length = 0
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
