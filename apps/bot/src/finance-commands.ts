@@ -500,67 +500,81 @@ export function createFinanceCommandsService(options: {
     locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
   ): string {
-    const purchases = dashboard.ledger.filter((entry) => entry.kind === 'purchase')
+    const purchases = dashboard.ledger.filter(
+      (entry) => entry.kind === 'purchase' && entry.resolutionStatus === 'unresolved'
+    )
 
-    const memberBalances = dashboard.members.map((member) => {
-      const memberPurchases = purchases.filter(
-        (p) =>
-          p.payerMemberId === member.memberId ||
-          p.purchaseParticipants?.some((part) => part.memberId === member.memberId && part.included)
-      )
+    const memberBalances = dashboard.members
+      .map((member) => {
+        const memberPurchases = purchases.filter(
+          (p) =>
+            p.payerMemberId === member.memberId ||
+            p.purchaseParticipants?.some(
+              (part) => part.memberId === member.memberId && part.included
+            )
+        )
 
-      // Show up to 3 purchases, then "ещё N"
-      const displayPurchases = memberPurchases.slice(0, 3)
-      const remainingCount = memberPurchases.length - 3
+        const purchaseLines = memberPurchases
+          .map((purchase) => {
+            const isPayer = purchase.payerMemberId === member.memberId
+            const participant = purchase.purchaseParticipants?.find(
+              (p) => p.memberId === member.memberId
+            )
+            const shareAmount = participant?.shareAmount
 
-      const purchaseLines = displayPurchases
-        .map((purchase) => {
-          const isPayer = purchase.payerMemberId === member.memberId
-          const participant = purchase.purchaseParticipants?.find(
-            (p) => p.memberId === member.memberId
-          )
-          const shareAmount = participant?.shareAmount
+            let amountText = ''
+            if (isPayer && shareAmount) {
+              // Payer who also participates: show net amount (paid - share)
+              const netAmount = purchase.displayAmount.subtract(shareAmount)
+              amountText = `${netAmount.amountMinor >= 0n ? '+' : ''}${formatUserFacingMoney(netAmount.toMajorString(), dashboard.currency)}`
+            } else if (isPayer) {
+              // Payer who doesn't participate: positive (they paid for others)
+              amountText = `+${formatUserFacingMoney(purchase.displayAmount.toMajorString(), dashboard.currency)}`
+            } else if (shareAmount) {
+              // Participant who didn't pay: negative (they owe)
+              amountText = `-${formatUserFacingMoney(shareAmount.toMajorString(), dashboard.currency)}`
+            }
 
-          if (isPayer && shareAmount) {
-            // Payer who also participates: show net amount (paid - share)
-            const netAmount = purchase.displayAmount.subtract(shareAmount)
-            const sign = netAmount.amountMinor < 0n ? '' : '+'
-            return `  • ${purchase.title}: ${sign}${formatUserFacingMoney(netAmount.toMajorString(), dashboard.currency)}`
-          } else if (isPayer) {
-            // Payer who doesn't participate: positive (credit)
-            return `  • ${purchase.title}: +${formatUserFacingMoney(purchase.displayAmount.toMajorString(), dashboard.currency)}`
-          } else if (shareAmount) {
-            // Participant who didn't pay: negative (debit)
-            return `  • ${purchase.title}: -${formatUserFacingMoney(shareAmount.toMajorString(), dashboard.currency)}`
-          }
+            // Determine participants display
+            let participantsText = ''
+            if (purchase.purchaseParticipants) {
+              const includedParticipants = purchase.purchaseParticipants.filter((p) => p.included)
+              if (includedParticipants.length === dashboard.members.length) {
+                // All members participate
+                participantsText = ' 👥'
+              } else {
+                // Specific members - show their initials
+                const initials = includedParticipants
+                  .map((p) => {
+                    const participantMember = dashboard.members.find(
+                      (m) => m.memberId === p.memberId
+                    )
+                    return participantMember?.displayName.charAt(0) || '?'
+                  })
+                  .join(', ')
+                participantsText = ` (${initials})`
+              }
+            }
+
+            return `  • ${purchase.title}: ${amountText}${participantsText}`
+          })
+          .filter((line): line is string => line !== null)
+
+        const balanceSign = member.purchaseOffset.amountMinor >= 0n ? '+' : ''
+
+        if (purchaseLines.length === 0) {
           return null
-        })
-        .filter((line): line is string => line !== null)
+        }
 
-      const balanceSign = member.purchaseOffset.amountMinor >= 0n ? '+' : ''
-
-      return [
-        `👤 ${member.displayName}`,
-        ...(member.utilityShare.amountMinor > 0n
-          ? [
-              `  ${locale === 'ru' ? 'База коммуналки' : 'Utility base'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), dashboard.currency)}`
-            ]
-          : []),
-        ...(purchaseLines.length > 0
-          ? [
-              `  ${locale === 'ru' ? 'Покупки' : 'Purchases'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)}`,
-              ...purchaseLines,
-              ...(remainingCount > 0
-                ? [`  • ${locale === 'ru' ? `ещё ${remainingCount}` : `${remainingCount} more`}`]
-                : [])
-            ]
-          : []),
-        `  ${locale === 'ru' ? 'Баланс' : 'Balance'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)}`
-      ].join('\n')
-    })
+        return [
+          `👤 ${member.displayName} (${locale === 'ru' ? 'баланс' : 'balance'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)})`,
+          ...purchaseLines
+        ].join('\n')
+      })
+      .filter((block): block is string => block !== null)
 
     return [
-      `💳 ${locale === 'ru' ? 'Балансы' : 'Balances'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      `� ${locale === 'ru' ? 'Покупки' : 'Purchases'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
       '',
       ...memberBalances.flatMap((block, index) =>
         index < memberBalances.length - 1 ? [block, ''] : [block]
