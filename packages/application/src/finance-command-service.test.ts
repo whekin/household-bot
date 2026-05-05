@@ -2660,6 +2660,16 @@ describe('createFinanceCommandService', () => {
       memberId: 'alice',
       periodArg: '2026-04'
     })
+    repository.paymentRecords = repository.addedPaymentRecords.map((r, i) => ({
+      id: `payment-record-${i + 1}`,
+      cycleId: r.cycleId,
+      cyclePeriod: '2026-04',
+      memberId: r.memberId,
+      kind: r.kind,
+      amountMinor: r.amountMinor,
+      currency: r.currency,
+      recordedAt: r.recordedAt
+    }))
     await service.resolveUtilityBillAsPlanned({
       memberId: 'alice',
       periodArg: '2026-04'
@@ -2678,6 +2688,164 @@ describe('createFinanceCommandService', () => {
       secondResult?.plan?.categories.find((category) => category.assignedMemberId === 'alice')
         ?.paidAmount.amountMinor
     ).toBe(aliceAssignedMinor)
+  })
+
+  test('resolveUtilityBillAsPlanned repairs a missing utility payment record from matched plan facts', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialDashboard = await service.generateDashboard('2026-04')
+    const aliceAssignedMinor =
+      initialDashboard?.utilityBillingPlan?.categories
+        .filter((category) => category.assignedMemberId === 'alice')
+        .reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n) ?? 0n
+
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-2026-04',
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        payerMemberId: 'alice',
+        amountMinor: aliceAssignedMinor,
+        currency: 'GEL',
+        plannedForMemberId: 'alice',
+        planVersion: 1,
+        matchedPlan: true,
+        recordedByMemberId: 'alice',
+        recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
+      }
+    ]
+
+    const result = await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(1)
+    expect(repository.addedPaymentRecords).toHaveLength(1)
+    expect(repository.addedPaymentRecords[0]).toMatchObject({
+      memberId: 'alice',
+      kind: 'utilities',
+      amountMinor: aliceAssignedMinor
+    })
+    expect(repository.utilityBillingPlans).toHaveLength(1)
+    expect(result?.plan?.version).toBe(1)
+  })
+
+  test('generateDashboard does not mint duplicate utility plan versions after off-plan utility facts', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        cycleId: 'cycle-2026-04',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:01:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    await service.generateCurrentBillPlan('2026-04')
+    await service.recordUtilityVendorPayment({
+      utilityBillId: 'bill-gas',
+      payerMemberId: 'alice',
+      actorMemberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    await Promise.all([
+      service.generateDashboard('2026-04'),
+      service.generateDashboard('2026-04'),
+      service.generateDashboard('2026-04'),
+      service.generateDashboard('2026-04')
+    ])
+
+    expect(repository.utilityBillingPlans).toHaveLength(2)
+    expect(repository.utilityBillingPlans.map((plan) => plan.version)).toEqual([1, 2])
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'diverged',
+      'active'
+    ])
   })
 
   test('generateDashboard keeps utilities stage after rent warning while planned utilities remain unpaid', async () => {

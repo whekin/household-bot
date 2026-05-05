@@ -1100,15 +1100,39 @@ async function ensureUtilityBillingPlan(input: {
         computed
       }
     }
+  }
 
+  // Another concurrent request may have already materialized the exact same plan
+  // after we loaded `activePlan`. Reuse that latest plan instead of minting a
+  // duplicate version with identical assignments.
+  const latestPlans = await input.dependencies.repository.listUtilityBillingPlansForCycle(
+    input.cycle.id
+  )
+  const latestActivePlan =
+    [...latestPlans]
+      .reverse()
+      .find((plan) => plan.status === 'active' || plan.status === 'settled') ?? null
+
+  if (latestActivePlan) {
+    const latestMaterialized = materializeUtilityBillingPlanRecord(latestActivePlan)
+    if (!utilityPlanPayloadChanged(latestMaterialized, computed)) {
+      return {
+        record: latestActivePlan,
+        computed
+      }
+    }
+  }
+
+  const planToSupersede = latestActivePlan ?? activePlan
+  if (planToSupersede) {
     await input.dependencies.repository.updateUtilityBillingPlanStatus(
-      activePlan.id,
+      planToSupersede.id,
       hadOffPlanFact ? 'diverged' : 'superseded'
     )
   }
 
   const nextVersion =
-    existingPlans.reduce((max, plan) => (plan.version > max ? plan.version : max), 0) + 1
+    latestPlans.reduce((max, plan) => (plan.version > max ? plan.version : max), 0) + 1
   const dueDate = billingPeriodLockDate(
     BillingPeriod.fromString(input.cycle.period),
     input.settings.utilitiesDueDay
@@ -1120,11 +1144,11 @@ async function ensureUtilityBillingPlan(input: {
     dueDate,
     currency: input.cycle.currency,
     maxCategoriesPerMemberApplied: computed.maxCategoriesPerMemberApplied,
-    updatedFromPlanId: activePlan?.id ?? null,
+    updatedFromPlanId: planToSupersede?.id ?? null,
     reason:
-      activePlan && vendorFacts.some((fact) => !fact.matchedPlan)
+      planToSupersede && vendorFacts.some((fact) => !fact.matchedPlan)
         ? 'rebalanced_after_off_plan_change'
-        : activePlan
+        : planToSupersede
           ? 'rebalanced_after_cycle_change'
           : null,
     payload: serializeUtilityBillingPlanPayload(computed)
@@ -3342,7 +3366,10 @@ export function createFinanceCommandService(
       }
 
       const recordedAt = nowInstant()
-      const existingVendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      const [existingVendorFacts, existingPaymentRecords] = await Promise.all([
+        repository.listUtilityVendorPaymentFactsForCycle(cycle.id),
+        repository.listPaymentRecordsForCycle(cycle.id)
+      ])
 
       const categoriesToRecord = categories
         .map((category) => {
@@ -3359,6 +3386,21 @@ export function createFinanceCommandService(
           }
         })
         .filter((item) => item.remainingMinor > 0n)
+
+      const existingMatchedPlanPaidMinor = existingVendorFacts
+        .filter((fact) => fact.matchedPlan && fact.payerMemberId === input.memberId)
+        .reduce((sum, fact) => sum + fact.amountMinor, 0n)
+      const existingUtilityPaymentMinor = existingPaymentRecords
+        .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
+        .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+      const newMatchedPlanPaidMinor = categoriesToRecord.reduce(
+        (sum, item) => sum + item.remainingMinor,
+        0n
+      )
+      const paymentAmountMinor =
+        existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor > existingUtilityPaymentMinor
+          ? existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor - existingUtilityPaymentMinor
+          : 0n
 
       // Create vendor payment facts only for still-uncovered planned amounts.
       for (const { category, remainingMinor } of categoriesToRecord) {
@@ -3377,17 +3419,14 @@ export function createFinanceCommandService(
         })
       }
 
-      // Create a payment record for the total amount paid
-      const totalAmountMinor = categoriesToRecord.reduce(
-        (sum, item) => sum + item.remainingMinor,
-        0n
-      )
-      if (totalAmountMinor > 0n) {
+      // Create or repair the corresponding utility payment record for all
+      // matched-plan vendor facts recorded for this member.
+      if (paymentAmountMinor > 0n) {
         const payment = await repository.addPaymentRecord({
           cycleId: cycle.id,
           memberId: input.memberId,
           kind: 'utilities',
-          amountMinor: totalAmountMinor,
+          amountMinor: paymentAmountMinor,
           currency: dashboard.currency,
           recordedAt
         })
@@ -3401,7 +3440,7 @@ export function createFinanceCommandService(
           cyclePeriod: dashboard.period,
           memberId: input.memberId,
           kind: 'utilities',
-          paymentAmount: Money.fromMinor(totalAmountMinor, dashboard.currency),
+          paymentAmount: Money.fromMinor(paymentAmountMinor, dashboard.currency),
           settings
         })
         await repository.replacePaymentPurchaseAllocations({
