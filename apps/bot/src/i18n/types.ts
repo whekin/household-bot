@@ -8,6 +8,7 @@ export type TelegramCommandName =
   | 'my_bill_full'
   | 'bill_json'
   | 'household_status'
+  | 'balance'
   | 'utilities'
   | 'anon'
   | 'cancel'
@@ -30,6 +31,7 @@ export interface BotCommandDescriptions {
   my_bill_full: string
   bill_json: string
   household_status: string
+  balance: string
   utilities: string
   anon: string
   cancel: string

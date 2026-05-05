@@ -101,6 +101,15 @@ export const TELEGRAM_COMMAND_CATALOG = [
     aliases: ['household status', 'current status', 'статус дома']
   },
   {
+    command: 'balance',
+    permission: 'member',
+    availability: ['private', 'group'],
+    behavior: 'read',
+    defaultCommand: true,
+    assistantExecutable: true,
+    aliases: ['balances', 'purchases', 'покупки', 'балансы']
+  },
+  {
     command: 'bill_json',
     permission: 'admin',
     availability: ['private', 'group'],

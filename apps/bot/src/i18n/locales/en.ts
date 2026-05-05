@@ -11,6 +11,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     my_bill_full: 'Show your current bill with all purchase impact',
     bill_json: 'Export the current billing calculation audit as JSON',
     household_status: 'Show current household status',
+    balance: 'Show purchase balances for all members',
     utilities: 'Post the utility entry template for this topic',
     anon: 'Send anonymous household feedback',
     cancel: 'Cancel the current prompt',

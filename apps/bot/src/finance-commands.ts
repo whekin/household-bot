@@ -496,6 +496,78 @@ export function createFinanceCommandsService(options: {
     ].join('\n')
   }
 
+  function formatBalances(
+    locale: Parameters<typeof getBotTranslations>[0],
+    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  ): string {
+    const purchases = dashboard.ledger.filter((entry) => entry.kind === 'purchase')
+
+    const memberBalances = dashboard.members.map((member) => {
+      const memberPurchases = purchases.filter(
+        (p) =>
+          p.payerMemberId === member.memberId ||
+          p.purchaseParticipants?.some((part) => part.memberId === member.memberId && part.included)
+      )
+
+      // Show up to 3 purchases, then "ещё N"
+      const displayPurchases = memberPurchases.slice(0, 3)
+      const remainingCount = memberPurchases.length - 3
+
+      const purchaseLines = displayPurchases
+        .map((purchase) => {
+          const isPayer = purchase.payerMemberId === member.memberId
+          const participant = purchase.purchaseParticipants?.find(
+            (p) => p.memberId === member.memberId
+          )
+          const shareAmount = participant?.shareAmount
+
+          if (isPayer && shareAmount) {
+            // Payer who also participates: show net amount (paid - share)
+            const netAmount = purchase.displayAmount.subtract(shareAmount)
+            const sign = netAmount.amountMinor < 0n ? '' : '+'
+            return `  • ${purchase.title}: ${sign}${formatUserFacingMoney(netAmount.toMajorString(), dashboard.currency)}`
+          } else if (isPayer) {
+            // Payer who doesn't participate: positive (credit)
+            return `  • ${purchase.title}: +${formatUserFacingMoney(purchase.displayAmount.toMajorString(), dashboard.currency)}`
+          } else if (shareAmount) {
+            // Participant who didn't pay: negative (debit)
+            return `  • ${purchase.title}: -${formatUserFacingMoney(shareAmount.toMajorString(), dashboard.currency)}`
+          }
+          return null
+        })
+        .filter((line): line is string => line !== null)
+
+      const balanceSign = member.purchaseOffset.amountMinor >= 0n ? '+' : ''
+
+      return [
+        `👤 ${member.displayName}`,
+        ...(member.utilityShare.amountMinor > 0n
+          ? [
+              `  ${locale === 'ru' ? 'База коммуналки' : 'Utility base'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), dashboard.currency)}`
+            ]
+          : []),
+        ...(purchaseLines.length > 0
+          ? [
+              `  ${locale === 'ru' ? 'Покупки' : 'Purchases'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)}`,
+              ...purchaseLines,
+              ...(remainingCount > 0
+                ? [`  • ${locale === 'ru' ? `ещё ${remainingCount}` : `${remainingCount} more`}`]
+                : [])
+            ]
+          : []),
+        `  ${locale === 'ru' ? 'Баланс' : 'Balance'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)}`
+      ].join('\n')
+    })
+
+    return [
+      `💳 ${locale === 'ru' ? 'Балансы' : 'Balances'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      '',
+      ...memberBalances.flatMap((block, index) =>
+        index < memberBalances.length - 1 ? [block, ''] : [block]
+      )
+    ].join('\n')
+  }
+
   function formatHouseholdStatus(
     locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>,
@@ -910,7 +982,7 @@ export function createFinanceCommandsService(options: {
       '',
       separator,
       '',
-      `${input.locale === 'ru' ? 'Используй' : 'Use'} /household_status ${input.locale === 'ru' ? 'для общего статуса' : 'for overall status'}`
+      `${input.locale === 'ru' ? 'Используй' : 'Use'} /balance ${input.locale === 'ru' ? 'для покупок' : 'for purchases'}`
     ].join('\n')
   }
 
@@ -1858,6 +1930,30 @@ export function createFinanceCommandsService(options: {
               }
             : {}
         )
+      } catch (error) {
+        await ctx.reply(t.statementFailed((error as Error).message))
+      }
+    })
+
+    bot.command('balance', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const t = getBotTranslations(locale).finance
+      const resolved = await requireMember(ctx)
+      if (!resolved) {
+        return
+      }
+
+      try {
+        const dashboard = await resolved.service.generateDashboard(commandArgs(ctx)[0])
+        if (!dashboard) {
+          await ctx.reply(t.noStatementCycle)
+          return
+        }
+
+        await ctx.reply(formatBalances(locale, dashboard))
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }
