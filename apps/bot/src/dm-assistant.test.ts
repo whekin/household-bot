@@ -1021,6 +1021,7 @@ describe('registerDmAssistant', () => {
                 amount: Money.fromMajor('15.00', 'GEL'),
                 direction: 'credit',
                 occurredAt: '2026-05-02T10:00:00.000Z',
+                payerMemberId: 'member-1',
                 originPeriod: '2026-05'
               }
             ]
@@ -1101,7 +1102,7 @@ describe('registerDmAssistant', () => {
       .find((text) => text.includes('Utilities plan'))
     expect(renderedBill).toContain('Bills: 80.00 ₾')
     expect(renderedBill).toContain('Base: 80.00 ₾ · balance: -15.00 ₾ · target: 65.00 ₾')
-    expect(renderedBill).toContain('Purchases: -Groceries 15.00 ₾')
+    expect(renderedBill).toContain('Purchases: Groceries -15.00 ₾')
     expect(await promptRepository.getPendingAction('123456', '123456')).not.toMatchObject({
       action: 'assistant_command_suggestion'
     })

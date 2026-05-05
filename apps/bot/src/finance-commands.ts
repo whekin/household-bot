@@ -242,7 +242,7 @@ function formatPurchaseDriverLine(input: {
   }
 }): string {
   const sign = input.driver.direction === 'credit' ? '-' : '+'
-  return `${sign}${input.driver.title} ${formatUserFacingMoney(input.driver.amount.toMajorString(), input.currency)}`
+  return `${input.driver.title} ${sign}${formatUserFacingMoney(input.driver.amount.toMajorString(), input.currency)}`
 }
 
 function formatUtilityAssignmentLine(input: {
@@ -375,9 +375,16 @@ function formatUtilityMemberBlock(input: {
 
   const purchaseDrivers = input.balance?.purchaseDrivers ?? []
   if (purchaseDrivers.length > 0) {
-    const visibleDrivers =
-      input.detailMode === 'full' ? purchaseDrivers : purchaseDrivers.slice(0, 3)
-    const overflowCount = purchaseDrivers.length - visibleDrivers.length
+    const sortedDrivers = [...purchaseDrivers].sort((left, right) => {
+      const amountComparison = right.amount.compare(left.amount)
+      if (amountComparison !== 0) {
+        return amountComparison
+      }
+
+      return left.title.localeCompare(right.title)
+    })
+    const visibleDrivers = input.detailMode === 'full' ? sortedDrivers : sortedDrivers.slice(0, 3)
+    const overflowCount = sortedDrivers.length - visibleDrivers.length
     lines.push(
       `${input.locale === 'ru' ? 'Покупки' : 'Purchases'}: ${[
         ...visibleDrivers.map((driver) =>

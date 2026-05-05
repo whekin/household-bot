@@ -749,6 +749,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('72.00', 'GEL'),
                 direction: 'credit',
                 occurredAt: '2026-05-02T10:00:00.000Z',
+                payerMemberId: 'member-1',
                 originPeriod: '2026-05'
               },
               {
@@ -757,6 +758,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('29.10', 'GEL'),
                 direction: 'credit',
                 occurredAt: '2026-05-03T10:00:00.000Z',
+                payerMemberId: 'member-1',
                 originPeriod: '2026-05'
               }
             ]
@@ -773,6 +775,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('72.00', 'GEL'),
                 direction: 'debit',
                 occurredAt: '2026-05-02T10:00:00.000Z',
+                payerMemberId: 'member-2',
                 originPeriod: '2026-05'
               },
               {
@@ -781,6 +784,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('73.00', 'GEL'),
                 direction: 'credit',
                 occurredAt: '2026-05-03T10:00:00.000Z',
+                payerMemberId: 'member-2',
                 originPeriod: '2026-05'
               }
             ]
@@ -797,6 +801,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('1.00', 'GEL'),
                 direction: 'debit',
                 occurredAt: '2026-05-01T10:00:00.000Z',
+                payerMemberId: 'member-3',
                 originPeriod: '2026-05'
               },
               {
@@ -805,6 +810,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('2.00', 'GEL'),
                 direction: 'debit',
                 occurredAt: '2026-05-02T10:00:00.000Z',
+                payerMemberId: 'member-3',
                 originPeriod: '2026-05'
               },
               {
@@ -813,6 +819,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('3.00', 'GEL'),
                 direction: 'debit',
                 occurredAt: '2026-05-03T10:00:00.000Z',
+                payerMemberId: 'member-3',
                 originPeriod: '2026-05'
               },
               {
@@ -821,6 +828,7 @@ describe('createFinanceCommandsService', () => {
                 amount: Money.fromMajor('4.00', 'GEL'),
                 direction: 'debit',
                 occurredAt: '2026-05-04T10:00:00.000Z',
+                payerMemberId: 'member-3',
                 originPeriod: '2026-05'
               }
             ]
@@ -935,17 +943,17 @@ describe('createFinanceCommandsService', () => {
     expect(text).toContain(
       'Стас\nБаза: 78.17 ₾ · баланс: -101.10 ₾ · цель: 0.00 ₾\nЗакрыто балансом.'
     )
-    expect(text).toContain('Покупки: -Groceries 72.00 ₾; -Soap 29.10 ₾')
+    expect(text).toContain('Покупки: Groceries -72.00 ₾; Soap -29.10 ₾')
     expect(text).not.toContain('Стас\nУже оплачено.')
     expect(text).toContain('Дима\nБаза: 78.17 ₾ · баланс: -1.00 ₾ · цель: 77.17 ₾')
-    expect(text).toContain('Покупки: +Groceries 72.00 ₾; -Tea 73.00 ₾')
-    expect(text).toContain('Покупки: +One 1.00 ₾; +Two 2.00 ₾; +Three 3.00 ₾; ещё 1')
+    expect(text).toContain('Покупки: Tea -73.00 ₾; Groceries +72.00 ₾')
+    expect(text).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; ещё 1')
 
     calls.length = 0
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
 
     const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(fullText).toContain('Покупки: +One 1.00 ₾; +Two 2.00 ₾; +Three 3.00 ₾; +Four 4.00 ₾')
+    expect(fullText).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; One +1.00 ₾')
     expect(fullText).not.toContain('ещё 1')
   })
 

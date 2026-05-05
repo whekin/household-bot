@@ -1352,13 +1352,7 @@ describe('createFinanceCommandService', () => {
       },
       {
         memberId: 'bob',
-        drivers: [
-          {
-            title: 'Groceries',
-            direction: 'debit',
-            amountMinor: 4500n
-          }
-        ]
+        drivers: []
       }
     ])
   })

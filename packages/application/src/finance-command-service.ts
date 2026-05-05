@@ -294,6 +294,7 @@ export interface FinanceCurrentBillPlan {
       title: string
       amount: Money
       direction: 'credit' | 'debit'
+      payerMemberId: string | null
       occurredAt: string | null
       originPeriod: string | null
     }[]
@@ -1141,6 +1142,7 @@ function purchaseDriverForMember(input: {
   title: string
   amount: Money
   direction: 'credit' | 'debit'
+  payerMemberId: string | null
   occurredAt: string | null
   originPeriod: string | null
 } | null {
@@ -1181,6 +1183,7 @@ function purchaseDriverForMember(input: {
     title: input.entry.title,
     amount: Money.fromMinor(impactMinor < 0n ? -impactMinor : impactMinor, input.currency),
     direction: impactMinor < 0n ? 'credit' : 'debit',
+    payerMemberId,
     occurredAt: input.entry.occurredAt ?? null,
     originPeriod: input.entry.originPeriod ?? null
   }
@@ -3230,7 +3233,10 @@ export function createFinanceCommandService(
                 currency: dashboard.currency
               })
             )
-            .filter((driver): driver is NonNullable<typeof driver> => driver !== null)
+            .filter(
+              (driver): driver is NonNullable<typeof driver> =>
+                driver !== null && driver.payerMemberId === member.memberId
+            )
         }))
       }
     },
