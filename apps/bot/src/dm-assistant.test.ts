@@ -1102,9 +1102,9 @@ describe('registerDmAssistant', () => {
       .find((text) => text.includes('Utilities') || text.includes('Коммуналка'))
 
     expect(renderedBill).toBeDefined()
-    expect(renderedBill).toContain('💰 Total bills: 80.00 ₾')
-    expect(renderedBill).toContain('💵 Per person: 80.00 ₾')
-    expect(renderedBill).toContain('📊 Base: 80.00 ₾ · balance: -15.00 ₾ · to pay: 65.00 ₾')
+    expect(renderedBill).toContain('💰 Bills: 80.00 ₾')
+    expect(renderedBill).toContain('share 80.00 ₾')
+    expect(renderedBill).toContain('📊 Share: 80.00 ₾ · Purchase credit: 15.00 ₾ · Plan: 65.00 ₾')
     expect(renderedBill).toContain('Purchases: Groceries -15.00 ₾')
     expect(renderedBill).toContain('- Gas — 65.00 ₾')
     expect(await promptRepository.getPendingAction('123456', '123456')).not.toMatchObject({

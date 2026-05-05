@@ -192,9 +192,54 @@ function formatAbsoluteDate(
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
-function formatSignedMoney(amount: Money, currency: 'USD' | 'GEL'): string {
-  const formatted = formatUserFacingMoney(amount.toMajorString(), currency)
-  return amount.amountMinor > 0n ? `+${formatted}` : formatted
+function formatAbsoluteMoney(amount: Money, currency: 'USD' | 'GEL'): string {
+  const absoluteMinor = amount.amountMinor < 0n ? -amount.amountMinor : amount.amountMinor
+  return formatUserFacingMoney(
+    Money.fromMinor(absoluteMinor, amount.currency).toMajorString(),
+    currency
+  )
+}
+
+function formatPurchaseBalanceLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  amount: Money
+  currency: 'USD' | 'GEL'
+}): string | null {
+  if (input.amount.amountMinor === 0n) {
+    return null
+  }
+
+  const amountText = formatAbsoluteMoney(input.amount, input.currency)
+  if (input.amount.amountMinor < 0n) {
+    return input.locale === 'ru'
+      ? `По покупкам в плюсе: ${amountText}`
+      : `Purchase credit: ${amountText}`
+  }
+
+  return input.locale === 'ru'
+    ? `По покупкам к доплате: ${amountText}`
+    : `Purchase due: ${amountText}`
+}
+
+function formatRemainingCreditLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  amount: Money
+  currency: 'USD' | 'GEL'
+}): string | null {
+  if (input.amount.amountMinor === 0n) {
+    return null
+  }
+
+  const amountText = formatAbsoluteMoney(input.amount, input.currency)
+  if (input.amount.amountMinor < 0n) {
+    return input.locale === 'ru'
+      ? `В плюсе после коммуналки: ${amountText}`
+      : `Credit after utilities: ${amountText}`
+  }
+
+  return input.locale === 'ru'
+    ? `После коммуналки к доплате: ${amountText}`
+    : `Due after utilities: ${amountText}`
 }
 
 function formatPurchaseDriverLine(input: {
@@ -295,14 +340,24 @@ function formatUtilityMemberBlock(input: {
     input.balance && input.summary
       ? input.balance.purchaseOffset.add(input.balance.utilityShare)
       : null
+  const purchaseBalanceLine =
+    input.balance && input.summary
+      ? formatPurchaseBalanceLine({
+          locale: input.locale,
+          amount: input.balance.purchaseOffset,
+          currency: input.currency
+        })
+      : null
 
   const balanceLine =
     input.balance && input.summary
-      ? `📊 ${input.locale === 'ru' ? 'База' : 'Base'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)} · ${
-          input.locale === 'ru' ? 'баланс' : 'balance'
-        }: ${formatSignedMoney(input.balance.purchaseOffset, input.currency)} · ${
-          input.locale === 'ru' ? 'к оплате' : 'to pay'
-        }: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
+      ? `📊 ${[
+          `${input.locale === 'ru' ? 'Доля' : 'Share'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)}`,
+          purchaseBalanceLine,
+          `${input.locale === 'ru' ? 'План' : 'Plan'}: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
+        ]
+          .filter(Boolean)
+          .join(' · ')}`
       : null
 
   const lines = input.viewerOnly
@@ -312,12 +367,12 @@ function formatUtilityMemberBlock(input: {
             ? isFullyPaid
               ? 'Уже оплачено.'
               : isCoveredByBalance
-                ? 'Закрыто балансом.'
+                ? 'Закрыто твоим плюсом.'
                 : 'В этом цикле платить не нужно.'
             : isFullyPaid
               ? 'Already paid.'
               : isCoveredByBalance
-                ? 'Covered by balance.'
+                ? 'Covered by your credit.'
                 : 'Nothing to pay this cycle.'
         ]
       : [
@@ -331,12 +386,12 @@ function formatUtilityMemberBlock(input: {
             ? isFullyPaid
               ? 'Уже оплачено.'
               : isCoveredByBalance
-                ? 'Закрыто балансом.'
+                ? 'Закрыто твоим плюсом.'
                 : 'Платить не нужно.'
             : isFullyPaid
               ? 'Already paid.'
               : isCoveredByBalance
-                ? 'Covered by balance.'
+                ? 'Covered by your credit.'
                 : 'Nothing to pay.'
           : `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
       ]
@@ -345,11 +400,15 @@ function formatUtilityMemberBlock(input: {
     lines.unshift(balanceLine)
   }
 
-  // Show remaining balance for covered-by-balance case
   if (isCoveredByBalance && remainingBalance && input.detailMode === 'full') {
-    lines.push(
-      `💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
-    )
+    const remainingCreditLine = formatRemainingCreditLine({
+      locale: input.locale,
+      amount: remainingBalance,
+      currency: input.currency
+    })
+    if (remainingCreditLine) {
+      lines.push(`💳 ${remainingCreditLine}`)
+    }
   }
 
   const purchaseDrivers = input.balance?.purchaseDrivers ?? []
@@ -511,6 +570,11 @@ export function createFinanceCommandsService(options: {
         const memberPurchases = purchases.filter(
           (purchase) => purchase.payerMemberId === member.memberId
         )
+        const balanceLine = formatPurchaseBalanceLine({
+          locale,
+          amount: member.purchaseOffset,
+          currency: dashboard.currency
+        })
 
         const purchaseLines = memberPurchases.map((purchase) => {
           const amountText = `-${formatUserFacingMoney(
@@ -537,14 +601,12 @@ export function createFinanceCommandsService(options: {
           return `  • ${purchase.title}: ${amountText}${participantsText}`
         })
 
-        const balanceSign = member.purchaseOffset.amountMinor >= 0n ? '+' : ''
-
-        if (purchaseLines.length === 0) {
+        if (!balanceLine && purchaseLines.length === 0) {
           return null
         }
 
         return [
-          `👤 ${member.displayName} (${locale === 'ru' ? 'баланс' : 'balance'}: ${balanceSign}${formatUserFacingMoney(member.purchaseOffset.toMajorString(), dashboard.currency)})`,
+          `👤 ${member.displayName}${balanceLine ? ` · ${balanceLine.toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US')}` : ''}`,
           ...purchaseLines
         ].join('\n')
       })
@@ -832,53 +894,49 @@ export function createFinanceCommandsService(options: {
               entry.balance && entry.summary
                 ? entry.balance.purchaseOffset.add(entry.balance.utilityShare)
                 : null
+            const purchaseBalanceLine = entry.balance
+              ? formatPurchaseBalanceLine({
+                  locale: input.locale,
+                  amount: entry.balance.purchaseOffset,
+                  currency: input.currency
+                })
+              : null
 
             if (input.detailMode === 'compact') {
-              // Compact format for /bill
-              const categoryLines =
-                entry.payNow.amountMinor > 0n
-                  ? entry.memberCategories.map((category) => {
-                      const amountText = formatUserFacingMoney(
-                        category.assignedAmount.toMajorString(),
-                        input.currency
-                      )
-                      return `  • ${category.billName}: ${amountText}`
-                    })
-                  : []
-
-              const totalLine =
-                entry.memberCategories.length > 1 && entry.payNow.amountMinor > 0n
-                  ? `  • ${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
-                  : null
-
               if (entry.payNow.amountMinor === 0n) {
                 const statusText = isCoveredByBalance
                   ? input.locale === 'ru'
-                    ? 'Закрыто балансом'
-                    : 'Covered by balance'
+                    ? 'Закрыто твоим плюсом'
+                    : 'Covered by your credit'
                   : input.locale === 'ru'
                     ? 'Уже оплачено'
                     : 'Already paid'
+                const remainingCreditLine =
+                  isCoveredByBalance && remainingBalance
+                    ? formatRemainingCreditLine({
+                        locale: input.locale,
+                        amount: remainingBalance,
+                        currency: input.currency
+                      })
+                    : null
 
                 return [
                   `👤 ${entry.displayName}`,
                   `  ✅ ${statusText}`,
-                  ...(isCoveredByBalance && remainingBalance
-                    ? [
-                        `  💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
-                      ]
+                  ...(remainingCreditLine ? [`  • ${remainingCreditLine}`] : []),
+                  ...(!isCoveredByBalance && purchaseBalanceLine
+                    ? [`  • ${purchaseBalanceLine}`]
                     : [])
                 ].join('\n')
               }
 
               return [
                 `👤 ${entry.displayName}`,
-                ...categoryLines,
-                ...(totalLine ? [totalLine] : [])
+                `  • ${input.locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`,
+                ...(purchaseBalanceLine ? [`  • ${purchaseBalanceLine}`] : [])
               ].join('\n')
             }
 
-            // Full format for /bill_full
             return formatUtilityMemberBlock({
               locale: input.locale,
               currency: input.currency,
@@ -933,43 +991,32 @@ export function createFinanceCommandsService(options: {
       input.currency
     )
 
-    const separator =
-      input.detailMode === 'compact' ? '───────────────────────' : '═══════════════════════'
     const memberSeparator = input.detailMode === 'compact' ? '\n\n' : '\n\n'
 
     if (input.detailMode === 'compact') {
       return [
         `💡 ${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
-        `📅 ${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
-        '',
-        `💰 ${input.locale === 'ru' ? 'Всего счетов' : 'Total bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
-        `💵 ${input.locale === 'ru' ? 'На человека' : 'Per person'}: ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
-        '',
-        separator,
-        `${input.locale === 'ru' ? 'К оплате' : 'To pay'}:`,
+        `📅 ${input.locale === 'ru' ? 'До' : 'Due'} ${formatAbsoluteDate(input.locale, input.plan.dueDate)} · ${
+          input.locale === 'ru' ? 'доля' : 'share'
+        } ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
+        `💰 ${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
         '',
         memberBlocks.join(memberSeparator),
         '',
-        separator,
-        '',
-        `${input.locale === 'ru' ? 'Используй' : 'Use'} /bill_full ${input.locale === 'ru' ? 'для деталей' : 'for details'}`
+        `${input.locale === 'ru' ? 'Детали' : 'Details'}: /bill_full`
       ].join('\n')
     }
 
     return [
-      `💡 ${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
-      `📅 ${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
-      '',
-      `💰 ${input.locale === 'ru' ? 'Всего счетов' : 'Total bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
-      `💵 ${input.locale === 'ru' ? 'На человека' : 'Per person'}: ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
-      '',
-      separator,
+      `🔎 ${input.locale === 'ru' ? 'Детали коммуналки' : 'Utilities details'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
+      `📅 ${input.locale === 'ru' ? 'До' : 'Due'} ${formatAbsoluteDate(input.locale, input.plan.dueDate)} · ${
+        input.locale === 'ru' ? 'доля' : 'share'
+      } ${formatUserFacingMoney(baseShare.toMajorString(), input.currency)}`,
+      `💰 ${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(totalBills.toMajorString(), input.currency)}`,
       '',
       memberBlocks.join(memberSeparator),
       '',
-      separator,
-      '',
-      `${input.locale === 'ru' ? 'Используй' : 'Use'} /balance ${input.locale === 'ru' ? 'для покупок' : 'for purchases'}`
+      `${input.locale === 'ru' ? 'Покупки' : 'Purchases'}: /balance`
     ].join('\n')
   }
 

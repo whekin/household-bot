@@ -511,7 +511,7 @@ describe('createFinanceCommandsService', () => {
             displayName: 'Стас',
             rentShare: Money.fromMajor('200', 'GEL'),
             utilityShare: Money.fromMajor('20', 'GEL'),
-            purchaseOffset: Money.fromMajor('-15', 'GEL'),
+            purchaseOffset: Money.fromMajor('15', 'GEL'),
             netDue: Money.fromMajor('215', 'GEL'),
             paid: Money.zero('GEL'),
             remaining: Money.fromMajor('215', 'GEL'),
@@ -523,7 +523,7 @@ describe('createFinanceCommandsService', () => {
             displayName: 'Дима',
             rentShare: Money.fromMajor('200', 'GEL'),
             utilityShare: Money.fromMajor('20', 'GEL'),
-            purchaseOffset: Money.fromMajor('15', 'GEL'),
+            purchaseOffset: Money.fromMajor('-15', 'GEL'),
             netDue: Money.fromMajor('185', 'GEL'),
             paid: Money.zero('GEL'),
             remaining: Money.fromMajor('185', 'GEL'),
@@ -605,8 +605,8 @@ describe('createFinanceCommandsService', () => {
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     expect(text).toContain('🛒 Покупки · май 2026')
-    expect(text).not.toContain('👤 Стас')
-    expect(text).toContain('👤 Дима (баланс: +15.00 ₾)')
+    expect(text).toContain('👤 Стас · по покупкам к доплате: 15.00 ₾')
+    expect(text).toContain('👤 Дима · по покупкам в плюсе: 15.00 ₾')
     expect(text).toContain('  • Корм: -30.00 ₾ 👥')
   })
 
@@ -700,9 +700,9 @@ describe('createFinanceCommandsService', () => {
 
     expect(payload?.text).toContain('Коммуналка')
     expect(payload?.text).toContain('👤 Стас')
-    expect(payload?.text).toContain('Gas: 300.00 ₾')
-    expect(payload?.text).toContain('К оплате:')
-    expect(payload?.text).toContain('/bill_full для деталей')
+    expect(payload?.text).toContain('К оплате: 300.00 ₾')
+    expect(payload?.text).not.toContain('Gas: 300.00 ₾')
+    expect(payload?.text).toContain('Детали: /bill_full')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
         {
@@ -833,9 +833,10 @@ describe('createFinanceCommandsService', () => {
     const text = payload?.text ?? ''
     expect(text).toContain('Коммуналка')
     expect(text.indexOf('👤 Стас')).toBeLessThan(text.indexOf('👤 Ион'))
-    expect(text).toContain('Gas: 300.00 ₾')
-    expect(text).toContain('Internet: 80.00 ₾')
-    expect(text).toContain('К оплате:')
+    expect(text).toContain('К оплате: 300.00 ₾')
+    expect(text).toContain('К оплате: 80.00 ₾')
+    expect(text).not.toContain('Gas: 300.00 ₾')
+    expect(text).not.toContain('Internet: 80.00 ₾')
   })
 
   test('renders utility totals and balance-covered members transparently', async () => {
@@ -1050,15 +1051,16 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill utilities', 'ru') as never)
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('💰 Всего счетов: 310.19 ₾')
-    expect(text).toContain('💵 На человека: 103.40 ₾')
+    expect(text).toContain('💰 Счета: 310.19 ₾')
+    expect(text).toContain('доля 103.40 ₾')
     expect(text).toContain('👤 Дима')
-    expect(text).toContain('Electricity: 56.86 ₾')
-    expect(text).toContain('Gas (Water): 20.31 ₾')
-    expect(text).toContain('Итого: 77.17 ₾')
+    expect(text).toContain('К оплате: 77.17 ₾')
+    expect(text).toContain('По покупкам в плюсе: 1.00 ₾')
+    expect(text).not.toContain('Electricity: 56.86 ₾')
+    expect(text).not.toContain('Gas (Water): 20.31 ₾')
     expect(text).toContain('👤 Стас')
-    expect(text).toContain('✅ Закрыто балансом')
-    expect(text).toContain('💳 Остаток на след. месяц: -22.93 ₾')
+    expect(text).toContain('✅ Закрыто твоим плюсом')
+    expect(text).toContain('В плюсе после коммуналки: 22.93 ₾')
     expect(text).toContain('👤 Ион')
     expect(text).toContain('✅ Уже оплачено')
 
@@ -1066,6 +1068,8 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
 
     const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(fullText).toContain('Electricity — 56.86 ₾')
+    expect(fullText).toContain('Gas (Water) — 20.31 ₾ из 253.33 ₾')
     expect(fullText).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; One +1.00 ₾')
     expect(fullText).not.toContain('ещё 1')
   })
