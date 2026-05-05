@@ -52,7 +52,9 @@ function formatBillingPeriodLabel(
     timeZone: 'UTC'
   })
 
-  return formatter.format(new Date(Date.UTC(year, month - 1, 1)))
+  const formatted = formatter.format(new Date(Date.UTC(year, month - 1, 1)))
+
+  return locale === 'ru' ? formatted.replace(/\s?г\.$/u, '') : formatted
 }
 
 function formatCycleDueDate(
@@ -507,58 +509,33 @@ export function createFinanceCommandsService(options: {
     const memberBalances = dashboard.members
       .map((member) => {
         const memberPurchases = purchases.filter(
-          (p) =>
-            p.payerMemberId === member.memberId ||
-            p.purchaseParticipants?.some(
-              (part) => part.memberId === member.memberId && part.included
-            )
+          (purchase) => purchase.payerMemberId === member.memberId
         )
 
-        const purchaseLines = memberPurchases
-          .map((purchase) => {
-            const isPayer = purchase.payerMemberId === member.memberId
-            const participant = purchase.purchaseParticipants?.find(
-              (p) => p.memberId === member.memberId
-            )
-            const shareAmount = participant?.shareAmount
+        const purchaseLines = memberPurchases.map((purchase) => {
+          const amountText = `-${formatUserFacingMoney(
+            purchase.displayAmount.toMajorString(),
+            dashboard.currency
+          )}`
 
-            let amountText = ''
-            if (isPayer && shareAmount) {
-              // Payer who also participates: show net amount (paid - share)
-              const netAmount = purchase.displayAmount.subtract(shareAmount)
-              amountText = `${netAmount.amountMinor >= 0n ? '+' : ''}${formatUserFacingMoney(netAmount.toMajorString(), dashboard.currency)}`
-            } else if (isPayer) {
-              // Payer who doesn't participate: positive (they paid for others)
-              amountText = `+${formatUserFacingMoney(purchase.displayAmount.toMajorString(), dashboard.currency)}`
-            } else if (shareAmount) {
-              // Participant who didn't pay: negative (they owe)
-              amountText = `-${formatUserFacingMoney(shareAmount.toMajorString(), dashboard.currency)}`
+          let participantsText = ''
+          if (purchase.purchaseParticipants) {
+            const includedParticipants = purchase.purchaseParticipants.filter((p) => p.included)
+            if (includedParticipants.length === dashboard.members.length) {
+              participantsText = ' 👥'
+            } else {
+              const initials = includedParticipants
+                .map((p) => {
+                  const participantMember = dashboard.members.find((m) => m.memberId === p.memberId)
+                  return participantMember?.displayName.charAt(0) || '?'
+                })
+                .join(', ')
+              participantsText = ` (${initials})`
             }
+          }
 
-            // Determine participants display
-            let participantsText = ''
-            if (purchase.purchaseParticipants) {
-              const includedParticipants = purchase.purchaseParticipants.filter((p) => p.included)
-              if (includedParticipants.length === dashboard.members.length) {
-                // All members participate
-                participantsText = ' 👥'
-              } else {
-                // Specific members - show their initials
-                const initials = includedParticipants
-                  .map((p) => {
-                    const participantMember = dashboard.members.find(
-                      (m) => m.memberId === p.memberId
-                    )
-                    return participantMember?.displayName.charAt(0) || '?'
-                  })
-                  .join(', ')
-                participantsText = ` (${initials})`
-              }
-            }
-
-            return `  • ${purchase.title}: ${amountText}${participantsText}`
-          })
-          .filter((line): line is string => line !== null)
+          return `  • ${purchase.title}: ${amountText}${participantsText}`
+        })
 
         const balanceSign = member.purchaseOffset.amountMinor >= 0n ? '+' : ''
 
@@ -574,7 +551,7 @@ export function createFinanceCommandsService(options: {
       .filter((block): block is string => block !== null)
 
     return [
-      `� ${locale === 'ru' ? 'Покупки' : 'Purchases'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      `🛒 ${locale === 'ru' ? 'Покупки' : 'Purchases'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
       '',
       ...memberBalances.flatMap((block, index) =>
         index < memberBalances.length - 1 ? [block, ''] : [block]
@@ -597,66 +574,62 @@ export function createFinanceCommandsService(options: {
 
     const rentLine =
       dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency
-        ? `   ${t.householdStatusRentDirect(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
-        : `   ${t.householdStatusRentConverted(dashboard.rentSourceAmount.toMajorString(), dashboard.rentSourceAmount.currency, dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
+        ? `  • ${t.householdStatusRentDirect(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
+        : `  • ${t.householdStatusRentConverted(dashboard.rentSourceAmount.toMajorString(), dashboard.rentSourceAmount.currency, dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
 
     const memberLines = [...dashboard.members]
       .sort((left, right) => right.remaining.compare(left.remaining))
       .map((member) =>
         member.paid.isZero()
-          ? `   👤 ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)}`
-          : `   👤 ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)} (${formatUserFacingMoney(member.netDue.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'баланс' : 'balance'}, ${formatUserFacingMoney(member.paid.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'оплачено' : 'paid'})`
+          ? `  • ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)}`
+          : `  • ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)} (${locale === 'ru' ? 'баланс' : 'balance'} ${formatUserFacingMoney(member.netDue.toMajorString(), dashboard.currency)}, ${locale === 'ru' ? 'оплачено' : 'paid'} ${formatUserFacingMoney(member.paid.toMajorString(), dashboard.currency)})`
       )
 
-    // Build settlement section based on billing stage
     let settlementLines: string[]
 
     if (dashboard.billingStage === 'utilities') {
-      // During utilities period, show utilities breakdown
       settlementLines = [
         `📊 ${locale === 'ru' ? 'Коммуналка' : 'Utilities'}`,
-        `   ${locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(utilityTotal.toMajorString(), dashboard.currency)}`,
+        `  • ${locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(utilityTotal.toMajorString(), dashboard.currency)}`,
         ...(!dashboard.totalPaid.isZero()
           ? [
-              `   ${locale === 'ru' ? 'Уже оплачено' : 'Already paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
+              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
             ]
           : []),
-        `   ${locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
+        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
       ]
     } else if (dashboard.billingStage === 'rent') {
-      // During rent period, show rent breakdown
       settlementLines = [
         `📊 ${locale === 'ru' ? 'Аренда' : 'Rent'}`,
-        `   ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`,
+        `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`,
         ...(!dashboard.totalPaid.isZero()
           ? [
-              `   ${locale === 'ru' ? 'Уже оплачено' : 'Already paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
+              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
             ]
           : []),
-        `   ${locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
+        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
       ]
     } else {
-      // During idle period, show full breakdown
       settlementLines = [
         `📊 ${locale === 'ru' ? 'Расчёты' : 'Settlement'}`,
-        `   ${locale === 'ru' ? 'Всего начислено' : 'Total charged'}: ${formatUserFacingMoney(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
+        `  • ${locale === 'ru' ? 'Начислено' : 'Charged'}: ${formatUserFacingMoney(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
         ...(!dashboard.totalPaid.isZero()
           ? [
-              `   ${locale === 'ru' ? 'Уже оплачено' : 'Already paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
+              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
             ]
           : []),
-        `   ${locale === 'ru' ? 'Текущий баланс' : 'Current balance'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
+        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
       ]
     }
 
     return [
-      `🏠 ${t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period))}`,
-      `📅 ${t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay))}`,
+      `🏠 ${locale === 'ru' ? 'Дом' : 'Household'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      `📅 ${locale === 'ru' ? 'Аренда до' : 'Rent due'} ${formatCycleDueDate(locale, dashboard.period, dueDay)}`,
       '',
       `💰 ${t.householdStatusChargesHeading}`,
       rentLine,
-      `   ${t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency)}`,
-      `   ${t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency)}`,
+      `  • ${t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency)}`,
+      `  • ${t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency)}`,
       '',
       ...settlementLines,
       '',

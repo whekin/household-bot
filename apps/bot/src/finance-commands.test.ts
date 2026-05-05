@@ -481,21 +481,133 @@ describe('createFinanceCommandsService', () => {
 
     const payload = calls[0]?.payload as { text?: string } | undefined
     expect(payload?.text).toContain('🏠')
-    expect(payload?.text).toContain('Статус на март 2026')
+    expect(payload?.text).toContain('Дом · март 2026')
     expect(payload?.text).toContain('💰 Начисления')
     expect(payload?.text).toContain('Аренда: $700.00 (~1890.00 ₾)')
     expect(payload?.text).toContain('Коммуналка: 82.00 ₾')
     expect(payload?.text).toContain('Общие покупки: 30.00 ₾')
     expect(payload?.text).toContain('📅')
-    expect(payload?.text).toContain('Срок оплаты аренды: до 20 марта')
+    expect(payload?.text).toContain('Аренда до 20 марта')
     expect(payload?.text).toContain('📊 Расчёты')
-    expect(payload?.text).toContain('Всего начислено: 400.00 ₾')
-    expect(payload?.text).toContain('Уже оплачено: 100.00 ₾')
-    expect(payload?.text).toContain('Текущий баланс: 300.00 ₾')
+    expect(payload?.text).toContain('Начислено: 400.00 ₾')
+    expect(payload?.text).toContain('Оплачено: 100.00 ₾')
+    expect(payload?.text).toContain('Осталось: 300.00 ₾')
     expect(payload?.text).toContain('👥 Участники')
-    expect(payload?.text).toContain('👤 Ион: 190.00 ₾')
-    expect(payload?.text).toContain('👤 Стас: 110.00 ₾ (210.00 ₾ баланс, 100.00 ₾ оплачено)')
-    expect(payload?.text).not.toContain('👤 Ион: 190.00 ₾ (')
+    expect(payload?.text).toContain('• Ион: 190.00 ₾')
+    expect(payload?.text).toContain('• Стас: 110.00 ₾ (баланс 210.00 ₾, оплачено 100.00 ₾)')
+    expect(payload?.text).not.toContain('• Ион: 190.00 ₾ (')
+  })
+
+  test('renders purchase balance lines only under the member who paid', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => ({
+        ...createDashboard(),
+        period: '2026-05',
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            rentShare: Money.fromMajor('200', 'GEL'),
+            utilityShare: Money.fromMajor('20', 'GEL'),
+            purchaseOffset: Money.fromMajor('-15', 'GEL'),
+            netDue: Money.fromMajor('215', 'GEL'),
+            paid: Money.zero('GEL'),
+            remaining: Money.fromMajor('215', 'GEL'),
+            overduePayments: [],
+            explanations: []
+          },
+          {
+            memberId: 'member-2',
+            displayName: 'Дима',
+            rentShare: Money.fromMajor('200', 'GEL'),
+            utilityShare: Money.fromMajor('20', 'GEL'),
+            purchaseOffset: Money.fromMajor('15', 'GEL'),
+            netDue: Money.fromMajor('185', 'GEL'),
+            paid: Money.zero('GEL'),
+            remaining: Money.fromMajor('185', 'GEL'),
+            overduePayments: [],
+            explanations: []
+          }
+        ],
+        ledger: [
+          {
+            id: 'purchase-1',
+            kind: 'purchase',
+            title: 'Корм',
+            memberId: 'member-2',
+            amount: Money.fromMajor('30', 'GEL'),
+            currency: 'GEL',
+            displayAmount: Money.fromMajor('30', 'GEL'),
+            displayCurrency: 'GEL',
+            fxRateMicros: null,
+            fxEffectiveDate: null,
+            actorDisplayName: 'Дима',
+            occurredAt: instantFromIso('2026-05-03T12:00:00.000Z').toString(),
+            paymentKind: null,
+            payerMemberId: 'member-2',
+            resolutionStatus: 'unresolved',
+            purchaseParticipants: [
+              {
+                memberId: 'member-1',
+                included: true,
+                shareAmount: Money.fromMajor('15', 'GEL')
+              },
+              {
+                memberId: 'member-2',
+                included: true,
+                shareAmount: Money.fromMajor('15', 'GEL')
+              }
+            ]
+          }
+        ]
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/balance', 'ru') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).toContain('🛒 Покупки · май 2026')
+    expect(text).not.toContain('👤 Стас')
+    expect(text).toContain('👤 Дима (баланс: +15.00 ₾)')
+    expect(text).toContain('  • Корм: -30.00 ₾ 👥')
   })
 
   test('renders the utility bill plan and quick action button for assigned members', async () => {
