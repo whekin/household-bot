@@ -1738,11 +1738,32 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           },
           'Mini app utility plan resolve requested'
         )
-        await service.resolveUtilityBillAsPlanned({
+        const result = await service.resolveUtilityBillAsPlanned({
           memberId,
           actorMemberId: auth.member.id,
           ...(payload.period ? { periodArg: payload.period } : {})
         })
+        if (!result) {
+          options.logger?.warn(
+            {
+              event: 'miniapp.utility_plan.resolve_unavailable',
+              householdId: auth.member.householdId,
+              memberId,
+              actorMemberId: auth.member.id,
+              period: payload.period ?? null
+            },
+            'Mini app utility plan resolve requested without an active plan'
+          )
+          return miniAppJsonResponse(
+            {
+              ok: false,
+              authorized: true,
+              error: 'No active utility plan is available for this member'
+            },
+            409,
+            origin
+          )
+        }
         options.logger?.info(
           {
             event: 'miniapp.utility_plan.resolve_completed',

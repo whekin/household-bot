@@ -18,6 +18,7 @@ import {
   paymentDraftForEntry,
   type PaymentDraft
 } from '../lib/ledger-helpers'
+import { majorStringToMinor } from '../lib/money'
 import {
   addMiniAppPayment,
   deleteMiniAppPayment,
@@ -84,6 +85,16 @@ export function PaymentsManager() {
       label: member.displayName
     }))
   )
+  const actionableUtilityPlanMembers = createMemo(() => {
+    const plan = dashboard()?.utilityBillingPlan
+    if (!plan) return new Set<string>()
+
+    return new Set(
+      plan.memberSummaries
+        .filter((summary) => majorStringToMinor(summary.assignedThisCycleMajor) > 0n)
+        .map((summary) => summary.memberId)
+    )
+  })
 
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [addPaymentOpen, setAddPaymentOpen] = createSignal(false)
@@ -123,9 +134,17 @@ export function PaymentsManager() {
     try {
       setPaymentActionError(null)
 
-      // For utilities, use the utility plan resolution API which creates vendor payment facts
-      // For rent, use the regular payment API
-      if (input.kind === 'utilities') {
+      const usePlannedUtilityResolution =
+        input.kind === 'utilities' && actionableUtilityPlanMembers().has(input.memberId)
+
+      console.info('[miniapp] quick payment start', {
+        memberId: input.memberId,
+        kind: input.kind,
+        period: current.period,
+        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
+      })
+
+      if (usePlannedUtilityResolution) {
         await resolveMiniAppUtilityPlan(data, {
           memberId: input.memberId,
           period: current.period
@@ -140,8 +159,19 @@ export function PaymentsManager() {
         })
       }
 
+      console.info('[miniapp] quick payment completed', {
+        memberId: input.memberId,
+        kind: input.kind,
+        period: current.period,
+        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
+      })
       await refreshDashboardData()
     } catch (error) {
+      console.error('[miniapp] quick payment failed', {
+        memberId: input.memberId,
+        kind: input.kind,
+        error
+      })
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
       setProcessingMember(null)

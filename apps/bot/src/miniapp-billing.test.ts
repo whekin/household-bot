@@ -914,6 +914,56 @@ describe('utility billing action handlers', () => {
     ])
   })
 
+  test('resolve planned utility payment returns 409 when no active plan exists', async () => {
+    const repository = onboardingRepository()
+    const financeService = {
+      ...createFinanceServiceStub(),
+      resolveUtilityBillAsPlanned: async function (
+        input: Parameters<FinanceCommandService['resolveUtilityBillAsPlanned']>[0]
+      ) {
+        this.resolvedUtilityPlans.push(input)
+        return null
+      }
+    }
+    const handler = createMiniAppResolveUtilityPlanHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/resolve-planned', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          memberId: 'member-123456',
+          period: '2026-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false,
+      authorized: true,
+      error: 'No active utility plan is available for this member'
+    })
+    expect(financeService.resolvedUtilityPlans).toEqual([
+      {
+        memberId: 'member-123456',
+        actorMemberId: 'member-123456',
+        periodArg: '2026-03'
+      }
+    ])
+  })
+
   test('custom vendor payment supports admin acting for another member', async () => {
     const repository = onboardingRepository()
     const financeService = createFinanceServiceStub()
