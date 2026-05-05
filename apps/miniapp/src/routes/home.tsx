@@ -15,7 +15,12 @@ import { Input } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
 import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatMoneyLabel } from '../lib/ledger-helpers'
+import {
+  formatAbsoluteMoneyLabel,
+  formatMoneyLabel,
+  formatSemanticMoneyLabel,
+  semanticMoneyTone
+} from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   type CalendarDateParts,
@@ -797,34 +802,13 @@ export default function HomeRoute() {
                   const idlePurchases = () => currentPurchaseEntries().slice(0, 3)
                   const hasMoreIdlePurchases = () => currentPurchaseEntries().length > 3
                   const coveredPurchases = () => otherPurchaseEntries().slice(0, 2)
-                  const purchaseBalanceMinor = () =>
-                    majorStringToMinor(member().purchaseOffsetMajor)
-                  const purchaseBalanceTone = () => {
-                    const balanceMinor = purchaseBalanceMinor()
-                    if (balanceMinor < 0n) {
-                      return 'is-credit'
-                    }
-                    if (balanceMinor > 0n) {
-                      return 'is-debit'
-                    }
-                    return 'is-neutral'
-                  }
-                  const purchaseBalanceSummary = () => {
-                    const balanceMinor = purchaseBalanceMinor()
-                    if (balanceMinor < 0n) {
-                      return locale() === 'ru'
-                        ? 'По общим покупкам ты сейчас впереди.'
-                        : 'You are currently ahead on shared purchases.'
-                    }
-                    if (balanceMinor > 0n) {
-                      return locale() === 'ru'
-                        ? 'Сейчас по общим покупкам впереди другие.'
-                        : 'Others are currently ahead on shared purchases.'
-                    }
-                    return locale() === 'ru'
-                      ? 'По общим покупкам у тебя сейчас ровный баланс.'
-                      : 'Your shared-purchases balance is even right now.'
-                  }
+                  const purchaseBalanceTone = () => semanticMoneyTone(member().purchaseOffsetMajor)
+                  const purchaseBalanceSummary = () =>
+                    formatSemanticMoneyLabel(
+                      member().purchaseOffsetMajor,
+                      data().currency,
+                      locale()
+                    )
                   const purchaseComparisonRows = () => {
                     const rows = data().members.map((line) => ({
                       memberId: line.memberId,
@@ -1100,12 +1084,8 @@ export default function HomeRoute() {
                                                   }}
                                                 >
                                                   {category.isFullAssignment
-                                                    ? locale() === 'ru'
-                                                      ? 'ПОЛНОСТЬЮ'
-                                                      : 'FULL'
-                                                    : locale() === 'ru'
-                                                      ? 'ЧАСТЬ'
-                                                      : 'SPLIT'}
+                                                    ? copy().balancesAssignmentFullLabel
+                                                    : copy().balancesAssignmentSplitLabel}
                                                 </span>
                                                 <strong>{category.billName}</strong>
                                               </div>
@@ -1409,11 +1389,17 @@ export default function HomeRoute() {
                                     'is-neutral': purchaseBalanceTone() === 'is-neutral'
                                   }}
                                 >
-                                  {formatMajorAmount(member().purchaseOffsetMajor)}
+                                  {formatAbsoluteMoneyLabel(
+                                    member().purchaseOffsetMajor,
+                                    data().currency,
+                                    locale()
+                                  )}
                                 </strong>
-                                <span class="home-overview-card__hero-note">
-                                  {purchaseBalanceSummary()}
-                                </span>
+                                <Show when={purchaseBalanceSummary()}>
+                                  {(summary) => (
+                                    <span class="home-overview-card__hero-note">{summary()}</span>
+                                  )}
+                                </Show>
                               </div>
                               <div class="home-overview-card__balance home-overview-card__balance--explain">
                                 <span>{copy().homeIdlePurchaseBalanceExplainLabel}</span>
@@ -1438,7 +1424,17 @@ export default function HomeRoute() {
                                 rows={purchaseComparisonRows().map((row) => ({
                                   memberId: row.memberId,
                                   displayName: row.displayName,
-                                  balanceLabel: formatMajorAmount(row.balanceMajor),
+                                  balanceLabel:
+                                    formatSemanticMoneyLabel(
+                                      row.balanceMajor,
+                                      data().currency,
+                                      locale()
+                                    ) ??
+                                    formatAbsoluteMoneyLabel(
+                                      row.balanceMajor,
+                                      data().currency,
+                                      locale()
+                                    ),
                                   width: row.width,
                                   side: row.side,
                                   isCurrent: row.isCurrent
@@ -1632,7 +1628,13 @@ export default function HomeRoute() {
                               </p>
                               <div class="home-overview-card__meta-row">
                                 <span>{copy().homeIdlePurchaseBalanceHint}</span>
-                                <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
+                                <strong>
+                                  {formatSemanticMoneyLabel(
+                                    member().purchaseOffsetMajor,
+                                    data().currency,
+                                    locale()
+                                  ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
+                                </strong>
                               </div>
                               <div class="home-overview-card__meta-row">
                                 <span>{copy().homeIdleRentTariffLabel}</span>

@@ -6,7 +6,7 @@ import { PurchaseBalanceRail, normalizedRailWidth } from '../components/purchase
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
 import { formatFriendlyDate } from '../lib/dates'
-import { formatMoneyLabel } from '../lib/ledger-helpers'
+import { formatMoneyLabel, formatSemanticMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import type { MiniAppDashboard } from '../miniapp-api'
 
@@ -212,7 +212,7 @@ export default function BalancesRoute() {
             '—',
           resolutionStatus: entry.resolutionStatus ?? 'unresolved',
           impactMinor,
-          impactMajor: minorToMajorString(impactMinor < 0n ? -impactMinor : impactMinor),
+          impactSignedMajor: minorToMajorString(impactMinor),
           impactTone: impactMinor < 0n ? 'is-credit' : impactMinor > 0n ? 'is-debit' : 'is-neutral'
         }
       })
@@ -275,18 +275,45 @@ export default function BalancesRoute() {
                     <div class="balances-panel__header balances-panel__header--hero">
                       <div class="balances-panel__copy">
                         <strong>{copy().balancesYourBalanceTitle}</strong>
-                        <p>{copy().balancesYourBalanceBody}</p>
+                        <p>
+                          {majorStringToMinor(dueNowMajor()) > 0n
+                            ? effectiveBillingStage() === 'utilities'
+                              ? copy().balancesCurrentUtilitiesTitle
+                              : effectiveBillingStage() === 'rent'
+                                ? copy().balancesCurrentRentTitle
+                                : copy().balancesYourBalanceBody
+                            : locale() === 'ru'
+                              ? 'Сейчас активная оплата закрыта.'
+                              : 'The active payment is settled right now.'}
+                        </p>
                       </div>
                       <div class="balances-panel__amount-stack">
-                        <span>{copy().balancesRemainingLabel}</span>
-                        <strong>{formatAmount(member().remainingMajor, data().currency)}</strong>
+                        <span>{copy().balancesDueNowLabel}</span>
+                        <strong>
+                          {majorStringToMinor(dueNowMajor()) > 0n
+                            ? formatAmount(dueNowMajor(), data().currency)
+                            : locale() === 'ru'
+                              ? 'Закрыто'
+                              : 'Settled'}
+                        </strong>
                       </div>
                     </div>
 
                     <div class="statement-chip-grid">
                       <div class="statement-chip">
-                        <span>{copy().balancesDueNowLabel}</span>
-                        <strong>{formatAmount(dueNowMajor(), data().currency)}</strong>
+                        <span>{copy().balancesRemainingLabel}</span>
+                        <strong>
+                          {formatSemanticMoneyLabel(
+                            member().remainingMajor,
+                            data().currency,
+                            locale(),
+                            {
+                              credit: locale() === 'ru' ? 'В плюсе' : 'In credit',
+                              debit: copy().balancesRemainingLabel,
+                              neutral: locale() === 'ru' ? 'Закрыто' : 'Settled'
+                            }
+                          )}
+                        </strong>
                       </div>
                       <div class="statement-chip">
                         <span>{copy().balancesFullDueLabel}</span>
@@ -297,8 +324,14 @@ export default function BalancesRoute() {
                         <strong>{formatAmount(member().paidMajor, data().currency)}</strong>
                       </div>
                       <div class="statement-chip">
-                        <span>{copy().balancesRemainingLabel}</span>
-                        <strong>{formatAmount(member().remainingMajor, data().currency)}</strong>
+                        <span>{copy().balancesBreakdownPurchaseLabel}</span>
+                        <strong>
+                          {formatSemanticMoneyLabel(
+                            member().purchaseOffsetMajor,
+                            data().currency,
+                            locale()
+                          ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
+                        </strong>
                       </div>
                     </div>
 
@@ -405,9 +438,15 @@ export default function BalancesRoute() {
                                     <div class="statement-chip">
                                       <span>{copy().balancesAfterPlanLabel}</span>
                                       <strong>
-                                        {formatAmount(
+                                        {formatSemanticMoneyLabel(
                                           summary().projectedDeltaAfterPlanMajor,
-                                          data().currency
+                                          data().currency,
+                                          locale(),
+                                          {
+                                            credit: locale() === 'ru' ? 'В плюсе' : 'In credit',
+                                            debit: locale() === 'ru' ? 'К доплате' : 'To pay',
+                                            neutral: locale() === 'ru' ? 'Закрыто' : 'Settled'
+                                          }
                                         )}
                                       </strong>
                                     </div>
@@ -459,7 +498,11 @@ export default function BalancesRoute() {
                       <div class="balances-breakdown__row">
                         <span>{copy().balancesBreakdownPurchaseLabel}</span>
                         <strong>
-                          {formatAmount(member().purchaseOffsetMajor, data().currency)}
+                          {formatSemanticMoneyLabel(
+                            member().purchaseOffsetMajor,
+                            data().currency,
+                            locale()
+                          ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
                         </strong>
                       </div>
                       <div class="balances-breakdown__row">
@@ -468,7 +511,18 @@ export default function BalancesRoute() {
                       </div>
                       <div class="balances-breakdown__row is-total">
                         <span>{copy().balancesBreakdownRemainingLabel}</span>
-                        <strong>{formatAmount(member().remainingMajor, data().currency)}</strong>
+                        <strong>
+                          {formatSemanticMoneyLabel(
+                            member().remainingMajor,
+                            data().currency,
+                            locale(),
+                            {
+                              credit: locale() === 'ru' ? 'В плюсе' : 'In credit',
+                              debit: locale() === 'ru' ? 'К доплате' : 'To pay',
+                              neutral: locale() === 'ru' ? 'Закрыто' : 'Settled'
+                            }
+                          )}
+                        </strong>
                       </div>
                     </div>
 
@@ -540,12 +594,16 @@ export default function BalancesRoute() {
                                   <div class="balances-impact-row">
                                     <span>{copy().balancesImpactLabel}</span>
                                     <strong class={row.impactTone}>
-                                      {row.impactTone === 'is-credit'
-                                        ? '−'
-                                        : row.impactTone === 'is-debit'
-                                          ? '+'
-                                          : ''}
-                                      {formatAmount(row.impactMajor, data().currency)}
+                                      {formatSemanticMoneyLabel(
+                                        row.impactSignedMajor,
+                                        data().currency,
+                                        locale(),
+                                        {
+                                          credit: locale() === 'ru' ? 'В плюс' : 'Credit',
+                                          debit: locale() === 'ru' ? 'К доплате' : 'To pay',
+                                          neutral: locale() === 'ru' ? 'Без влияния' : 'No impact'
+                                        }
+                                      )}
                                     </strong>
                                   </div>
                                 </div>
@@ -614,7 +672,12 @@ export default function BalancesRoute() {
                       rows={purchaseRows().map((row) => ({
                         memberId: row.memberId,
                         displayName: row.displayName,
-                        balanceLabel: formatAmount(row.purchaseBalanceMajor, data().currency),
+                        balanceLabel:
+                          formatSemanticMoneyLabel(
+                            row.purchaseBalanceMajor,
+                            data().currency,
+                            locale()
+                          ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled'),
                         width: row.width,
                         side: row.side,
                         isCurrent: row.isCurrent

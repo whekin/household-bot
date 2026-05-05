@@ -118,6 +118,60 @@ export function formatMoneyLabel(
   return formatSignedMoney(amountMajor, currency)
 }
 
+export type SemanticMoneyTone = 'is-credit' | 'is-debit' | 'is-neutral'
+
+export type SemanticMoneyLabels = {
+  credit: string
+  debit: string
+  neutral?: string
+}
+
+export function semanticMoneyTone(amountMajor: string): SemanticMoneyTone {
+  const amountMinor = majorStringToMinor(amountMajor)
+
+  if (amountMinor < 0n) {
+    return 'is-credit'
+  }
+
+  if (amountMinor > 0n) {
+    return 'is-debit'
+  }
+
+  return 'is-neutral'
+}
+
+export function formatAbsoluteMoneyLabel(
+  amountMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: 'en' | 'ru'
+): string {
+  const amountMinor = majorStringToMinor(amountMajor)
+  const absoluteMajor = minorToMajorString(amountMinor < 0n ? -amountMinor : amountMinor)
+
+  return formatMoneyLabel(absoluteMajor, currency, locale)
+}
+
+export function formatSemanticMoneyLabel(
+  amountMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: 'en' | 'ru',
+  labels?: Partial<SemanticMoneyLabels>
+): string | null {
+  const tone = semanticMoneyTone(amountMajor)
+  const resolvedLabels = {
+    credit: locale === 'ru' ? 'В плюсе' : 'In credit',
+    debit: locale === 'ru' ? 'К доплате' : 'To pay',
+    ...labels
+  }
+
+  if (tone === 'is-neutral') {
+    return resolvedLabels.neutral ?? null
+  }
+
+  const label = tone === 'is-credit' ? resolvedLabels.credit : resolvedLabels.debit
+  return `${label}: ${formatAbsoluteMoneyLabel(amountMajor, currency, locale)}`
+}
+
 export function cycleUtilityBillDrafts(
   bills: MiniAppAdminCycleState['utilityBills']
 ): Record<string, UtilityBillDraft> {

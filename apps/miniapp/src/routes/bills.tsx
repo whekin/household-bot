@@ -10,7 +10,7 @@ import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatMoneyLabel } from '../lib/ledger-helpers'
+import { formatMoneyLabel, formatSemanticMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   addMiniAppUtilityBill,
@@ -284,12 +284,12 @@ export default function BillsRoute() {
                       <div class="statement-section-heading">
                         <div>
                           <strong>
-                            {locale() === 'ru' ? 'Твоя коммуналка сейчас' : 'Your utilities now'}
+                            {locale() === 'ru' ? '💡 Коммуналка сейчас' : '💡 Utilities now'}
                           </strong>
                           <p>
                             {locale() === 'ru'
-                              ? 'Сначала твои текущие счета. Ниже — план для остальных.'
-                              : 'Your current utility instructions first. The household plan is below.'}
+                              ? `Срок ${utilityBillingPlan()?.dueDate ?? '—'}`
+                              : `Due ${utilityBillingPlan()?.dueDate ?? '—'}`}
                           </p>
                         </div>
                         <span class="ui-badge ui-badge--muted">
@@ -309,105 +309,170 @@ export default function BillsRoute() {
                       <Show
                         when={currentUtilityAssignments().length > 0}
                         fallback={
-                          <p class="empty-state">
-                            {locale() === 'ru'
-                              ? 'Сейчас тебе ничего не назначено по коммуналке.'
-                              : 'Nothing is currently assigned to you for utilities.'}
-                          </p>
-                        }
-                      >
-                        <div class="statement-list">
-                          <For each={currentUtilityAssignments()}>
-                            {(category) => (
-                              <div class="statement-list__item statement-list__item--stack">
-                                <div>
-                                  <strong>
-                                    {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
-                                  </strong>
+                          <Show
+                            when={currentUtilitySummary()}
+                            fallback={
+                              <p class="empty-state">
+                                {locale() === 'ru'
+                                  ? 'Сейчас тебе ничего не назначено по коммуналке.'
+                                  : 'Nothing is currently assigned to you for utilities.'}
+                              </p>
+                            }
+                          >
+                            {(summary) => (
+                              <div class="finance-action-summary">
+                                <div class="finance-action-summary__main">
+                                  <span>{copy().balancesAssignedNowLabel}</span>
+                                  <strong>{locale() === 'ru' ? 'Закрыто' : 'Settled'}</strong>
+                                </div>
+                                <div class="finance-action-summary__meta">
                                   <span>
+                                    {copy().balancesTargetLabel}:{' '}
                                     {formatMoneyLabel(
-                                      category.assignedAmountMajor,
+                                      summary().fairShareMajor,
                                       data().currency,
                                       locale()
                                     )}
                                   </span>
-                                  <Show when={!category.isFullAssignment}>
-                                    <span>
-                                      {locale() === 'ru'
-                                        ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
-                                        : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
-                                    </span>
-                                  </Show>
+                                  <span>
+                                    {copy().balancesPaidLabel}:{' '}
+                                    {formatMoneyLabel(
+                                      summary().vendorPaidMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </span>
                                   <Show
-                                    when={utilityCategoryByName().get(
-                                      category.billName.trim().toLowerCase()
+                                    when={formatSemanticMoneyLabel(
+                                      summary().projectedDeltaAfterPlanMajor,
+                                      data().currency,
+                                      locale(),
+                                      {
+                                        credit:
+                                          locale() === 'ru'
+                                            ? 'В плюсе после оплаты'
+                                            : 'Credit after payment',
+                                        debit:
+                                          locale() === 'ru'
+                                            ? 'К доплате после оплаты'
+                                            : 'Still to pay'
+                                      }
                                     )}
                                   >
-                                    {(details) => (
-                                      <span>
-                                        {[
-                                          details().providerName,
-                                          details().customerNumber,
-                                          details().note
-                                        ]
-                                          .filter(Boolean)
-                                          .join(' · ')}
-                                      </span>
-                                    )}
+                                    {(label) => <span>{label()}</span>}
                                   </Show>
                                 </div>
                               </div>
                             )}
-                          </For>
-                        </div>
+                          </Show>
+                        }
+                      >
                         <Show when={currentUtilitySummary()}>
                           {(summary) => (
-                            <div class="statement-chip-grid">
-                              <div class="statement-chip">
-                                <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    summary().fairShareMajor,
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
+                            <>
+                              <div class="finance-action-summary">
+                                <div class="finance-action-summary__main">
+                                  <span>{copy().balancesAssignedNowLabel}</span>
+                                  <strong>
+                                    {majorStringToMinor(summary().assignedThisCycleMajor) > 0n
+                                      ? formatMoneyLabel(
+                                          summary().assignedThisCycleMajor,
+                                          data().currency,
+                                          locale()
+                                        )
+                                      : locale() === 'ru'
+                                        ? 'Закрыто'
+                                        : 'Settled'}
+                                  </strong>
+                                </div>
+                                <div class="finance-action-summary__meta">
+                                  <span>
+                                    {copy().balancesTargetLabel}:{' '}
+                                    {formatMoneyLabel(
+                                      summary().fairShareMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </span>
+                                  <span>
+                                    {copy().balancesPaidLabel}:{' '}
+                                    {formatMoneyLabel(
+                                      summary().vendorPaidMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </span>
+                                  <Show
+                                    when={formatSemanticMoneyLabel(
+                                      summary().projectedDeltaAfterPlanMajor,
+                                      data().currency,
+                                      locale(),
+                                      {
+                                        credit:
+                                          locale() === 'ru'
+                                            ? 'В плюсе после оплаты'
+                                            : 'Credit after payment',
+                                        debit:
+                                          locale() === 'ru'
+                                            ? 'К доплате после оплаты'
+                                            : 'Still to pay'
+                                      }
+                                    )}
+                                  >
+                                    {(label) => <span>{label()}</span>}
+                                  </Show>
+                                </div>
                               </div>
-                              <div class="statement-chip">
-                                <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    summary().vendorPaidMajor,
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                              <div class="statement-chip">
-                                <span>
-                                  {locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}
-                                </span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    summary().assignedThisCycleMajor,
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                              <div class="statement-chip">
-                                <span>{locale() === 'ru' ? 'После плана' : 'After plan'}</span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    summary().projectedDeltaAfterPlanMajor,
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                            </div>
+                            </>
                           )}
                         </Show>
+                        <details class="finance-detail-panel">
+                          <summary>{locale() === 'ru' ? 'Детали счетов' : 'Bill details'}</summary>
+                          <div class="statement-list">
+                            <For each={currentUtilityAssignments()}>
+                              {(category) => (
+                                <div class="statement-list__item statement-list__item--stack">
+                                  <div>
+                                    <strong>
+                                      {`${category.isFullAssignment ? (locale() === 'ru' ? 'Весь счёт' : 'Full bill') : locale() === 'ru' ? 'Часть счёта' : 'Part of bill'} · ${category.billName}`}
+                                    </strong>
+                                    <span>
+                                      {formatMoneyLabel(
+                                        category.assignedAmountMajor,
+                                        data().currency,
+                                        locale()
+                                      )}
+                                    </span>
+                                    <Show when={!category.isFullAssignment}>
+                                      <span>
+                                        {locale() === 'ru'
+                                          ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                          : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                      </span>
+                                    </Show>
+                                    <Show
+                                      when={utilityCategoryByName().get(
+                                        category.billName.trim().toLowerCase()
+                                      )}
+                                    >
+                                      {(details) => (
+                                        <span>
+                                          {[
+                                            details().providerName,
+                                            details().customerNumber,
+                                            details().note
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                        </span>
+                                      )}
+                                    </Show>
+                                  </div>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </details>
                         <Show when={!isUtilitiesFullyPaid()}>
                           <div class="statement-actions statement-actions--single">
                             <Button
@@ -443,54 +508,59 @@ export default function BillsRoute() {
                             {locale() === 'ru' ? 'Аренда' : 'Rent'}
                           </span>
                         </div>
-                        <div class="statement-chip-grid">
-                          <div class="statement-chip">
-                            <span>{locale() === 'ru' ? 'К оплате' : 'Due now'}</span>
+                        <div class="finance-action-summary">
+                          <div class="finance-action-summary__main">
+                            <span>{copy().balancesAssignedNowLabel}</span>
                             <strong>
-                              {formatMoneyLabel(
-                                summary().remainingMajor,
-                                data().currency,
-                                locale()
-                              )}
+                              {majorStringToMinor(summary().remainingMajor) > 0n
+                                ? formatMoneyLabel(
+                                    summary().remainingMajor,
+                                    data().currency,
+                                    locale()
+                                  )
+                                : locale() === 'ru'
+                                  ? 'Закрыто'
+                                  : 'Settled'}
                             </strong>
                           </div>
-                          <div class="statement-chip">
-                            <span>{locale() === 'ru' ? 'Полная сумма' : 'Full due'}</span>
-                            <strong>
+                          <div class="finance-action-summary__meta">
+                            <span>
+                              {copy().balancesFullDueLabel}:{' '}
                               {formatMoneyLabel(summary().dueMajor, data().currency, locale())}
-                            </strong>
-                          </div>
-                          <div class="statement-chip">
-                            <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
-                            <strong>
+                            </span>
+                            <span>
+                              {copy().balancesPaidLabel}:{' '}
                               {formatMoneyLabel(summary().paidMajor, data().currency, locale())}
-                            </strong>
+                            </span>
                           </div>
                         </div>
                         <Show when={(data().rentBillingState.paymentDestinations ?? []).length > 0}>
-                          <div class="statement-list">
-                            <For each={data().rentBillingState.paymentDestinations ?? []}>
-                              {(destination) => (
-                                <div class="statement-list__item statement-list__item--stack">
-                                  <div>
-                                    <strong>{destination.label}</strong>
-                                    <span>
-                                      {[
-                                        destination.recipientName,
-                                        destination.bankName,
-                                        destination.account
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' · ')}
-                                    </span>
-                                    <Show when={destination.note}>
-                                      <span>{destination.note}</span>
-                                    </Show>
+                          <details class="finance-detail-panel">
+                            <summary>{locale() === 'ru' ? 'Реквизиты' : 'Payment details'}</summary>
+                            <div class="statement-list">
+                              <For each={data().rentBillingState.paymentDestinations ?? []}>
+                                {(destination) => (
+                                  <div class="statement-list__item statement-list__item--stack">
+                                    <div>
+                                      <strong>{destination.label}</strong>
+                                      <span>
+                                        {[
+                                          destination.recipientName,
+                                          destination.bankName,
+                                          destination.account
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ')}
+                                      </span>
+                                      <Show when={destination.note}>
+                                        <span>{destination.note}</span>
+                                      </Show>
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </For>
-                          </div>
+                                )}
+                              </For>
+                            </div>
+                          </details>
                         </Show>
                       </Card>
                     )}
@@ -579,7 +649,7 @@ export default function BillsRoute() {
                               </div>
                               <div class="statement-chip-grid">
                                 <div class="statement-chip">
-                                  <span>{locale() === 'ru' ? 'Цель' : 'Target'}</span>
+                                  <span>{copy().balancesTargetLabel}</span>
                                   <strong>
                                     {formatMoneyLabel(
                                       summary.fairShareMajor,
@@ -589,7 +659,7 @@ export default function BillsRoute() {
                                   </strong>
                                 </div>
                                 <div class="statement-chip">
-                                  <span>{locale() === 'ru' ? 'Уже оплачено' : 'Already paid'}</span>
+                                  <span>{copy().balancesPaidLabel}</span>
                                   <strong>
                                     {formatMoneyLabel(
                                       summary.vendorPaidMajor,
@@ -599,9 +669,7 @@ export default function BillsRoute() {
                                   </strong>
                                 </div>
                                 <div class="statement-chip">
-                                  <span>
-                                    {locale() === 'ru' ? 'Назначено сейчас' : 'Assigned now'}
-                                  </span>
+                                  <span>{copy().balancesAssignedNowLabel}</span>
                                   <strong>
                                     {formatMoneyLabel(
                                       summary.assignedThisCycleMajor,
@@ -611,13 +679,13 @@ export default function BillsRoute() {
                                   </strong>
                                 </div>
                                 <div class="statement-chip">
-                                  <span>{locale() === 'ru' ? 'После плана' : 'After plan'}</span>
+                                  <span>{copy().balancesAfterPlanLabel}</span>
                                   <strong>
-                                    {formatMoneyLabel(
+                                    {formatSemanticMoneyLabel(
                                       summary.projectedDeltaAfterPlanMajor,
                                       data().currency,
                                       locale()
-                                    )}
+                                    ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
                                   </strong>
                                 </div>
                               </div>
@@ -637,7 +705,7 @@ export default function BillsRoute() {
                                       <div class="statement-list__item">
                                         <div>
                                           <strong>
-                                            {`${category.isFullAssignment ? (locale() === 'ru' ? 'ПОЛНОСТЬЮ' : 'FULL') : locale() === 'ru' ? 'ЧАСТЬ' : 'SPLIT'} · ${category.billName}`}
+                                            {`${category.isFullAssignment ? copy().balancesAssignmentFullLabel : copy().balancesAssignmentSplitLabel} · ${category.billName}`}
                                           </strong>
                                           <span>
                                             {formatMoneyLabel(

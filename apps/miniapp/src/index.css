@@ -4366,6 +4366,67 @@ a {
   font-size: var(--text-lg);
 }
 
+.finance-action-summary {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-root) 28%, var(--bg-surface));
+}
+
+.finance-action-summary__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.finance-action-summary__main span,
+.finance-action-summary__meta span {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.finance-action-summary__main strong {
+  color: var(--text-primary);
+  font-size: clamp(1.45rem, 5vw, 2rem);
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-action-summary__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.finance-detail-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.finance-detail-panel > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  list-style: none;
+}
+
+.finance-detail-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.finance-detail-panel[open] > summary {
+  color: var(--text-primary);
+}
+
 .statement-section-heading {
   display: flex;
   justify-content: space-between;
