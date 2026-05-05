@@ -776,13 +776,13 @@ export function createFinanceCommandsService(options: {
                         category.assignedAmount.toMajorString(),
                         input.currency
                       )
-                      return `${category.billName}: ${amountText}`
+                      return `  • ${category.billName}: ${amountText}`
                     })
                   : []
 
               const totalLine =
                 entry.memberCategories.length > 1 && entry.payNow.amountMinor > 0n
-                  ? `${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
+                  ? `  • ${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
                   : null
 
               if (entry.payNow.amountMinor === 0n) {
@@ -796,10 +796,10 @@ export function createFinanceCommandsService(options: {
 
                 return [
                   `👤 ${entry.displayName}`,
-                  `✅ ${statusText}`,
+                  `  ✅ ${statusText}`,
                   ...(isCoveredByBalance && remainingBalance
                     ? [
-                        `💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
+                        `  💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
                       ]
                     : [])
                 ].join('\n')
@@ -869,7 +869,7 @@ export function createFinanceCommandsService(options: {
 
     const separator =
       input.detailMode === 'compact' ? '───────────────────────' : '═══════════════════════'
-    const memberSeparator = input.detailMode === 'compact' ? '\n' : '\n\n'
+    const memberSeparator = input.detailMode === 'compact' ? '\n\n' : '\n\n'
 
     if (input.detailMode === 'compact') {
       return [
@@ -883,6 +883,7 @@ export function createFinanceCommandsService(options: {
         `${input.locale === 'ru' ? 'К оплате' : 'To pay'}:`,
         '',
         memberBlocks.join(memberSeparator),
+        '',
         separator,
         '',
         `${input.locale === 'ru' ? 'Используй' : 'Use'} /bill_full ${input.locale === 'ru' ? 'для деталей' : 'for details'}`
