@@ -283,6 +283,22 @@ function hasClearPaymentTopicIntent(rawText: string, defaultCurrency: 'GEL' | 'U
   return parsed.kind !== null || parsed.reviewReason === 'kind_ambiguous'
 }
 
+function hasStandalonePaymentClarificationSignal(
+  rawText: string,
+  defaultCurrency: 'GEL' | 'USD'
+): boolean {
+  const parsed = parsePaymentConfirmationMessage(rawText, defaultCurrency)
+  if (parsed.reviewReason === 'intent_missing') {
+    return false
+  }
+
+  if (parsed.explicitAmount !== null) {
+    return true
+  }
+
+  return parsed.normalizedText.split(/\s+/).length <= 6
+}
+
 async function replyWithTopicPaymentProposal(input: {
   ctx: Context
   locale: BotLocale
@@ -1067,6 +1083,37 @@ export function registerConfiguredPaymentTopicIngestion(
           }
 
           case 'payment_clarification': {
+            if (
+              activeWorkflow === null &&
+              !conversationContext.explicitMention &&
+              !conversationContext.replyToBot &&
+              !hasStandalonePaymentClarificationSignal(
+                record.rawText,
+                householdContext.defaultCurrency
+              )
+            ) {
+              options.logger?.info(
+                {
+                  event: 'payment.topic_processor_clarification_ignored',
+                  reason: processorResult.reason,
+                  messageText: record.rawText
+                },
+                'Ignoring payment clarification for conversational chatter in the payments topic'
+              )
+
+              cacheTopicMessageRoute(ctx, 'payments', {
+                route: 'silent',
+                replyText: null,
+                helperKind: null,
+                shouldStartTyping: false,
+                shouldClearWorkflow: false,
+                confidence: 80,
+                reason: processorResult.reason
+              })
+              await next()
+              return
+            }
+
             await promptRepository.upsertPendingAction({
               telegramUserId: record.senderTelegramUserId,
               telegramChatId: record.chatId,
