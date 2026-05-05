@@ -534,6 +534,109 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     })
   })
 
+  test('falls back to a utilities proposal for receipt-style paid captions when utilities are the only payable kind', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => ({
+        period: '2026-03',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        rentWarningDay: 17,
+        rentDueDay: 20,
+        utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
+        utilitiesDueDay: 4,
+        paymentBalanceAdjustmentPolicy: 'utilities',
+        rentPaymentDestinations: null,
+        totalDue: Money.fromMajor('40', 'GEL'),
+        totalPaid: Money.zero('GEL'),
+        totalRemaining: Money.fromMajor('40', 'GEL'),
+        billingStage: 'utilities',
+        rentSourceAmount: Money.zero('GEL'),
+        rentDisplayAmount: Money.zero('GEL'),
+        rentFxRateMicros: null,
+        rentFxEffectiveDate: null,
+        utilityBillingPlan: null,
+        rentBillingState: {
+          dueDate: '2026-03-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        },
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Mia',
+            rentShare: Money.zero('GEL'),
+            utilityShare: Money.fromMajor('40', 'GEL'),
+            purchaseOffset: Money.zero('GEL'),
+            netDue: Money.fromMajor('40', 'GEL'),
+            paid: Money.zero('GEL'),
+            remaining: Money.fromMajor('40', 'GEL'),
+            overduePayments: [],
+            explanations: []
+          }
+        ],
+        ledger: []
+      })
+    }
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => financeService,
+      () => createPaymentConfirmationService(),
+      { topicProcessor: createMockPaymentTopicProcessor('silent') }
+    )
+
+    await bot.handleUpdate(paymentUpdate('🖼 оплачено') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining('Я могу записать эту оплату коммуналки: 40.00 ₾.')
+      }
+    })
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toMatchObject({
+      action: 'payment_topic_confirmation'
+    })
+  })
+
   test('asks for clarification and resolves follow-up answers in the same payments topic', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

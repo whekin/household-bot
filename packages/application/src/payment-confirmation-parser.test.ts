@@ -41,4 +41,11 @@ describe('parsePaymentConfirmationMessage', () => {
     expect(result.kind).toBeNull()
     expect(result.reviewReason).toBe('kind_ambiguous')
   })
+
+  test('detects receipt-style paid captions as payment intent', () => {
+    const result = parsePaymentConfirmationMessage('🖼 оплачено', 'GEL')
+
+    expect(result.kind).toBeNull()
+    expect(result.reviewReason).toBe('kind_ambiguous')
+  })
 })

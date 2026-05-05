@@ -279,7 +279,8 @@ function buildWrongTopicPurchaseReply(locale: BotLocale): string {
 }
 
 function hasClearPaymentTopicIntent(rawText: string, defaultCurrency: 'GEL' | 'USD'): boolean {
-  return parsePaymentConfirmationMessage(rawText, defaultCurrency).kind !== null
+  const parsed = parsePaymentConfirmationMessage(rawText, defaultCurrency)
+  return parsed.kind !== null || parsed.reviewReason === 'kind_ambiguous'
 }
 
 async function replyWithTopicPaymentProposal(input: {

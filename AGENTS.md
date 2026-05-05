@@ -24,6 +24,13 @@ Household Telegram bot + mini app monorepo for shared rent/utilities/purchase ac
 - Data platform: Supabase (planned)
 - Deploy: Cloud Run + Cloud Scheduler (planned)
 
+## Local tool paths
+
+- If `bun` is not on `PATH`, use `/opt/homebrew/Cellar/bun/1.3.12/bin/bun`.
+- For repeated commands in this workspace, prefer prefixing commands with `PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH"` so `bun`, `bunx`, `node`, hooks, and package scripts resolve consistently.
+- Do not waste time searching for Bun if `/opt/homebrew/Cellar/bun/1.3.12/bin/bun` exists and runs.
+- If macOS rejects package native bindings with `code signature ... not valid for use in process`, repair the local install with `find node_modules/.bun -name '*.node' -type f -exec codesign --force --sign - {} \;` before rerunning hooks.
+
 ## Architecture
 
 Hexagonal architecture:

@@ -125,6 +125,39 @@ function detectBalanceQuestionKind(rawText: string): 'rent' | 'utilities' | null
   return mentionsRent ? 'rent' : 'utilities'
 }
 
+function looksLikeReceiptPaidCaption(rawText: string): boolean {
+  return /(?:^|[^\p{L}])оплачен[аоы]?(?=$|[^\p{L}])/iu.test(rawText)
+}
+
+function inferSinglePayableKind(input: {
+  rawText: string
+  period: string
+  memberLine: Parameters<typeof buildMemberPaymentGuidance>[0]['memberLine']
+  settings: Parameters<typeof buildMemberPaymentGuidance>[0]['settings']
+}): 'rent' | 'utilities' | null {
+  if (!looksLikeReceiptPaidCaption(input.rawText)) {
+    return null
+  }
+
+  const rentGuidance = buildMemberPaymentGuidance({
+    kind: 'rent',
+    period: input.period,
+    memberLine: input.memberLine,
+    settings: input.settings
+  })
+  const utilitiesGuidance = buildMemberPaymentGuidance({
+    kind: 'utilities',
+    period: input.period,
+    memberLine: input.memberLine,
+    settings: input.settings
+  })
+  const payableKinds = [rentGuidance, utilitiesGuidance]
+    .filter((guidance) => guidance.proposalAmount.amountMinor > 0n)
+    .map((guidance) => guidance.kind)
+
+  return payableKinds.length === 1 ? payableKinds[0]! : null
+}
+
 function formatDateLabel(locale: BotLocale, rawDate: string): string {
   const [yearRaw, monthRaw, dayRaw] = rawDate.split('-')
   const year = Number(yearRaw)
@@ -321,12 +354,6 @@ export async function maybeCreatePaymentProposal(input: {
     }
   }
 
-  if (!parsed.kind || parsed.reviewReason) {
-    return {
-      status: 'clarification'
-    }
-  }
-
   const dashboard = await input.financeService.generateDashboard()
   if (!dashboard) {
     return {
@@ -341,10 +368,27 @@ export async function maybeCreatePaymentProposal(input: {
     }
   }
 
+  const inferredKind =
+    !parsed.kind && parsed.reviewReason === 'kind_ambiguous'
+      ? inferSinglePayableKind({
+          rawText: parsed.normalizedText,
+          period: dashboard.period,
+          memberLine,
+          settings
+        })
+      : null
+  const kind = parsed.kind ?? inferredKind
+
+  if (!kind || (parsed.reviewReason && !inferredKind)) {
+    return {
+      status: 'clarification'
+    }
+  }
+
   if (memberLine.remaining.amountMinor <= 0n) {
     return {
       status: 'already_settled',
-      kind: parsed.kind
+      kind
     }
   }
 
@@ -355,7 +399,7 @@ export async function maybeCreatePaymentProposal(input: {
   }
 
   const guidance = buildMemberPaymentGuidance({
-    kind: parsed.kind,
+    kind,
     period: dashboard.period,
     memberLine,
     settings
@@ -365,7 +409,7 @@ export async function maybeCreatePaymentProposal(input: {
   if (amount.amountMinor <= 0n) {
     return {
       status: 'already_settled',
-      kind: parsed.kind
+      kind
     }
   }
 
@@ -375,7 +419,7 @@ export async function maybeCreatePaymentProposal(input: {
       proposalId: crypto.randomUUID(),
       householdId: input.householdId,
       memberId: input.memberId,
-      kind: parsed.kind,
+      kind,
       amountMinor: amount.amountMinor.toString(),
       currency: amount.currency
     },

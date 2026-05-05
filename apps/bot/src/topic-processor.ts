@@ -328,7 +328,7 @@ CRITICAL: Payment detection ONLY applies when topicRole=payments. In generic top
 
 This topic is a workflow topic, not a casual assistant thread.
 If the message reports a completed rent or utility payment (payment verb + rent/utilities), classify as "payment".
-- Payment verbs: оплатил, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
+- Payment verbs: оплатил, оплачено, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
 - Realistic amount for rent/utilities if explicitly stated in the message
 - CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.
 - THIRD-PERSON PAYMENTS: If the message says someone else paid (e.g., "Dima paid utilities", "Дима оплатил коммуналку"), extract their display name in payerDisplayName. If the message is first-person ("I paid", "оплатил"), set payerDisplayName=null (the sender is the payer).

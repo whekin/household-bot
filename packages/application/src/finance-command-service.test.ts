@@ -2607,6 +2607,79 @@ describe('createFinanceCommandService', () => {
     expect(settledSummaries.every((s) => s.projectedDeltaAfterPlan.amountMinor === 0n)).toBe(true)
   })
 
+  test('resolveUtilityBillAsPlanned is idempotent after the member already paid planned utilities', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialDashboard = await service.generateDashboard('2026-04')
+    const aliceAssignedMinor =
+      initialDashboard?.utilityBillingPlan?.categories
+        .filter((category) => category.assignedMemberId === 'alice')
+        .reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n) ?? 0n
+
+    const secondResult = await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(1)
+    expect(repository.utilityVendorPaymentFacts[0]).toMatchObject({
+      utilityBillId: 'bill-gas',
+      payerMemberId: 'alice',
+      amountMinor: aliceAssignedMinor,
+      matchedPlan: true
+    })
+    expect(repository.addedPaymentRecords).toHaveLength(1)
+    expect(repository.utilityBillingPlans).toHaveLength(1)
+    expect(
+      secondResult?.plan?.categories.find((category) => category.assignedMemberId === 'alice')
+        ?.paidAmount.amountMinor
+    ).toBe(aliceAssignedMinor)
+  })
+
   test('generateDashboard keeps utilities stage after rent warning while planned utilities remain unpaid', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

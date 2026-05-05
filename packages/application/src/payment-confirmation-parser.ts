@@ -24,6 +24,7 @@ const utilityKeywords = [
 const paymentIntentKeywords = [
   /\b(paid|pay|sent|done|transfer(red)?)\b/i,
   /оплат/i,
+  /оплач/i,
   /закинул/i,
   /закину/i,
   /перев[её]л/i,
