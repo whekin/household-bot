@@ -21,6 +21,9 @@ const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
 const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
 const BILL_SHOW_PENDING_ACTION = 'bill_command'
 const BILL_PENDING_ACTION_TTL_MS = 1000 * 60 * 60
+export const ASSISTANT_COMMAND_ACTION = 'assistant_command_suggestion'
+export const ASSISTANT_COMMAND_RUN_CALLBACK_PREFIX = 'assistant_command:run:'
+export const ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX = 'assistant_command:cancel:'
 
 function commandArgs(ctx: Context): string[] {
   const raw = typeof ctx.match === 'string' ? ctx.match.trim() : ''
@@ -1581,6 +1584,133 @@ export function createFinanceCommandsService(options: {
         )
         await ctx.answerCallbackQuery({
           text: locale === 'ru' ? 'Коммуналка отмечена по плану.' : 'Marked as paid as planned.'
+        })
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const telegramUserId = ctx.from?.id?.toString()
+        const telegramChatId = ctx.chat?.id?.toString()
+        if (telegramUserId && telegramChatId && options.promptRepository) {
+          await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+        }
+        await ctx.answerCallbackQuery({
+          text: 'Cancelled'
+        })
+        if (ctx.msg) {
+          await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } })
+        }
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${ASSISTANT_COMMAND_RUN_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const telegramUserId = ctx.from?.id?.toString()
+        const telegramChatId = ctx.chat?.id?.toString()
+        if (!telegramUserId || !telegramChatId || !options.promptRepository) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const pending = await options.promptRepository.getPendingAction(
+          telegramChatId,
+          telegramUserId
+        )
+        const payload = pending?.action === ASSISTANT_COMMAND_ACTION ? pending.payload : null
+        const command = payload?.command
+        const householdId = payload?.householdId
+        const memberId = payload?.memberId
+        const forcedMode = parseBillMode(
+          typeof payload?.forcedMode === 'string' ? payload.forcedMode : undefined
+        )
+        const detailMode =
+          payload?.detailMode === 'full' || payload?.detailMode === 'compact'
+            ? payload.detailMode
+            : 'compact'
+        if (
+          typeof command !== 'string' ||
+          typeof householdId !== 'string' ||
+          typeof memberId !== 'string'
+        ) {
+          await ctx.answerCallbackQuery({ show_alert: true })
+          return
+        }
+
+        if (
+          command !== 'bill' &&
+          command !== 'bill_full' &&
+          command !== 'my_bill' &&
+          command !== 'my_bill_full' &&
+          command !== 'household_status'
+        ) {
+          await ctx.answerCallbackQuery({ show_alert: true })
+          return
+        }
+
+        let actingMemberId: string | null = null
+        let service: FinanceCommandService | null = null
+        let resolvedHouseholdName: string | null = null
+
+        if (isGroupChat(ctx)) {
+          const resolved = await requireMember(ctx)
+          if (!resolved || resolved.householdId !== householdId) {
+            await ctx.answerCallbackQuery({ show_alert: true })
+            return
+          }
+          actingMemberId = resolved.member.id
+          service = resolved.service
+        } else {
+          const membership = (
+            await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+              telegramUserId
+            )
+          ).find((item) => item.householdId === householdId && item.id === memberId)
+          if (!membership) {
+            await ctx.answerCallbackQuery({ show_alert: true })
+            return
+          }
+          actingMemberId = membership.id
+          service = options.financeServiceForHousehold(householdId)
+          const household =
+            await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+              householdId
+            )
+          resolvedHouseholdName = household?.householdName ?? householdId
+        }
+
+        await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+        await ctx.answerCallbackQuery()
+
+        if (command === 'household_status') {
+          const locale = await resolveReplyLocale({
+            ctx,
+            repository: options.householdConfigurationRepository,
+            householdId
+          })
+          const dashboard = await service.generateDashboard()
+          if (!dashboard) {
+            await ctx.reply(getBotTranslations(locale).finance.noStatementCycle)
+            return
+          }
+          const settings =
+            await options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
+          await ctx.reply(formatHouseholdStatus(locale, dashboard, settings.rentDueDay))
+          return
+        }
+
+        await replyWithBillPlan({
+          ctx,
+          service,
+          householdId,
+          ...(resolvedHouseholdName ? { householdName: resolvedHouseholdName } : {}),
+          ...(command === 'my_bill' || command === 'my_bill_full'
+            ? { viewerMemberId: actingMemberId }
+            : { orderMemberId: actingMemberId }),
+          forcedMode,
+          detailMode
         })
       }
     )

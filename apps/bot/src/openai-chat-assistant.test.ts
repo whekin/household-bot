@@ -43,6 +43,7 @@ describe('createOpenAiChatAssistant', () => {
         locale: 'en',
         topicRole: 'reminders',
         householdContext: 'Household: Kojori House',
+        commandCatalog: '/my_bill - Show only your current bill',
         memorySummary: null,
         recentTurns: [],
         userMessage: 'Hello'
@@ -65,6 +66,8 @@ describe('createOpenAiChatAssistant', () => {
       )
       expect(capturedBody!.input[1]?.role).toBe('system')
       expect(capturedBody!.input[1]?.content).toContain('Topic role: reminders')
+      expect(capturedBody!.input[1]?.content).toContain('Available commands for this user:')
+      expect(capturedBody!.input[1]?.content).toContain('/my_bill - Show only your current bill')
       expect(capturedBody!.input[1]?.content).toContain(
         'Members can ask the bot to schedule a future notification in this topic.'
       )

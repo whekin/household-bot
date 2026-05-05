@@ -8,6 +8,7 @@ export async function composeAssistantReplyText(input: {
   locale: 'en' | 'ru'
   topicRole: TopicMessageRole
   householdContext: string
+  commandCatalog?: string | null
   userMessage: string
   recentTurns: readonly {
     role: 'user' | 'assistant'
@@ -42,6 +43,7 @@ export async function composeAssistantReplyText(input: {
       locale: input.locale,
       topicRole: input.topicRole,
       householdContext: input.householdContext,
+      commandCatalog: input.commandCatalog ?? null,
       memorySummary: null,
       recentTurns: input.recentTurns,
       userMessage: input.userMessage

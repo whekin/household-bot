@@ -19,6 +19,7 @@ export interface ConversationalAssistant {
     locale: 'en' | 'ru'
     topicRole: TopicMessageRole
     householdContext: string
+    commandCatalog?: string | null
     authoritativeFacts?: readonly string[]
     memorySummary: string | null
     recentTurns: readonly {
@@ -118,6 +119,8 @@ const ASSISTANT_SYSTEM_PROMPT = [
   'In the general chat topic, do not treat harmless topics such as weather, jokes, or casual questions as out of scope just because they are not about household finance.',
   'Do not restate the full household context unless the user explicitly asks for details.',
   'Do not imply capabilities that are not explicitly provided in the system context.',
+  'When an available command catalog is provided, mention only commands from that catalog and never suggest commands that are absent from it.',
+  'For billing, balances, or command output, do not invent details; suggest the relevant available command or preserve authoritative facts from the system.',
   'There is no general feature for creating or scheduling arbitrary personal reminders unless the system explicitly says so in the current topic capability notes.',
   'Avoid bullet lists unless the user asked for a list or several distinct items.',
   'Reply in the user language inferred from the latest user message and locale context.'
@@ -162,6 +165,9 @@ export function createOpenAiChatAssistant(
                   topicCapabilityNotes(input.topicRole),
                   'Bounded household context:',
                   input.householdContext,
+                  input.commandCatalog
+                    ? ['Available commands for this user:', input.commandCatalog].join('\n')
+                    : null,
                   input.authoritativeFacts && input.authoritativeFacts.length > 0
                     ? [
                         'Authoritative facts:',

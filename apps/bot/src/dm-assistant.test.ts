@@ -12,6 +12,7 @@ import type {
 } from '@household/ports'
 
 import { createTelegramBot } from './bot'
+import { createFinanceCommandsService } from './finance-commands'
 import {
   createInMemoryAssistantConversationMemoryStore,
   createInMemoryAssistantRateLimiter,
@@ -935,9 +936,10 @@ describe('registerDmAssistant', () => {
     })
   })
 
-  test('answers utilities balance questions deterministically in DM', async () => {
+  test('offers a consent button for natural-language utility bill requests in DM', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
 
     bot.api.config.use(async (_prev, method, payload) => {
       calls.push({ method, payload })
@@ -950,7 +952,7 @@ describe('registerDmAssistant', () => {
     registerDmAssistant({
       bot,
       householdConfigurationRepository: createHouseholdRepository(),
-      promptRepository: createPromptRepository(),
+      promptRepository,
       financeServiceForHousehold: () => createFinanceService(),
       memoryStore: createInMemoryAssistantConversationMemoryStore(12),
       rateLimiter: createInMemoryAssistantRateLimiter({
@@ -966,11 +968,205 @@ describe('registerDmAssistant', () => {
 
     const replyCall = calls.find((call) => call.method === 'sendMessage')
     expect(replyCall).toBeDefined()
-    const replyText = String((replyCall?.payload as { text?: unknown } | undefined)?.text ?? '')
-    expect(replyText).toContain('Current utilities payment guidance:')
-    expect(replyText).toContain('Utilities due: 100.00 ₾')
-    expect(replyText).toContain('Purchase balance: 50.00 ₾')
-    expect(replyText).toContain('Suggested payment under utilities adjustment: 150.00 ₾')
+    expect(replyCall?.payload).toMatchObject({
+      text: 'I can show that with /my_bill utilities. Run it?',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: 'Show /my_bill utilities',
+              callback_data: 'assistant_command:run:my_bill'
+            },
+            {
+              text: 'Cancel',
+              callback_data: 'assistant_command:cancel:my_bill'
+            }
+          ]
+        ]
+      }
+    })
+    expect(await promptRepository.getPendingAction('123456', '123456')).toMatchObject({
+      action: 'assistant_command_suggestion',
+      payload: {
+        command: 'my_bill',
+        forcedMode: 'utilities',
+        householdId: 'household-1',
+        memberId: 'member-1'
+      }
+    })
+  })
+
+  test('runs the consented full bill command through the finance command renderer', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const householdRepository = createHouseholdRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-05',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Stan',
+            utilityShare: Money.fromMajor('80.00', 'GEL'),
+            purchaseOffset: Money.fromMajor('-15.00', 'GEL'),
+            purchaseDrivers: [
+              {
+                purchaseId: 'purchase-1',
+                title: 'Groceries',
+                amount: Money.fromMajor('15.00', 'GEL'),
+                direction: 'credit',
+                occurredAt: '2026-05-02T10:00:00.000Z',
+                originPeriod: '2026-05'
+              }
+            ]
+          }
+        ],
+        utilityBillingPlan: {
+          id: 'plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-05-06',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'utility-1',
+              billName: 'Gas',
+              billTotal: Money.fromMajor('80.00', 'GEL'),
+              assignedAmount: Money.fromMajor('65.00', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Stan',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'utility-1'
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Stan',
+              fairShare: Money.fromMajor('65.00', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('65.00', 'GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-05-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    createFinanceCommandsService({
+      householdConfigurationRepository: householdRepository,
+      promptRepository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: householdRepository,
+      promptRepository,
+      financeServiceForHousehold: () => financeService,
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('show my full utilities impact') as never)
+    await bot.handleUpdate(privateCallbackUpdate('assistant_command:run:my_bill_full') as never)
+
+    const renderedBill = calls
+      .map((call) => (call.payload as { text?: string }).text ?? '')
+      .find((text) => text.includes('Utilities plan'))
+    expect(renderedBill).toContain('Bills: 80.00 ₾')
+    expect(renderedBill).toContain('Base: 80.00 ₾ · balance: -15.00 ₾ · target: 65.00 ₾')
+    expect(renderedBill).toContain('Purchases: -Groceries 15.00 ₾')
+    expect(await promptRepository.getPendingAction('123456', '123456')).not.toMatchObject({
+      action: 'assistant_command_suggestion'
+    })
+  })
+
+  test('answers command list questions from the permission-filtered catalog', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository: HouseholdConfigurationRepository = {
+      ...createHouseholdRepository(),
+      getHouseholdMember: async () => ({
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: false
+      }),
+      listHouseholdMembersByTelegramUserId: async () => [
+        {
+          id: 'member-1',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: null,
+          householdDefaultLocale: 'en',
+          rentShareWeight: 1,
+          isAdmin: false
+        }
+      ]
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository(),
+      financeServiceForHousehold: () => createFinanceService(),
+      memoryStore: createInMemoryAssistantConversationMemoryStore(12),
+      rateLimiter: createInMemoryAssistantRateLimiter({
+        burstLimit: 5,
+        burstWindowMs: 60_000,
+        rollingLimit: 50,
+        rollingWindowMs: 86_400_000
+      }),
+      usageTracker: createInMemoryAssistantUsageTracker()
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('what commands can I use?') as never)
+
+    const replyText = String((calls[0]?.payload as { text?: unknown } | undefined)?.text ?? '')
+    expect(replyText).toContain('/my_bill_full')
+    expect(replyText).not.toContain('/setup')
+    expect(replyText).not.toContain('/bill_json')
   })
 
   test('answers household roster questions from real member data', async () => {

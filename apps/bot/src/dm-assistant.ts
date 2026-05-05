@@ -15,6 +15,11 @@ import type { Bot, Context } from 'grammy'
 
 import { resolveReplyLocale } from './bot-locale'
 import { composeAssistantReplyText } from './assistant-composer'
+import {
+  ASSISTANT_COMMAND_ACTION,
+  ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX,
+  ASSISTANT_COMMAND_RUN_CALLBACK_PREFIX
+} from './finance-commands'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type {
   AssistantConversationMemoryStore,
@@ -50,6 +55,11 @@ import {
 } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
+import {
+  filterTelegramCommandCatalog,
+  formatAssistantCommandCatalog,
+  type TelegramCommandCatalogEntry
+} from './telegram-commands'
 
 export type { AssistantConversationMemoryStore, AssistantUsageTracker } from './assistant-state'
 export {
@@ -63,12 +73,18 @@ const ASSISTANT_PAYMENT_CONFIRM_CALLBACK_PREFIX = 'assistant_payment:confirm:'
 const ASSISTANT_PAYMENT_CANCEL_CALLBACK_PREFIX = 'assistant_payment:cancel:'
 const ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX = 'assistant_purchase:confirm:'
 const ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX = 'assistant_purchase:cancel:'
+const ASSISTANT_COMMAND_TTL_MS = 1000 * 60 * 15
 const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
 const GROUP_ASSISTANT_MESSAGE_SOURCE = 'telegram-group-assistant'
 const PURCHASE_VERB_PATTERN =
   /\b(?:bought|buy|got|picked up|spent|купил(?:а|и)?|взял(?:а|и)?|выложил(?:а|и)?|отдал(?:а|и)?|потратил(?:а|и)?)\b/iu
 const PURCHASE_MONEY_PATTERN =
   /(?:\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|usd|\$|доллар(?:а|ов)?|кровн\p{L}*)|\b\d+(?:[.,]\d{1,2})\b)/iu
+
+type AssistantCommandSuggestion = {
+  command: 'bill' | 'bill_full' | 'my_bill' | 'my_bill_full' | 'household_status'
+  forcedMode: 'utilities' | 'rent' | null
+}
 
 type PurchaseActionResult = Extract<
   PurchaseProposalActionResult,
@@ -114,6 +130,197 @@ function isReplyToBotMessage(ctx: Context): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
+}
+
+function availableAssistantCommands(input: {
+  locale: BotLocale
+  chatType: 'private' | 'group'
+  isMember: boolean
+  isAdmin: boolean
+}): {
+  entries: readonly TelegramCommandCatalogEntry[]
+  catalogText: string
+} {
+  const entries = filterTelegramCommandCatalog({
+    chatType: input.chatType,
+    isMember: input.isMember,
+    isAdmin: input.isAdmin,
+    readOnlyOnly: true,
+    assistantExecutableOnly: true
+  })
+
+  return {
+    entries,
+    catalogText: formatAssistantCommandCatalog(input.locale, entries)
+  }
+}
+
+function hasCommand(
+  entries: readonly TelegramCommandCatalogEntry[],
+  command: AssistantCommandSuggestion['command']
+): boolean {
+  return entries.some((entry) => entry.command === command)
+}
+
+function maybeCreateAssistantCommandSuggestion(input: {
+  rawText: string
+  availableCommands: readonly TelegramCommandCatalogEntry[]
+}): AssistantCommandSuggestion | null {
+  const normalized = input.rawText.toLowerCase()
+  const mentionsUtilities = /utilit|коммунал|свет|газ|electric|cleaning|water/u.test(normalized)
+  const mentionsRent = /\brent\b|аренд/u.test(normalized)
+  const explicitShow = /\b(show|display|open|run)\b|покаж|открой|запусти/u.test(normalized)
+  const full = /full|detail|impact|breakdown|why|почему|подроб|полный|полная|влияни/u.test(
+    normalized
+  )
+  const household = /household|everyone|everybody|all members|общий|все|всем|дом/u.test(normalized)
+
+  if (/what commands|available commands|what can you do|команд|что умеешь/u.test(normalized)) {
+    return null
+  }
+
+  if (/household status|current status|status of (the )?house|статус дома/u.test(normalized)) {
+    return hasCommand(input.availableCommands, 'household_status')
+      ? { command: 'household_status', forcedMode: null }
+      : null
+  }
+
+  const billIntent =
+    /\bbill\b|owe|pay|balance|utilities?|purchase impact|счет|счёт|долж|оплат|баланс/u.test(
+      normalized
+    )
+  if (!billIntent) {
+    return null
+  }
+  if (!explicitShow && !mentionsUtilities && !full) {
+    return null
+  }
+
+  const forcedMode =
+    mentionsRent && !mentionsUtilities ? 'rent' : mentionsUtilities ? 'utilities' : null
+  const command = household ? (full ? 'bill_full' : 'bill') : full ? 'my_bill_full' : 'my_bill'
+
+  return hasCommand(input.availableCommands, command) ? { command, forcedMode } : null
+}
+
+function isCommandListQuestion(rawText: string): boolean {
+  return /what commands|available commands|what can you do|help.*commands|команд|что умеешь/u.test(
+    rawText.toLowerCase()
+  )
+}
+
+function formatAvailableCommandsReply(input: {
+  locale: BotLocale
+  entries: readonly TelegramCommandCatalogEntry[]
+}): string {
+  const descriptions = getBotTranslations(input.locale).commands
+  const lines = input.entries.map((entry) => `/${entry.command} - ${descriptions[entry.command]}`)
+
+  return input.locale === 'ru'
+    ? ['Доступные команды:', ...lines].join('\n')
+    : ['Available commands:', ...lines].join('\n')
+}
+
+function assistantCommandLabel(input: {
+  locale: BotLocale
+  suggestion: AssistantCommandSuggestion
+}): string {
+  const mode = input.suggestion.forcedMode ? ` ${input.suggestion.forcedMode}` : ''
+  return `/${input.suggestion.command}${mode}`
+}
+
+function assistantCommandPrompt(input: {
+  locale: BotLocale
+  suggestion: AssistantCommandSuggestion
+}): string {
+  const command = assistantCommandLabel(input)
+  return input.locale === 'ru'
+    ? `Могу показать это через ${command}. Запустить?`
+    : `I can show that with ${command}. Run it?`
+}
+
+function assistantCommandReplyMarkup(input: {
+  locale: BotLocale
+  suggestion: AssistantCommandSuggestion
+}) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text:
+            input.locale === 'ru'
+              ? `Показать ${assistantCommandLabel(input)}`
+              : `Show ${assistantCommandLabel(input)}`,
+          callback_data: `${ASSISTANT_COMMAND_RUN_CALLBACK_PREFIX}${input.suggestion.command}`
+        },
+        {
+          text: input.locale === 'ru' ? 'Отмена' : 'Cancel',
+          callback_data: `${ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX}${input.suggestion.command}`
+        }
+      ]
+    ]
+  }
+}
+
+async function maybeReplyWithAssistantCommandSuggestion(input: {
+  ctx: Context
+  rawText: string
+  locale: BotLocale
+  chatType: 'private' | 'group'
+  householdId: string
+  memberId: string
+  isAdmin: boolean
+  promptRepository: TelegramPendingActionRepository
+  reply: (
+    text: string,
+    replyMarkup: ReturnType<typeof assistantCommandReplyMarkup>
+  ) => Promise<void>
+}): Promise<boolean> {
+  const telegramUserId = input.ctx.from?.id?.toString()
+  const telegramChatId = input.ctx.chat?.id?.toString()
+  if (!telegramUserId || !telegramChatId) {
+    return false
+  }
+
+  const { entries } = availableAssistantCommands({
+    locale: input.locale,
+    chatType: input.chatType,
+    isMember: true,
+    isAdmin: input.isAdmin
+  })
+  const suggestion = maybeCreateAssistantCommandSuggestion({
+    rawText: input.rawText,
+    availableCommands: entries
+  })
+  if (!suggestion) {
+    return false
+  }
+
+  await input.promptRepository.upsertPendingAction({
+    telegramUserId,
+    telegramChatId,
+    action: ASSISTANT_COMMAND_ACTION,
+    payload: {
+      command: suggestion.command,
+      forcedMode: suggestion.forcedMode,
+      detailMode:
+        suggestion.command === 'bill_full' || suggestion.command === 'my_bill_full'
+          ? 'full'
+          : 'compact',
+      householdId: input.householdId,
+      memberId: input.memberId
+    },
+    expiresAt: instantFromEpochSeconds(Math.floor((Date.now() + ASSISTANT_COMMAND_TTL_MS) / 1000))
+  })
+  await input.reply(
+    assistantCommandPrompt({ locale: input.locale, suggestion }),
+    assistantCommandReplyMarkup({
+      locale: input.locale,
+      suggestion
+    })
+  )
+
+  return true
 }
 
 function formatRetryDelay(locale: BotLocale, retryAfterMs: number): string {
@@ -592,6 +799,7 @@ async function replyWithAssistant(input: {
   telegramChatId: string
   locale: BotLocale
   userMessage: string
+  commandCatalog?: string | null
   householdConfigurationRepository: HouseholdConfigurationRepository
   financeService: FinanceCommandService
   memoryStore: AssistantConversationMemoryStore
@@ -660,6 +868,7 @@ async function replyWithAssistant(input: {
       locale: input.locale,
       topicRole: input.topicRole,
       householdContext,
+      commandCatalog: input.commandCatalog ?? null,
       memorySummary: memory.summary,
       recentTurns: memory.turns,
       recentThreadMessages: input.recentThreadMessages,
@@ -1167,6 +1376,53 @@ export function registerDmAssistant(options: {
       }
 
       const financeService = options.financeServiceForHousehold(member.householdId)
+      const assistantCommands = availableAssistantCommands({
+        locale,
+        chatType: 'private',
+        isMember: true,
+        isAdmin: member.isAdmin
+      })
+      if (isCommandListQuestion(ctx.msg.text)) {
+        const replyText = formatAvailableCommandsReply({
+          locale,
+          entries: assistantCommands.entries
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'user',
+          text: ctx.msg.text
+        })
+        options.memoryStore.appendTurn(memoryKey, {
+          role: 'assistant',
+          text: replyText
+        })
+        await ctx.reply(replyText)
+        return
+      }
+      if (
+        await maybeReplyWithAssistantCommandSuggestion({
+          ctx,
+          rawText: ctx.msg.text,
+          locale,
+          chatType: 'private',
+          householdId: member.householdId,
+          memberId: member.id,
+          isAdmin: member.isAdmin,
+          promptRepository: options.promptRepository,
+          reply: async (text, replyMarkup) => {
+            options.memoryStore.appendTurn(memoryKey, {
+              role: 'user',
+              text: ctx.msg.text!
+            })
+            options.memoryStore.appendTurn(memoryKey, {
+              role: 'assistant',
+              text
+            })
+            await ctx.reply(text, { reply_markup: replyMarkup })
+          }
+        })
+      ) {
+        return
+      }
       const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
         rawText: ctx.msg.text,
         householdId: member.householdId,
@@ -1279,6 +1535,7 @@ export function registerDmAssistant(options: {
         telegramChatId,
         locale,
         userMessage: ctx.msg.text,
+        commandCatalog: assistantCommands.catalogText,
         householdConfigurationRepository: options.householdConfigurationRepository,
         financeService,
         memoryStore: options.memoryStore,
@@ -1546,6 +1803,52 @@ export function registerDmAssistant(options: {
         return
       }
 
+      const assistantCommands = availableAssistantCommands({
+        locale,
+        chatType: 'group',
+        isMember: true,
+        isAdmin: member.isAdmin
+      })
+      if (isCommandListQuestion(messageText)) {
+        await replyAndPersistTopicMessage({
+          ctx,
+          repository: options.topicMessageHistoryRepository,
+          householdId: household.householdId,
+          telegramChatId,
+          telegramThreadId,
+          text: formatAvailableCommandsReply({
+            locale,
+            entries: assistantCommands.entries
+          })
+        })
+        return
+      }
+      if (
+        await maybeReplyWithAssistantCommandSuggestion({
+          ctx,
+          rawText: messageText,
+          locale,
+          chatType: 'group',
+          householdId: household.householdId,
+          memberId: member.id,
+          isAdmin: member.isAdmin,
+          promptRepository: options.promptRepository,
+          reply: async (text, replyMarkup) => {
+            await replyAndPersistTopicMessage({
+              ctx,
+              repository: options.topicMessageHistoryRepository,
+              householdId: household.householdId,
+              telegramChatId,
+              telegramThreadId,
+              text,
+              replyOptions: { reply_markup: replyMarkup }
+            })
+          }
+        })
+      ) {
+        return
+      }
+
       const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
         rawText: messageText,
         householdId: household.householdId,
@@ -1649,6 +1952,7 @@ export function registerDmAssistant(options: {
         telegramChatId,
         locale,
         userMessage: messageText,
+        commandCatalog: assistantCommands.catalogText,
         householdConfigurationRepository: options.householdConfigurationRepository,
         financeService,
         memoryStore: options.memoryStore,
