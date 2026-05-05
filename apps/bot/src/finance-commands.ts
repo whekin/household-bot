@@ -16,6 +16,10 @@ import {
   REMINDER_UTILITY_ACTION_TTL_MS
 } from './reminder-topic-utilities'
 
+type FinanceDashboardForBot = NonNullable<
+  Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
+>
+
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
 const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
@@ -240,6 +244,234 @@ function formatRemainingCreditLine(input: {
   return input.locale === 'ru'
     ? `После коммуналки к доплате: ${amountText}`
     : `Due after utilities: ${amountText}`
+}
+
+function formatHouseholdActiveLine(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot,
+  rentDueDay: number
+): string {
+  if (dashboard.billingStage === 'utilities') {
+    const dueDate =
+      dashboard.utilityBillingPlan?.dueDate ??
+      formatCycleDueDate(locale, dashboard.period, dashboard.utilitiesDueDay)
+    return locale === 'ru'
+      ? `💡 Сейчас: коммуналка · до ${formatAbsoluteDate(locale, dueDate)}`
+      : `💡 Now: utilities · due ${formatAbsoluteDate(locale, dueDate)}`
+  }
+
+  if (dashboard.billingStage === 'rent') {
+    const dueDate =
+      dashboard.rentBillingState.dueDate ?? formatCycleDueDate(locale, dashboard.period, rentDueDay)
+    return locale === 'ru'
+      ? `🏡 Сейчас: аренда · до ${formatAbsoluteDate(locale, dueDate)}`
+      : `🏡 Now: rent · due ${formatAbsoluteDate(locale, dueDate)}`
+  }
+
+  return locale === 'ru' ? '✅ Сейчас: активных оплат нет' : '✅ Now: no active payment window'
+}
+
+function formatHouseholdRentTotalLine(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot
+): string {
+  if (dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency) {
+    return `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(
+      dashboard.rentDisplayAmount.toMajorString(),
+      dashboard.currency
+    )}`
+  }
+
+  return `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(
+    dashboard.rentSourceAmount.toMajorString(),
+    dashboard.rentSourceAmount.currency
+  )} (~${formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)})`
+}
+
+function formatHouseholdActiveSection(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot,
+  utilityTotal: Money
+): string[] {
+  if (dashboard.billingStage === 'utilities') {
+    const dueNow =
+      dashboard.utilityBillingPlan?.memberSummaries.reduce(
+        (sum, summary) => sum.add(summary.assignedThisCycle),
+        Money.zero(dashboard.currency)
+      ) ??
+      dashboard.paymentPeriods
+        ?.find((period) => period.isCurrentPeriod)
+        ?.kinds.find((kind) => kind.kind === 'utilities')?.totalRemaining ??
+      Money.zero(dashboard.currency)
+
+    return [
+      `💡 ${locale === 'ru' ? 'Коммуналка' : 'Utilities'}`,
+      `  • ${locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(
+        utilityTotal.toMajorString(),
+        dashboard.currency
+      )}`,
+      `  • ${locale === 'ru' ? 'К оплате сейчас' : 'Due now'}: ${formatUserFacingMoney(
+        dueNow.toMajorString(),
+        dashboard.currency
+      )}`
+    ]
+  }
+
+  if (dashboard.billingStage === 'rent') {
+    const dueNow = dashboard.rentBillingState.memberSummaries.reduce(
+      (sum, summary) => sum.add(summary.remaining),
+      Money.zero(dashboard.currency)
+    )
+
+    return [
+      `🏡 ${locale === 'ru' ? 'Аренда' : 'Rent'}`,
+      formatHouseholdRentTotalLine(locale, dashboard),
+      `  • ${locale === 'ru' ? 'К оплате сейчас' : 'Due now'}: ${formatUserFacingMoney(
+        dueNow.toMajorString(),
+        dashboard.currency
+      )}`
+    ]
+  }
+
+  return [
+    `📊 ${locale === 'ru' ? 'Баланс' : 'Balance'}`,
+    dashboard.totalRemaining.amountMinor === 0n
+      ? `  • ${locale === 'ru' ? 'Все закрыто' : 'Everything is settled'}`
+      : `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(
+          dashboard.totalRemaining.toMajorString(),
+          dashboard.currency
+        )}`
+  ]
+}
+
+function formatHouseholdStatusMemberValue(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  amount: Money
+  member: FinanceDashboardForBot['members'][number] | null
+  paid?: Money
+}): string {
+  if (input.amount.amountMinor > 0n) {
+    return formatUserFacingMoney(input.amount.toMajorString(), input.amount.currency)
+  }
+
+  const coveredByPurchaseCredit =
+    input.member &&
+    (input.paid?.amountMinor ?? 0n) === 0n &&
+    input.member.purchaseOffset.amountMinor < 0n &&
+    (input.member.utilityShare.amountMinor > 0n || input.member.rentShare.amountMinor > 0n)
+
+  if (coveredByPurchaseCredit) {
+    return input.locale === 'ru' ? 'закрыто плюсом' : 'covered by credit'
+  }
+
+  return input.locale === 'ru' ? 'закрыто' : 'settled'
+}
+
+function formatHouseholdStatusMemberLines(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot
+): string[] {
+  const memberById = new Map(dashboard.members.map((member) => [member.memberId, member]))
+
+  if (dashboard.billingStage === 'utilities' && dashboard.utilityBillingPlan) {
+    return [...dashboard.utilityBillingPlan.memberSummaries]
+      .sort((left, right) => {
+        const amountDelta = right.assignedThisCycle.amountMinor - left.assignedThisCycle.amountMinor
+        if (amountDelta !== 0n) {
+          return amountDelta > 0n ? 1 : -1
+        }
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((summary) => {
+        const member = memberById.get(summary.memberId) ?? null
+        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
+          locale,
+          amount: summary.assignedThisCycle,
+          member,
+          paid: summary.vendorPaid
+        })}`
+      })
+  }
+
+  if (dashboard.billingStage === 'utilities') {
+    const currentUtilities = dashboard.paymentPeriods
+      ?.find((period) => period.isCurrentPeriod)
+      ?.kinds.find((kind) => kind.kind === 'utilities')
+
+    return (
+      currentUtilities?.unresolvedMembers.map((summary) => {
+        const member = memberById.get(summary.memberId) ?? null
+        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
+          locale,
+          amount: summary.remaining,
+          member,
+          paid: summary.paid
+        })}`
+      }) ?? []
+    )
+  }
+
+  if (dashboard.billingStage === 'rent') {
+    return [...dashboard.rentBillingState.memberSummaries]
+      .sort((left, right) => {
+        const amountDelta = right.remaining.amountMinor - left.remaining.amountMinor
+        if (amountDelta !== 0n) {
+          return amountDelta > 0n ? 1 : -1
+        }
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((summary) => {
+        const member = memberById.get(summary.memberId) ?? null
+        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
+          locale,
+          amount: summary.remaining,
+          member,
+          paid: summary.paid
+        })}`
+      })
+  }
+
+  return [...dashboard.members]
+    .filter((member) => member.remaining.amountMinor !== 0n)
+    .sort((left, right) => {
+      const amountDelta = right.remaining.amountMinor - left.remaining.amountMinor
+      if (amountDelta !== 0n) {
+        return amountDelta > 0n ? 1 : -1
+      }
+      return left.displayName.localeCompare(right.displayName)
+    })
+    .map(
+      (member) =>
+        `  • ${member.displayName}: ${formatHouseholdStatusMemberValue({
+          locale,
+          amount: member.remaining,
+          member,
+          paid: member.paid
+        })}`
+    )
+}
+
+function formatHouseholdPurchasePolicyLine(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot
+): string | null {
+  if (dashboard.members.every((member) => member.purchaseOffset.amountMinor === 0n)) {
+    return null
+  }
+
+  if (dashboard.paymentBalanceAdjustmentPolicy === 'utilities') {
+    return locale === 'ru'
+      ? '🛒 Покупки: учтены в коммуналке'
+      : '🛒 Purchases: applied through utilities'
+  }
+
+  if (dashboard.paymentBalanceAdjustmentPolicy === 'rent') {
+    return locale === 'ru' ? '🛒 Покупки: учтены в аренде' : '🛒 Purchases: applied through rent'
+  }
+
+  return locale === 'ru'
+    ? '🛒 Покупки: есть отдельный баланс'
+    : '🛒 Purchases: separate balance exists'
 }
 
 function formatPurchaseDriverLine(input: {
@@ -626,77 +858,33 @@ export function createFinanceCommandsService(options: {
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>,
     dueDay: number
   ): string {
-    const t = getBotTranslations(locale).finance
     const utilityTotal = dashboard.ledger
       .filter((entry) => entry.kind === 'utility')
       .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
-    const purchaseTotal = dashboard.ledger
-      .filter((entry) => entry.kind === 'purchase')
-      .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
-
-    const rentLine =
-      dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency
-        ? `  • ${t.householdStatusRentDirect(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
-        : `  • ${t.householdStatusRentConverted(dashboard.rentSourceAmount.toMajorString(), dashboard.rentSourceAmount.currency, dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
-
-    const memberLines = [...dashboard.members]
-      .sort((left, right) => right.remaining.compare(left.remaining))
-      .map((member) =>
-        member.paid.isZero()
-          ? `  • ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)}`
-          : `  • ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)} (${locale === 'ru' ? 'баланс' : 'balance'} ${formatUserFacingMoney(member.netDue.toMajorString(), dashboard.currency)}, ${locale === 'ru' ? 'оплачено' : 'paid'} ${formatUserFacingMoney(member.paid.toMajorString(), dashboard.currency)})`
-      )
-
-    let settlementLines: string[]
-
-    if (dashboard.billingStage === 'utilities') {
-      settlementLines = [
-        `📊 ${locale === 'ru' ? 'Коммуналка' : 'Utilities'}`,
-        `  • ${locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(utilityTotal.toMajorString(), dashboard.currency)}`,
-        ...(!dashboard.totalPaid.isZero()
-          ? [
-              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
-            ]
-          : []),
-        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
-      ]
-    } else if (dashboard.billingStage === 'rent') {
-      settlementLines = [
-        `📊 ${locale === 'ru' ? 'Аренда' : 'Rent'}`,
-        `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`,
-        ...(!dashboard.totalPaid.isZero()
-          ? [
-              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
-            ]
-          : []),
-        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
-      ]
-    } else {
-      settlementLines = [
-        `📊 ${locale === 'ru' ? 'Расчёты' : 'Settlement'}`,
-        `  • ${locale === 'ru' ? 'Начислено' : 'Charged'}: ${formatUserFacingMoney(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
-        ...(!dashboard.totalPaid.isZero()
-          ? [
-              `  • ${locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
-            ]
-          : []),
-        `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`
-      ]
-    }
+    const purchasePolicyLine = formatHouseholdPurchasePolicyLine(locale, dashboard)
+    const activeLine = formatHouseholdActiveLine(locale, dashboard, dueDay)
+    const sectionLines = formatHouseholdActiveSection(locale, dashboard, utilityTotal)
+    const memberLines = formatHouseholdStatusMemberLines(locale, dashboard)
 
     return [
       `🏠 ${locale === 'ru' ? 'Дом' : 'Household'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
-      `📅 ${locale === 'ru' ? 'Аренда до' : 'Rent due'} ${formatCycleDueDate(locale, dashboard.period, dueDay)}`,
+      activeLine,
       '',
-      `💰 ${t.householdStatusChargesHeading}`,
-      rentLine,
-      `  • ${t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency)}`,
-      `  • ${t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency)}`,
+      ...sectionLines,
       '',
-      ...settlementLines,
+      `👥 ${locale === 'ru' ? 'Кто платит' : 'Who pays'}`,
+      ...(memberLines.length > 0
+        ? memberLines
+        : [`  • ${locale === 'ru' ? 'Все закрыто' : 'Everything is settled'}`]),
+      ...(purchasePolicyLine ? ['', purchasePolicyLine] : []),
       '',
-      `👥 ${t.householdStatusMembersHeading}`,
-      ...memberLines
+      dashboard.billingStage === 'utilities'
+        ? locale === 'ru'
+          ? 'Используй /bill_full для деталей'
+          : 'Use /bill_full for details'
+        : locale === 'ru'
+          ? 'Используй /balance для деталей'
+          : 'Use /balance for details'
     ].join('\n')
   }
 
