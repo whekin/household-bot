@@ -749,13 +749,13 @@ export function createFinanceCommandsService(options: {
                         category.assignedAmount.toMajorString(),
                         input.currency
                       )
-                      return `   ${category.billName}: ${amountText}`
+                      return `${category.billName}: ${amountText}`
                     })
                   : []
 
               const totalLine =
                 entry.memberCategories.length > 1 && entry.payNow.amountMinor > 0n
-                  ? `   ${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
+                  ? `${input.locale === 'ru' ? 'Итого' : 'Total'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`
                   : null
 
               if (entry.payNow.amountMinor === 0n) {
@@ -769,10 +769,10 @@ export function createFinanceCommandsService(options: {
 
                 return [
                   `👤 ${entry.displayName}`,
-                  `   ✅ ${statusText}`,
+                  `✅ ${statusText}`,
                   ...(isCoveredByBalance && remainingBalance
                     ? [
-                        `   💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
+                        `💳 ${input.locale === 'ru' ? 'Остаток на след. месяц' : 'Next month balance'}: ${formatSignedMoney(remainingBalance, input.currency)}`
                       ]
                     : [])
                 ].join('\n')
@@ -875,7 +875,7 @@ export function createFinanceCommandsService(options: {
       '',
       separator,
       '',
-      `${input.locale === 'ru' ? 'Используй' : 'Use'} /balance ${input.locale === 'ru' ? 'для покупок' : 'for purchases'}`
+      `${input.locale === 'ru' ? 'Используй' : 'Use'} /household_status ${input.locale === 'ru' ? 'для общего статуса' : 'for overall status'}`
     ].join('\n')
   }
 
