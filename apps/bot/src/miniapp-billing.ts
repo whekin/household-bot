@@ -1728,11 +1728,31 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        options.logger?.info(
+          {
+            event: 'miniapp.utility_plan.resolve_requested',
+            householdId: auth.member.householdId,
+            memberId,
+            actorMemberId: auth.member.id,
+            period: payload.period ?? null
+          },
+          'Mini app utility plan resolve requested'
+        )
         await service.resolveUtilityBillAsPlanned({
           memberId,
           actorMemberId: auth.member.id,
           ...(payload.period ? { periodArg: payload.period } : {})
         })
+        options.logger?.info(
+          {
+            event: 'miniapp.utility_plan.resolve_completed',
+            householdId: auth.member.householdId,
+            memberId,
+            actorMemberId: auth.member.id,
+            period: payload.period ?? null
+          },
+          'Mini app utility plan resolve completed'
+        )
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

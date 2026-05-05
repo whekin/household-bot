@@ -25,7 +25,6 @@ import {
   updateMiniAppPayment,
   type MiniAppDashboard
 } from '../miniapp-api'
-import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 
 function sortPeriodsDesc<T extends { period: string }>(items: readonly T[]): T[] {
   return [...items].sort((left, right) => right.period.localeCompare(left.period))
@@ -34,7 +33,7 @@ function sortPeriodsDesc<T extends { period: string }>(items: readonly T[]): T[]
 export function PaymentsManager() {
   const { initData } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, effectiveIsAdmin, paymentLedger } = useDashboard()
+  const { dashboard, effectiveIsAdmin, paymentLedger, refreshDashboardData } = useDashboard()
 
   const paymentPeriodOptions = createMemo(() => {
     const periods = new Set<string>()
@@ -141,8 +140,7 @@ export function PaymentsManager() {
         })
       }
 
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch (error) {
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
@@ -205,8 +203,7 @@ export function PaymentsManager() {
         currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
         period: dashboard()?.period ?? ''
       })
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch (error) {
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
@@ -230,8 +227,7 @@ export function PaymentsManager() {
         currency: draft.currency
       })
       closePaymentEditor()
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } finally {
       setSavingPayment(false)
     }
@@ -246,8 +242,7 @@ export function PaymentsManager() {
     try {
       await deleteMiniAppPayment(data, entry.id)
       closePaymentEditor()
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } finally {
       setDeletingPayment(false)
     }

@@ -20,7 +20,6 @@ import {
   updateMiniAppCycleRent,
   updateMiniAppUtilityBill
 } from '../miniapp-api'
-import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 
 function rateMicrosToString(value: string | null): string {
   if (!value) return ''
@@ -54,6 +53,7 @@ export default function BillsRoute() {
     effectiveBillingStage,
     effectiveIsAdmin,
     loading,
+    refreshDashboardData,
     utilityLedger
   } = useDashboard()
 
@@ -192,8 +192,7 @@ export default function BillsRoute() {
         })
       }
 
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } finally {
       setSavingUtilityName(null)
     }
@@ -214,8 +213,7 @@ export default function BillsRoute() {
         period: current.period,
         ...(fxRateMicros ? { fxRateMicros } : {})
       })
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } finally {
       setSavingRent(false)
     }
@@ -226,10 +224,7 @@ export default function BillsRoute() {
     setUtilityActionKey(key)
     try {
       await action()
-      const data = initData()
-      if (data) {
-        await invalidateHouseholdQueries(data)
-      }
+      await refreshDashboardData()
     } finally {
       setUtilityActionKey(null)
     }

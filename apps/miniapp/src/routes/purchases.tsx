@@ -24,7 +24,6 @@ import {
 } from '../lib/ledger-helpers'
 import { formatCyclePeriod, formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
-import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 import {
   addMiniAppPurchase,
   deleteMiniAppPurchase,
@@ -336,7 +335,14 @@ function PurchaseDraftFields(props: {
 export default function PurchasesRoute() {
   const { initData, session } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, effectiveIsAdmin, loading, purchaseLedger, setDashboard } = useDashboard()
+  const {
+    dashboard,
+    effectiveIsAdmin,
+    loading,
+    purchaseLedger,
+    refreshDashboardData,
+    setDashboard
+  } = useDashboard()
 
   const unresolvedPurchaseLedger = createMemo(() =>
     purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
@@ -449,7 +455,7 @@ export default function PurchasesRoute() {
       })
       setDashboard(refreshedDashboard)
       closeComposer()
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch (error) {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
@@ -481,7 +487,7 @@ export default function PurchasesRoute() {
       setDashboard(refreshedDashboard)
       setEditingPurchase(null)
       setPurchaseDraft(null)
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch (error) {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
@@ -504,7 +510,7 @@ export default function PurchasesRoute() {
       setDashboard(refreshedDashboard)
       setEditingPurchase(null)
       setPurchaseDraft(null)
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch (error) {
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed

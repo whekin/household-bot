@@ -37,7 +37,6 @@ import {
   updateMiniAppNotification,
   cancelMiniAppNotification
 } from '../miniapp-api'
-import { invalidateHouseholdQueries } from '../app/miniapp-queries'
 import type { MiniAppDashboard } from '../miniapp-api'
 
 function entryOccurredAtSortValue(entry: MiniAppDashboard['ledger'][number]): string {
@@ -243,6 +242,7 @@ export default function HomeRoute() {
     utilityTotalMajor,
     effectivePeriod,
     effectiveTodayOverride,
+    refreshDashboardData,
     testingOverridesActive,
     testingTodayOverride
   } = useDashboard()
@@ -527,8 +527,7 @@ export default function HomeRoute() {
       setUtilityAmounts(
         Object.fromEntries(utilityCategories().map((category) => [category.name, '']))
       )
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } finally {
       setSubmittingUtilities(false)
     }
@@ -578,8 +577,7 @@ export default function HomeRoute() {
         message: copy().quickPaymentSuccess,
         type: 'success'
       })
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch {
       setToastState({
         visible: true,
@@ -634,8 +632,7 @@ export default function HomeRoute() {
         message: locale() === 'ru' ? 'Напоминание обновлено.' : 'Notification updated.',
         type: 'success'
       })
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch {
       setToastState({
         visible: true,
@@ -665,8 +662,7 @@ export default function HomeRoute() {
         message: locale() === 'ru' ? 'Напоминание отменено.' : 'Notification cancelled.',
         type: 'success'
       })
-      // Invalidate cache to ensure next load gets fresh data
-      await invalidateHouseholdQueries(data)
+      await refreshDashboardData()
     } catch {
       setToastState({
         visible: true,

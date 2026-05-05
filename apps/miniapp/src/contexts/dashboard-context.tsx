@@ -15,7 +15,8 @@ import {
   fetchDashboardQuery,
   fetchAdminSettingsQuery,
   fetchBillingCycleQuery,
-  fetchPendingMembersQuery
+  fetchPendingMembersQuery,
+  invalidateHouseholdQueries
 } from '../app/miniapp-queries'
 import { absoluteMinor } from '../lib/ledger-helpers'
 import type {
@@ -126,6 +127,7 @@ type DashboardContextValue = {
       todayOverride?: string | null
     }
   ) => Promise<void>
+  refreshDashboardData: () => Promise<void>
   applyDemoState: (overrides?: {
     periodOverride?: string | null
     todayOverride?: string | null
@@ -540,6 +542,15 @@ export function DashboardProvider(props: ParentProps) {
     setLoading(false)
   }
 
+  async function refreshDashboardData() {
+    const data = initData()
+    const current = readySession()
+    if (!data || !current) return
+
+    await invalidateHouseholdQueries(data)
+    await loadDashboardData(data, current.member.isAdmin)
+  }
+
   function applyDemoState(
     overrides: {
       periodOverride?: string | null
@@ -603,6 +614,7 @@ export function DashboardProvider(props: ParentProps) {
         effectiveBillingStage,
         testingOverridesActive,
         loadDashboardData,
+        refreshDashboardData,
         applyDemoState
       }}
     >
