@@ -3001,6 +3001,105 @@ Confirm or cancel below.`,
     })
   })
 
+  test('ignores purchase clarification replies for non-purchase chatter in the purchase topic', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    let saveWithInterpretationCalls = 0
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        saveWithInterpretationCalls += 1
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const householdConfigurationRepository = {
+      findHouseholdTopicByTelegramContext: async () => ({
+        householdId: config.householdId,
+        telegramThreadId: '777',
+        role: 'purchase' as const,
+        topicName: 'Purchases'
+      }),
+      getHouseholdBillingSettings: async () => ({
+        householdId: config.householdId,
+        paymentBalanceAdjustmentPolicy: 'utilities' as const,
+        rentAmountMinor: null,
+        rentCurrency: 'USD' as const,
+        rentDueDay: 4,
+        rentWarningDay: 2,
+        utilitiesDueDay: 12,
+        utilitiesReminderDay: 10,
+        preferredUtilityPayerMemberId: null,
+        timezone: 'Asia/Tbilisi',
+        settlementCurrency: 'GEL' as const,
+        rentPaymentDestinations: null
+      }),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: config.householdId,
+        householdName: 'Test household',
+        telegramChatId: config.householdChatId,
+        telegramChatType: 'supergroup',
+        title: 'Test household',
+        defaultLocale: 'ru' as const
+      }),
+      getHouseholdAssistantConfig: async () => ({
+        householdId: config.householdId,
+        assistantContext: null,
+        assistantTone: null
+      })
+    } satisfies Pick<
+      HouseholdConfigurationRepository,
+      | 'findHouseholdTopicByTelegramContext'
+      | 'getHouseholdBillingSettings'
+      | 'getHouseholdChatByHouseholdId'
+      | 'getHouseholdAssistantConfig'
+    >
+
+    registerConfiguredPurchaseTopicIngestion(
+      bot,
+      householdConfigurationRepository as unknown as HouseholdConfigurationRepository,
+      repository,
+      {
+        topicProcessor: async () => ({
+          route: 'purchase_clarification',
+          clarificationQuestion: 'Пока не могу понять покупку. Уточните, что купили и за сколько.',
+          reason: 'overcautious'
+        })
+      }
+    )
+
+    await bot.handleUpdate(
+      purchaseUpdate('Сейчас покупки только в покупках пропихнуть можно') as never
+    )
+
+    expect(saveWithInterpretationCalls).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
+
   test('falls back to the purchase interpreter for shorthand lari amounts mixed with quantity text', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
