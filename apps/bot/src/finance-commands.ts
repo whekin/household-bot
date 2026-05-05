@@ -1818,10 +1818,12 @@ export function createFinanceCommandsService(options: {
           resolved.householdId
         )
 
+        // Web app buttons only work in private chats, not in groups
+        const isPrivateChat = ctx.chat?.type === 'private'
         const webAppUrl =
-          options.miniAppUrl && ctx.me.username
+          isPrivateChat && options.miniAppUrl && ctx.me.username
             ? `${options.miniAppUrl}${options.miniAppUrl.includes('?') ? '&' : '?'}bot=${ctx.me.username}`
-            : options.miniAppUrl
+            : null
 
         await ctx.reply(
           formatHouseholdStatus(locale, dashboard, settings.rentDueDay),
