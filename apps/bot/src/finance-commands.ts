@@ -96,11 +96,29 @@ function parseBillMode(raw: string | undefined): 'utilities' | 'rent' | null {
   return null
 }
 
+function parseBillDetailMode(raw: string | undefined): 'compact' | 'full' | null {
+  if (!raw) {
+    return null
+  }
+
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'full' || normalized === 'details' || normalized === 'detail') {
+    return 'full'
+  }
+  if (normalized === 'compact' || normalized === 'short') {
+    return 'compact'
+  }
+
+  return null
+}
+
 function parseBillArgs(args: readonly string[]): {
   forcedMode: 'utilities' | 'rent' | null
+  detailMode: 'compact' | 'full'
   hasInvalidArgs: boolean
 } {
   let forcedMode: 'utilities' | 'rent' | null = null
+  let detailMode: 'compact' | 'full' = 'compact'
 
   for (const arg of args) {
     const parsedMode = parseBillMode(arg)
@@ -109,14 +127,22 @@ function parseBillArgs(args: readonly string[]): {
       continue
     }
 
+    const parsedDetailMode = parseBillDetailMode(arg)
+    if (parsedDetailMode) {
+      detailMode = parsedDetailMode
+      continue
+    }
+
     return {
       forcedMode: null,
+      detailMode: 'compact',
       hasInvalidArgs: true
     }
   }
 
   return {
     forcedMode,
+    detailMode,
     hasInvalidArgs: false
   }
 }
@@ -173,6 +199,47 @@ function utilityPlanStatusLabel(
   }
 
   return locale === 'ru' ? 'Пересчитано' : 'Rebalanced'
+}
+
+function formatSignedMoney(amount: Money, currency: 'USD' | 'GEL'): string {
+  const formatted = formatUserFacingMoney(amount.toMajorString(), currency)
+  return amount.amountMinor > 0n ? `+${formatted}` : formatted
+}
+
+function formatUtilityPlanTotal(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  currency: 'USD' | 'GEL'
+  categories: readonly {
+    utilityBillId: string
+    billTotal: Money
+  }[]
+}): string {
+  const totalsByBillId = new Map<string, Money>()
+  for (const category of input.categories) {
+    if (!totalsByBillId.has(category.utilityBillId)) {
+      totalsByBillId.set(category.utilityBillId, category.billTotal)
+    }
+  }
+
+  const total = [...totalsByBillId.values()].reduce(
+    (sum, amount) => sum.add(amount),
+    Money.zero(input.currency)
+  )
+
+  return `${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(total.toMajorString(), input.currency)}`
+}
+
+function formatPurchaseDriverLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  currency: 'USD' | 'GEL'
+  driver: {
+    title: string
+    amount: Money
+    direction: 'credit' | 'debit'
+  }
+}): string {
+  const sign = input.driver.direction === 'credit' ? '-' : '+'
+  return `${sign}${input.driver.title} ${formatUserFacingMoney(input.driver.amount.toMajorString(), input.currency)}`
 }
 
 function formatUtilityAssignmentLine(input: {
@@ -233,11 +300,35 @@ function formatUtilityMemberBlock(input: {
     vendorPaid: Money
     assignedThisCycle: Money
   } | null
+  balance?: {
+    utilityShare: Money
+    purchaseOffset: Money
+    purchaseDrivers?: readonly {
+      title: string
+      amount: Money
+      direction: 'credit' | 'debit'
+    }[]
+  } | null
   categories: readonly string[]
   viewerOnly: boolean
+  detailMode: 'compact' | 'full'
 }): string {
   const isFullyPaid =
     input.payNow.amountMinor === 0n && input.summary && input.summary.vendorPaid.amountMinor > 0n
+  const isCoveredByBalance =
+    input.payNow.amountMinor === 0n &&
+    !isFullyPaid &&
+    input.balance &&
+    input.balance.utilityShare.amountMinor > 0n &&
+    input.balance.purchaseOffset.amountMinor < 0n
+  const balanceLine =
+    input.balance && input.summary
+      ? `${input.locale === 'ru' ? 'База' : 'Base'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)} · ${
+          input.locale === 'ru' ? 'баланс' : 'balance'
+        }: ${formatSignedMoney(input.balance.purchaseOffset, input.currency)} · ${
+          input.locale === 'ru' ? 'цель' : 'target'
+        }: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
+      : null
 
   const lines = input.viewerOnly
     ? input.payNow.amountMinor === 0n
@@ -245,22 +336,58 @@ function formatUtilityMemberBlock(input: {
           input.locale === 'ru'
             ? isFullyPaid
               ? 'Уже оплачено.'
-              : 'В этом цикле платить не нужно.'
+              : isCoveredByBalance
+                ? 'Закрыто балансом.'
+                : 'В этом цикле платить не нужно.'
             : isFullyPaid
               ? 'Already paid.'
-              : 'Nothing to pay this cycle.'
+              : isCoveredByBalance
+                ? 'Covered by balance.'
+                : 'Nothing to pay this cycle.'
         ]
       : [
           `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
         ]
     : [
         input.displayName,
+        ...(balanceLine ? [balanceLine] : []),
         input.payNow.amountMinor === 0n
           ? input.locale === 'ru'
-            ? 'Уже оплачено.'
-            : 'Already paid.'
+            ? isFullyPaid
+              ? 'Уже оплачено.'
+              : isCoveredByBalance
+                ? 'Закрыто балансом.'
+                : 'Платить не нужно.'
+            : isFullyPaid
+              ? 'Already paid.'
+              : isCoveredByBalance
+                ? 'Covered by balance.'
+                : 'Nothing to pay.'
           : `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
       ]
+
+  if (input.viewerOnly && balanceLine) {
+    lines.unshift(balanceLine)
+  }
+
+  const purchaseDrivers = input.balance?.purchaseDrivers ?? []
+  if (purchaseDrivers.length > 0) {
+    const visibleDrivers =
+      input.detailMode === 'full' ? purchaseDrivers : purchaseDrivers.slice(0, 3)
+    const overflowCount = purchaseDrivers.length - visibleDrivers.length
+    lines.push(
+      `${input.locale === 'ru' ? 'Покупки' : 'Purchases'}: ${[
+        ...visibleDrivers.map((driver) =>
+          formatPurchaseDriverLine({
+            locale: input.locale,
+            currency: input.currency,
+            driver
+          })
+        ),
+        ...(overflowCount > 0 ? [`${input.locale === 'ru' ? 'ещё' : 'plus'} ${overflowCount}`] : [])
+      ].join('; ')}`
+    )
+  }
 
   if (input.payNow.amountMinor > 0n && input.categories.length > 0) {
     lines.push(...input.categories)
@@ -546,6 +673,17 @@ export function createFinanceCommandsService(options: {
     }[]
     viewerMemberId?: string | null
     orderMemberId?: string | null
+    memberBalances?: readonly {
+      memberId: string
+      utilityShare: Money
+      purchaseOffset: Money
+      purchaseDrivers?: readonly {
+        title: string
+        amount: Money
+        direction: 'credit' | 'debit'
+      }[]
+    }[]
+    detailMode: 'compact' | 'full'
   }): string {
     const categoryDetailsByName = new Map(
       (input.utilityCategories ?? []).map((category) => [
@@ -596,6 +734,7 @@ export function createFinanceCommandsService(options: {
           : fallbackMemberIds
     const memberEntries = memberIds.map((memberId) => {
       const summary = relevantSummaries.find((item) => item.memberId === memberId) ?? null
+      const balance = input.memberBalances?.find((item) => item.memberId === memberId) ?? null
       const memberCategories = relevantCategories.filter(
         (category) => category.assignedMemberId === memberId
       )
@@ -608,7 +747,7 @@ export function createFinanceCommandsService(options: {
       const displayName =
         summary?.displayName ?? memberCategories[0]?.assignedDisplayName ?? memberId
 
-      return { memberId, summary, memberCategories, payNow, displayName }
+      return { memberId, summary, balance, memberCategories, payNow, displayName }
     })
 
     // Sort: unpaid members first, then paid members
@@ -629,6 +768,8 @@ export function createFinanceCommandsService(options: {
               displayName: entry.displayName,
               payNow: entry.payNow,
               summary: entry.summary,
+              balance: entry.balance,
+              detailMode: input.detailMode,
               categories:
                 entry.payNow.amountMinor === 0n && !input.viewerMemberId
                   ? []
@@ -663,6 +804,11 @@ export function createFinanceCommandsService(options: {
       ...(input.householdName ? [input.householdName] : []),
       `${input.locale === 'ru' ? 'Статус' : 'Status'}: ${utilityPlanStatusLabel(input.locale, input.plan.status)}`,
       `${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.plan.dueDate)}`,
+      formatUtilityPlanTotal({
+        locale: input.locale,
+        currency: input.currency,
+        categories: input.plan.categories
+      }),
       '',
       memberBlocks.join('\n\n')
     ].join('\n')
@@ -701,24 +847,23 @@ export function createFinanceCommandsService(options: {
       '',
       visibleMembers
         .map((member) =>
-          [
-            ...(input.viewerMemberId
-              ? [
-                  member.remaining.amountMinor > 0n
-                    ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
-                    : input.locale === 'ru'
-                      ? 'Уже оплачено.'
-                      : 'Already paid.'
-                ]
-              : [
-                  member.displayName,
-                  member.remaining.amountMinor > 0n
-                    ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
-                    : input.locale === 'ru'
-                      ? 'Уже оплачено.'
-                      : 'Already paid.'
-                ])
-          ].join('\n')
+          (input.viewerMemberId
+            ? [
+                member.remaining.amountMinor > 0n
+                  ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+                  : input.locale === 'ru'
+                    ? 'Уже оплачено.'
+                    : 'Already paid.'
+              ]
+            : [
+                member.displayName,
+                member.remaining.amountMinor > 0n
+                  ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+                  : input.locale === 'ru'
+                    ? 'Уже оплачено.'
+                    : 'Already paid.'
+              ]
+          ).join('\n')
         )
         .join('\n\n')
     ].join('\n')
@@ -752,6 +897,7 @@ export function createFinanceCommandsService(options: {
     forcedMode?: 'utilities' | 'rent' | null
     viewerMemberId?: string | null
     orderMemberId?: string | null
+    detailMode: 'compact' | 'full'
   }): string {
     const mode = input.forcedMode ?? input.plan.billingStage
 
@@ -763,6 +909,8 @@ export function createFinanceCommandsService(options: {
         plan: input.plan.utilityBillingPlan,
         currency: input.plan.currency,
         utilityCategories: input.utilityCategories,
+        memberBalances: input.plan.members ?? [],
+        detailMode: input.detailMode,
         ...(input.orderMemberId === undefined
           ? {}
           : {
@@ -812,6 +960,7 @@ export function createFinanceCommandsService(options: {
     viewerMemberId?: string | null
     forcedMode?: 'utilities' | 'rent' | null
     orderMemberId?: string | null
+    detailMode: 'compact' | 'full'
   }) {
     const locale = await resolveReplyLocale({
       ctx: input.ctx,
@@ -868,6 +1017,7 @@ export function createFinanceCommandsService(options: {
             note: category.note ?? null
           })),
         adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+        detailMode: input.detailMode,
         ...(input.forcedMode === undefined
           ? {}
           : {
@@ -932,6 +1082,7 @@ export function createFinanceCommandsService(options: {
     locale: BotLocale
     forcedMode: 'utilities' | 'rent' | null
     showMode: 'household' | 'viewer'
+    detailMode: 'compact' | 'full'
   }) {
     const telegramUserId = input.ctx.from?.id?.toString()
     if (!telegramUserId) {
@@ -956,7 +1107,8 @@ export function createFinanceCommandsService(options: {
           : {
               viewerMemberId: resolved.member.id
             }),
-        forcedMode: input.forcedMode
+        forcedMode: input.forcedMode,
+        detailMode: input.detailMode
       })
       return
     }
@@ -988,7 +1140,8 @@ export function createFinanceCommandsService(options: {
           : {
               viewerMemberId: membership.id
             }),
-        forcedMode: input.forcedMode
+        forcedMode: input.forcedMode,
+        detailMode: input.detailMode
       })
       return
     }
@@ -1006,6 +1159,7 @@ export function createFinanceCommandsService(options: {
       payload: {
         kind: 'show',
         showMode: input.showMode,
+        detailMode: input.detailMode,
         choices: households.map(({ membership }) => ({
           householdId: membership.householdId,
           memberId: membership.id
@@ -1019,7 +1173,7 @@ export function createFinanceCommandsService(options: {
           inline_keyboard: households.map(({ membership, household }, index) => [
             {
               text: household?.householdName ?? membership.householdId,
-              callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${input.forcedMode ?? 'auto'}`
+              callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${input.forcedMode ?? 'auto'}:${input.detailMode}`
             }
           ])
         }
@@ -1033,7 +1187,7 @@ export function createFinanceCommandsService(options: {
         ctx,
         repository: options.householdConfigurationRepository
       })
-      const { forcedMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      const { forcedMode, detailMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
       if (hasInvalidArgs) {
         await ctx.reply(getBotTranslations(locale).common.useHelp)
         return
@@ -1043,11 +1197,12 @@ export function createFinanceCommandsService(options: {
         ctx,
         locale,
         forcedMode,
-        showMode: 'household'
+        showMode: 'household',
+        detailMode
       })
     })
 
-    bot.command('my_bill', async (ctx) => {
+    bot.command('bill_full', async (ctx) => {
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
@@ -1062,7 +1217,48 @@ export function createFinanceCommandsService(options: {
         ctx,
         locale,
         forcedMode,
-        showMode: 'viewer'
+        showMode: 'household',
+        detailMode: 'full'
+      })
+    })
+
+    bot.command('my_bill', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const { forcedMode, detailMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      if (hasInvalidArgs) {
+        await ctx.reply(getBotTranslations(locale).common.useHelp)
+        return
+      }
+
+      await replyWithRequestedBillPlan({
+        ctx,
+        locale,
+        forcedMode,
+        showMode: 'viewer',
+        detailMode
+      })
+    })
+
+    bot.command('my_bill_full', async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      const { forcedMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      if (hasInvalidArgs) {
+        await ctx.reply(getBotTranslations(locale).common.useHelp)
+        return
+      }
+
+      await replyWithRequestedBillPlan({
+        ctx,
+        locale,
+        forcedMode,
+        showMode: 'viewer',
+        detailMode: 'full'
       })
     })
 
@@ -1163,7 +1359,7 @@ export function createFinanceCommandsService(options: {
       new RegExp(`^${BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
         const payload = ctx.callbackQuery.data.slice(BILL_SHOW_CALLBACK_PREFIX.length)
-        const [choiceIndexRaw, modeRaw] = payload.split(':')
+        const [choiceIndexRaw, modeRaw, detailRaw] = payload.split(':')
         const telegramUserId = ctx.from?.id?.toString()
         const choiceIndex = Number(choiceIndexRaw)
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || !telegramUserId) {
@@ -1179,6 +1375,11 @@ export function createFinanceCommandsService(options: {
           pendingAction?.payload.kind === 'show' && pendingAction.payload.showMode === 'household'
             ? 'household'
             : 'viewer'
+        const pendingDetailMode =
+          pendingAction?.payload.kind === 'show' && pendingAction.payload.detailMode === 'full'
+            ? 'full'
+            : 'compact'
+        const detailMode = parseBillDetailMode(detailRaw) ?? pendingDetailMode
         const choice = choices[choiceIndex]
         const householdId =
           choice &&
@@ -1231,6 +1432,7 @@ export function createFinanceCommandsService(options: {
               })),
             adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
             forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
+            detailMode,
             ...(showMode === 'household'
               ? {
                   orderMemberId: memberId
@@ -1373,7 +1575,8 @@ export function createFinanceCommandsService(options: {
               })),
             adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
             forcedMode: 'utilities',
-            viewerMemberId: actingMember.id
+            viewerMemberId: actingMember.id,
+            detailMode: 'compact'
           })
         )
         await ctx.answerCallbackQuery({

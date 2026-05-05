@@ -20,7 +20,9 @@ export interface TelegramHelpOptions {
 const DEFAULT_COMMAND_NAMES = [
   'help',
   'bill',
+  'bill_full',
   'my_bill',
+  'my_bill_full',
   'household_status'
 ] as const satisfies readonly TelegramCommandName[]
 const PRIVATE_CHAT_COMMAND_NAMES = [

@@ -6,7 +6,9 @@ export const enBotTranslations: BotTranslationCatalog = {
   commands: {
     help: 'Show command list',
     bill: 'Show the household bill view',
+    bill_full: 'Show the household bill with all purchase impact',
     my_bill: 'Show only your current bill',
+    my_bill_full: 'Show your current bill with all purchase impact',
     bill_json: 'Export the current billing calculation audit as JSON',
     household_status: 'Show current household status',
     utilities: 'Post the utility entry template for this topic',

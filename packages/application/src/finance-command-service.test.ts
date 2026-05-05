@@ -1288,6 +1288,81 @@ describe('createFinanceCommandService', () => {
     expect(repository.utilityBillingPlans[1]?.payload.preferredUtilityPayerMemberId).toBe('bob')
   })
 
+  test('generateCurrentBillPlan exposes compact purchase drivers for utility adjustments', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.purchases = [
+      {
+        id: 'purchase-groceries',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 9000n,
+        currency: 'GEL',
+        description: 'Groceries',
+        occurredAt: instantFromIso('2026-04-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const plan = await service.generateCurrentBillPlan('2026-04')
+
+    expect(
+      plan?.members?.map((member) => ({
+        memberId: member.memberId,
+        drivers: member.purchaseDrivers.map((driver) => ({
+          title: driver.title,
+          direction: driver.direction,
+          amountMinor: driver.amount.amountMinor
+        }))
+      }))
+    ).toEqual([
+      {
+        memberId: 'alice',
+        drivers: [
+          {
+            title: 'Groceries',
+            direction: 'credit',
+            amountMinor: 4500n
+          }
+        ]
+      },
+      {
+        memberId: 'bob',
+        drivers: [
+          {
+            title: 'Groceries',
+            direction: 'debit',
+            amountMinor: 4500n
+          }
+        ]
+      }
+    ])
+  })
+
   test('generateDashboard exposes purchase participant splits in the ledger', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

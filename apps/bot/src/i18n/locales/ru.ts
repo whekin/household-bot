@@ -6,7 +6,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
   commands: {
     help: 'Показать список команд',
     bill: 'Показать общий счёт по дому',
+    bill_full: 'Показать общий счёт со всеми покупками',
     my_bill: 'Показать только ваш текущий счёт',
+    my_bill_full: 'Показать ваш счёт со всеми покупками',
     bill_json: 'Выгрузить расчёты по платежам в JSON',
     household_status: 'Показать текущий статус дома',
     utilities: 'Показать шаблон для ввода коммуналки в этом топике',

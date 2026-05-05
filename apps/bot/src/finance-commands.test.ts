@@ -727,6 +727,228 @@ describe('createFinanceCommandsService', () => {
     expect(text).not.toContain('FULL ·')
   })
 
+  test('renders utility totals and balance-covered members transparently', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-05',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            utilityShare: Money.fromMajor('78.17', 'GEL'),
+            purchaseOffset: Money.fromMajor('-101.10', 'GEL'),
+            purchaseDrivers: [
+              {
+                purchaseId: 'purchase-groceries',
+                title: 'Groceries',
+                amount: Money.fromMajor('72.00', 'GEL'),
+                direction: 'credit',
+                occurredAt: '2026-05-02T10:00:00.000Z',
+                originPeriod: '2026-05'
+              },
+              {
+                purchaseId: 'purchase-soap',
+                title: 'Soap',
+                amount: Money.fromMajor('29.10', 'GEL'),
+                direction: 'credit',
+                occurredAt: '2026-05-03T10:00:00.000Z',
+                originPeriod: '2026-05'
+              }
+            ]
+          },
+          {
+            memberId: 'member-2',
+            displayName: 'Дима',
+            utilityShare: Money.fromMajor('78.17', 'GEL'),
+            purchaseOffset: Money.fromMajor('-1.00', 'GEL'),
+            purchaseDrivers: [
+              {
+                purchaseId: 'purchase-groceries',
+                title: 'Groceries',
+                amount: Money.fromMajor('72.00', 'GEL'),
+                direction: 'debit',
+                occurredAt: '2026-05-02T10:00:00.000Z',
+                originPeriod: '2026-05'
+              },
+              {
+                purchaseId: 'purchase-tea',
+                title: 'Tea',
+                amount: Money.fromMajor('73.00', 'GEL'),
+                direction: 'credit',
+                occurredAt: '2026-05-03T10:00:00.000Z',
+                originPeriod: '2026-05'
+              }
+            ]
+          },
+          {
+            memberId: 'member-3',
+            displayName: 'Ион',
+            utilityShare: Money.fromMajor('78.17', 'GEL'),
+            purchaseOffset: Money.zero('GEL'),
+            purchaseDrivers: [
+              {
+                purchaseId: 'purchase-1',
+                title: 'One',
+                amount: Money.fromMajor('1.00', 'GEL'),
+                direction: 'debit',
+                occurredAt: '2026-05-01T10:00:00.000Z',
+                originPeriod: '2026-05'
+              },
+              {
+                purchaseId: 'purchase-2',
+                title: 'Two',
+                amount: Money.fromMajor('2.00', 'GEL'),
+                direction: 'debit',
+                occurredAt: '2026-05-02T10:00:00.000Z',
+                originPeriod: '2026-05'
+              },
+              {
+                purchaseId: 'purchase-3',
+                title: 'Three',
+                amount: Money.fromMajor('3.00', 'GEL'),
+                direction: 'debit',
+                occurredAt: '2026-05-03T10:00:00.000Z',
+                originPeriod: '2026-05'
+              },
+              {
+                purchaseId: 'purchase-4',
+                title: 'Four',
+                amount: Money.fromMajor('4.00', 'GEL'),
+                direction: 'debit',
+                occurredAt: '2026-05-04T10:00:00.000Z',
+                originPeriod: '2026-05'
+              }
+            ]
+          }
+        ],
+        utilityBillingPlan: {
+          id: 'utility-plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-05-06',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'utility-electricity',
+              billName: 'Electricity',
+              billTotal: Money.fromMajor('56.86', 'GEL'),
+              assignedAmount: Money.fromMajor('56.86', 'GEL'),
+              assignedMemberId: 'member-2',
+              assignedDisplayName: 'Дима',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: true,
+              splitGroupId: null
+            },
+            {
+              utilityBillId: 'utility-gas',
+              billName: 'Gas (Water)',
+              billTotal: Money.fromMajor('253.33', 'GEL'),
+              assignedAmount: Money.fromMajor('20.31', 'GEL'),
+              assignedMemberId: 'member-2',
+              assignedDisplayName: 'Дима',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'utility-gas'
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Стас',
+              fairShare: Money.zero('GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.zero('GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            },
+            {
+              memberId: 'member-2',
+              displayName: 'Дима',
+              fairShare: Money.fromMajor('77.17', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('77.17', 'GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            },
+            {
+              memberId: 'member-3',
+              displayName: 'Ион',
+              fairShare: Money.zero('GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.zero('GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-05-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill utilities', 'ru') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).toContain('Счета: 310.19 ₾')
+    expect(text).toContain(
+      'Стас\nБаза: 78.17 ₾ · баланс: -101.10 ₾ · цель: 0.00 ₾\nЗакрыто балансом.'
+    )
+    expect(text).toContain('Покупки: -Groceries 72.00 ₾; -Soap 29.10 ₾')
+    expect(text).not.toContain('Стас\nУже оплачено.')
+    expect(text).toContain('Дима\nБаза: 78.17 ₾ · баланс: -1.00 ₾ · цель: 77.17 ₾')
+    expect(text).toContain('Покупки: +Groceries 72.00 ₾; -Tea 73.00 ₾')
+    expect(text).toContain('Покупки: +One 1.00 ₾; +Two 2.00 ₾; +Three 3.00 ₾; ещё 1')
+
+    calls.length = 0
+    await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
+
+    const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(fullText).toContain('Покупки: +One 1.00 ₾; +Two 2.00 ₾; +Three 3.00 ₾; +Four 4.00 ₾')
+    expect(fullText).not.toContain('ещё 1')
+  })
+
   test('renders rent as short payment instructions with destinations', async () => {
     const repository: HouseholdConfigurationRepository = {
       ...createRepository(),

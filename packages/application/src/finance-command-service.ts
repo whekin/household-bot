@@ -284,6 +284,20 @@ export interface FinanceCurrentBillPlan {
   billingStage: 'utilities' | 'rent' | 'idle'
   utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
   rentBillingState: FinanceDashboardRentBillingState
+  members?: readonly {
+    memberId: string
+    displayName: string
+    utilityShare: Money
+    purchaseOffset: Money
+    purchaseDrivers: readonly {
+      purchaseId: string
+      title: string
+      amount: Money
+      direction: 'credit' | 'debit'
+      occurredAt: string | null
+      originPeriod: string | null
+    }[]
+  }[]
 }
 
 export interface FinanceAuditMoney {
@@ -1088,6 +1102,87 @@ function buildDashboardUtilityBillingPlan(input: {
         projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
     })
+  }
+}
+
+function purchaseShareForMember(input: {
+  entry: FinanceDashboardLedgerEntry
+  memberId: string
+}): Money | null {
+  if (input.entry.kind !== 'purchase') {
+    return null
+  }
+
+  const participants = (input.entry.purchaseParticipants ?? []).filter(
+    (participant) => participant.included
+  )
+  const participantIndex = participants.findIndex(
+    (participant) => participant.memberId === input.memberId
+  )
+  if (participantIndex === -1) {
+    return null
+  }
+
+  const participant = participants[participantIndex]
+  if (participant?.shareAmount) {
+    return participant.shareAmount
+  }
+
+  return input.entry.displayAmount.splitEvenly(participants.length)[participantIndex] ?? null
+}
+
+function purchaseDriverForMember(input: {
+  entry: FinanceDashboardLedgerEntry
+  memberId: string
+  period: string
+  currency: CurrencyCode
+}): {
+  purchaseId: string
+  title: string
+  amount: Money
+  direction: 'credit' | 'debit'
+  occurredAt: string | null
+  originPeriod: string | null
+} | null {
+  if (input.entry.kind !== 'purchase' || input.entry.resolutionStatus === 'resolved') {
+    return null
+  }
+
+  const payerMemberId = input.entry.payerMemberId ?? input.entry.memberId
+  const isCurrentPeriod = (input.entry.originPeriod ?? input.period) === input.period
+  const hasParticipantData = (input.entry.purchaseParticipants?.length ?? 0) > 0
+  let impactMinor = 0n
+
+  if (isCurrentPeriod && hasParticipantData) {
+    const shareMinor =
+      purchaseShareForMember({ entry: input.entry, memberId: input.memberId })?.amountMinor ?? null
+    const paidMinor = payerMemberId === input.memberId ? input.entry.displayAmount.amountMinor : 0n
+    if (shareMinor === null && paidMinor === 0n) {
+      return null
+    }
+    impactMinor = (shareMinor ?? 0n) - paidMinor
+  } else {
+    const outstanding = input.entry.outstandingByMember ?? []
+    const memberOutstandingMinor =
+      outstanding.find((item) => item.memberId === input.memberId)?.amount.amountMinor ?? 0n
+    const payerCreditMinor =
+      payerMemberId === input.memberId
+        ? outstanding.reduce((sum, item) => sum - item.amount.amountMinor, 0n)
+        : 0n
+    impactMinor = memberOutstandingMinor + payerCreditMinor
+  }
+
+  if (impactMinor === 0n) {
+    return null
+  }
+
+  return {
+    purchaseId: input.entry.id,
+    title: input.entry.title,
+    amount: Money.fromMinor(impactMinor < 0n ? -impactMinor : impactMinor, input.currency),
+    direction: impactMinor < 0n ? 'credit' : 'debit',
+    occurredAt: input.entry.occurredAt ?? null,
+    originPeriod: input.entry.originPeriod ?? null
   }
 }
 
@@ -3120,7 +3215,23 @@ export function createFinanceCommandService(
         timezone: dashboard.timezone,
         billingStage: dashboard.billingStage,
         utilityBillingPlan: dashboard.utilityBillingPlan,
-        rentBillingState: dashboard.rentBillingState
+        rentBillingState: dashboard.rentBillingState,
+        members: dashboard.members.map((member) => ({
+          memberId: member.memberId,
+          displayName: member.displayName,
+          utilityShare: member.utilityShare,
+          purchaseOffset: member.purchaseOffset,
+          purchaseDrivers: dashboard.ledger
+            .map((entry) =>
+              purchaseDriverForMember({
+                entry,
+                memberId: member.memberId,
+                period: dashboard.period,
+                currency: dashboard.currency
+              })
+            )
+            .filter((driver): driver is NonNullable<typeof driver> => driver !== null)
+        }))
       }
     },
 
