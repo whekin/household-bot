@@ -522,6 +522,33 @@ export function createFinanceCommandsService(options: {
           : `   👤 ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)} (${formatUserFacingMoney(member.netDue.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'баланс' : 'balance'}, ${formatUserFacingMoney(member.paid.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'оплачено' : 'paid'})`
       )
 
+    // Determine contextual wording based on billing stage
+    const settlementHeading =
+      dashboard.billingStage === 'utilities'
+        ? locale === 'ru'
+          ? '📊 Коммуналка'
+          : '📊 Utilities'
+        : dashboard.billingStage === 'rent'
+          ? locale === 'ru'
+            ? '📊 Аренда'
+            : '📊 Rent'
+          : locale === 'ru'
+            ? '📊 Расчёты'
+            : '📊 Settlement'
+
+    const remainingLabel =
+      dashboard.billingStage === 'utilities'
+        ? locale === 'ru'
+          ? 'К оплате'
+          : 'To pay'
+        : dashboard.billingStage === 'rent'
+          ? locale === 'ru'
+            ? 'К оплате'
+            : 'To pay'
+          : locale === 'ru'
+            ? 'Текущий баланс'
+            : 'Current balance'
+
     return [
       `🏠 ${t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period))}`,
       `📅 ${t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay))}`,
@@ -531,14 +558,14 @@ export function createFinanceCommandsService(options: {
       `   ${t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency)}`,
       `   ${t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency)}`,
       '',
-      `📊 ${t.householdStatusSettlementHeading}`,
-      `   ${t.householdStatusSettlementBalance(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
+      settlementHeading,
+      `   ${locale === 'ru' ? 'Всего начислено' : 'Total charged'}: ${formatUserFacingMoney(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
       ...(!dashboard.totalPaid.isZero()
         ? [
-            `   ${t.householdStatusSettlementPaid(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
+            `   ${locale === 'ru' ? 'Уже оплачено' : 'Already paid'}: ${formatUserFacingMoney(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
           ]
         : []),
-      `   ${t.householdStatusSettlementRemaining(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`,
+      `   ${remainingLabel}: ${formatUserFacingMoney(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`,
       '',
       `👥 ${t.householdStatusMembersHeading}`,
       ...memberLines
