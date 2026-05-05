@@ -511,55 +511,36 @@ export function createFinanceCommandsService(options: {
 
     const rentLine =
       dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency
-        ? t.householdStatusRentDirect(
-            dashboard.rentDisplayAmount.toMajorString(),
-            dashboard.currency
-          )
-        : t.householdStatusRentConverted(
-            dashboard.rentSourceAmount.toMajorString(),
-            dashboard.rentSourceAmount.currency,
-            dashboard.rentDisplayAmount.toMajorString(),
-            dashboard.currency
-          )
+        ? `   ${t.householdStatusRentDirect(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
+        : `   ${t.householdStatusRentConverted(dashboard.rentSourceAmount.toMajorString(), dashboard.rentSourceAmount.currency, dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)}`
 
     const memberLines = [...dashboard.members]
       .sort((left, right) => right.remaining.compare(left.remaining))
       .map((member) =>
         member.paid.isZero()
-          ? t.householdStatusMemberCompact(
-              member.displayName,
-              member.remaining.toMajorString(),
-              dashboard.currency
-            )
-          : t.householdStatusMemberDetailed(
-              member.displayName,
-              member.remaining.toMajorString(),
-              member.netDue.toMajorString(),
-              member.paid.toMajorString(),
-              dashboard.currency
-            )
+          ? `   👤 ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)}`
+          : `   👤 ${member.displayName}: ${formatUserFacingMoney(member.remaining.toMajorString(), dashboard.currency)} (${formatUserFacingMoney(member.netDue.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'баланс' : 'balance'}, ${formatUserFacingMoney(member.paid.toMajorString(), dashboard.currency)} ${locale === 'ru' ? 'оплачено' : 'paid'})`
       )
 
     return [
-      t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period)),
-      t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay)),
+      `🏠 ${t.householdStatusTitle(formatBillingPeriodLabel(locale, dashboard.period))}`,
+      `📅 ${t.householdStatusDueDate(formatCycleDueDate(locale, dashboard.period, dueDay))}`,
       '',
-      t.householdStatusChargesHeading,
+      `💰 ${t.householdStatusChargesHeading}`,
       rentLine,
-      t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency),
-      t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency),
+      `   ${t.householdStatusUtilities(utilityTotal.toMajorString(), dashboard.currency)}`,
+      `   ${t.householdStatusPurchases(purchaseTotal.toMajorString(), dashboard.currency)}`,
       '',
-      t.householdStatusSettlementHeading,
-      t.householdStatusSettlementBalance(dashboard.totalDue.toMajorString(), dashboard.currency),
+      `📊 ${t.householdStatusSettlementHeading}`,
+      `   ${t.householdStatusSettlementBalance(dashboard.totalDue.toMajorString(), dashboard.currency)}`,
       ...(!dashboard.totalPaid.isZero()
-        ? [t.householdStatusSettlementPaid(dashboard.totalPaid.toMajorString(), dashboard.currency)]
+        ? [
+            `   ${t.householdStatusSettlementPaid(dashboard.totalPaid.toMajorString(), dashboard.currency)}`
+          ]
         : []),
-      t.householdStatusSettlementRemaining(
-        dashboard.totalRemaining.toMajorString(),
-        dashboard.currency
-      ),
+      `   ${t.householdStatusSettlementRemaining(dashboard.totalRemaining.toMajorString(), dashboard.currency)}`,
       '',
-      t.householdStatusMembersHeading,
+      `👥 ${t.householdStatusMembersHeading}`,
       ...memberLines
     ].join('\n')
   }

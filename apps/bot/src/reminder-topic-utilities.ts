@@ -194,23 +194,25 @@ export function buildTemplateText(
   text: string
   parseMode: 'HTML'
 } {
-  const t = getBotTranslations(locale).reminders
-
   const templateLines = categories.map((category) => `${category}: `).join('\n')
 
   return {
     text: [
-      escapeHtml(t.templateIntro(currency)),
+      `💡 <b>${escapeHtml(locale === 'ru' ? 'Коммуналка' : 'Utilities')}</b>`,
       '',
       escapeHtml(
         locale === 'ru'
-          ? 'Ответьте в этот топик, по одной строке на категорию.'
-          : 'Reply in this topic with one line per category.'
+          ? `Заполните суммы в ${currency} и отправьте обратно:`
+          : `Fill in amounts in ${currency} and send back:`
       ),
       '',
       `<pre>${escapeHtml(templateLines)}</pre>`,
       '',
-      escapeHtml(t.templateInstruction)
+      escapeHtml(
+        locale === 'ru'
+          ? 'Оставьте пустым или укажите 0 для пропуска.'
+          : 'Leave blank or use 0 to skip.'
+      )
     ].join('\n'),
     parseMode: 'HTML'
   }

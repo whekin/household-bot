@@ -480,20 +480,22 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(householdStatusUpdate('ru') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(payload?.text).toContain('🏠')
     expect(payload?.text).toContain('Статус на март 2026')
-    expect(payload?.text).toContain('\n\nНачисления\n')
+    expect(payload?.text).toContain('💰 Начисления')
     expect(payload?.text).toContain('Аренда: $700.00 (~1890.00 ₾)')
     expect(payload?.text).toContain('Коммуналка: 82.00 ₾')
     expect(payload?.text).toContain('Общие покупки: 30.00 ₾')
+    expect(payload?.text).toContain('📅')
     expect(payload?.text).toContain('Срок оплаты аренды: до 20 марта')
-    expect(payload?.text).toContain('Расчёты')
+    expect(payload?.text).toContain('📊 Расчёты')
     expect(payload?.text).toContain('Общий баланс: 400.00 ₾')
     expect(payload?.text).toContain('Уже оплачено: 100.00 ₾')
     expect(payload?.text).toContain('Осталось оплатить: 300.00 ₾')
-    expect(payload?.text).toContain('Участники')
-    expect(payload?.text).toContain('- Ион: остаток 190.00 ₾')
-    expect(payload?.text).toContain('- Стас: остаток 110.00 ₾ (210.00 ₾ баланс, 100.00 ₾ оплачено)')
-    expect(payload?.text).not.toContain('- Ион: остаток 190.00 ₾ (')
+    expect(payload?.text).toContain('👥 Участники')
+    expect(payload?.text).toContain('👤 Ион: 190.00 ₾')
+    expect(payload?.text).toContain('👤 Стас: 110.00 ₾ (210.00 ₾ баланс, 100.00 ₾ оплачено)')
+    expect(payload?.text).not.toContain('👤 Ион: 190.00 ₾ (')
   })
 
   test('renders the utility bill plan and quick action button for assigned members', async () => {
