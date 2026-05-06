@@ -225,6 +225,13 @@
       "when": 1777933143403,
       "tag": "0031_moaning_kinsey_walden",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1778057704000,
+      "tag": "0032_stable_utility_plan_identity",
+      "breakpoints": true
     }
   ]
 }

@@ -1020,6 +1020,109 @@ export function createDbFinanceRepository(
       return mapUtilityBillingPlanRecord(row)
     },
 
+    async replaceCurrentUtilityBillingPlan(input) {
+      return db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.cycleId}))`)
+
+        const currentRows = await tx
+          .select({
+            id: schema.utilityBillingPlans.id,
+            householdId: schema.utilityBillingPlans.householdId,
+            cycleId: schema.utilityBillingPlans.cycleId,
+            version: schema.utilityBillingPlans.version,
+            status: schema.utilityBillingPlans.status,
+            dueDate: schema.utilityBillingPlans.dueDate,
+            currency: schema.utilityBillingPlans.currency,
+            maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+            updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+            reason: schema.utilityBillingPlans.reason,
+            payload: schema.utilityBillingPlans.payload,
+            createdAt: schema.utilityBillingPlans.createdAt
+          })
+          .from(schema.utilityBillingPlans)
+          .where(
+            and(
+              eq(schema.utilityBillingPlans.cycleId, input.cycleId),
+              or(
+                eq(schema.utilityBillingPlans.status, 'active'),
+                eq(schema.utilityBillingPlans.status, 'settled')
+              )
+            )
+          )
+          .orderBy(desc(schema.utilityBillingPlans.version))
+          .limit(1)
+        const current = currentRows[0] ? mapUtilityBillingPlanRecord(currentRows[0]) : null
+
+        if (
+          current &&
+          current.status === input.status &&
+          current.dueDate === input.dueDate &&
+          current.currency === input.currency &&
+          current.maxCategoriesPerMemberApplied === input.maxCategoriesPerMemberApplied &&
+          JSON.stringify(current.payload) === JSON.stringify(input.payload)
+        ) {
+          return current
+        }
+
+        const planToReplace = current
+        if (planToReplace && input.previousPlanReplacementStatus) {
+          await tx
+            .update(schema.utilityBillingPlans)
+            .set({ status: input.previousPlanReplacementStatus })
+            .where(
+              and(
+                eq(schema.utilityBillingPlans.id, planToReplace.id),
+                eq(schema.utilityBillingPlans.householdId, householdId)
+              )
+            )
+        }
+
+        const versionRows = await tx
+          .select({ version: schema.utilityBillingPlans.version })
+          .from(schema.utilityBillingPlans)
+          .where(eq(schema.utilityBillingPlans.cycleId, input.cycleId))
+          .orderBy(desc(schema.utilityBillingPlans.version))
+          .limit(1)
+        const nextVersion = (versionRows[0]?.version ?? 0) + 1
+
+        const rows = await tx
+          .insert(schema.utilityBillingPlans)
+          .values({
+            householdId,
+            cycleId: input.cycleId,
+            version: nextVersion,
+            status: input.status,
+            dueDate: input.dueDate,
+            currency: input.currency,
+            maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+            updatedFromPlanId: planToReplace?.id ?? input.previousPlanId,
+            reason: input.reason,
+            payload: input.payload
+          })
+          .returning({
+            id: schema.utilityBillingPlans.id,
+            householdId: schema.utilityBillingPlans.householdId,
+            cycleId: schema.utilityBillingPlans.cycleId,
+            version: schema.utilityBillingPlans.version,
+            status: schema.utilityBillingPlans.status,
+            dueDate: schema.utilityBillingPlans.dueDate,
+            currency: schema.utilityBillingPlans.currency,
+            maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+            updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+            reason: schema.utilityBillingPlans.reason,
+            payload: schema.utilityBillingPlans.payload,
+            createdAt: schema.utilityBillingPlans.createdAt
+          })
+
+        const row = rows[0]
+        if (!row) {
+          throw new Error('Utility billing plan replacement did not return a row')
+        }
+
+        return mapUtilityBillingPlanRecord(row)
+      })
+    },
+
     async updateUtilityBillingPlanStatus(planId, status) {
       const rows = await db
         .update(schema.utilityBillingPlans)
@@ -1054,6 +1157,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.utilityVendorPaymentFacts.id,
           cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          planId: schema.utilityVendorPaymentFacts.planId,
           utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
           billName: schema.utilityVendorPaymentFacts.billName,
           payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
@@ -1085,6 +1189,7 @@ export function createDbFinanceRepository(
         .values({
           householdId,
           cycleId: input.cycleId,
+          planId: input.planId ?? null,
           utilityBillId: input.utilityBillId ?? null,
           billName: input.billName,
           payerMemberId: input.payerMemberId,
@@ -1099,6 +1204,7 @@ export function createDbFinanceRepository(
         .returning({
           id: schema.utilityVendorPaymentFacts.id,
           cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          planId: schema.utilityVendorPaymentFacts.planId,
           utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
           billName: schema.utilityVendorPaymentFacts.billName,
           payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,

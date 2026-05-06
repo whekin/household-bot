@@ -126,6 +126,7 @@ export interface FinanceUtilityBillingPlanRecord {
 export interface FinanceUtilityVendorPaymentFactRecord {
   id: string
   cycleId: string
+  planId?: string | null
   utilityBillId: string | null
   billName: string
   payerMemberId: string
@@ -357,6 +358,17 @@ export interface FinanceRepository {
     reason: string | null
     payload: FinanceUtilityBillingPlanPayload
   }): Promise<FinanceUtilityBillingPlanRecord>
+  replaceCurrentUtilityBillingPlan(input: {
+    cycleId: string
+    status: FinanceUtilityBillingPlanStatus
+    dueDate: string
+    currency: CurrencyCode
+    maxCategoriesPerMemberApplied: number
+    previousPlanId: string | null
+    previousPlanReplacementStatus: FinanceUtilityBillingPlanStatus | null
+    reason: string | null
+    payload: FinanceUtilityBillingPlanPayload
+  }): Promise<FinanceUtilityBillingPlanRecord>
   updateUtilityBillingPlanStatus(
     planId: string,
     status: FinanceUtilityBillingPlanStatus
@@ -366,6 +378,7 @@ export interface FinanceRepository {
   ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
   addUtilityVendorPaymentFact(input: {
     cycleId: string
+    planId?: string | null
     utilityBillId?: string | null
     billName: string
     payerMemberId: string

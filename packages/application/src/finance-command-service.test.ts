@@ -194,6 +194,18 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string
   }): Promise<void> {
     this.lastUtilityBill = input
+    this.utilityBills = [
+      ...this.utilityBills,
+      {
+        id: `utility-bill-${this.utilityBills.length + 1}`,
+        cycleId: input.cycleId,
+        billName: input.billName,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        createdByMemberId: input.createdByMemberId,
+        createdAt: instantFromIso('2026-04-02T09:00:00.000Z')
+      }
+    ]
   }
 
   async addParsedPurchase(input: Parameters<FinanceRepository['addParsedPurchase']>[0]) {
@@ -395,6 +407,58 @@ class FinanceRepositoryStub implements FinanceRepository {
     }
   }
 
+  async replaceCurrentUtilityBillingPlan(
+    input: Parameters<FinanceRepository['replaceCurrentUtilityBillingPlan']>[0]
+  ) {
+    const current = [...this.utilityBillingPlans]
+      .reverse()
+      .find(
+        (plan) =>
+          plan.cycleId === input.cycleId && (plan.status === 'active' || plan.status === 'settled')
+      )
+    if (
+      current &&
+      current.status === input.status &&
+      current.dueDate === input.dueDate &&
+      current.currency === input.currency &&
+      current.maxCategoriesPerMemberApplied === input.maxCategoriesPerMemberApplied &&
+      JSON.stringify(current.payload) === JSON.stringify(input.payload)
+    ) {
+      return {
+        id: `utility-plan-${current.version}`,
+        householdId: this.householdId,
+        cycleId: current.cycleId,
+        version: current.version,
+        status: current.status,
+        dueDate: current.dueDate,
+        currency: current.currency,
+        maxCategoriesPerMemberApplied: current.maxCategoriesPerMemberApplied,
+        updatedFromPlanId: current.updatedFromPlanId,
+        reason: current.reason,
+        payload: current.payload,
+        createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
+      }
+    }
+
+    if (current && input.previousPlanReplacementStatus) {
+      current.status = input.previousPlanReplacementStatus
+    }
+    const nextVersion =
+      this.utilityBillingPlans.reduce((max, plan) => (plan.version > max ? plan.version : max), 0) +
+      1
+    return this.saveUtilityBillingPlan({
+      cycleId: input.cycleId,
+      version: nextVersion,
+      status: input.status,
+      dueDate: input.dueDate,
+      currency: input.currency,
+      maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+      updatedFromPlanId: current ? `utility-plan-${current.version}` : input.previousPlanId,
+      reason: input.reason,
+      payload: input.payload
+    })
+  }
+
   async updateUtilityBillingPlanStatus(
     planId: string,
     status: Parameters<FinanceRepository['updateUtilityBillingPlanStatus']>[1]
@@ -432,6 +496,7 @@ class FinanceRepositoryStub implements FinanceRepository {
     const fact = {
       id: `utility-vendor-${this.utilityVendorPaymentFacts.length + 1}`,
       cycleId: input.cycleId,
+      planId: input.planId ?? null,
       utilityBillId: input.utilityBillId ?? null,
       billName: input.billName,
       payerMemberId: input.payerMemberId,
@@ -739,7 +804,7 @@ describe('createFinanceCommandService', () => {
       {
         cycleId: 'cycle-current',
         version: 1,
-        status: 'settled',
+        status: 'active',
         dueDate: `${currentPeriod}-04`,
         currency: 'GEL',
         maxCategoriesPerMemberApplied: 0,
@@ -2773,6 +2838,144 @@ describe('createFinanceCommandService', () => {
     expect(result?.plan?.version).toBe(1)
   })
 
+  test('new purchases and utility bills do not replan after a planned utility payment', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialDashboard = await service.generateDashboard('2026-04')
+    const initialCategories = initialDashboard?.utilityBillingPlan?.categories.map((category) => ({
+      utilityBillId: category.utilityBillId,
+      assignedMemberId: category.assignedMemberId,
+      amountMinor: category.assignedAmount.amountMinor
+    }))
+
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+    await service.addPurchase('Snacks', '10.00', 'alice', 'GEL')
+    await service.addUtilityBill('Electricity', '50.00', 'alice', 'GEL')
+
+    const afterDashboard = await service.generateDashboard('2026-04')
+
+    expect(repository.utilityBillingPlans).toHaveLength(1)
+    expect(afterDashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(
+      afterDashboard?.utilityBillingPlan?.categories.map((category) => ({
+        utilityBillId: category.utilityBillId,
+        assignedMemberId: category.assignedMemberId,
+        amountMinor: category.assignedAmount.amountMinor
+      }))
+    ).toEqual(initialCategories)
+  })
+
+  test('orphan matched utility facts do not recreate a deleted plan as settled', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-2026-04',
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        payerMemberId: 'alice',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        plannedForMemberId: 'alice',
+        planVersion: 1,
+        matchedPlan: true,
+        recordedByMemberId: 'alice',
+        recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-04')
+
+    expect(repository.utilityBillingPlans).toHaveLength(1)
+    expect(repository.utilityBillingPlans[0]?.status).toBe('active')
+    expect(dashboard?.utilityBillingPlan?.status).toBe('active')
+    expect(dashboard?.utilityBillingPlan?.categories.length).toBeGreaterThan(0)
+  })
+
   test('generateDashboard does not mint duplicate utility plan versions after off-plan utility facts', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
@@ -3160,7 +3363,7 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.billingStage).toBe('utilities')
   })
 
-  test('generateDashboard repairs a settled utility plan when newer utility bills were added', async () => {
+  test('generateDashboard keeps a settled utility plan frozen when newer utility bills were added', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -3243,13 +3446,10 @@ describe('createFinanceCommandService', () => {
       todayOverride: '2026-05-04'
     })
 
-    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
-      'superseded',
-      'active'
-    ])
-    expect(dashboard?.utilityBillingPlan?.version).toBe(2)
-    expect(dashboard?.utilityBillingPlan?.categories).toHaveLength(2)
-    expect(dashboard?.billingStage).toBe('utilities')
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['settled'])
+    expect(dashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(dashboard?.utilityBillingPlan?.categories).toHaveLength(0)
+    expect(dashboard?.billingStage).toBe('idle')
   })
 
   test('resolveUtilityBillAsPlanned resolves purchases when policy is utilities', async () => {

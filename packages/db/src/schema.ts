@@ -748,7 +748,10 @@ export const utilityBillingPlans = pgTable(
     householdCreatedIdx: index('utility_billing_plans_household_created_idx').on(
       table.householdId,
       table.createdAt
-    )
+    ),
+    currentPlanUnique: uniqueIndex('utility_billing_plans_cycle_current_unique')
+      .on(table.cycleId)
+      .where(sql`status in ('active', 'settled')`)
   })
 )
 
@@ -762,6 +765,9 @@ export const utilityVendorPaymentFacts = pgTable(
     cycleId: uuid('cycle_id')
       .notNull()
       .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    planId: uuid('plan_id').references(() => utilityBillingPlans.id, {
+      onDelete: 'set null'
+    }),
     utilityBillId: uuid('utility_bill_id').references(() => utilityBills.id, {
       onDelete: 'set null'
     }),
@@ -784,6 +790,7 @@ export const utilityVendorPaymentFacts = pgTable(
   },
   (table) => ({
     cycleIdx: index('utility_vendor_payment_facts_cycle_idx').on(table.cycleId),
+    planIdx: index('utility_vendor_payment_facts_plan_idx').on(table.planId),
     billIdx: index('utility_vendor_payment_facts_bill_idx').on(table.utilityBillId),
     payerIdx: index('utility_vendor_payment_facts_payer_idx').on(table.payerMemberId)
   })

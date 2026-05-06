@@ -182,6 +182,24 @@ function repository(
 
       return latestUtilityPlan
     },
+    replaceCurrentUtilityBillingPlan: async (input) => {
+      latestUtilityPlan = {
+        id: latestUtilityPlan?.id ?? 'utility-plan-1',
+        householdId: 'household-1',
+        cycleId: input.cycleId,
+        version: (latestUtilityPlan?.version ?? 0) + 1,
+        status: input.status,
+        dueDate: input.dueDate,
+        currency: input.currency,
+        maxCategoriesPerMemberApplied: input.maxCategoriesPerMemberApplied,
+        updatedFromPlanId: input.previousPlanId,
+        reason: input.reason,
+        payload: input.payload,
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+      }
+
+      return latestUtilityPlan
+    },
     updateUtilityBillingPlanStatus: async (planId, status) => {
       if (!latestUtilityPlan || latestUtilityPlan.id !== planId) {
         return null
@@ -198,6 +216,7 @@ function repository(
     addUtilityVendorPaymentFact: async (input) => ({
       id: 'utility-vendor-payment-1',
       cycleId: input.cycleId,
+      planId: input.planId ?? null,
       utilityBillId: input.utilityBillId ?? null,
       billName: input.billName,
       payerMemberId: input.payerMemberId,
