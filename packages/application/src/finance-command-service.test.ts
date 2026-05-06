@@ -2848,6 +2848,267 @@ describe('createFinanceCommandService', () => {
     ])
   })
 
+  test('generateDashboard does not rebalance again when the active plan is newer than old off-plan facts', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        cycleId: 'cycle-2026-04',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:01:00.000Z')
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-04',
+        version: 1,
+        status: 'diverged',
+        dueDate: '2026-04-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 1,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-electricity',
+              billName: 'Electricity',
+              billTotalMinor: '10000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '-10000'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '10000' },
+            { memberId: 'bob', amountMinor: '10000' }
+          ],
+          preferredUtilityPayerMemberId: null
+        }
+      },
+      {
+        cycleId: 'cycle-2026-04',
+        version: 2,
+        status: 'active',
+        dueDate: '2026-04-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 1,
+        updatedFromPlanId: 'utility-plan-1',
+        reason: 'rebalanced_after_off_plan_change',
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-electricity',
+              billName: 'Electricity',
+              billTotalMinor: '10000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: true,
+              splitGroupId: null
+            },
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '10000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'bob',
+              paidAmountMinor: '10000',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '10000',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '10000' },
+            { memberId: 'bob', amountMinor: '10000' }
+          ],
+          preferredUtilityPayerMemberId: null
+        }
+      }
+    ]
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-2026-04',
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        payerMemberId: 'alice',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        plannedForMemberId: null,
+        planVersion: 1,
+        matchedPlan: false,
+        recordedByMemberId: 'alice',
+        recordedAt: instantFromIso('2026-04-02T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-04-02T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    await service.generateDashboard('2026-04')
+
+    expect(repository.utilityBillingPlans).toHaveLength(2)
+    expect(repository.utilityBillingPlans.map((plan) => plan.version)).toEqual([1, 2])
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'diverged',
+      'active'
+    ])
+  })
+
+  test('generateDashboard bootstraps an active plan when only legacy off-plan vendor facts exist', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-05',
+      period: '2026-05',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'bob', period: '2026-05', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        cycleId: 'cycle-2026-05',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-05',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:01:00.000Z')
+      }
+    ]
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-2026-05',
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        payerMemberId: 'alice',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        plannedForMemberId: null,
+        planVersion: null,
+        matchedPlan: false,
+        recordedByMemberId: 'alice',
+        recordedAt: instantFromIso('2026-02-01T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-02-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-05')
+
+    expect(repository.utilityBillingPlans).toHaveLength(1)
+    expect(repository.utilityBillingPlans[0]?.status).toBe('active')
+    expect(dashboard?.utilityBillingPlan?.version).toBe(1)
+    expect(dashboard?.utilityBillingPlan?.status).toBe('active')
+    expect(dashboard?.utilityBillingPlan?.categories).toHaveLength(2)
+  })
+
   test('generateDashboard keeps utilities stage after rent warning while planned utilities remain unpaid', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

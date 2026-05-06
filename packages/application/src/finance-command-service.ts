@@ -1009,7 +1009,17 @@ async function ensureUtilityBillingPlan(input: {
   const isLocked = activePlan && (hadOnPlanFact || activePlan.status === 'settled')
 
   // On-plan payments should never trigger rebalancing - they're just tracking who paid what.
-  const hadOffPlanFact = vendorFacts.some((fact) => !fact.matchedPlan)
+  const offPlanFacts = vendorFacts.filter((fact) => !fact.matchedPlan)
+  const hadOffPlanFact = offPlanFacts.length > 0
+  const hasPendingOffPlanFact =
+    !activePlan ||
+    offPlanFacts.some((fact) => {
+      if (fact.planVersion !== null && fact.planVersion !== undefined) {
+        return fact.planVersion >= activePlan.version
+      }
+
+      return Temporal.Instant.compare(fact.createdAt, activePlan.createdAt) >= 0
+    })
 
   // Decide whether to recompute the plan assignments.
   // We MUST recompute if:
@@ -1022,7 +1032,7 @@ async function ensureUtilityBillingPlan(input: {
   //   (we must incorporate all bills into the plan).
   const shouldRecompute =
     !activePlan ||
-    hadOffPlanFact ||
+    (!input.skipRebalance && hasPendingOffPlanFact) ||
     (inputChangeStatus.anyChanged &&
       (!isLocked ||
         inputChangeStatus.utilityBillsChanged ||
@@ -1033,6 +1043,8 @@ async function ensureUtilityBillingPlan(input: {
   const vendorPaymentsForCompute = activePlan
     ? vendorFacts.filter((fact) => !fact.matchedPlan)
     : vendorFacts
+  const billCoveragePaymentsForCompute =
+    !activePlan && hadOffPlanFact ? [] : vendorPaymentsForCompute
 
   let computed = shouldRecompute
     ? computeUtilityBillingPlan({
@@ -1060,6 +1072,12 @@ async function ensureUtilityBillingPlan(input: {
           amount: converted.settlementAmount
         })),
         vendorPayments: vendorPaymentsForCompute.map((fact) => ({
+          utilityBillId: fact.utilityBillId,
+          billName: fact.billName,
+          payerMemberId: fact.payerMemberId,
+          amount: Money.fromMinor(fact.amountMinor, fact.currency)
+        })),
+        billCoveragePayments: billCoveragePaymentsForCompute.map((fact) => ({
           utilityBillId: fact.utilityBillId,
           billName: fact.billName,
           payerMemberId: fact.payerMemberId,

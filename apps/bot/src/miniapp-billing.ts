@@ -1105,6 +1105,20 @@ export function createMiniAppSubmitPaymentHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        options.logger?.info(
+          {
+            event: 'miniapp.payment.record_requested',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            memberId: auth.member.id,
+            kind: payload.kind,
+            amountMajor: payload.amountMajor,
+            currency: payload.currency ?? null,
+            period: payload.period ?? null,
+            route: 'member'
+          },
+          'Mini app payment record requested'
+        )
         const payment = await service.addPayment(
           auth.member.id,
           payload.kind,
@@ -1125,6 +1139,20 @@ export function createMiniAppSubmitPaymentHandler(options: {
           currency: payment.currency,
           period: payment.period
         })
+        options.logger?.info(
+          {
+            event: 'miniapp.payment.record_completed',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            memberId: auth.member.id,
+            kind: payload.kind,
+            amountMinor: payment.amount.amountMinor.toString(),
+            currency: payment.currency,
+            period: payment.period,
+            route: 'member'
+          },
+          'Mini app payment record completed'
+        )
 
         return miniAppJsonResponse(
           {
@@ -1553,6 +1581,20 @@ export function createMiniAppAddPaymentHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        options.logger?.info(
+          {
+            event: 'miniapp.payment.record_requested',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            memberId: payload.memberId,
+            kind: payload.kind,
+            amountMajor: payload.amountMajor,
+            currency: payload.currency ?? null,
+            period: payload.period ?? null,
+            route: 'admin'
+          },
+          'Mini app payment record requested'
+        )
         const payment = await service.addPayment(
           payload.memberId,
           payload.kind,
@@ -1564,6 +1606,21 @@ export function createMiniAppAddPaymentHandler(options: {
         if (!payment) {
           return miniAppJsonResponse({ ok: false, error: 'No open billing cycle' }, 409, origin)
         }
+
+        options.logger?.info(
+          {
+            event: 'miniapp.payment.record_completed',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            memberId: payload.memberId,
+            kind: payload.kind,
+            amountMinor: payment.amount.amountMinor.toString(),
+            currency: payment.currency,
+            period: payment.period,
+            route: 'admin'
+          },
+          'Mini app payment record completed'
+        )
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

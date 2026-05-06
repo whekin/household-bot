@@ -499,11 +499,15 @@ export function computeUtilityBillingPlan(input: {
   members: readonly UtilityBillingTargetMember[]
   bills: readonly UtilityBillingBill[]
   vendorPayments: readonly UtilityVendorPaymentFactInput[]
+  billCoveragePayments?: readonly UtilityVendorPaymentFactInput[]
   strategy?: UtilityBillingPlanStrategy
   preferredUtilityPayerMemberId?: string | null
   purchaseIds?: readonly string[]
 }): UtilityBillingPlanComputed {
-  const paidByBillId = candidatePaidByBill(input.bills, input.vendorPayments)
+  const paidByBillId = candidatePaidByBill(
+    input.bills,
+    input.billCoveragePayments ?? input.vendorPayments
+  )
   const vendorPaidByMemberId = new Map<string, bigint>()
 
   for (const fact of input.vendorPayments) {
