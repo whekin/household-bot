@@ -34,6 +34,7 @@ import {
 import {
   submitMiniAppUtilityBill,
   addMiniAppPayment,
+  resolveMiniAppUtilityPlan,
   updateMiniAppNotification,
   cancelMiniAppNotification
 } from '../miniapp-api'
@@ -560,25 +561,62 @@ export default function HomeRoute() {
     const data = initData()
     const amount = quickPaymentAmount()
     const type = quickPaymentType()
+    const context = quickPaymentContext()
+    const currentMember = currentMemberLine()
+    const currentDashboard = dashboard()
+    const usePlannedUtilityResolution =
+      type === 'utilities' &&
+      context === 'current' &&
+      currentDashboard?.utilityBillingPlan !== undefined &&
+      currentDashboard?.utilityBillingPlan !== null &&
+      currentMember !== null &&
+      majorStringToMinor(currentUtilitySummary()?.assignedThisCycleMajor ?? '0.00') > 0n
 
-    if (!data || !amount.trim() || !currentMemberLine()) return
+    if (!data || !amount.trim() || !currentMember) return
 
     setSubmittingPayment(true)
     try {
-      await addMiniAppPayment(data, {
-        memberId: currentMemberLine()!.memberId,
+      console.info('[miniapp] home quick payment start', {
+        memberId: currentMember.memberId,
         kind: type,
-        amountMajor: amount,
-        currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
+        context,
+        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
       })
+
+      if (usePlannedUtilityResolution) {
+        await resolveMiniAppUtilityPlan(data, {
+          memberId: currentMember.memberId,
+          ...(currentDashboard?.period ? { period: currentDashboard.period } : {})
+        })
+      } else {
+        await addMiniAppPayment(data, {
+          memberId: currentMember.memberId,
+          kind: type,
+          amountMajor: amount,
+          currency: (currentDashboard?.currency as 'USD' | 'GEL') ?? 'GEL'
+        })
+      }
+
       setQuickPaymentOpen(false)
       setToastState({
         visible: true,
         message: copy().quickPaymentSuccess,
         type: 'success'
       })
+      console.info('[miniapp] home quick payment completed', {
+        memberId: currentMember.memberId,
+        kind: type,
+        context,
+        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
+      })
       await refreshDashboardData()
-    } catch {
+    } catch (error) {
+      console.error('[miniapp] home quick payment failed', {
+        memberId: currentMember.memberId,
+        kind: type,
+        context,
+        error
+      })
       setToastState({
         visible: true,
         message: copy().quickPaymentFailed,
