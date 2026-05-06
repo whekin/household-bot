@@ -28,7 +28,8 @@ import {
   Temporal,
   convertMoney,
   nowInstant,
-  type CurrencyCode
+  type CurrencyCode,
+  type Instant
 } from '@household/domain'
 
 import { calculateMonthlySettlement } from './settlement-engine'
@@ -2737,9 +2738,10 @@ export interface FinanceCommandService {
   deletePayment(paymentId: string): Promise<boolean>
   generateCurrentBillPlan(periodArg?: string): Promise<FinanceCurrentBillPlan | null>
   resolveUtilityBillAsPlanned(input: {
-    memberId: string
+    memberId?: string
     actorMemberId?: string
     periodArg?: string
+    allMembers?: boolean
   }): Promise<{
     period: string
     resolvedBillIds: readonly string[]
@@ -2819,6 +2821,130 @@ export function createFinanceCommandService(
     }
 
     return cycle
+  }
+
+  async function resolvePlannedUtilitiesForMember(input: {
+    cycle: FinanceCycleRecord
+    dashboard: FinanceDashboard
+    utilityPlan: FinanceDashboardUtilityBillingPlan
+    memberId: string
+    actorMemberId?: string
+    recordedAt: Instant
+    existingVendorFacts: Awaited<
+      ReturnType<FinanceRepository['listUtilityVendorPaymentFactsForCycle']>
+    >
+    existingPaymentRecords: Awaited<ReturnType<FinanceRepository['listPaymentRecordsForCycle']>>
+  }): Promise<readonly string[]> {
+    const categories = input.utilityPlan.categories.filter(
+      (category) =>
+        category.assignedMemberId === input.memberId && category.assignedAmount.amountMinor > 0n
+    )
+    if (categories.length === 0) {
+      throw new Error('No planned utility bills assigned to this member')
+    }
+
+    const categoriesToRecord = categories
+      .map((category) => {
+        const alreadyPaidMinor = utilityMatchedPlanPaidMinor({
+          plan: input.utilityPlan,
+          vendorFacts: input.existingVendorFacts,
+          utilityBillId: category.utilityBillId,
+          payerMemberId: input.memberId
+        })
+        const remainingMinor = category.assignedAmount.amountMinor - alreadyPaidMinor
+
+        return {
+          category,
+          remainingMinor: remainingMinor > 0n ? remainingMinor : 0n
+        }
+      })
+      .filter((item) => item.remainingMinor > 0n)
+
+    const existingMatchedPlanPaidMinor = input.existingVendorFacts
+      .filter(
+        (fact) =>
+          utilityFactMatchesPlan(fact, input.utilityPlan) && fact.payerMemberId === input.memberId
+      )
+      .reduce((sum, fact) => sum + fact.amountMinor, 0n)
+    const existingUtilityPaymentMinor = input.existingPaymentRecords
+      .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
+      .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+    const newMatchedPlanPaidMinor = categoriesToRecord.reduce(
+      (sum, item) => sum + item.remainingMinor,
+      0n
+    )
+    const paymentAmountMinor =
+      existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor > existingUtilityPaymentMinor
+        ? existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor - existingUtilityPaymentMinor
+        : 0n
+
+    for (const { category, remainingMinor } of categoriesToRecord) {
+      await repository.addUtilityVendorPaymentFact({
+        cycleId: input.cycle.id,
+        planId: input.utilityPlan.id,
+        utilityBillId: category.utilityBillId,
+        billName: category.billName,
+        payerMemberId: input.memberId,
+        amountMinor: remainingMinor,
+        currency: input.dashboard.currency,
+        plannedForMemberId: input.memberId,
+        planVersion: input.utilityPlan.version,
+        matchedPlan: true,
+        recordedByMemberId: input.actorMemberId ?? input.memberId,
+        recordedAt: input.recordedAt
+      })
+    }
+
+    const existingPaymentRecord = input.existingPaymentRecords
+      .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
+      .sort((left, right) =>
+        (right.recordedAt.toString() ?? '').localeCompare(left.recordedAt.toString() ?? '')
+      )[0]
+    const payment =
+      paymentAmountMinor > 0n
+        ? await repository.addPaymentRecord({
+            cycleId: input.cycle.id,
+            memberId: input.memberId,
+            kind: 'utilities',
+            amountMinor: paymentAmountMinor,
+            currency: input.dashboard.currency,
+            recordedAt: input.recordedAt
+          })
+        : existingPaymentRecord
+
+    if (payment) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const plannedSummary = input.utilityPlan.memberSummaries.find(
+        (summary) => summary.memberId === input.memberId
+      )
+      const allocationResult = await allocatePaymentPurchaseOverage({
+        dependencies,
+        cyclePeriod: input.dashboard.period,
+        memberId: input.memberId,
+        kind: 'utilities',
+        paymentAmount:
+          plannedSummary?.fairShare ??
+          Money.fromMinor(payment.amountMinor, input.dashboard.currency),
+        settings
+      })
+      const existingAllocations = await repository.listPaymentPurchaseAllocations()
+      const existingPaymentAllocations = existingAllocations.filter(
+        (allocation) => allocation.paymentRecordId === payment.id
+      )
+      if (allocationResult.allocations.length > 0 || existingPaymentAllocations.length === 0) {
+        await repository.replacePaymentPurchaseAllocations({
+          paymentRecordId: payment.id,
+          cycleId: input.cycle.id,
+          resolutionMethod: allocationResult.resolutionMethod,
+          resolutionPlanId: allocationResult.resolutionPlanId,
+          allocations: allocationResult.allocations
+        })
+      }
+    }
+
+    return [...new Set(categories.map((category) => category.utilityBillId))]
   }
 
   return {
@@ -3406,12 +3532,19 @@ export function createFinanceCommandService(
       }
 
       const utilityPlan = dashboard.utilityBillingPlan
-      const categories = utilityPlan.categories.filter(
-        (category) =>
-          category.assignedMemberId === input.memberId && category.assignedAmount.amountMinor > 0n
-      )
-      if (categories.length === 0) {
-        throw new Error('No planned utility bills assigned to this member')
+      const memberIds = input.allMembers
+        ? [
+            ...new Set(
+              utilityPlan.categories
+                .filter((category) => category.assignedAmount.amountMinor > 0n)
+                .map((category) => category.assignedMemberId)
+            )
+          ]
+        : input.memberId
+          ? [input.memberId]
+          : []
+      if (memberIds.length === 0) {
+        throw new Error('No planned utility bills assigned')
       }
 
       const cycle = await repository.getCycleByPeriod(dashboard.period)
@@ -3425,90 +3558,19 @@ export function createFinanceCommandService(
         repository.listPaymentRecordsForCycle(cycle.id)
       ])
 
-      const categoriesToRecord = categories
-        .map((category) => {
-          const alreadyPaidMinor = utilityMatchedPlanPaidMinor({
-            plan: utilityPlan,
-            vendorFacts: existingVendorFacts,
-            utilityBillId: category.utilityBillId,
-            payerMemberId: input.memberId
-          })
-          const remainingMinor = category.assignedAmount.amountMinor - alreadyPaidMinor
-
-          return {
-            category,
-            remainingMinor: remainingMinor > 0n ? remainingMinor : 0n
-          }
+      const resolvedBillIds: string[] = []
+      for (const memberId of memberIds) {
+        const memberResolvedBillIds = await resolvePlannedUtilitiesForMember({
+          cycle,
+          dashboard,
+          utilityPlan,
+          memberId,
+          ...(input.actorMemberId ? { actorMemberId: input.actorMemberId } : {}),
+          recordedAt,
+          existingVendorFacts,
+          existingPaymentRecords
         })
-        .filter((item) => item.remainingMinor > 0n)
-
-      const existingMatchedPlanPaidMinor = existingVendorFacts
-        .filter(
-          (fact) =>
-            utilityFactMatchesPlan(fact, utilityPlan) && fact.payerMemberId === input.memberId
-        )
-        .reduce((sum, fact) => sum + fact.amountMinor, 0n)
-      const existingUtilityPaymentMinor = existingPaymentRecords
-        .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
-        .reduce((sum, payment) => sum + payment.amountMinor, 0n)
-      const newMatchedPlanPaidMinor = categoriesToRecord.reduce(
-        (sum, item) => sum + item.remainingMinor,
-        0n
-      )
-      const paymentAmountMinor =
-        existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor > existingUtilityPaymentMinor
-          ? existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor - existingUtilityPaymentMinor
-          : 0n
-
-      // Create vendor payment facts only for still-uncovered planned amounts.
-      for (const { category, remainingMinor } of categoriesToRecord) {
-        await repository.addUtilityVendorPaymentFact({
-          cycleId: cycle.id,
-          planId: utilityPlan.id,
-          utilityBillId: category.utilityBillId,
-          billName: category.billName,
-          payerMemberId: input.memberId,
-          amountMinor: remainingMinor,
-          currency: dashboard.currency,
-          plannedForMemberId: input.memberId,
-          planVersion: utilityPlan.version,
-          matchedPlan: true,
-          recordedByMemberId: input.actorMemberId ?? input.memberId,
-          recordedAt
-        })
-      }
-
-      // Create or repair the corresponding utility payment record for all
-      // matched-plan vendor facts recorded for this member.
-      if (paymentAmountMinor > 0n) {
-        const payment = await repository.addPaymentRecord({
-          cycleId: cycle.id,
-          memberId: input.memberId,
-          kind: 'utilities',
-          amountMinor: paymentAmountMinor,
-          currency: dashboard.currency,
-          recordedAt
-        })
-
-        // Resolve purchases using the payment overage
-        const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
-          dependencies.householdId
-        )
-        const allocationResult = await allocatePaymentPurchaseOverage({
-          dependencies,
-          cyclePeriod: dashboard.period,
-          memberId: input.memberId,
-          kind: 'utilities',
-          paymentAmount: Money.fromMinor(paymentAmountMinor, dashboard.currency),
-          settings
-        })
-        await repository.replacePaymentPurchaseAllocations({
-          paymentRecordId: payment.id,
-          cycleId: cycle.id,
-          resolutionMethod: allocationResult.resolutionMethod,
-          resolutionPlanId: allocationResult.resolutionPlanId,
-          allocations: allocationResult.allocations
-        })
+        resolvedBillIds.push(...memberResolvedBillIds)
       }
 
       // Check if all plan categories are now covered by vendor facts → settle the plan
@@ -3532,7 +3594,7 @@ export function createFinanceCommandService(
       })
       return {
         period: dashboard.period,
-        resolvedBillIds: [...new Set(categories.map((category) => category.utilityBillId))],
+        resolvedBillIds: [...new Set(resolvedBillIds)],
         plan: nextDashboard?.utilityBillingPlan ?? null
       }
     },

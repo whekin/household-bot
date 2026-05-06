@@ -1331,6 +1331,7 @@ export async function resolveMiniAppUtilityPlan(
   initData: string,
   input: {
     memberId?: string
+    allMembers?: boolean
     period?: string
   } = {}
 ): Promise<void> {

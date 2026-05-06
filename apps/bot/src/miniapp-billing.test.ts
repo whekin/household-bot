@@ -199,7 +199,7 @@ function createDashboardStub() {
 }
 
 function createFinanceServiceStub(): FinanceCommandService & {
-  resolvedUtilityPlans: Array<{ memberId: string; actorMemberId?: string; periodArg?: string }>
+  resolvedUtilityPlans: Array<Parameters<FinanceCommandService['resolveUtilityBillAsPlanned']>[0]>
   utilityVendorPayments: Array<{
     utilityBillId: string
     payerMemberId: string
@@ -908,6 +908,44 @@ describe('utility billing action handlers', () => {
     expect(financeService.resolvedUtilityPlans).toEqual([
       {
         memberId: 'member-123456',
+        actorMemberId: 'member-123456',
+        periodArg: '2026-03'
+      }
+    ])
+  })
+
+  test('resolve planned utility payment supports an admin full-plan action', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppResolveUtilityPlanHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/resolve-planned', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          allMembers: true,
+          period: '2026-03'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(financeService.resolvedUtilityPlans).toEqual([
+      {
+        allMembers: true,
         actorMemberId: 'member-123456',
         periodArg: '2026-03'
       }

@@ -241,6 +241,17 @@ export default function BillsRoute() {
     )
   }
 
+  async function handleResolveFullPlan() {
+    const data = initData()
+    if (!data) return
+    await runUtilityAction('resolve:all', () =>
+      resolveMiniAppUtilityPlan(data, {
+        allMembers: true,
+        ...(dashboard()?.period ? { period: dashboard()!.period } : {})
+      })
+    )
+  }
+
   async function handleRecordVendorPayment(utilityBillId: string, payerMemberId: string) {
     const data = initData()
     if (!data) return
@@ -612,6 +623,17 @@ export default function BillsRoute() {
                                 : 'Rebalanced'}
                         </span>
                       </div>
+                      <Show when={currentMemberIsAdmin() && plan().status !== 'settled'}>
+                        <div class="statement-actions statement-actions--single">
+                          <Button
+                            variant="primary"
+                            loading={utilityActionKey() === 'resolve:all'}
+                            onClick={() => void handleResolveFullPlan()}
+                          >
+                            {locale() === 'ru' ? 'Закрыть весь план' : 'Resolve full plan'}
+                          </Button>
+                        </div>
+                      </Show>
                       <div class="statement-list">
                         <For each={householdUtilityPlanMembers()}>
                           {(summary) => (

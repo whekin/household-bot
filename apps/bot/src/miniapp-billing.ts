@@ -576,11 +576,13 @@ async function readResolveUtilityPlanPayload(request: Request): Promise<{
   initData: string
   memberId?: string
   period?: string
+  allMembers?: boolean
 }> {
   const parsed = await parseJsonBody<{
     initData?: string
     memberId?: string
     period?: string
+    allMembers?: boolean
   }>(request)
   const initData = parsed.initData?.trim()
   if (!initData) {
@@ -590,6 +592,7 @@ async function readResolveUtilityPlanPayload(request: Request): Promise<{
   return {
     initData,
     ...(parsed.memberId?.trim() ? { memberId: parsed.memberId.trim() } : {}),
+    ...(parsed.allMembers ? { allMembers: true } : {}),
     ...(parsed.period?.trim()
       ? { period: BillingPeriod.fromString(parsed.period.trim()).toString() }
       : {})
@@ -1779,8 +1782,8 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
         }
 
         const payload = await readResolveUtilityPlanPayload(request)
-        const memberId = payload.memberId ?? auth.member.id
-        if (!auth.member.isAdmin && memberId !== auth.member.id) {
+        const memberId = payload.allMembers ? undefined : (payload.memberId ?? auth.member.id)
+        if (!auth.member.isAdmin && (payload.allMembers || memberId !== auth.member.id)) {
           return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
         }
 
@@ -1789,14 +1792,16 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           {
             event: 'miniapp.utility_plan.resolve_requested',
             householdId: auth.member.householdId,
-            memberId,
+            memberId: memberId ?? null,
+            allMembers: payload.allMembers === true,
             actorMemberId: auth.member.id,
             period: payload.period ?? null
           },
           'Mini app utility plan resolve requested'
         )
         const result = await service.resolveUtilityBillAsPlanned({
-          memberId,
+          ...(memberId ? { memberId } : {}),
+          ...(payload.allMembers ? { allMembers: true } : {}),
           actorMemberId: auth.member.id,
           ...(payload.period ? { periodArg: payload.period } : {})
         })
@@ -1805,7 +1810,8 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             {
               event: 'miniapp.utility_plan.resolve_unavailable',
               householdId: auth.member.householdId,
-              memberId,
+              memberId: memberId ?? null,
+              allMembers: payload.allMembers === true,
               actorMemberId: auth.member.id,
               period: payload.period ?? null
             },
@@ -1825,7 +1831,8 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           {
             event: 'miniapp.utility_plan.resolve_completed',
             householdId: auth.member.householdId,
-            memberId,
+            memberId: memberId ?? null,
+            allMembers: payload.allMembers === true,
             actorMemberId: auth.member.id,
             period: payload.period ?? null
           },

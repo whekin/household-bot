@@ -319,6 +319,23 @@ class FinanceRepositoryStub implements FinanceRepository {
     input: Parameters<FinanceRepository['replacePaymentPurchaseAllocations']>[0]
   ) {
     this.lastReplacedPaymentPurchaseAllocations = input
+    const recordedAt = instantFromIso('2026-04-03T12:00:00.000Z')
+    this.paymentPurchaseAllocations = [
+      ...this.paymentPurchaseAllocations.filter(
+        (allocation) => allocation.paymentRecordId !== input.paymentRecordId
+      ),
+      ...input.allocations.map((allocation, index) => ({
+        id: `${input.paymentRecordId}-allocation-${index + 1}`,
+        paymentRecordId: input.paymentRecordId,
+        purchaseId: allocation.purchaseId,
+        memberId: allocation.memberId,
+        amountMinor: allocation.amountMinor,
+        resolutionCycleId: input.cycleId,
+        resolutionMethod: input.resolutionMethod,
+        resolutionPlanId: input.resolutionPlanId ?? null,
+        recordedAt
+      }))
+    ]
   }
 
   async createManualPurchaseAllocations() {
@@ -2836,6 +2853,230 @@ describe('createFinanceCommandService', () => {
     })
     expect(repository.utilityBillingPlans).toHaveLength(1)
     expect(result?.plan?.version).toBe(1)
+  })
+
+  test('resolveUtilityBillAsPlanned repairs purchase allocations for an existing planned payment', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      preferredUtilityPayerMemberId: 'alice'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-alice',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        description: 'Alice supplies',
+        occurredAt: instantFromIso('2026-04-02T09:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        id: 'purchase-bob',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'bob',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        description: 'Bob supplies',
+        occurredAt: instantFromIso('2026-04-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-04')
+    const plan = dashboard?.utilityBillingPlan
+    const aliceAssignedMinor =
+      plan?.categories
+        .filter((category) => category.assignedMemberId === 'alice')
+        .reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n) ?? 0n
+    expect(aliceAssignedMinor).toBeGreaterThan(0n)
+
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-2026-04',
+        planId: plan?.id ?? null,
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        payerMemberId: 'alice',
+        amountMinor: aliceAssignedMinor,
+        currency: 'GEL',
+        plannedForMemberId: 'alice',
+        planVersion: plan?.version ?? null,
+        matchedPlan: true,
+        recordedByMemberId: 'alice',
+        recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
+      }
+    ]
+    repository.paymentRecords = [
+      {
+        id: 'payment-existing',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        memberId: 'alice',
+        kind: 'utilities',
+        amountMinor: aliceAssignedMinor,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-04-03T09:05:00.000Z')
+      }
+    ]
+
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    expect(repository.addedPaymentRecords).toHaveLength(0)
+    expect(repository.lastReplacedPaymentPurchaseAllocations?.paymentRecordId).toBe(
+      'payment-existing'
+    )
+    expect(repository.lastReplacedPaymentPurchaseAllocations?.allocations).toContainEqual({
+      purchaseId: 'purchase-bob',
+      memberId: 'alice',
+      amountMinor: 3000n
+    })
+  })
+
+  test('resolveUtilityBillAsPlanned can resolve the full utility plan in one idempotent action', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      preferredUtilityPayerMemberId: 'alice'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-04', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-04', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-bob',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'bob',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        description: 'Bob supplies',
+        occurredAt: instantFromIso('2026-04-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    await service.generateDashboard('2026-04')
+    const result = await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-04'
+    })
+    const paymentRecordCount = repository.addedPaymentRecords.length
+    const vendorFactCount = repository.utilityVendorPaymentFacts.length
+
+    repository.paymentRecords = repository.addedPaymentRecords.map((payment, index) => ({
+      id: `payment-record-${index + 1}`,
+      cycleId: payment.cycleId,
+      cyclePeriod: '2026-04',
+      memberId: payment.memberId,
+      kind: payment.kind,
+      amountMinor: payment.amountMinor,
+      currency: payment.currency,
+      recordedAt: payment.recordedAt
+    }))
+    await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-04'
+    })
+
+    expect(result?.plan?.status).toBe('settled')
+    expect(repository.addedPaymentRecords).toHaveLength(paymentRecordCount)
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(vendorFactCount)
+    expect(
+      repository.paymentPurchaseAllocations.some(
+        (allocation) =>
+          allocation.amountMinor === 3000n &&
+          allocation.resolutionMethod === 'utilities_plan' &&
+          allocation.resolutionPlanId === 'utility-plan-1'
+      )
+    ).toBe(true)
   })
 
   test('new purchases and utility bills do not replan after a planned utility payment', async () => {
