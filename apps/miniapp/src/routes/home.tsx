@@ -1,5 +1,5 @@
 import { Show, For, createEffect, createMemo, createSignal, Switch, Match } from 'solid-js'
-import { Clock, ChevronDown, ChevronUp, Copy, Check, CreditCard } from 'lucide-solid'
+import { Clock, ChevronDown, ChevronUp, Copy, Check, CreditCard, Plus } from 'lucide-solid'
 import { useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
@@ -8,6 +8,7 @@ import { useDashboard } from '../contexts/dashboard-context'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { QuickPurchaseComposer } from '../components/quick-purchase-composer'
 import { PurchaseBalanceRail, normalizedRailWidth } from '../components/purchase-balance-rail'
 import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
@@ -20,9 +21,11 @@ import {
   memberEffectivePurchaseBalanceMajor,
   formatMoneyLabel,
   formatSemanticMoneyLabel,
-  semanticMoneyTone
+  semanticMoneyTone,
+  type PurchaseDraft
 } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
+import { buildEmptyPurchaseDraft, buildPurchaseSplitPayload } from '../lib/purchase-draft'
 import {
   type CalendarDateParts,
   compareTodayToPeriodDay,
@@ -33,6 +36,7 @@ import {
   nextCyclePeriod
 } from '../lib/dates'
 import {
+  addMiniAppPurchase,
   submitMiniAppUtilityBill,
   addMiniAppPayment,
   resolveMiniAppUtilityPlan,
@@ -240,6 +244,7 @@ export default function HomeRoute() {
     dashboard,
     loading,
     currentMemberLine,
+    setDashboard,
     utilityLedger,
     utilityTotalMajor,
     effectivePeriod,
@@ -252,6 +257,12 @@ export default function HomeRoute() {
   const [utilityAmounts, setUtilityAmounts] = createSignal<Record<string, string>>({})
   const [submittingUtilities, setSubmittingUtilities] = createSignal(false)
   const [copiedValue, setCopiedValue] = createSignal<string | null>(null)
+  const [quickPurchaseOpen, setQuickPurchaseOpen] = createSignal(false)
+  const [quickPurchaseDraft, setQuickPurchaseDraft] = createSignal<PurchaseDraft>(
+    buildEmptyPurchaseDraft(dashboard(), readySession()?.member.id)
+  )
+  const [addingQuickPurchase, setAddingQuickPurchase] = createSignal(false)
+  const [quickPurchaseError, setQuickPurchaseError] = createSignal<string | null>(null)
   const [quickPaymentOpen, setQuickPaymentOpen] = createSignal(false)
   const [quickPaymentType, setQuickPaymentType] = createSignal<'rent' | 'utilities'>('rent')
   const [quickPaymentContext, setQuickPaymentContext] = createSignal<'current' | 'overdue'>(
@@ -532,6 +543,58 @@ export default function HomeRoute() {
       await refreshDashboardData()
     } finally {
       setSubmittingUtilities(false)
+    }
+  }
+
+  function resetQuickPurchase() {
+    setQuickPurchaseError(null)
+    setQuickPurchaseDraft(buildEmptyPurchaseDraft(dashboard(), currentMemberId() ?? undefined))
+  }
+
+  function openQuickPurchase() {
+    resetQuickPurchase()
+    setQuickPurchaseOpen(true)
+  }
+
+  function closeQuickPurchase() {
+    setQuickPurchaseOpen(false)
+    resetQuickPurchase()
+  }
+
+  async function handleQuickPurchaseSubmit() {
+    const data = initData()
+    const draft = quickPurchaseDraft()
+    if (!data || !draft.description.trim() || !draft.amountMajor.trim()) {
+      return
+    }
+
+    setAddingQuickPurchase(true)
+    setQuickPurchaseError(null)
+    try {
+      const refreshedDashboard = await addMiniAppPurchase(data, {
+        description: draft.description.trim(),
+        amountMajor: draft.amountMajor.trim(),
+        currency: draft.currency,
+        ...(draft.occurredOn ? { occurredOn: draft.occurredOn } : {}),
+        ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
+        split: buildPurchaseSplitPayload(draft)
+      })
+      setDashboard(refreshedDashboard)
+      closeQuickPurchase()
+      setToastState({
+        visible: true,
+        message: copy().quickPurchaseSuccess,
+        type: 'success'
+      })
+      await refreshDashboardData()
+    } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
+
+      setQuickPurchaseError(error instanceof Error ? error.message : copy().purchaseMutationFailed)
+    } finally {
+      setAddingQuickPurchase(false)
     }
   }
 
@@ -943,6 +1006,24 @@ export default function HomeRoute() {
                           </div>
                         </Card>
                       </Show>
+
+                      <Card accent class="home-capture-card">
+                        <div class="home-capture-card__header">
+                          <div class="home-capture-card__copy">
+                            <span class="eyebrow">{copy().purchaseAddAction}</span>
+                            <h3>{copy().quickPurchaseHeroTitle}</h3>
+                            <p>{copy().quickPurchaseHeroBody}</p>
+                          </div>
+                          <Button variant="primary" onClick={openQuickPurchase}>
+                            <Plus size={16} />
+                            {copy().purchaseAddAction}
+                          </Button>
+                        </div>
+                        <div class="home-capture-card__meta">
+                          <Badge variant="accent">{copy().quickPurchaseSplitEveryone}</Badge>
+                          <Badge variant="muted">{readySession()?.member.displayName ?? '—'}</Badge>
+                        </div>
+                      </Card>
 
                       <Show when={overduePaymentFor('utilities')}>
                         {(overdue) => (
@@ -2103,6 +2184,48 @@ export default function HomeRoute() {
             </Field>
           </Show>
         </div>
+      </Modal>
+
+      <Modal
+        open={quickPurchaseOpen()}
+        title={copy().quickPurchaseSheetTitle}
+        description={copy().quickPurchaseSheetBody}
+        closeLabel={copy().closeEditorAction}
+        onClose={closeQuickPurchase}
+      >
+        <QuickPurchaseComposer
+          draft={quickPurchaseDraft}
+          setDraft={(updater) => {
+            setQuickPurchaseError(null)
+            setQuickPurchaseDraft((draft) => updater(draft))
+          }}
+          activeMembers={() =>
+            activeHouseholdMembers().map((member) => ({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              remainingMajor: member.remainingMajor,
+              purchaseBalanceMajor: memberEffectivePurchaseBalanceMajor(member)
+            }))
+          }
+          currentMemberId={currentMemberId}
+          currency={() => dashboard()?.currency ?? 'GEL'}
+          copy={copy}
+          locale={locale}
+          error={quickPurchaseError}
+          submitting={addingQuickPurchase}
+          submitLabel={() =>
+            addingQuickPurchase() ? copy().savingPurchase : copy().purchaseSaveAction
+          }
+          onSubmit={() => void handleQuickPurchaseSubmit()}
+          onCancel={closeQuickPurchase}
+          cancelLabel={copy().closeEditorAction}
+          onSecondaryAction={() => {
+            closeQuickPurchase()
+            navigate('/purchases')
+          }}
+          secondaryActionLabel={copy().quickPurchaseOpenLedgerAction}
+          resetKey={() => `${quickPurchaseOpen()}:${dashboard()?.period ?? 'none'}`}
+        />
       </Modal>
 
       {/* Quick Payment Modal */}

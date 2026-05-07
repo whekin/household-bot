@@ -7,6 +7,7 @@ import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { QuickPurchaseComposer } from '../components/quick-purchase-composer'
 import { Checkbox } from '../components/ui/checkbox'
 import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { DatePickerField } from '../components/ui/date-picker'
@@ -17,13 +18,15 @@ import { Skeleton } from '../components/ui/skeleton'
 import {
   formatMoneyLabel,
   ledgerSecondaryAmount,
+  memberEffectivePurchaseBalanceMajor,
   purchaseDraftForEntry,
   rebalancePurchaseSplit,
   validatePurchaseDraft,
   type PurchaseDraft
 } from '../lib/ledger-helpers'
-import { formatCyclePeriod, formatFriendlyDate, todayCalendarInputValue } from '../lib/dates'
+import { formatCyclePeriod, formatFriendlyDate } from '../lib/dates'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
+import { buildEmptyPurchaseDraft, buildPurchaseSplitPayload } from '../lib/purchase-draft'
 import {
   addMiniAppPurchase,
   deleteMiniAppPurchase,
@@ -42,40 +45,6 @@ function initialsForName(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
-}
-
-function buildEmptyPurchaseDraft(
-  data: MiniAppDashboard | null | undefined,
-  currentMemberId: string | undefined
-): PurchaseDraft {
-  return {
-    description: '',
-    amountMajor: '',
-    currency: (data?.currency as 'USD' | 'GEL') ?? 'GEL',
-    occurredOn: todayCalendarInputValue(),
-    ...(currentMemberId ? { payerMemberId: currentMemberId } : {}),
-    splitMode: 'equal',
-    splitInputMode: 'equal',
-    participants: (data?.members ?? []).map((member) => ({
-      memberId: member.memberId,
-      included: true,
-      shareAmountMajor: '',
-      sharePercentage: ''
-    }))
-  }
-}
-
-function buildPurchaseSplitPayload(draft: PurchaseDraft) {
-  return {
-    mode: draft.splitMode,
-    participants: draft.participants.map((participant) => ({
-      memberId: participant.memberId,
-      included: participant.included,
-      ...(draft.splitMode === 'custom_amounts' && participant.included
-        ? { shareAmountMajor: participant.shareAmountMajor || '0.00' }
-        : {})
-    }))
-  } as const
 }
 
 function ParticipantSplitInputs(props: {
@@ -384,14 +353,6 @@ export default function PurchasesRoute() {
     { value: 'exact', label: copy().purchaseSplitExact },
     { value: 'percentage', label: copy().purchaseSplitPercentage }
   ]
-
-  const addPurchaseButtonText = createMemo(() => {
-    if (addingPurchase()) return copy().savingPurchase
-    if (newPurchase().splitInputMode !== 'equal' && !validatePurchaseDraft(newPurchase()).valid) {
-      return copy().purchaseBalanceAction
-    }
-    return copy().purchaseSaveAction
-  })
   const editPurchaseButtonText = createMemo(() => {
     if (savingPurchase()) return copy().savingPurchase
     const draft = purchaseDraft()
@@ -651,54 +612,34 @@ export default function PurchasesRoute() {
                       }
                     >
                       <div class="purchase-inline-editor">
-                        <div class="purchase-inline-editor__copy">
-                          <strong>{copy().purchaseAddAction}</strong>
-                          <p>{copy().purchaseComposerBody}</p>
-                        </div>
-                        <PurchaseDraftFields
-                          draft={newPurchase()}
-                          setDraft={(updater) => setNewPurchase((draft) => updater(draft))}
-                          splitModeOptions={splitModeOptions()}
-                          memberOptions={memberOptions()}
+                        <QuickPurchaseComposer
+                          draft={newPurchase}
+                          setDraft={(updater) => {
+                            setPurchaseMutationError(null)
+                            setNewPurchase((draft) => updater(draft))
+                          }}
+                          activeMembers={() =>
+                            (dashboard()?.members ?? []).map((member) => ({
+                              memberId: member.memberId,
+                              displayName: member.displayName,
+                              remainingMajor: member.remainingMajor,
+                              purchaseBalanceMajor: memberEffectivePurchaseBalanceMajor(member)
+                            }))
+                          }
+                          currentMemberId={() => currentMemberId() ?? null}
+                          currency={() => dashboard()?.currency ?? 'GEL'}
                           copy={copy}
                           locale={locale}
+                          error={purchaseMutationError}
+                          submitting={addingPurchase}
+                          submitLabel={() =>
+                            addingPurchase() ? copy().savingPurchase : copy().purchaseSaveAction
+                          }
+                          onSubmit={() => void handleAddPurchase()}
+                          onCancel={closeComposer}
+                          cancelLabel={copy().closeEditorAction}
+                          resetKey={() => `${composerOpen()}:${dashboard()?.period ?? 'none'}`}
                         />
-                        <Show when={purchaseMutationError()}>
-                          {(error) => (
-                            <p class="purchase-split-editor__error" role="alert">
-                              {error()}
-                            </p>
-                          )}
-                        </Show>
-                        <div class="purchase-inline-editor__actions">
-                          <Button variant="ghost" onClick={closeComposer}>
-                            {copy().closeEditorAction}
-                          </Button>
-                          <Button
-                            variant="primary"
-                            loading={addingPurchase()}
-                            disabled={
-                              !newPurchase().description.trim() || !newPurchase().amountMajor.trim()
-                            }
-                            onClick={() => {
-                              const draft = newPurchase()
-                              if (
-                                draft.splitInputMode !== 'equal' &&
-                                !validatePurchaseDraft(draft).valid
-                              ) {
-                                const rebalanced = rebalancePurchaseSplit(draft, null, null)
-                                setNewPurchase(rebalanced)
-                                if (validatePurchaseDraft(rebalanced).valid) {
-                                  void handleAddPurchase()
-                                }
-                              } else {
-                                void handleAddPurchase()
-                              }
-                            }}
-                          >
-                            {addPurchaseButtonText()}
-                          </Button>
-                        </div>
                       </div>
                     </Show>
                   </div>
