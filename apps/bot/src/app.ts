@@ -27,6 +27,7 @@ import {
 import { configureLogger, getLogger } from '@household/observability'
 
 import { registerAdHocNotifications } from './ad-hoc-notifications'
+import { registerAuditNotificationCallbacks } from './audit-notifications'
 import { registerAnonymousFeedback } from './anonymous-feedback'
 import {
   createInMemoryAssistantConversationMemoryStore,
@@ -261,6 +262,13 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('audit-notifications')
         })
       : null
+  if (auditNotificationRepositoryClient) {
+    registerAuditNotificationCallbacks({
+      bot,
+      repository: auditNotificationRepositoryClient.repository,
+      logger: getLogger('audit-notifications')
+    })
+  }
   const adHocNotificationService =
     adHocNotificationRepositoryClient && householdConfigurationRepositoryClient
       ? createAdHocNotificationService({
@@ -931,6 +939,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,

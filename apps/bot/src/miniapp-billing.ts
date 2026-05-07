@@ -78,6 +78,63 @@ async function recordMiniAppAuditEvent(input: {
   }
 }
 
+async function buildPurchaseAuditMetadata(input: {
+  householdConfigurationRepository:
+    | Pick<HouseholdConfigurationRepository, 'listHouseholdMembers'>
+    | undefined
+  householdId: string
+  authMember: NonNullable<MiniAppSessionResult['member']>
+  purchaseId: string
+  description: string
+  amountMinor: bigint
+  currency: 'USD' | 'GEL'
+  payerMemberId: string | null | undefined
+  split:
+    | {
+        mode: 'equal' | 'custom_amounts'
+        participants: readonly {
+          memberId: string
+          included?: boolean
+          shareAmountMajor?: string | null | undefined
+        }[]
+      }
+    | null
+    | undefined
+}) {
+  const members =
+    (await input.householdConfigurationRepository
+      ?.listHouseholdMembers(input.householdId)
+      .catch(() => [])) ?? []
+  const memberNameById = new Map(members.map((member) => [member.id, member.displayName]))
+  const payerMemberId = input.payerMemberId ?? input.authMember.id
+  const payerDisplayName =
+    memberNameById.get(payerMemberId) ??
+    (payerMemberId === input.authMember.id ? input.authMember.displayName : null)
+
+  return {
+    purchaseId: input.purchaseId,
+    description: input.description,
+    amountMinor: input.amountMinor.toString(),
+    currency: input.currency,
+    payerMemberId,
+    payerDisplayName,
+    splitMode: input.split?.mode ?? null,
+    participants:
+      input.split?.participants.map((participant) => {
+        const shareAmountText = participant.shareAmountMajor
+          ? formatUserFacingMoney(participant.shareAmountMajor, input.currency)
+          : null
+        return {
+          memberId: participant.memberId,
+          displayName: memberNameById.get(participant.memberId) ?? participant.memberId,
+          included: participant.included !== false,
+          shareAmountMajor: participant.shareAmountMajor ?? null,
+          shareAmountText
+        }
+      }) ?? []
+  }
+}
+
 async function authenticateAdminSession(
   request: Request,
   sessionService: ReturnType<typeof createMiniAppSessionService>,
@@ -1465,7 +1522,7 @@ export function createMiniAppAddPurchaseHandler(options: {
   auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
-    'listHouseholdUtilityCategories'
+    'listHouseholdUtilityCategories' | 'listHouseholdMembers'
   >
   logger?: Logger
 }): {
@@ -1518,13 +1575,17 @@ export function createMiniAppAddPurchaseHandler(options: {
           category: 'purchase_events',
           eventType: 'purchase.added',
           summaryText: `${auth.member.displayName} added purchase: ${payload.description} ${formatUserFacingMoney(purchase.amount.toMajorString(), purchase.currency)}`,
-          metadata: {
+          metadata: await buildPurchaseAuditMetadata({
+            householdConfigurationRepository: options.householdConfigurationRepository,
+            householdId: auth.member.householdId,
+            authMember: auth.member,
             purchaseId: purchase.purchaseId,
             description: payload.description,
-            amountMinor: purchase.amount.amountMinor.toString(),
+            amountMinor: purchase.amount.amountMinor,
             currency: purchase.currency,
-            payerMemberId
-          }
+            payerMemberId,
+            split: payload.split
+          })
         })
 
         const dashboard = await loadMiniAppDashboardPayload({
@@ -1563,7 +1624,7 @@ export function createMiniAppUpdatePurchaseHandler(options: {
   auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
-    'listHouseholdUtilityCategories'
+    'listHouseholdUtilityCategories' | 'listHouseholdMembers'
   >
   logger?: Logger
 }): {
@@ -1622,14 +1683,17 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           category: 'purchase_events',
           eventType: 'purchase.updated',
           summaryText: `${auth.member.displayName} updated purchase: ${payload.description} ${formatUserFacingMoney(updated.amount.toMajorString(), updated.currency)}`,
-          metadata: {
+          metadata: await buildPurchaseAuditMetadata({
+            householdConfigurationRepository: options.householdConfigurationRepository,
+            householdId: auth.member.householdId,
+            authMember: auth.member,
             purchaseId: updated.purchaseId,
             description: payload.description,
-            amountMinor: updated.amount.amountMinor.toString(),
+            amountMinor: updated.amount.amountMinor,
             currency: updated.currency,
-            payerMemberId: payerMemberId ?? null,
-            splitMode: payload.split?.mode ?? null
-          }
+            payerMemberId,
+            split: payload.split
+          })
         })
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
@@ -1667,7 +1731,7 @@ export function createMiniAppDeletePurchaseHandler(options: {
   auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
-    'listHouseholdUtilityCategories'
+    'listHouseholdUtilityCategories' | 'listHouseholdMembers'
   >
   logger?: Logger
 }): {

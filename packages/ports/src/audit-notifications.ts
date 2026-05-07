@@ -72,6 +72,7 @@ export interface UpdateHouseholdAuditEventDeliveryInput {
 
 export interface HouseholdAuditNotificationRepository {
   createAuditEvent(input: CreateHouseholdAuditEventInput): Promise<HouseholdAuditEventRecord>
+  getAuditEventById(eventId: string): Promise<HouseholdAuditEventRecord | null>
   getNotificationSettings(householdId: string): Promise<HouseholdNotificationSettingsRecord>
   updateNotificationSettings(
     input: UpdateHouseholdNotificationSettingsInput

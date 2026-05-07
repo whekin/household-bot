@@ -32,8 +32,13 @@ export {
 } from './utilities-billing-plan'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
 export {
+  AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX,
+  buildAuditNotificationViewReplyMarkup,
   createHouseholdAuditNotificationService,
   formatAuditNotificationSummary,
+  getAuditNotificationDetails,
+  renderAuditNotification,
+  type HouseholdAuditNotificationDetails,
   type HouseholdAuditNotificationService
 } from './household-audit-notification-service'
 export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'

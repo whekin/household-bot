@@ -135,6 +135,16 @@ export function createDbAuditNotificationRepository(databaseUrl: string): {
       return mapEvent(row)
     },
 
+    async getAuditEventById(eventId) {
+      const rows = await db
+        .select(eventSelect())
+        .from(schema.householdAuditEvents)
+        .where(eq(schema.householdAuditEvents.id, eventId))
+        .limit(1)
+
+      return rows[0] ? mapEvent(rows[0]) : null
+    },
+
     async getNotificationSettings(householdId) {
       const existingRows = await db
         .select(settingsSelect())

@@ -12,8 +12,11 @@ import type {
 } from '@household/ports'
 
 import {
+  buildAuditNotificationViewReplyMarkup,
   createHouseholdAuditNotificationService,
-  formatAuditNotificationSummary
+  formatAuditNotificationSummary,
+  getAuditNotificationDetails,
+  renderAuditNotification
 } from './household-audit-notification-service'
 
 class AuditNotificationRepositoryStub implements HouseholdAuditNotificationRepository {
@@ -53,6 +56,10 @@ class AuditNotificationRepositoryStub implements HouseholdAuditNotificationRepos
 
   async getNotificationSettings(): Promise<HouseholdNotificationSettingsRecord> {
     return this.settings
+  }
+
+  async getAuditEventById(eventId: string): Promise<HouseholdAuditEventRecord | null> {
+    return this.events.get(eventId) ?? null
   }
 
   async updateNotificationSettings(
@@ -108,6 +115,7 @@ class AuditNotificationRepositoryStub implements HouseholdAuditNotificationRepos
 function householdRepository(input?: {
   notificationThreadId?: string | null
   reminderThreadId?: string | null
+  defaultLocale?: 'en' | 'ru'
 }): Pick<
   HouseholdConfigurationRepository,
   'getHouseholdChatByHouseholdId' | 'getHouseholdTopicBinding'
@@ -120,7 +128,7 @@ function householdRepository(input?: {
         telegramChatId: '-100123',
         telegramChatType: 'supergroup',
         title: 'Kojori House',
-        defaultLocale: 'en'
+        defaultLocale: input?.defaultLocale ?? 'en'
       }
     },
     async getHouseholdTopicBinding(householdId, role) {
@@ -153,6 +161,72 @@ describe('formatAuditNotificationSummary', () => {
         amountText: '42 GEL'
       })
     ).toBe('Alex added purchase: groceries 42 GEL')
+  })
+})
+
+describe('renderAuditNotification', () => {
+  test('renders compact purchase actions in English and Russian', () => {
+    expect(
+      renderAuditNotification({
+        locale: 'en',
+        actorDisplayName: 'Stas',
+        eventType: 'purchase.added',
+        fallbackSummaryText: 'fallback',
+        metadata: {
+          description: 'Mr. Proper',
+          amountMinor: '1200',
+          currency: 'GEL'
+        }
+      }).compactText
+    ).toBe('Stas added purchase: Mr. Proper 12.00 ₾')
+
+    expect(
+      renderAuditNotification({
+        locale: 'ru',
+        actorDisplayName: 'Стас',
+        eventType: 'purchase.added',
+        fallbackSummaryText: 'fallback',
+        metadata: {
+          description: 'Mr. Proper',
+          amountMinor: '1200',
+          currency: 'GEL'
+        }
+      }).compactText
+    ).toBe('Стас добавил покупку: Mr. Proper 12.00 ₾')
+  })
+
+  test('renders expanded purchase details with participants', () => {
+    const rendered = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Стас',
+      eventType: 'purchase.added',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        description: 'Pizza',
+        amountMinor: '3000',
+        currency: 'GEL',
+        payerDisplayName: 'Стас',
+        splitMode: 'custom_amounts',
+        participants: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            included: true,
+            shareAmountText: '20.00 ₾'
+          },
+          {
+            memberId: 'member-2',
+            displayName: 'Дима',
+            included: false
+          }
+        ]
+      }
+    })
+
+    expect(rendered.details?.expandedText).toContain('Плательщик: Стас')
+    expect(rendered.details?.expandedText).toContain('Разделение: индивидуальные суммы')
+    expect(rendered.details?.expandedText).toContain('Участники: Стас 20.00 ₾')
+    expect(rendered.details?.expandedText).toContain('Исключены: Дима')
   })
 })
 
@@ -203,6 +277,71 @@ describe('createHouseholdAuditNotificationService', () => {
       deliveredTelegramThreadId: '501',
       deliveredTelegramMessageId: '9001'
     })
+  })
+
+  test('uses household locale and sends expandable details button', async () => {
+    const repository = new AuditNotificationRepositoryStub()
+    const sentMessages: {
+      text: string
+      replyMarkup: unknown
+    }[] = []
+    const service = createHouseholdAuditNotificationService({
+      repository,
+      householdConfigurationRepository: householdRepository({
+        notificationThreadId: '501',
+        defaultLocale: 'ru'
+      }),
+      sendTopicMessage: async (message) => {
+        sentMessages.push({
+          text: message.text,
+          replyMarkup: message.replyMarkup
+        })
+        return { telegramMessageId: '9001' }
+      }
+    })
+
+    const event = await service.recordEvent({
+      householdId: 'household-1',
+      actorDisplayName: 'Стас',
+      eventType: 'purchase.added',
+      category: 'purchase_events',
+      summaryText: 'Stas added purchase: Pizza 30.00 ₾',
+      metadata: {
+        description: 'Pizza',
+        amountMinor: '3000',
+        currency: 'GEL',
+        payerDisplayName: 'Стас',
+        splitMode: 'equal',
+        participants: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            included: true
+          },
+          {
+            memberId: 'member-2',
+            displayName: 'Дима',
+            included: true
+          }
+        ]
+      }
+    })
+
+    expect(sentMessages).toEqual([
+      {
+        text: 'Стас добавил покупку: Pizza 30.00 ₾',
+        replyMarkup: buildAuditNotificationViewReplyMarkup({
+          eventId: event.id,
+          locale: 'ru',
+          viewMode: 'compact'
+        })
+      }
+    ])
+    const stored = repository.events.get(event.id)
+    expect(stored?.summaryText).toBe('Стас добавил покупку: Pizza 30.00 ₾')
+    expect(stored ? getAuditNotificationDetails(stored)?.expandedText : null).toContain(
+      'Участники: Стас, Дима'
+    )
   })
 
   test('falls back to reminders topic when notifications is not bound', async () => {

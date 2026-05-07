@@ -92,6 +92,10 @@ describe('createDbAuditNotificationRepository', () => {
       },
       deliveryStatus: 'pending'
     })
+    await expect(repositoryClient.repository.getAuditEventById(event.id)).resolves.toMatchObject({
+      id: event.id,
+      summaryText: 'Alex added purchase: groceries 42 GEL'
+    })
 
     const delivered = await repositoryClient.repository.updateAuditEventDelivery({
       eventId: event.id,

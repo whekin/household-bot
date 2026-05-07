@@ -322,6 +322,7 @@ function auditNotificationRepository(): HouseholdAuditNotificationRepository & {
     createAuditEvent: async () => {
       throw new Error('not used')
     },
+    getAuditEventById: async () => null,
     getNotificationSettings: async () => settings,
     updateNotificationSettings: async (input) => {
       settings = {
