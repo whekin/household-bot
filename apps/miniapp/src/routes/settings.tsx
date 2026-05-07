@@ -1,7 +1,7 @@
 import { Show, For, Index, createEffect, createMemo, createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { ArrowLeft, Globe, Plus, User } from 'lucide-solid'
-import { useNavigate } from '@solidjs/router'
+import { useLocation, useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
@@ -80,6 +80,7 @@ function SettingsSummaryRow(props: {
 
 export default function SettingsRoute() {
   const navigate = useNavigate()
+  const location = useLocation()
   const {
     readySession,
     initData,
@@ -549,10 +550,17 @@ export default function SettingsRoute() {
   return (
     <div class="route route--settings">
       <div class="settings-header">
-        <Button variant="ghost" size="sm" class="ui-button--very-left" onClick={() => navigate(-1)}>
-          <ArrowLeft size={16} />
-          {copy().closeEditorAction}
-        </Button>
+        <Show when={location.pathname !== '/household'}>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="ui-button--very-left"
+            onClick={() => navigate(-1)}
+          >
+            <ArrowLeft size={16} />
+            {copy().closeEditorAction}
+          </Button>
+        </Show>
         <h2>{effectiveIsAdmin() ? copy().householdSettingsTitle : copy().residentHouseTitle}</h2>
         <p>{effectiveIsAdmin() ? copy().householdSettingsBody : copy().residentHouseBody}</p>
       </div>
