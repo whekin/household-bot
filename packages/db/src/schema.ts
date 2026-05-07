@@ -870,6 +870,44 @@ export const paymentPurchaseAllocations = pgTable(
   })
 )
 
+export const memberBalanceLedgerEntries = pgTable(
+  'member_balance_ledger_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    sourceCycleId: uuid('source_cycle_id')
+      .notNull()
+      .references(() => billingCycles.id, { onDelete: 'cascade' }),
+    sourceCyclePeriod: text('source_cycle_period').notNull(),
+    planId: uuid('plan_id').references(() => utilityBillingPlans.id, {
+      onDelete: 'set null'
+    }),
+    entryType: text('entry_type').notNull(),
+    policyTarget: text('policy_target').default('balance_policy').notNull(),
+    reason: text('reason').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdMemberIdx: index('member_balance_ledger_household_member_idx').on(
+      table.householdId,
+      table.memberId
+    ),
+    sourceCycleIdx: index('member_balance_ledger_source_cycle_idx').on(table.sourceCycleId),
+    planIdx: index('member_balance_ledger_plan_idx').on(table.planId),
+    idempotencyUnique: uniqueIndex('member_balance_ledger_idempotency_unique').on(
+      table.idempotencyKey
+    )
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {
@@ -943,4 +981,5 @@ export type UtilityBillingPlan = typeof utilityBillingPlans.$inferSelect
 export type UtilityVendorPaymentFact = typeof utilityVendorPaymentFacts.$inferSelect
 export type UtilityReimbursementFact = typeof utilityReimbursementFacts.$inferSelect
 export type PaymentPurchaseAllocation = typeof paymentPurchaseAllocations.$inferSelect
+export type MemberBalanceLedgerEntry = typeof memberBalanceLedgerEntries.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

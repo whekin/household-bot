@@ -4435,6 +4435,14 @@ a {
   margin-bottom: 14px;
 }
 
+.statement-section-heading__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .statement-section-heading p,
 .statement-meta-stack span {
   color: var(--text-muted);

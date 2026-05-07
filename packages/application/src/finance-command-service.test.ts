@@ -5,6 +5,7 @@ import type {
   ExchangeRateProvider,
   FinanceCycleExchangeRateRecord,
   FinanceCycleRecord,
+  FinanceBalanceLedgerEntryRecord,
   FinanceMemberRecord,
   FinancePaymentPurchaseAllocationRecord,
   FinanceParsedPurchaseRecord,
@@ -90,6 +91,7 @@ class FinanceRepositoryStub implements FinanceRepository {
     currency: 'USD' | 'GEL'
     recordedAt: Instant
   }[] = []
+  balanceLedgerEntries: readonly FinanceBalanceLedgerEntryRecord[] = []
   lastSavedRentRule: {
     period: string
     amountMinor: bigint
@@ -505,6 +507,37 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listUtilityVendorPaymentFactsForCycle(cycleId: string) {
     return this.utilityVendorPaymentFacts.filter((fact) => fact.cycleId === cycleId)
+  }
+
+  async listBalanceLedgerEntries() {
+    return this.balanceLedgerEntries
+  }
+
+  async addBalanceLedgerEntry(input: Parameters<FinanceRepository['addBalanceLedgerEntry']>[0]) {
+    const existing = this.balanceLedgerEntries.find(
+      (entry) => entry.idempotencyKey === input.idempotencyKey
+    )
+    if (existing) {
+      return existing
+    }
+
+    const entry: FinanceBalanceLedgerEntryRecord = {
+      id: `balance-ledger-${this.balanceLedgerEntries.length + 1}`,
+      householdId: this.householdId,
+      memberId: input.memberId,
+      sourceCycleId: input.sourceCycleId,
+      sourceCyclePeriod: input.sourceCyclePeriod,
+      planId: input.planId ?? null,
+      entryType: input.entryType,
+      policyTarget: input.policyTarget,
+      reason: input.reason,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: instantFromIso('2026-04-03T12:00:00.000Z')
+    }
+    this.balanceLedgerEntries = [...this.balanceLedgerEntries, entry]
+    return entry
   }
 
   async addUtilityVendorPaymentFact(
@@ -3234,6 +3267,135 @@ describe('createFinanceCommandService', () => {
       })
     )
     expect(repository.utilityBillingPlans[0]?.status).toBe('settled')
+  })
+
+  test('resolveUtilityBillAsPlanned carries excess purchase credit into the next cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-05', period: '2026-05', currency: 'GEL' },
+      { id: 'cycle-2026-06', period: '2026-06', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      preferredUtilityPayerMemberId: 'bob'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'bob', period: '2026-05', daysPresent: 31 },
+      { memberId: 'alice', period: '2026-06', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-06', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-may',
+        cycleId: 'cycle-2026-05',
+        billName: 'May utilities',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-june',
+        cycleId: 'cycle-2026-06',
+        billName: 'June utilities',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-06-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-may',
+        cycleId: 'cycle-2026-05',
+        cyclePeriod: '2026-05',
+        payerMemberId: 'alice',
+        amountMinor: 30000n,
+        currency: 'GEL',
+        description: 'May shared supplies',
+        occurredAt: instantFromIso('2026-05-02T10:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+
+    const service = createService(repository)
+    const mayDashboard = await service.generateDashboard('2026-05')
+    const aliceMayPlan = mayDashboard?.utilityBillingPlan?.memberSummaries.find(
+      (summary) => summary.memberId === 'alice'
+    )
+
+    expect(aliceMayPlan?.fairShare.amountMinor).toBe(0n)
+    expect(mayDashboard?.utilityBillingPlan?.carryForwardCredits).toContainEqual(
+      expect.objectContaining({
+        memberId: 'alice',
+        creditCreated: expect.objectContaining({ amountMinor: 5000n }),
+        creditConsumed: expect.objectContaining({ amountMinor: 0n }),
+        policyTarget: 'utilities'
+      })
+    )
+
+    await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-05'
+    })
+    await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-05'
+    })
+
+    expect(repository.balanceLedgerEntries).toHaveLength(1)
+    expect(repository.balanceLedgerEntries[0]).toEqual(
+      expect.objectContaining({
+        memberId: 'alice',
+        sourceCyclePeriod: '2026-05',
+        planId: 'utility-plan-1',
+        entryType: 'credit_created',
+        reason: 'excess_purchase_credit',
+        amountMinor: 5000n
+      })
+    )
+
+    repository.openCycleRecord = repository.cycles[1]!
+    repository.latestCycleRecord = repository.cycles[1]!
+    const juneDashboard = await service.generateDashboard('2026-06')
+
+    expect(
+      juneDashboard?.utilityBillingPlan?.memberSummaries.map((summary) => ({
+        memberId: summary.memberId,
+        fairShareMinor: summary.fairShare.amountMinor
+      }))
+    ).toEqual([
+      { memberId: 'alice', fairShareMinor: 0n },
+      { memberId: 'bob', fairShareMinor: 5000n }
+    ])
+    expect(juneDashboard?.utilityBillingPlan?.carryForwardCredits).toContainEqual(
+      expect.objectContaining({
+        memberId: 'alice',
+        creditConsumed: expect.objectContaining({ amountMinor: 5000n })
+      })
+    )
   })
 
   test('generateDashboard does not show overdue utilities when the current plan covered them', async () => {

@@ -43,12 +43,20 @@ export interface UtilityBillingMemberSummary {
   projectedDeltaAfterPlan: Money
 }
 
+export interface UtilityBillingCarryForwardCredit {
+  memberId: string
+  creditCreated: Money
+  creditConsumed: Money
+  policyTarget: 'utilities' | 'rent'
+}
+
 export interface UtilityBillingPlanComputed {
   status: FinanceUtilityBillingPlanStatus
   maxCategoriesPerMemberApplied: number
   preferredUtilityPayerMemberId: string | null
   categories: readonly UtilityBillingCategoryAssignment[]
   memberSummaries: readonly UtilityBillingMemberSummary[]
+  carryForwardCredits: readonly UtilityBillingCarryForwardCredit[]
   fairShareByMember: readonly {
     memberId: string
     amount: Money
@@ -102,6 +110,12 @@ type LegacyFinanceUtilityBillingPlanPayload = {
     effectiveTargetMinor?: string
     carryoverBeforeMinor?: string
     carryoverAfterMinor?: string
+  }[]
+  carryForwardCredits?: readonly {
+    memberId: string
+    creditCreatedMinor: string
+    creditConsumedMinor: string
+    policyTarget?: 'utilities' | 'rent'
   }[]
   purchaseIds?: readonly string[]
 }
@@ -503,6 +517,7 @@ export function computeUtilityBillingPlan(input: {
   strategy?: UtilityBillingPlanStrategy
   preferredUtilityPayerMemberId?: string | null
   purchaseIds?: readonly string[]
+  carryForwardCredits?: readonly UtilityBillingCarryForwardCredit[]
 }): UtilityBillingPlanComputed {
   const paidByBillId = candidatePaidByBill(
     input.bills,
@@ -535,6 +550,7 @@ export function computeUtilityBillingPlan(input: {
       preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       categories: [],
       memberSummaries: emptySummary,
+      carryForwardCredits: input.carryForwardCredits ?? [],
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
         amount: member.fairShare
@@ -559,6 +575,7 @@ export function computeUtilityBillingPlan(input: {
       preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
       categories: [],
       memberSummaries: emptySummary,
+      carryForwardCredits: input.carryForwardCredits ?? [],
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
         amount: member.fairShare
@@ -590,6 +607,7 @@ export function computeUtilityBillingPlan(input: {
           : null
     })),
     memberSummaries: best.memberSummaries,
+    carryForwardCredits: input.carryForwardCredits ?? [],
     fairShareByMember: input.members.map((member) => ({
       memberId: member.memberId,
       amount: member.fairShare
@@ -623,6 +641,12 @@ export function serializeUtilityBillingPlanPayload(
       vendorPaidMinor: toMinorString(summary.vendorPaid),
       assignedThisCycleMinor: toMinorString(summary.assignedThisCycle),
       projectedDeltaAfterPlanMinor: toMinorString(summary.projectedDeltaAfterPlan)
+    })),
+    carryForwardCredits: plan.carryForwardCredits.map((credit) => ({
+      memberId: credit.memberId,
+      creditCreatedMinor: toMinorString(credit.creditCreated),
+      creditConsumedMinor: toMinorString(credit.creditConsumed),
+      policyTarget: credit.policyTarget
     })),
     purchaseIds: plan.purchaseIds
   }
@@ -764,6 +788,12 @@ export function materializeUtilityBillingPlanRecord(
         projectedDeltaAfterPlan: Money.fromMinor(assignedVendorMinor - fairShareMinor, currency)
       }
     }),
+    carryForwardCredits: (payload.carryForwardCredits ?? []).map((credit) => ({
+      memberId: credit.memberId,
+      creditCreated: Money.fromMinor(credit.creditCreatedMinor, currency),
+      creditConsumed: Money.fromMinor(credit.creditConsumedMinor, currency),
+      policyTarget: credit.policyTarget ?? 'utilities'
+    })),
     fairShareByMember: (payload.fairShareByMember ?? []).map((member) => ({
       memberId: member.memberId,
       amount: Money.fromMinor(member.amountMinor, currency)

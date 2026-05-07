@@ -213,6 +213,22 @@ function repository(
       return latestUtilityPlan
     },
     listUtilityVendorPaymentFactsForCycle: async () => [],
+    listBalanceLedgerEntries: async () => [],
+    addBalanceLedgerEntry: async (input) => ({
+      id: 'balance-ledger-1',
+      householdId: 'household-1',
+      memberId: input.memberId,
+      sourceCycleId: input.sourceCycleId,
+      sourceCyclePeriod: input.sourceCyclePeriod,
+      planId: input.planId ?? null,
+      entryType: input.entryType,
+      policyTarget: input.policyTarget,
+      reason: input.reason,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+    }),
     addUtilityVendorPaymentFact: async (input) => ({
       id: 'utility-vendor-payment-1',
       cycleId: input.cycleId,

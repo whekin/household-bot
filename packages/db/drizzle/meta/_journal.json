@@ -232,6 +232,13 @@
       "when": 1778057704000,
       "tag": "0032_stable_utility_plan_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778136000000,
+      "tag": "0033_member_balance_ledger",
+      "breakpoints": true
     }
   ]
 }

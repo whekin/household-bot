@@ -105,6 +105,16 @@ export default function BillsRoute() {
       majorStringToMinor(summary.vendorPaidMajor) > 0n
     )
   })
+  const canResolveUtilityPlan = createMemo(() => {
+    const plan = utilityBillingPlan()
+    if (!plan || !currentMemberIsAdmin()) return false
+    return (
+      plan.status !== 'settled' &&
+      plan.memberSummaries.some(
+        (summary) => majorStringToMinor(summary.assignedThisCycleMajor) > 0n
+      )
+    )
+  })
   const householdUtilityPlanMembers = createMemo(() => {
     const plan = utilityBillingPlan()
     if (!plan) return []
@@ -603,37 +613,38 @@ export default function BillsRoute() {
                             {locale() === 'ru' ? 'Срок' : 'Due'} {plan().dueDate}
                           </p>
                         </div>
-                        <span
-                          class={`ui-badge ${
-                            plan().status === 'settled' || plan().status === 'active'
-                              ? 'ui-badge--accent'
-                              : 'ui-badge--muted'
-                          }`}
-                        >
-                          {plan().status === 'active'
-                            ? locale() === 'ru'
-                              ? 'По плану'
-                              : 'On track'
-                            : plan().status === 'settled'
-                              ? locale() === 'ru'
-                                ? 'Закрыто'
-                                : 'Settled'
-                              : locale() === 'ru'
-                                ? 'Пересчитано'
-                                : 'Rebalanced'}
-                        </span>
-                      </div>
-                      <Show when={currentMemberIsAdmin()}>
-                        <div class="statement-actions statement-actions--single">
-                          <Button
-                            variant="primary"
-                            loading={utilityActionKey() === 'resolve:all'}
-                            onClick={() => void handleResolveFullPlan()}
+                        <div class="statement-section-heading__actions">
+                          <span
+                            class={`ui-badge ${
+                              plan().status === 'settled' || plan().status === 'active'
+                                ? 'ui-badge--accent'
+                                : 'ui-badge--muted'
+                            }`}
                           >
-                            {locale() === 'ru' ? 'Закрыть весь план' : 'Resolve full plan'}
-                          </Button>
+                            {plan().status === 'active'
+                              ? locale() === 'ru'
+                                ? 'По плану'
+                                : 'On track'
+                              : plan().status === 'settled'
+                                ? locale() === 'ru'
+                                  ? 'Закрыто'
+                                  : 'Settled'
+                                : locale() === 'ru'
+                                  ? 'Пересчитано'
+                                  : 'Rebalanced'}
+                          </span>
+                          <Show when={canResolveUtilityPlan()}>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              loading={utilityActionKey() === 'resolve:all'}
+                              onClick={() => void handleResolveFullPlan()}
+                            >
+                              {locale() === 'ru' ? 'Закрыть весь план' : 'Resolve full plan'}
+                            </Button>
+                          </Show>
                         </div>
-                      </Show>
+                      </div>
                       <div class="statement-list">
                         <For each={householdUtilityPlanMembers()}>
                           {(summary) => (
@@ -649,7 +660,9 @@ export default function BillsRoute() {
                                 </div>
                                 <Show
                                   when={
-                                    currentMemberIsAdmin() && summary.memberId !== currentMemberId()
+                                    canResolveUtilityPlan() &&
+                                    summary.memberId !== currentMemberId() &&
+                                    majorStringToMinor(summary.assignedThisCycleMajor) > 0n
                                   }
                                 >
                                   <Button

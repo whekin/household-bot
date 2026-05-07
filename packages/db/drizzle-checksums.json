@@ -33,6 +33,7 @@
     "0029_pale_doctor_doom.sql": "1a442e590fcb0133d9715c26fd6e39c93e1ce25902c1e617bdf29121797c665e",
     "0030_magenta_genesis.sql": "8591f499a23180503ea6a46c9fbb143e735a4ba2d501de5918d5869c6f3f95d9",
     "0031_moaning_kinsey_walden.sql": "cf3e32e41d56859ccfd957cac39a4bef4aa5fcde4c3a0c2490f6410b83f823a4",
-    "0032_stable_utility_plan_identity.sql": "4f913bedab7e6a2dec76cc823b137ac854374c69db57918aa442ed934e5c6c08"
+    "0032_stable_utility_plan_identity.sql": "4f913bedab7e6a2dec76cc823b137ac854374c69db57918aa442ed934e5c6c08",
+    "0033_member_balance_ledger.sql": "7b2c53eb6cf08f0eac0eb6e181491353a1035ba218c1d0991f06787631e51a2c"
   }
 }

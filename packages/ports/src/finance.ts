@@ -100,10 +100,18 @@ export interface FinanceUtilityBillingPlanMemberSummaryPayload {
   projectedDeltaAfterPlanMinor: string
 }
 
+export interface FinanceUtilityBillingPlanCarryForwardPayload {
+  memberId: string
+  creditCreatedMinor: string
+  creditConsumedMinor: string
+  policyTarget: 'utilities' | 'rent'
+}
+
 export interface FinanceUtilityBillingPlanPayload {
   fairShareByMember: readonly FinanceUtilityBillingPlanMemberPayload[]
   categories: readonly FinanceUtilityBillingPlanCategoryPayload[]
   memberSummaries: readonly FinanceUtilityBillingPlanMemberSummaryPayload[]
+  carryForwardCredits?: readonly FinanceUtilityBillingPlanCarryForwardPayload[]
   purchaseIds?: readonly string[]
   preferredUtilityPayerMemberId?: string | null
 }
@@ -165,6 +173,26 @@ export interface FinancePaymentRecord {
   amountMinor: bigint
   currency: CurrencyCode
   recordedAt: Instant
+}
+
+export type FinanceBalanceLedgerEntryType = 'credit_created' | 'credit_consumed'
+export type FinanceBalanceLedgerPolicyTarget = 'balance_policy'
+export type FinanceBalanceLedgerReason = 'excess_purchase_credit' | 'payment_balance_credit_applied'
+
+export interface FinanceBalanceLedgerEntryRecord {
+  id: string
+  householdId: string
+  memberId: string
+  sourceCycleId: string
+  sourceCyclePeriod: string
+  planId: string | null
+  entryType: FinanceBalanceLedgerEntryType
+  policyTarget: FinanceBalanceLedgerPolicyTarget
+  reason: FinanceBalanceLedgerReason
+  amountMinor: bigint
+  currency: CurrencyCode
+  idempotencyKey: string
+  createdAt: Instant
 }
 
 export interface FinanceSettlementSnapshotLineRecord {
@@ -376,6 +404,19 @@ export interface FinanceRepository {
   listUtilityVendorPaymentFactsForCycle(
     cycleId: string
   ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
+  listBalanceLedgerEntries(): Promise<readonly FinanceBalanceLedgerEntryRecord[]>
+  addBalanceLedgerEntry(input: {
+    memberId: string
+    sourceCycleId: string
+    sourceCyclePeriod: string
+    planId?: string | null
+    entryType: FinanceBalanceLedgerEntryType
+    policyTarget: FinanceBalanceLedgerPolicyTarget
+    reason: FinanceBalanceLedgerReason
+    amountMinor: bigint
+    currency: CurrencyCode
+    idempotencyKey: string
+  }): Promise<FinanceBalanceLedgerEntryRecord>
   addUtilityVendorPaymentFact(input: {
     cycleId: string
     planId?: string | null

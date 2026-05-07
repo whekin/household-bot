@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type {
   ExchangeRateProvider,
   FinanceCycleRecord,
+  FinanceBalanceLedgerEntryRecord,
   FinanceMemberRecord,
   FinanceMemberOverduePaymentRecord,
   FinancePaymentKind,
@@ -250,6 +251,12 @@ export interface FinanceDashboardUtilityBillingPlan {
     vendorPaid: Money
     assignedThisCycle: Money
     projectedDeltaAfterPlan: Money
+  }[]
+  carryForwardCredits?: readonly {
+    memberId: string
+    creditCreated: Money
+    creditConsumed: Money
+    policyTarget: 'utilities' | 'rent'
   }[]
 }
 
@@ -677,19 +684,117 @@ function adjustedPaymentBaseMinor(input: {
   kind: FinancePaymentKind
   baseMinor: bigint
   purchaseOffsetMinor: bigint
+  carryoverCreditMinor?: bigint
   settings: HouseholdBillingSettingsRecord
 }): bigint {
   const policy = resolvedPaymentBalanceAdjustmentPolicy(input.settings)
   const adjustedMinor =
-    policy === input.kind ? input.baseMinor + input.purchaseOffsetMinor : input.baseMinor
+    policy === input.kind
+      ? input.baseMinor + input.purchaseOffsetMinor - (input.carryoverCreditMinor ?? 0n)
+      : input.baseMinor
 
   return clampNonNegativeMinor(adjustedMinor)
+}
+
+function paymentBalanceCarryForward(input: {
+  kind: FinancePaymentKind
+  baseMinor: bigint
+  purchaseOffsetMinor: bigint
+  activeCarryoverCreditMinor: bigint
+  settings: HouseholdBillingSettingsRecord
+}): {
+  dueMinor: bigint
+  creditCreatedMinor: bigint
+  creditConsumedMinor: bigint
+} {
+  const policy = resolvedPaymentBalanceAdjustmentPolicy(input.settings)
+  if (policy !== input.kind) {
+    return {
+      dueMinor: input.baseMinor,
+      creditCreatedMinor: 0n,
+      creditConsumedMinor: 0n
+    }
+  }
+
+  const preCarryoverMinor = input.baseMinor + input.purchaseOffsetMinor
+  const creditConsumedMinor =
+    preCarryoverMinor > 0n
+      ? preCarryoverMinor < input.activeCarryoverCreditMinor
+        ? preCarryoverMinor
+        : input.activeCarryoverCreditMinor
+      : 0n
+  const dueMinor = clampNonNegativeMinor(preCarryoverMinor - input.activeCarryoverCreditMinor)
+  const creditCreatedMinor = preCarryoverMinor < 0n ? -preCarryoverMinor : 0n
+
+  return {
+    dueMinor,
+    creditCreatedMinor,
+    creditConsumedMinor
+  }
+}
+
+function activeBalanceCreditByMember(input: {
+  entries: readonly FinanceBalanceLedgerEntryRecord[]
+  beforePeriod: string
+  currency: CurrencyCode
+  reservedCreditByMemberId?: ReadonlyMap<string, bigint>
+}): ReadonlyMap<string, bigint> {
+  const balances = new Map<string, bigint>()
+  for (const entry of input.entries) {
+    if (entry.sourceCyclePeriod >= input.beforePeriod || entry.currency !== input.currency) {
+      continue
+    }
+
+    const signedMinor =
+      entry.entryType === 'credit_consumed' ? -entry.amountMinor : entry.amountMinor
+    balances.set(entry.memberId, (balances.get(entry.memberId) ?? 0n) + signedMinor)
+  }
+
+  return new Map(
+    [...balances.entries()].map(([memberId, amountMinor]) => [
+      memberId,
+      amountMinor > (input.reservedCreditByMemberId?.get(memberId) ?? 0n)
+        ? amountMinor - (input.reservedCreditByMemberId?.get(memberId) ?? 0n)
+        : 0n
+    ])
+  )
+}
+
+async function reservedCarryoverCreditByMember(input: {
+  repository: FinanceRepository
+  cycles: readonly FinanceCycleRecord[]
+  beforePeriod: string
+  currency: CurrencyCode
+}): Promise<ReadonlyMap<string, bigint>> {
+  const priorCycles = input.cycles.filter((cycle) => cycle.period < input.beforePeriod)
+  const planGroups = await Promise.all(
+    priorCycles.map((cycle) => input.repository.listUtilityBillingPlansForCycle(cycle.id))
+  )
+  const reserved = new Map<string, bigint>()
+
+  for (const plan of planGroups.flat()) {
+    if (plan.status !== 'active' || plan.currency !== input.currency) {
+      continue
+    }
+
+    for (const credit of plan.payload.carryForwardCredits ?? []) {
+      const amountMinor = BigInt(credit.creditConsumedMinor)
+      if (amountMinor <= 0n) {
+        continue
+      }
+
+      reserved.set(credit.memberId, (reserved.get(credit.memberId) ?? 0n) + amountMinor)
+    }
+  }
+
+  return reserved
 }
 
 function actionablePaymentDueMinor(input: {
   kind: FinancePaymentKind
   baseMinor: bigint
   purchaseOffsetMinor: bigint
+  carryoverCreditMinor?: bigint
   settings: HouseholdBillingSettingsRecord
 }): bigint {
   return roundSuggestedPaymentMinor(
@@ -698,6 +803,7 @@ function actionablePaymentDueMinor(input: {
       kind: input.kind,
       baseMinor: input.baseMinor,
       purchaseOffsetMinor: input.purchaseOffsetMinor,
+      carryoverCreditMinor: input.carryoverCreditMinor ?? 0n,
       settings: input.settings
     })
   )
@@ -996,6 +1102,7 @@ async function ensureUtilityBillingPlan(input: {
     utilityShare: Money
     purchaseOffset: Money
   }[]
+  activeCarryoverCreditByMemberId: ReadonlyMap<string, bigint>
   skipRebalance?: boolean
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
@@ -1064,46 +1171,75 @@ async function ensureUtilityBillingPlan(input: {
   const billCoveragePaymentsForCompute = activePlan ? offPlanFacts : []
 
   let computed = shouldRecompute
-    ? computeUtilityBillingPlan({
-        currency: input.cycle.currency,
-        members: input.settlementLines.map((line) => ({
-          memberId: line.memberId,
-          displayName:
-            input.members.find((member) => member.id === line.memberId)?.displayName ??
-            line.memberId,
-          fairShare: Money.fromMinor(
+    ? (() => {
+        const carryForwards = input.settlementLines.map((line) =>
+          paymentBalanceCarryForward({
+            kind: 'utilities',
+            baseMinor: line.utilityShare.amountMinor,
+            purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+            activeCarryoverCreditMinor:
+              input.activeCarryoverCreditByMemberId.get(line.memberId) ?? 0n,
+            settings: input.settings
+          })
+        )
+
+        return computeUtilityBillingPlan({
+          currency: input.cycle.currency,
+          members: input.settlementLines.map((line, index) => ({
+            memberId: line.memberId,
+            displayName:
+              input.members.find((member) => member.id === line.memberId)?.displayName ??
+              line.memberId,
+            fairShare: Money.fromMinor(
+              adjustmentPolicy === 'utilities'
+                ? carryForwards[index]!.dueMinor
+                : line.utilityShare.amountMinor,
+              input.cycle.currency
+            )
+          })),
+          carryForwardCredits:
             adjustmentPolicy === 'utilities'
-              ? adjustedPaymentBaseMinor({
-                  kind: 'utilities',
-                  baseMinor: line.utilityShare.amountMinor,
-                  purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-                  settings: input.settings
-                })
-              : line.utilityShare.amountMinor,
-            input.cycle.currency
-          )
-        })),
-        bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
-          utilityBillId: bill.id,
-          billName: bill.billName,
-          amount: converted.settlementAmount
-        })),
-        vendorPayments: vendorPaymentsForCompute.map((fact) => ({
-          utilityBillId: fact.utilityBillId,
-          billName: fact.billName,
-          payerMemberId: fact.payerMemberId,
-          amount: Money.fromMinor(fact.amountMinor, fact.currency)
-        })),
-        billCoveragePayments: billCoveragePaymentsForCompute.map((fact) => ({
-          utilityBillId: fact.utilityBillId,
-          billName: fact.billName,
-          payerMemberId: fact.payerMemberId,
-          amount: Money.fromMinor(fact.amountMinor, fact.currency)
-        })),
-        strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
-        preferredUtilityPayerMemberId: input.settings.preferredUtilityPayerMemberId,
-        purchaseIds: input.purchaseIds ?? []
-      })
+              ? input.settlementLines
+                  .map((line, index) => ({
+                    memberId: line.memberId,
+                    creditCreated: Money.fromMinor(
+                      carryForwards[index]!.creditCreatedMinor,
+                      input.cycle.currency
+                    ),
+                    creditConsumed: Money.fromMinor(
+                      carryForwards[index]!.creditConsumedMinor,
+                      input.cycle.currency
+                    ),
+                    policyTarget: 'utilities' as const
+                  }))
+                  .filter(
+                    (credit) =>
+                      credit.creditCreated.amountMinor > 0n ||
+                      credit.creditConsumed.amountMinor > 0n
+                  )
+              : [],
+          bills: input.convertedUtilityBills.map(({ bill, converted }) => ({
+            utilityBillId: bill.id,
+            billName: bill.billName,
+            amount: converted.settlementAmount
+          })),
+          vendorPayments: vendorPaymentsForCompute.map((fact) => ({
+            utilityBillId: fact.utilityBillId,
+            billName: fact.billName,
+            payerMemberId: fact.payerMemberId,
+            amount: Money.fromMinor(fact.amountMinor, fact.currency)
+          })),
+          billCoveragePayments: billCoveragePaymentsForCompute.map((fact) => ({
+            utilityBillId: fact.utilityBillId,
+            billName: fact.billName,
+            payerMemberId: fact.payerMemberId,
+            amount: Money.fromMinor(fact.amountMinor, fact.currency)
+          })),
+          strategy: adjustmentPolicy === 'rent' ? 'whole_bills_first' : 'same_cycle',
+          preferredUtilityPayerMemberId: input.settings.preferredUtilityPayerMemberId,
+          purchaseIds: input.purchaseIds ?? []
+        })
+      })()
     : materializeUtilityBillingPlanRecord(activePlan)
 
   const progressFacts = [...offPlanFacts, ...validMatchedFacts]
@@ -1257,7 +1393,8 @@ function buildDashboardUtilityBillingPlan(input: {
         assignedThisCycle: summary.assignedThisCycle,
         projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
-    })
+    }),
+    carryForwardCredits: input.computed.carryForwardCredits
   }
 }
 
@@ -1631,6 +1768,7 @@ async function computeMemberOverduePayments(input: {
   memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
   currentUtilityPlan: UtilityBillingPlanComputed | null
+  activeCarryoverCreditByMemberId?: ReadonlyMap<string, bigint>
 }): Promise<ReadonlyMap<string, readonly FinanceMemberOverduePaymentRecord[]>> {
   const localDate = localDateInTimezone(input.settings.timezone)
   const overdueByMemberId = new Map<string, MutableOverdueSummary>()
@@ -1669,10 +1807,17 @@ async function computeMemberOverduePayments(input: {
         utilities: { amountMinor: 0n, periods: [] }
       }
 
-      const rentRemainingMinor = effectiveRemainingMinor(
-        line.rentShare.amountMinor,
-        line.rentPaid.amountMinor
-      )
+      const rentDueMinor = adjustedPaymentBaseMinor({
+        kind: 'rent',
+        baseMinor: line.rentShare.amountMinor,
+        purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+        carryoverCreditMinor:
+          cycle.id === input.currentCycle.id
+            ? (input.activeCarryoverCreditByMemberId?.get(line.memberId) ?? 0n)
+            : 0n,
+        settings: input.settings
+      })
+      const rentRemainingMinor = effectiveRemainingMinor(rentDueMinor, line.rentPaid.amountMinor)
       if (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 && rentRemainingMinor > 0n) {
         current.rent.amountMinor += rentRemainingMinor
         current.rent.periods.push(cycle.period)
@@ -1726,6 +1871,7 @@ async function buildPaymentPeriodSummaries(input: {
   memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
   currentUtilityPlan: UtilityBillingPlanComputed | null
+  activeCarryoverCreditByMemberId?: ReadonlyMap<string, bigint>
 }): Promise<readonly FinanceDashboardPaymentPeriodSummary[]> {
   const localDate = localDateInTimezone(input.settings.timezone)
   const memberNameById = new Map(input.members.map((member) => [member.id, member.displayName]))
@@ -1773,6 +1919,10 @@ async function buildPaymentPeriodSummaries(input: {
         kind: 'rent',
         baseMinor: line.rentShare.amountMinor,
         purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+        carryoverCreditMinor:
+          cycle.id === input.currentCycle.id
+            ? (input.activeCarryoverCreditByMemberId?.get(line.memberId) ?? 0n)
+            : 0n,
         settings: input.settings
       })
       const remainingMinor = effectiveRemainingMinor(dueMinor, line.rentPaid.amountMinor)
@@ -1799,6 +1949,10 @@ async function buildPaymentPeriodSummaries(input: {
           kind: 'utilities',
           baseMinor: line.utilityShare.amountMinor,
           purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+          carryoverCreditMinor:
+            cycle.id === input.currentCycle.id
+              ? (input.activeCarryoverCreditByMemberId?.get(line.memberId) ?? 0n)
+              : 0n,
           settings: input.settings
         })
       const remainingMinor = effectiveRemainingMinor(dueMinor, line.utilityPaid.amountMinor)
@@ -2018,11 +2172,26 @@ async function buildFinanceDashboard(
     presenceDays: memberPresenceDays,
     period: cycle.period
   })
-  const [allPurchases, utilityBills, paymentPurchaseAllocations] = await Promise.all([
-    dependencies.repository.listParsedPurchases(),
-    dependencies.repository.listUtilityBillsForCycle(cycle.id),
-    dependencies.repository.listPaymentPurchaseAllocations()
-  ])
+  const [allPurchases, utilityBills, paymentPurchaseAllocations, balanceLedgerEntries] =
+    await Promise.all([
+      dependencies.repository.listParsedPurchases(),
+      dependencies.repository.listUtilityBillsForCycle(cycle.id),
+      dependencies.repository.listPaymentPurchaseAllocations(),
+      dependencies.repository.listBalanceLedgerEntries()
+    ])
+  const allCyclesForCarryover = await dependencies.repository.listCycles()
+  const reservedCarryoverCreditByMemberId = await reservedCarryoverCreditByMember({
+    repository: dependencies.repository,
+    cycles: allCyclesForCarryover,
+    beforePeriod: cycle.period,
+    currency: cycle.currency
+  })
+  const activeCarryoverCreditByMemberId = activeBalanceCreditByMember({
+    entries: balanceLedgerEntries,
+    beforePeriod: cycle.period,
+    currency: cycle.currency,
+    reservedCreditByMemberId: reservedCarryoverCreditByMemberId
+  })
   const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
   const previousCycle = await dependencies.repository.getCycleByPeriod(period.previous().toString())
   const previousSnapshotLines = previousCycle
@@ -2272,6 +2441,7 @@ async function buildFinanceDashboard(
       utilityShare: line.utilityShare,
       purchaseOffset: line.purchaseOffset
     })),
+    activeCarryoverCreditByMemberId,
     convertedUtilityBills,
     purchaseIds: [...currentCyclePurchaseIds],
     ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
@@ -2282,7 +2452,8 @@ async function buildFinanceDashboard(
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: ensuredUtilityPlan.computed
+    currentUtilityPlan: ensuredUtilityPlan.computed,
+    activeCarryoverCreditByMemberId
   })
   const dashboardMembers = settlement.lines.map((line) => ({
     memberId: line.memberId.toString(),
@@ -2312,7 +2483,8 @@ async function buildFinanceDashboard(
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: ensuredUtilityPlan.computed
+    currentUtilityPlan: ensuredUtilityPlan.computed,
+    activeCarryoverCreditByMemberId
   })
   const utilityPlanVersions = await dependencies.repository.listUtilityBillingPlansForCycle(
     cycle.id
@@ -2344,6 +2516,7 @@ async function buildFinanceDashboard(
         kind: 'rent',
         baseMinor: member.rentShare.amountMinor,
         purchaseOffsetMinor: member.purchaseOffset.amountMinor,
+        carryoverCreditMinor: activeCarryoverCreditByMemberId.get(member.memberId) ?? 0n,
         settings
       })
       return {
@@ -2963,6 +3136,38 @@ export function createFinanceCommandService(
           allocations: allocationResult.allocations
         })
       }
+    }
+
+    const carryForward = (input.utilityPlan.carryForwardCredits ?? []).find(
+      (credit) => credit.memberId === input.memberId
+    )
+    if (carryForward?.creditConsumed.amountMinor && carryForward.creditConsumed.amountMinor > 0n) {
+      await repository.addBalanceLedgerEntry({
+        memberId: input.memberId,
+        sourceCycleId: input.cycle.id,
+        sourceCyclePeriod: input.dashboard.period,
+        planId: input.utilityPlan.id,
+        entryType: 'credit_consumed',
+        policyTarget: 'balance_policy',
+        reason: 'payment_balance_credit_applied',
+        amountMinor: carryForward.creditConsumed.amountMinor,
+        currency: input.dashboard.currency,
+        idempotencyKey: `utility-plan:${input.utilityPlan.id}:member:${input.memberId}:carryover-consumed`
+      })
+    }
+    if (carryForward?.creditCreated.amountMinor && carryForward.creditCreated.amountMinor > 0n) {
+      await repository.addBalanceLedgerEntry({
+        memberId: input.memberId,
+        sourceCycleId: input.cycle.id,
+        sourceCyclePeriod: input.dashboard.period,
+        planId: input.utilityPlan.id,
+        entryType: 'credit_created',
+        policyTarget: 'balance_policy',
+        reason: 'excess_purchase_credit',
+        amountMinor: carryForward.creditCreated.amountMinor,
+        currency: input.dashboard.currency,
+        idempotencyKey: `utility-plan:${input.utilityPlan.id}:member:${input.memberId}:carryover-created`
+      })
     }
 
     return [...new Set(categories.map((category) => category.utilityBillId))]
