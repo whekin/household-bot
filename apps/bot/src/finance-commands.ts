@@ -26,6 +26,9 @@ type FinanceDashboardForBot = NonNullable<
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
 const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
+const STATUS_SHOW_CALLBACK_PREFIX = 'status:show:'
+const STATUS_DETAILS_CALLBACK_PREFIX = 'status:details:'
+const STATUS_BALANCES_CALLBACK_PREFIX = 'status:balances:'
 const BILL_SHOW_PENDING_ACTION = 'bill_command'
 const BILL_PENDING_ACTION_TTL_MS = 1000 * 60 * 60
 export const ASSISTANT_COMMAND_ACTION = 'assistant_command_suggestion'
@@ -90,6 +93,10 @@ function formatCycleDueDate(
 
 function isGroupChat(ctx: Context): boolean {
   return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
+}
+
+function isPrivateChat(ctx: Context): boolean {
+  return ctx.chat?.type === 'private'
 }
 
 function parseBillMode(raw: string | undefined): 'utilities' | 'rent' | null {
@@ -249,10 +256,35 @@ function formatRemainingCreditLine(input: {
     : `Due after utilities: ${amountText}`
 }
 
-function formatHouseholdActiveLine(
+function formatDashboardUtilityTotal(dashboard: FinanceDashboardForBot): Money {
+  return dashboard.ledger
+    .filter((entry) => entry.kind === 'utility')
+    .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
+}
+
+function formatDashboardUtilityDueNow(dashboard: FinanceDashboardForBot): Money {
+  return (
+    dashboard.utilityBillingPlan?.memberSummaries.reduce(
+      (sum, summary) => sum.add(summary.assignedThisCycle),
+      Money.zero(dashboard.currency)
+    ) ??
+    dashboard.paymentPeriods
+      ?.find((period) => period.isCurrentPeriod)
+      ?.kinds.find((kind) => kind.kind === 'utilities')?.totalRemaining ??
+    Money.zero(dashboard.currency)
+  )
+}
+
+function formatDashboardRentDueNow(dashboard: FinanceDashboardForBot): Money {
+  return dashboard.rentBillingState.memberSummaries.reduce(
+    (sum, summary) => sum.add(summary.remaining),
+    Money.zero(dashboard.currency)
+  )
+}
+
+function formatHouseholdStageLine(
   locale: Parameters<typeof getBotTranslations>[0],
-  dashboard: FinanceDashboardForBot,
-  rentDueDay: number
+  dashboard: FinanceDashboardForBot
 ): string {
   if (dashboard.billingStage === 'utilities') {
     const dueDate =
@@ -264,8 +296,7 @@ function formatHouseholdActiveLine(
   }
 
   if (dashboard.billingStage === 'rent') {
-    const dueDate =
-      dashboard.rentBillingState.dueDate ?? formatCycleDueDate(locale, dashboard.period, rentDueDay)
+    const dueDate = dashboard.rentBillingState.dueDate
     return locale === 'ru'
       ? `🏡 Сейчас: аренда · до ${formatAbsoluteDate(locale, dueDate)}`
       : `🏡 Now: rent · due ${formatAbsoluteDate(locale, dueDate)}`
@@ -274,77 +305,53 @@ function formatHouseholdActiveLine(
   return locale === 'ru' ? '✅ Сейчас: активных оплат нет' : '✅ Now: no active payment window'
 }
 
-function formatHouseholdRentTotalLine(
+function formatHouseholdRentAmount(
   locale: Parameters<typeof getBotTranslations>[0],
   dashboard: FinanceDashboardForBot
 ): string {
   if (dashboard.rentSourceAmount.currency === dashboard.rentDisplayAmount.currency) {
-    return `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(
-      dashboard.rentDisplayAmount.toMajorString(),
-      dashboard.currency
-    )}`
+    return formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)
   }
 
-  return `  • ${locale === 'ru' ? 'Всего' : 'Total'}: ${formatUserFacingMoney(
+  return `${formatUserFacingMoney(
     dashboard.rentSourceAmount.toMajorString(),
     dashboard.rentSourceAmount.currency
   )} (~${formatUserFacingMoney(dashboard.rentDisplayAmount.toMajorString(), dashboard.currency)})`
 }
 
-function formatHouseholdActiveSection(
+function formatHouseholdRentOverviewLine(
   locale: Parameters<typeof getBotTranslations>[0],
-  dashboard: FinanceDashboardForBot,
-  utilityTotal: Money
-): string[] {
-  if (dashboard.billingStage === 'utilities') {
-    const dueNow =
-      dashboard.utilityBillingPlan?.memberSummaries.reduce(
-        (sum, summary) => sum.add(summary.assignedThisCycle),
-        Money.zero(dashboard.currency)
-      ) ??
-      dashboard.paymentPeriods
-        ?.find((period) => period.isCurrentPeriod)
-        ?.kinds.find((kind) => kind.kind === 'utilities')?.totalRemaining ??
-      Money.zero(dashboard.currency)
+  dashboard: FinanceDashboardForBot
+): string {
+  const remaining = formatDashboardRentDueNow(dashboard)
+  return `🏡 ${locale === 'ru' ? 'Аренда' : 'Rent'}: ${formatHouseholdRentAmount(
+    locale,
+    dashboard
+  )} · ${locale === 'ru' ? 'до' : 'due'} ${formatAbsoluteDate(
+    locale,
+    dashboard.rentBillingState.dueDate
+  )} · ${locale === 'ru' ? 'осталось' : 'remaining'} ${formatUserFacingMoney(
+    remaining.toMajorString(),
+    dashboard.currency
+  )}`
+}
 
-    return [
-      `💡 ${locale === 'ru' ? 'Коммуналка' : 'Utilities'}`,
-      `  • ${locale === 'ru' ? 'Счета' : 'Bills'}: ${formatUserFacingMoney(
-        utilityTotal.toMajorString(),
-        dashboard.currency
-      )}`,
-      `  • ${locale === 'ru' ? 'К оплате сейчас' : 'Due now'}: ${formatUserFacingMoney(
-        dueNow.toMajorString(),
-        dashboard.currency
-      )}`
-    ]
-  }
+function formatHouseholdUtilityOverviewLine(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot
+): string {
+  const total = formatDashboardUtilityTotal(dashboard)
+  const dueNow = formatDashboardUtilityDueNow(dashboard)
+  const dueDate =
+    dashboard.utilityBillingPlan?.dueDate ??
+    formatCycleDueDate(locale, dashboard.period, dashboard.utilitiesDueDay)
 
-  if (dashboard.billingStage === 'rent') {
-    const dueNow = dashboard.rentBillingState.memberSummaries.reduce(
-      (sum, summary) => sum.add(summary.remaining),
-      Money.zero(dashboard.currency)
-    )
-
-    return [
-      `🏡 ${locale === 'ru' ? 'Аренда' : 'Rent'}`,
-      formatHouseholdRentTotalLine(locale, dashboard),
-      `  • ${locale === 'ru' ? 'К оплате сейчас' : 'Due now'}: ${formatUserFacingMoney(
-        dueNow.toMajorString(),
-        dashboard.currency
-      )}`
-    ]
-  }
-
-  return [
-    `📊 ${locale === 'ru' ? 'Баланс' : 'Balance'}`,
-    dashboard.totalRemaining.amountMinor === 0n
-      ? `  • ${locale === 'ru' ? 'Все закрыто' : 'Everything is settled'}`
-      : `  • ${locale === 'ru' ? 'Осталось' : 'Remaining'}: ${formatUserFacingMoney(
-          dashboard.totalRemaining.toMajorString(),
-          dashboard.currency
-        )}`
-  ]
+  return `💡 ${locale === 'ru' ? 'Коммуналка' : 'Utilities'}: ${formatUserFacingMoney(
+    total.toMajorString(),
+    dashboard.currency
+  )} · ${locale === 'ru' ? 'до' : 'due'} ${formatAbsoluteDate(locale, dueDate)} · ${
+    locale === 'ru' ? 'сейчас' : 'now'
+  } ${formatUserFacingMoney(dueNow.toMajorString(), dashboard.currency)}`
 }
 
 function formatHouseholdStatusMemberValue(input: {
@@ -370,72 +377,46 @@ function formatHouseholdStatusMemberValue(input: {
   return input.locale === 'ru' ? 'закрыто' : 'settled'
 }
 
+function formatHouseholdStatusCounts(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot
+): string {
+  const counts = dashboard.members.reduce(
+    (current, member) => {
+      current[member.status ?? 'active'] += 1
+      return current
+    },
+    { active: 0, away: 0, left: 0 }
+  )
+  const parts = [
+    counts.active > 0 ? `${counts.active} ${locale === 'ru' ? 'активн.' : 'active'}` : null,
+    counts.away > 0 ? `${counts.away} ${locale === 'ru' ? 'в отъезде' : 'away'}` : null,
+    counts.left > 0 ? `${counts.left} ${locale === 'ru' ? 'вышли' : 'left'}` : null
+  ].filter(Boolean)
+
+  return parts.join(' · ')
+}
+
+function formatHouseholdMemberStatusLabel(
+  locale: Parameters<typeof getBotTranslations>[0],
+  status: FinanceDashboardForBot['members'][number]['status']
+): string | null {
+  if (!status || status === 'active') {
+    return null
+  }
+
+  if (status === 'away') {
+    return locale === 'ru' ? 'в отъезде' : 'away'
+  }
+
+  return locale === 'ru' ? 'вышел' : 'left'
+}
+
 function formatHouseholdStatusMemberLines(
   locale: Parameters<typeof getBotTranslations>[0],
   dashboard: FinanceDashboardForBot
 ): string[] {
-  const memberById = new Map(dashboard.members.map((member) => [member.memberId, member]))
-
-  if (dashboard.billingStage === 'utilities' && dashboard.utilityBillingPlan) {
-    return [...dashboard.utilityBillingPlan.memberSummaries]
-      .sort((left, right) => {
-        const amountDelta = right.assignedThisCycle.amountMinor - left.assignedThisCycle.amountMinor
-        if (amountDelta !== 0n) {
-          return amountDelta > 0n ? 1 : -1
-        }
-        return left.displayName.localeCompare(right.displayName)
-      })
-      .map((summary) => {
-        const member = memberById.get(summary.memberId) ?? null
-        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
-          locale,
-          amount: summary.assignedThisCycle,
-          member,
-          paid: summary.vendorPaid
-        })}`
-      })
-  }
-
-  if (dashboard.billingStage === 'utilities') {
-    const currentUtilities = dashboard.paymentPeriods
-      ?.find((period) => period.isCurrentPeriod)
-      ?.kinds.find((kind) => kind.kind === 'utilities')
-
-    return (
-      currentUtilities?.unresolvedMembers.map((summary) => {
-        const member = memberById.get(summary.memberId) ?? null
-        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
-          locale,
-          amount: summary.remaining,
-          member,
-          paid: summary.paid
-        })}`
-      }) ?? []
-    )
-  }
-
-  if (dashboard.billingStage === 'rent') {
-    return [...dashboard.rentBillingState.memberSummaries]
-      .sort((left, right) => {
-        const amountDelta = right.remaining.amountMinor - left.remaining.amountMinor
-        if (amountDelta !== 0n) {
-          return amountDelta > 0n ? 1 : -1
-        }
-        return left.displayName.localeCompare(right.displayName)
-      })
-      .map((summary) => {
-        const member = memberById.get(summary.memberId) ?? null
-        return `  • ${summary.displayName}: ${formatHouseholdStatusMemberValue({
-          locale,
-          amount: summary.remaining,
-          member,
-          paid: summary.paid
-        })}`
-      })
-  }
-
-  return [...dashboard.members]
-    .filter((member) => member.remaining.amountMinor !== 0n)
+  const visibleMembers = [...dashboard.members]
     .sort((left, right) => {
       const amountDelta = right.remaining.amountMinor - left.remaining.amountMinor
       if (amountDelta !== 0n) {
@@ -443,15 +424,17 @@ function formatHouseholdStatusMemberLines(
       }
       return left.displayName.localeCompare(right.displayName)
     })
-    .map(
-      (member) =>
-        `  • ${member.displayName}: ${formatHouseholdStatusMemberValue({
-          locale,
-          amount: member.remaining,
-          member,
-          paid: member.paid
-        })}`
-    )
+    .slice(0, 6)
+  return visibleMembers.map((member) => {
+    const statusLabel = formatHouseholdMemberStatusLabel(locale, member.status)
+    const value = formatHouseholdStatusMemberValue({
+      locale,
+      amount: member.remaining,
+      member,
+      paid: member.paid
+    })
+    return `  • ${member.displayName}${statusLabel ? ` (${statusLabel})` : ''}: ${value}`
+  })
 }
 
 function formatHouseholdPurchasePolicyLine(
@@ -463,18 +446,63 @@ function formatHouseholdPurchasePolicyLine(
   }
 
   if (dashboard.paymentBalanceAdjustmentPolicy === 'utilities') {
-    return locale === 'ru'
-      ? '🛒 Покупки: учтены в коммуналке'
-      : '🛒 Purchases: applied through utilities'
+    return locale === 'ru' ? '🛒 Покупки → коммуналка' : '🛒 Purchases → utilities'
   }
 
   if (dashboard.paymentBalanceAdjustmentPolicy === 'rent') {
-    return locale === 'ru' ? '🛒 Покупки: учтены в аренде' : '🛒 Purchases: applied through rent'
+    return locale === 'ru' ? '🛒 Покупки → аренда' : '🛒 Purchases → rent'
   }
 
-  return locale === 'ru'
-    ? '🛒 Покупки: есть отдельный баланс'
-    : '🛒 Purchases: separate balance exists'
+  return locale === 'ru' ? '🛒 Покупки отдельно' : '🛒 Purchases separate'
+}
+
+function truncateStatusTitle(title: string): string {
+  return title.length > 34 ? `${title.slice(0, 31).trim()}…` : title
+}
+
+function formatHouseholdActivityDate(
+  locale: Parameters<typeof getBotTranslations>[0],
+  occurredAt: string | null
+): string {
+  if (!occurredAt) {
+    return locale === 'ru' ? 'без даты' : 'no date'
+  }
+
+  const instant = new Date(occurredAt)
+  if (Number.isNaN(instant.getTime())) {
+    return occurredAt
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC'
+  }).format(instant)
+}
+
+function formatHouseholdActivityLines(
+  locale: Parameters<typeof getBotTranslations>[0],
+  dashboard: FinanceDashboardForBot,
+  kind: 'purchase' | 'payment'
+): string[] {
+  return dashboard.ledger
+    .filter((entry) => entry.kind === kind)
+    .sort((left, right) => (right.occurredAt ?? '').localeCompare(left.occurredAt ?? ''))
+    .slice(0, 2)
+    .map((entry) => {
+      const title =
+        kind === 'payment'
+          ? entry.paymentKind === 'rent'
+            ? locale === 'ru'
+              ? 'аренда'
+              : 'rent'
+            : locale === 'ru'
+              ? 'коммуналка'
+              : 'utilities'
+          : truncateStatusTitle(entry.title)
+      const actor = entry.actorDisplayName ? ` · ${entry.actorDisplayName}` : ''
+      return `  • ${formatHouseholdActivityDate(locale, entry.occurredAt)}${actor}: ${title} · ${formatUserFacingMoney(entry.displayAmount.toMajorString(), entry.displayCurrency)}`
+    })
 }
 
 function formatPurchaseDriverLine(input: {
@@ -860,41 +888,56 @@ export function createFinanceCommandsService(options: {
   function formatHouseholdStatus(
     locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>,
-    dueDay: number
+    householdName?: string | null
   ): string {
-    const utilityTotal = dashboard.ledger
-      .filter((entry) => entry.kind === 'utility')
-      .reduce((sum, entry) => sum.add(entry.displayAmount), Money.zero(dashboard.currency))
     const purchasePolicyLine = formatHouseholdPurchasePolicyLine(locale, dashboard)
-    const activeLine = formatHouseholdActiveLine(locale, dashboard, dueDay)
-    const sectionLines = formatHouseholdActiveSection(locale, dashboard, utilityTotal)
+    const purchaseLines = formatHouseholdActivityLines(locale, dashboard, 'purchase')
+    const paymentLines = formatHouseholdActivityLines(locale, dashboard, 'payment')
     const memberLines = formatHouseholdStatusMemberLines(locale, dashboard)
+    const hiddenMemberCount = Math.max(dashboard.members.length - memberLines.length, 0)
 
     return [
-      `🏠 ${locale === 'ru' ? 'Дом' : 'Household'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
-      activeLine,
+      `🏠 ${householdName ?? (locale === 'ru' ? 'Дом' : 'Household')} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      formatHouseholdStageLine(locale, dashboard),
       '',
-      ...sectionLines,
+      formatHouseholdRentOverviewLine(locale, dashboard),
+      formatHouseholdUtilityOverviewLine(locale, dashboard),
+      dashboard.totalRemaining.amountMinor === 0n
+        ? locale === 'ru'
+          ? '📊 Итого: все закрыто'
+          : '📊 Total: everything settled'
+        : `📊 ${locale === 'ru' ? 'Итого осталось' : 'Total remaining'}: ${formatUserFacingMoney(
+            dashboard.totalRemaining.toMajorString(),
+            dashboard.currency
+          )}`,
+      ...(purchasePolicyLine ? [purchasePolicyLine] : []),
+      ...(purchaseLines.length > 0 || paymentLines.length > 0
+        ? [
+            '',
+            `🧾 ${locale === 'ru' ? 'Последнее' : 'Latest'}`,
+            ...(purchaseLines.length > 0
+              ? [`  ${locale === 'ru' ? 'Покупки' : 'Purchases'}:`, ...purchaseLines]
+              : []),
+            ...(paymentLines.length > 0
+              ? [`  ${locale === 'ru' ? 'Оплаты' : 'Payments'}:`, ...paymentLines]
+              : [])
+          ]
+        : []),
       '',
-      `👥 ${locale === 'ru' ? 'Кто платит' : 'Who pays'}`,
+      `👥 ${locale === 'ru' ? 'Участники' : 'Members'}: ${formatHouseholdStatusCounts(locale, dashboard)}`,
       ...(memberLines.length > 0
         ? memberLines
         : [`  • ${locale === 'ru' ? 'Все закрыто' : 'Everything is settled'}`]),
-      ...(purchasePolicyLine ? ['', purchasePolicyLine] : []),
-      '',
-      dashboard.billingStage === 'utilities'
-        ? locale === 'ru'
-          ? 'Используй /bill_full для деталей'
-          : 'Use /bill_full for details'
-        : locale === 'ru'
-          ? 'Используй /balance для деталей'
-          : 'Use /balance for details'
+      ...(hiddenMemberCount > 0
+        ? [`  • ${locale === 'ru' ? 'ещё' : 'plus'} ${hiddenMemberCount}`]
+        : [])
     ].join('\n')
   }
 
   async function resolveGroupFinanceService(ctx: Context): Promise<{
     service: FinanceCommandService
     householdId: string
+    householdName: string | null
   } | null> {
     const locale = await resolveReplyLocale({
       ctx,
@@ -916,7 +959,8 @@ export function createFinanceCommandsService(options: {
 
     return {
       service: options.financeServiceForHousehold(household.householdId),
-      householdId: household.householdId
+      householdId: household.householdId,
+      householdName: household.householdName ?? household.title ?? household.householdId
     }
   }
 
@@ -946,7 +990,8 @@ export function createFinanceCommandsService(options: {
     return {
       member,
       service: scoped.service,
-      householdId: scoped.householdId
+      householdId: scoped.householdId,
+      householdName: scoped.householdName
     }
   }
 
@@ -1377,6 +1422,7 @@ export function createFinanceCommandsService(options: {
     service: FinanceCommandService
     householdId: string
     householdName?: string | null
+    periodArg?: string
     viewerMemberId?: string | null
     forcedMode?: 'utilities' | 'rent' | null
     orderMemberId?: string | null
@@ -1388,7 +1434,7 @@ export function createFinanceCommandsService(options: {
       householdId: input.householdId
     })
     const [plan, utilityCategories, billingSettings] = await Promise.all([
-      input.service.generateCurrentBillPlan(),
+      input.service.generateCurrentBillPlan(input.periodArg),
       options.householdConfigurationRepository.listHouseholdUtilityCategories(input.householdId),
       options.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId)
     ])
@@ -1411,7 +1457,8 @@ export function createFinanceCommandsService(options: {
         payload: {
           kind: 'resolve',
           householdId: input.householdId,
-          viewerMemberId: input.viewerMemberId
+          viewerMemberId: input.viewerMemberId,
+          periodArg: input.periodArg ?? null
         }
       })
       keyboard.push([
@@ -1455,6 +1502,288 @@ export function createFinanceCommandsService(options: {
             })
       }),
       keyboard.length > 0 ? { reply_markup: { inline_keyboard: keyboard } } : {}
+    )
+  }
+
+  function statusCallbackPeriod(periodArg: string | undefined): string {
+    return periodArg && periodArg.length <= 20 && !periodArg.includes(':') ? periodArg : 'current'
+  }
+
+  function periodArgFromStatusCallback(
+    raw: string,
+    pendingPeriodArg?: string | null
+  ): string | undefined {
+    return raw === 'current' ? (pendingPeriodArg ?? undefined) : raw
+  }
+
+  function buildMiniAppUrl(ctx: Context): string | null {
+    const botUsername = ctx.me.username ?? options.botUsername
+    if (!isPrivateChat(ctx) || !options.miniAppUrl || !botUsername) {
+      return null
+    }
+
+    return `${options.miniAppUrl}${options.miniAppUrl.includes('?') ? '&' : '?'}bot=${botUsername}`
+  }
+
+  function buildStatusReplyMarkup(input: { ctx: Context; locale: BotLocale; periodArg?: string }): {
+    inline_keyboard: Array<
+      Array<{ text: string; callback_data: string } | { text: string; web_app: { url: string } }>
+    >
+  } | null {
+    const rows: Array<
+      Array<{ text: string; callback_data: string } | { text: string; web_app: { url: string } }>
+    > = []
+    const callbackPeriod = statusCallbackPeriod(input.periodArg)
+
+    if (isGroupChat(input.ctx) || options.promptRepository) {
+      rows.push([
+        {
+          text: input.locale === 'ru' ? 'Детали' : 'Details',
+          callback_data: `${STATUS_DETAILS_CALLBACK_PREFIX}${callbackPeriod}`
+        },
+        {
+          text: input.locale === 'ru' ? 'Балансы' : 'Balances',
+          callback_data: `${STATUS_BALANCES_CALLBACK_PREFIX}${callbackPeriod}`
+        }
+      ])
+    }
+
+    const webAppUrl = buildMiniAppUrl(input.ctx)
+    if (webAppUrl) {
+      rows.push([
+        {
+          text: getBotTranslations(input.locale).setup.openMiniAppButton,
+          web_app: { url: webAppUrl }
+        }
+      ])
+    }
+
+    return rows.length > 0 ? { inline_keyboard: rows } : null
+  }
+
+  async function replyWithHouseholdStatus(input: {
+    ctx: Context
+    locale: BotLocale
+    service: FinanceCommandService
+    householdId: string
+    memberId: string
+    householdName?: string | null
+    periodArg?: string
+    editMessage?: boolean
+  }) {
+    const dashboard = await input.service.generateDashboard(input.periodArg)
+    if (!dashboard) {
+      const text = getBotTranslations(input.locale).finance.noStatementCycle
+      if (input.editMessage) {
+        await input.ctx.editMessageText(text)
+        return
+      }
+
+      await input.ctx.reply(text)
+      return
+    }
+
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'status_action',
+        householdId: input.householdId,
+        memberId: input.memberId,
+        periodArg: input.periodArg ?? null
+      }
+    })
+    const replyMarkup = buildStatusReplyMarkup({
+      ctx: input.ctx,
+      locale: input.locale,
+      ...(input.periodArg ? { periodArg: input.periodArg } : {})
+    })
+    const replyOptions = replyMarkup ? { reply_markup: replyMarkup } : {}
+    const text = formatHouseholdStatus(input.locale, dashboard, input.householdName)
+
+    if (input.editMessage) {
+      await input.ctx.editMessageText(text, replyOptions)
+      return
+    }
+
+    await input.ctx.reply(text, replyOptions)
+  }
+
+  async function resolvePrivateStatusTarget(input: {
+    ctx: Context
+    callbackPeriod: string
+  }): Promise<{
+    service: FinanceCommandService
+    householdId: string
+    memberId: string
+    householdName: string | null
+    periodArg?: string
+  } | null> {
+    const pending = await getBillPendingAction(input.ctx)
+    const pendingPeriodArg =
+      pending?.payload.kind === 'status_action' && typeof pending.payload.periodArg === 'string'
+        ? pending.payload.periodArg
+        : null
+    const pendingHouseholdId =
+      pending?.payload.kind === 'status_action' && typeof pending.payload.householdId === 'string'
+        ? pending.payload.householdId
+        : null
+    const pendingMemberId =
+      pending?.payload.kind === 'status_action' && typeof pending.payload.memberId === 'string'
+        ? pending.payload.memberId
+        : null
+    const telegramUserId = input.ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      return null
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+    const membership =
+      pendingHouseholdId && pendingMemberId
+        ? memberships.find(
+            (item) => item.householdId === pendingHouseholdId && item.id === pendingMemberId
+          )
+        : memberships.length === 1
+          ? memberships[0]
+          : null
+
+    if (!membership) {
+      return null
+    }
+
+    const household = await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+      membership.householdId
+    )
+    const periodArg = periodArgFromStatusCallback(input.callbackPeriod, pendingPeriodArg)
+
+    return {
+      service: options.financeServiceForHousehold(membership.householdId),
+      householdId: membership.householdId,
+      memberId: membership.id,
+      householdName: household?.householdName ?? membership.householdId,
+      ...(periodArg ? { periodArg } : {})
+    }
+  }
+
+  async function resolveStatusCallbackTarget(input: {
+    ctx: Context
+    callbackPeriod: string
+  }): Promise<{
+    service: FinanceCommandService
+    householdId: string
+    memberId: string
+    householdName: string | null
+    periodArg?: string
+  } | null> {
+    if (isGroupChat(input.ctx)) {
+      const resolved = await requireMember(input.ctx)
+      if (!resolved) {
+        return null
+      }
+
+      const periodArg = periodArgFromStatusCallback(input.callbackPeriod)
+
+      return {
+        service: resolved.service,
+        householdId: resolved.householdId,
+        memberId: resolved.member.id,
+        householdName: resolved.householdName,
+        ...(periodArg ? { periodArg } : {})
+      }
+    }
+
+    return resolvePrivateStatusTarget(input)
+  }
+
+  async function replyWithRequestedHouseholdStatus(input: {
+    ctx: Context
+    locale: BotLocale
+    periodArg?: string
+  }) {
+    const telegramUserId = input.ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      await input.ctx.reply(getBotTranslations(input.locale).finance.unableToIdentifySender)
+      return
+    }
+
+    if (isGroupChat(input.ctx)) {
+      const resolved = await requireMember(input.ctx)
+      if (!resolved) {
+        return
+      }
+
+      await replyWithHouseholdStatus({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: resolved.service,
+        householdId: resolved.householdId,
+        memberId: resolved.member.id,
+        householdName: resolved.householdName,
+        ...(input.periodArg ? { periodArg: input.periodArg } : {})
+      })
+      return
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+    if (memberships.length === 0) {
+      await input.ctx.reply(getBotTranslations(input.locale).finance.notMember)
+      return
+    }
+
+    if (memberships.length === 1) {
+      const membership = memberships[0]!
+      const household =
+        await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      await replyWithHouseholdStatus({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: options.financeServiceForHousehold(membership.householdId),
+        householdId: membership.householdId,
+        memberId: membership.id,
+        householdName: household?.householdName ?? membership.householdId,
+        ...(input.periodArg ? { periodArg: input.periodArg } : {})
+      })
+      return
+    }
+
+    const households = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      }))
+    )
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'status_choose',
+        periodArg: input.periodArg ?? null,
+        choices: households.map(({ membership }) => ({
+          householdId: membership.householdId,
+          memberId: membership.id
+        }))
+      }
+    })
+    await input.ctx.reply(
+      input.locale === 'ru' ? 'Выберите дом для статуса:' : 'Choose a household:',
+      {
+        reply_markup: {
+          inline_keyboard: households.map(({ membership, household }, index) => [
+            {
+              text: household?.householdName ?? membership.householdId,
+              callback_data: `${STATUS_SHOW_CALLBACK_PREFIX}${index}`
+            }
+          ])
+        }
+      }
     )
   }
 
@@ -2006,6 +2335,127 @@ export function createFinanceCommandsService(options: {
     )
 
     bot.callbackQuery(
+      new RegExp(`^${STATUS_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const choiceIndex = Number(ctx.callbackQuery.data.slice(STATUS_SHOW_CALLBACK_PREFIX.length))
+        if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const pendingAction = await getBillPendingAction(ctx)
+        const choices = Array.isArray(pendingAction?.payload.choices)
+          ? pendingAction.payload.choices
+          : []
+        const choice = choices[choiceIndex]
+        const householdId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.householdId
+            : null
+        const memberId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.memberId
+            : null
+        const periodArg =
+          pendingAction?.payload.kind === 'status_choose' &&
+          typeof pendingAction.payload.periodArg === 'string'
+            ? pendingAction.payload.periodArg
+            : undefined
+        if (!householdId || !memberId) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const memberships =
+          await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+            ctx.from?.id?.toString() ?? ''
+          )
+        const membership = memberships.find(
+          (item) => item.householdId === householdId && item.id === memberId
+        )
+        if (!membership) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId
+        })
+        const household =
+          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
+        await replyWithHouseholdStatus({
+          ctx,
+          locale,
+          service: options.financeServiceForHousehold(householdId),
+          householdId,
+          memberId,
+          householdName: household?.householdName ?? householdId,
+          ...(periodArg ? { periodArg } : {}),
+          editMessage: true
+        })
+        await ctx.answerCallbackQuery()
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${STATUS_DETAILS_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const callbackPeriod = ctx.callbackQuery.data.slice(STATUS_DETAILS_CALLBACK_PREFIX.length)
+        const target = await resolveStatusCallbackTarget({ ctx, callbackPeriod })
+        if (!target) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        await replyWithBillPlan({
+          ctx,
+          service: target.service,
+          householdId: target.householdId,
+          householdName: target.householdName,
+          ...(target.periodArg ? { periodArg: target.periodArg } : {}),
+          orderMemberId: target.memberId,
+          forcedMode: null,
+          detailMode: 'full'
+        })
+        await ctx.answerCallbackQuery()
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${STATUS_BALANCES_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const callbackPeriod = ctx.callbackQuery.data.slice(STATUS_BALANCES_CALLBACK_PREFIX.length)
+        const target = await resolveStatusCallbackTarget({ ctx, callbackPeriod })
+        if (!target) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId: target.householdId
+        })
+        const dashboard = await target.service.generateDashboard(target.periodArg)
+        if (!dashboard) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        await ctx.reply(formatBalances(locale, dashboard))
+        await ctx.answerCallbackQuery()
+      }
+    )
+
+    bot.callbackQuery(
       new RegExp(`^${ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
         const telegramUserId = ctx.from?.id?.toString()
@@ -2107,14 +2557,14 @@ export function createFinanceCommandsService(options: {
             repository: options.householdConfigurationRepository,
             householdId
           })
-          const dashboard = await service.generateDashboard()
-          if (!dashboard) {
-            await ctx.reply(getBotTranslations(locale).finance.noStatementCycle)
-            return
-          }
-          const settings =
-            await options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
-          await ctx.reply(formatHouseholdStatus(locale, dashboard, settings.rentDueDay))
+          await replyWithHouseholdStatus({
+            ctx,
+            locale,
+            service,
+            householdId,
+            memberId: actingMemberId,
+            ...(resolvedHouseholdName ? { householdName: resolvedHouseholdName } : {})
+          })
           return
         }
 
@@ -2138,46 +2588,13 @@ export function createFinanceCommandsService(options: {
         repository: options.householdConfigurationRepository
       })
       const t = getBotTranslations(locale).finance
-      const resolved = await requireMember(ctx)
-      if (!resolved) {
-        return
-      }
 
       try {
-        const dashboard = await resolved.service.generateDashboard(commandArgs(ctx)[0])
-        if (!dashboard) {
-          await ctx.reply(t.noStatementCycle)
-          return
-        }
-
-        const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
-          resolved.householdId
-        )
-
-        // Web app buttons only work in private chats, not in groups
-        const isPrivateChat = ctx.chat?.type === 'private'
-        const webAppUrl =
-          isPrivateChat && options.miniAppUrl && ctx.me.username
-            ? `${options.miniAppUrl}${options.miniAppUrl.includes('?') ? '&' : '?'}bot=${ctx.me.username}`
-            : null
-
-        await ctx.reply(
-          formatHouseholdStatus(locale, dashboard, settings.rentDueDay),
-          webAppUrl
-            ? {
-                reply_markup: {
-                  inline_keyboard: [
-                    [
-                      {
-                        text: getBotTranslations(locale).setup.openMiniAppButton,
-                        web_app: { url: webAppUrl }
-                      }
-                    ]
-                  ]
-                }
-              }
-            : {}
-        )
+        await replyWithRequestedHouseholdStatus({
+          ctx,
+          locale,
+          ...(commandArgs(ctx)[0] ? { periodArg: commandArgs(ctx)[0] } : {})
+        })
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

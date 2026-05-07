@@ -238,29 +238,6 @@ export const ruBotTranslations: BotTranslationCatalog = {
       `Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${formatUserFacingMoney(amount, currency)} за ${period}`,
     paymentAddFailed: (message) => `Не удалось сохранить оплату: ${message}`,
     noStatementCycle: 'Для выписки период не найден.',
-    householdStatusTitle: (period) => `Статус на ${period}`,
-    householdStatusDueDate: (dueDate) => `Срок оплаты аренды: до ${dueDate}`,
-    householdStatusChargesHeading: 'Начисления',
-    householdStatusRentDirect: (amount, currency) =>
-      `Аренда: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
-      `Аренда: ${formatUserFacingMoney(sourceAmount, sourceCurrency)} (~${formatUserFacingMoney(displayAmount, displayCurrency)})`,
-    householdStatusUtilities: (amount, currency) =>
-      `Коммуналка: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusPurchases: (amount, currency) =>
-      `Общие покупки: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementHeading: 'Расчёты',
-    householdStatusSettlementBalance: (amount, currency) =>
-      `Общий баланс: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementPaid: (amount, currency) =>
-      `Уже оплачено: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementRemaining: (amount, currency) =>
-      `Осталось оплатить: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusMembersHeading: 'Участники',
-    householdStatusMemberCompact: (displayName, remaining, currency) =>
-      `- ${displayName}: остаток ${formatUserFacingMoney(remaining, currency)}`,
-    householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
-      `- ${displayName}: остаток ${formatUserFacingMoney(remaining, currency)} (${formatUserFacingMoney(balance, currency)} баланс, ${formatUserFacingMoney(paid, currency)} оплачено)`,
     statementTitle: (period) => `Выписка за ${period}`,
     statementLine: (displayName, amount, currency) =>
       `- ${displayName}: ${formatUserFacingMoney(amount, currency)}`,

@@ -40,6 +40,67 @@ function householdStatusUpdate(languageCode: string) {
   }
 }
 
+function privateHouseholdStatusUpdate(text: string, languageCode: string) {
+  return {
+    update_id: 9101,
+    message: {
+      message_id: 10,
+      date: Math.floor(Date.now() / 1000),
+      chat: {
+        id: 123456,
+        type: 'private'
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: languageCode
+      },
+      text,
+      entities: [
+        {
+          offset: 0,
+          length: text.split(' ')[0]?.length ?? text.length,
+          type: 'bot_command'
+        }
+      ]
+    }
+  }
+}
+
+function callbackUpdate(data: string, languageCode: string, chatType: 'private' | 'supergroup') {
+  return {
+    update_id: 9102,
+    callback_query: {
+      id: 'callback-1',
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan',
+        language_code: languageCode
+      },
+      message: {
+        message_id: 10,
+        date: Math.floor(Date.now() / 1000),
+        chat:
+          chatType === 'private'
+            ? {
+                id: 123456,
+                type: 'private'
+              }
+            : {
+                id: -100123456,
+                type: 'supergroup',
+                title: 'Kojori'
+              },
+        text: 'status'
+      },
+      chat_instance: 'chat-instance',
+      data
+    }
+  }
+}
+
 function billUpdate(text: string, languageCode: string) {
   return {
     update_id: 9200,
@@ -572,6 +633,21 @@ describe('createFinanceCommandsService', () => {
             paymentKind: null,
             payerMemberId: 'member-1',
             resolutionStatus: 'unresolved'
+          },
+          {
+            id: 'payment-1',
+            kind: 'payment',
+            title: 'utilities',
+            memberId: 'member-2',
+            amount: Money.fromMajor('50', 'GEL'),
+            currency: 'GEL',
+            displayAmount: Money.fromMajor('50', 'GEL'),
+            displayCurrency: 'GEL',
+            fxRateMicros: null,
+            fxEffectiveDate: null,
+            actorDisplayName: 'Ион',
+            occurredAt: instantFromIso('2026-05-04T12:00:00.000Z').toString(),
+            paymentKind: 'utilities'
           }
         ]
       })
@@ -615,23 +691,37 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(householdStatusUpdate('ru') as never)
 
-    const payload = calls[0]?.payload as { text?: string } | undefined
+    const payload = calls[0]?.payload as
+      | {
+          text?: string
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>
+          }
+        }
+      | undefined
     const text = payload?.text ?? ''
-    expect(text).toContain('🏠 Дом · май 2026')
+    expect(text).toContain('🏠 Kojori House · май 2026')
     expect(text).toContain('💡 Сейчас: коммуналка · до 6 мая')
-    expect(text).toContain('💡 Коммуналка')
-    expect(text).toContain('Счета: 312.69 ₾')
-    expect(text).toContain('К оплате сейчас: 312.69 ₾')
-    expect(text).toContain('👥 Кто платит')
-    expect(text).toContain('• Ион: 137.42 ₾')
-    expect(text).toContain('• Алиса: 98.10 ₾')
-    expect(text).toContain('• Дима: 77.17 ₾')
-    expect(text).toContain('• Стас: закрыто плюсом')
-    expect(text).toContain('🛒 Покупки: учтены в коммуналке')
-    expect(text).toContain('Используй /bill_full для деталей')
+    expect(text).toContain('🏡 Аренда: $700.00 (~1890.00 ₾)')
+    expect(text).toContain('💡 Коммуналка: 312.69 ₾ · до 6 мая · сейчас 312.69 ₾')
+    expect(text).toContain('📊 Итого осталось: 2195.62 ₾')
+    expect(text).toContain('🛒 Покупки → коммуналка')
+    expect(text).toContain('🧾 Последнее')
+    expect(text).toContain('Покупки:')
+    expect(text).toContain('• 2 мая · Стас: Не показывать как начисление · 407.50 ₾')
+    expect(text).toContain('Оплаты:')
+    expect(text).toContain('• 4 мая · Ион: коммуналка · 50.00 ₾')
+    expect(text).toContain('👥 Участники: 4 активн.')
+    expect(text).toContain('• Ион: 608.15 ₾')
+    expect(text).toContain('• Дима: 570.83 ₾')
+    expect(text).toContain('• Алиса: 568.84 ₾')
+    expect(text).toContain('• Стас: 447.80 ₾')
+    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
+      { text: 'Детали', callback_data: 'status:details:current' },
+      { text: 'Балансы', callback_data: 'status:balances:current' }
+    ])
     expect(text).not.toContain('Начисления')
-    expect(text).not.toContain('Общие покупки: 407.50 ₾')
-    expect(text).not.toContain('К оплате сейчас: 2195.62 ₾')
+    expect(text).not.toContain('Кто платит')
   })
 
   test('renders household status from rent member summaries during rent stage', async () => {
@@ -733,13 +823,359 @@ describe('createFinanceCommandsService', () => {
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     expect(text).toContain('🏡 Сейчас: аренда · до 20 мая')
-    expect(text).toContain('🏡 Аренда')
-    expect(text).toContain('Всего: $700.00 (~1890.00 ₾)')
-    expect(text).toContain('К оплате сейчас: 608.15 ₾')
+    expect(text).toContain('🏡 Аренда: $700.00 (~1890.00 ₾) · до 20 мая · осталось 608.15 ₾')
     expect(text).toContain('• Ион: 608.15 ₾')
-    expect(text).toContain('• Стас: закрыто плюсом')
-    expect(text).toContain('🛒 Покупки: учтены в аренде')
-    expect(text).not.toContain('Коммуналка')
+    expect(text).toContain('• Стас: 447.80 ₾')
+    expect(text).toContain('🛒 Покупки → аренда')
+    expect(text).toContain('💡 Коммуналка:')
+  })
+
+  test('omits recent activity when there are no recent purchases or payments', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => ({
+        ...createDashboard(),
+        ledger: [
+          {
+            id: 'utility-1',
+            kind: 'utility',
+            title: 'Electricity',
+            memberId: 'member-1',
+            amount: Money.fromMajor('82', 'GEL'),
+            currency: 'GEL',
+            displayAmount: Money.fromMajor('82', 'GEL'),
+            displayCurrency: 'GEL',
+            fxRateMicros: null,
+            fxEffectiveDate: null,
+            actorDisplayName: 'Стас',
+            occurredAt: instantFromIso('2026-03-10T12:00:00.000Z').toString(),
+            paymentKind: null
+          }
+        ]
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(householdStatusUpdate('ru') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).not.toContain('🧾 Последнее')
+  })
+
+  test('renders private household status with read-only actions and mini app button', async () => {
+    const repository: HouseholdConfigurationRepository = {
+      ...createRepository(),
+      getHouseholdChatByHouseholdId: async () => ({
+        householdId: 'household-1',
+        householdName: 'Kojori House',
+        telegramChatId: '-100123456',
+        telegramChatType: 'supergroup',
+        title: 'Kojori',
+        defaultLocale: 'ru'
+      })
+    }
+    const promptRepository = createPromptRepository()
+    const financeService = createFinanceService()
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository,
+      miniAppUrl: 'https://app.example/mini'
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(privateHouseholdStatusUpdate('/household_status', 'ru') as never)
+
+    const payload = calls[0]?.payload as
+      | {
+          text?: string
+          reply_markup?: {
+            inline_keyboard?: Array<
+              Array<{ text: string; callback_data?: string; web_app?: { url: string } }>
+            >
+          }
+        }
+      | undefined
+    expect(payload?.text).toContain('🏠 Kojori House · март 2026')
+    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
+      { text: 'Детали', callback_data: 'status:details:current' },
+      { text: 'Балансы', callback_data: 'status:balances:current' }
+    ])
+    expect(payload?.reply_markup?.inline_keyboard?.[1]?.[0]).toEqual({
+      text: 'Открыть мини-приложение',
+      web_app: { url: 'https://app.example/mini?bot=household_test_bot' }
+    })
+    expect(promptRepository.current()?.payload).toMatchObject({
+      kind: 'status_action',
+      householdId: 'household-1',
+      memberId: 'member-1'
+    })
+  })
+
+  test('lets private users choose a household before rendering status', async () => {
+    const repository: HouseholdConfigurationRepository = {
+      ...createRepository(),
+      listHouseholdMembersByTelegramUserId: async () => [
+        {
+          id: 'member-1',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: 'ru',
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: true
+        },
+        {
+          id: 'member-2',
+          householdId: 'household-2',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active',
+          preferredLocale: 'ru',
+          householdDefaultLocale: 'ru',
+          rentShareWeight: 1,
+          isAdmin: false
+        }
+      ],
+      getHouseholdChatByHouseholdId: async (householdId) => ({
+        householdId,
+        householdName: householdId === 'household-1' ? 'Kojori House' : 'City Flat',
+        telegramChatId: householdId === 'household-1' ? '-100123456' : '-100987654',
+        telegramChatType: 'supergroup',
+        title: householdId === 'household-1' ? 'Kojori' : 'City',
+        defaultLocale: 'ru'
+      })
+    }
+    const promptRepository = createPromptRepository()
+    const financeService = createFinanceService()
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(privateHouseholdStatusUpdate('/household_status 2026-05', 'ru') as never)
+
+    const chooserPayload = calls[0]?.payload as
+      | {
+          text?: string
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
+          }
+        }
+      | undefined
+    expect(chooserPayload?.text).toBe('Выберите дом для статуса:')
+    expect(chooserPayload?.reply_markup?.inline_keyboard).toEqual([
+      [{ text: 'Kojori House', callback_data: 'status:show:0' }],
+      [{ text: 'City Flat', callback_data: 'status:show:1' }]
+    ])
+    expect(promptRepository.current()?.payload).toMatchObject({
+      kind: 'status_choose',
+      periodArg: '2026-05'
+    })
+
+    await bot.handleUpdate(callbackUpdate('status:show:1', 'ru', 'private') as never)
+
+    const editPayload = calls.find((call) => call.method === 'editMessageText')?.payload as
+      | { text?: string }
+      | undefined
+    expect(editPayload?.text).toContain('🏠 City Flat')
+    expect(promptRepository.current()?.payload).toMatchObject({
+      kind: 'status_action',
+      householdId: 'household-2',
+      memberId: 'member-2',
+      periodArg: '2026-05'
+    })
+  })
+
+  test('status quick actions preserve the requested period', async () => {
+    const repository = createRepository()
+    const dashboardPeriods: Array<string | undefined> = []
+    const billPlanPeriods: Array<string | undefined> = []
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async (periodArg) => {
+        dashboardPeriods.push(periodArg)
+        return {
+          ...createDashboard(),
+          period: periodArg ?? '2026-03'
+        }
+      },
+      generateCurrentBillPlan: async (periodArg) => {
+        billPlanPeriods.push(periodArg)
+        return {
+          period: periodArg ?? '2026-03',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          billingStage: 'rent',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-05-20',
+            paymentDestinations: null,
+            memberSummaries: [
+              {
+                memberId: 'member-1',
+                displayName: 'Стас',
+                due: Money.fromMajor('200', 'GEL'),
+                paid: Money.zero('GEL'),
+                remaining: Money.fromMajor('200', 'GEL')
+              }
+            ]
+          },
+          members: []
+        }
+      }
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate({
+      ...householdStatusUpdate('ru'),
+      message: {
+        ...householdStatusUpdate('ru').message,
+        text: '/household_status 2026-05'
+      }
+    } as never)
+    await bot.handleUpdate(callbackUpdate('status:details:2026-05', 'ru', 'supergroup') as never)
+    await bot.handleUpdate(callbackUpdate('status:balances:2026-05', 'ru', 'supergroup') as never)
+
+    expect(dashboardPeriods).toEqual(['2026-05', '2026-05'])
+    expect(billPlanPeriods).toEqual(['2026-05'])
   })
 
   test('renders purchase balance lines only under the member who paid', async () => {

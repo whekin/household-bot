@@ -216,35 +216,6 @@ export interface BotTranslationCatalog {
     ) => string
     paymentAddFailed: (message: string) => string
     noStatementCycle: string
-    householdStatusTitle: (period: string) => string
-    householdStatusDueDate: (dueDate: string) => string
-    householdStatusChargesHeading: string
-    householdStatusRentDirect: (amount: string, currency: string) => string
-    householdStatusRentConverted: (
-      sourceAmount: string,
-      sourceCurrency: string,
-      displayAmount: string,
-      displayCurrency: string
-    ) => string
-    householdStatusUtilities: (amount: string, currency: string) => string
-    householdStatusPurchases: (amount: string, currency: string) => string
-    householdStatusSettlementHeading: string
-    householdStatusSettlementBalance: (amount: string, currency: string) => string
-    householdStatusSettlementPaid: (amount: string, currency: string) => string
-    householdStatusSettlementRemaining: (amount: string, currency: string) => string
-    householdStatusMembersHeading: string
-    householdStatusMemberCompact: (
-      displayName: string,
-      remaining: string,
-      currency: string
-    ) => string
-    householdStatusMemberDetailed: (
-      displayName: string,
-      remaining: string,
-      balance: string,
-      paid: string,
-      currency: string
-    ) => string
     statementTitle: (period: string) => string
     statementLine: (displayName: string, amount: string, currency: string) => string
     statementTotal: (amount: string, currency: string) => string

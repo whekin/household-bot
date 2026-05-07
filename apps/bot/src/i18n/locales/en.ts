@@ -235,29 +235,6 @@ export const enBotTranslations: BotTranslationCatalog = {
       `Payment recorded: ${kind === 'rent' ? 'rent' : 'utilities'} ${formatUserFacingMoney(amount, currency)} for ${period}`,
     paymentAddFailed: (message) => `Failed to record payment: ${message}`,
     noStatementCycle: 'No cycle found for statement.',
-    householdStatusTitle: (period) => `Household status for ${period}`,
-    householdStatusDueDate: (dueDate) => `Rent due by ${dueDate}`,
-    householdStatusChargesHeading: 'Charges',
-    householdStatusRentDirect: (amount, currency) =>
-      `Rent: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusRentConverted: (sourceAmount, sourceCurrency, displayAmount, displayCurrency) =>
-      `Rent: ${formatUserFacingMoney(sourceAmount, sourceCurrency)} (~${formatUserFacingMoney(displayAmount, displayCurrency)})`,
-    householdStatusUtilities: (amount, currency) =>
-      `Utilities: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusPurchases: (amount, currency) =>
-      `Shared purchases: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementHeading: 'Settlement',
-    householdStatusSettlementBalance: (amount, currency) =>
-      `Gross balance: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementPaid: (amount, currency) =>
-      `Paid so far: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusSettlementRemaining: (amount, currency) =>
-      `Remaining: ${formatUserFacingMoney(amount, currency)}`,
-    householdStatusMembersHeading: 'Members',
-    householdStatusMemberCompact: (displayName, remaining, currency) =>
-      `- ${displayName}: remaining ${formatUserFacingMoney(remaining, currency)}`,
-    householdStatusMemberDetailed: (displayName, remaining, balance, paid, currency) =>
-      `- ${displayName}: remaining ${formatUserFacingMoney(remaining, currency)} (${formatUserFacingMoney(balance, currency)} balance, ${formatUserFacingMoney(paid, currency)} paid)`,
     statementTitle: (period) => `Statement for ${period}`,
     statementLine: (displayName, amount, currency) =>
       `- ${displayName}: ${formatUserFacingMoney(amount, currency)}`,
