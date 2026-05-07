@@ -76,6 +76,7 @@ type DashboardContextValue = {
     value: MiniAppDashboard | null | ((prev: MiniAppDashboard | null) => MiniAppDashboard | null)
   ) => void
   loading: () => boolean
+  refreshing: () => boolean
   adminSettings: () => MiniAppAdminSettingsPayload | null
   setAdminSettings: (
     value:
@@ -372,9 +373,11 @@ export function DashboardProvider(props: ParentProps) {
 
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
   const [loading, setLoading] = createSignal(true)
+  const [refreshing, setRefreshing] = createSignal(false)
   const [adminSettings, setAdminSettings] = createSignal<MiniAppAdminSettingsPayload | null>(null)
   const [cycleState, setCycleState] = createSignal<MiniAppAdminCycleState | null>(null)
   const [pendingMembers, setPendingMembers] = createSignal<readonly MiniAppPendingMember[]>([])
+  const [hasLoadedOnce, setHasLoadedOnce] = createSignal(false)
   const [testingRolePreview, setTestingRolePreview] = createSignal<TestingRolePreview | null>(null)
   const [demoScenario, setDemoScenarioSignal] = createSignal<DemoScenarioId>('current-cycle')
   const [testingPeriodOverride, setTestingPeriodOverride] = createSignal<string | null>(null)
@@ -477,6 +480,7 @@ export function DashboardProvider(props: ParentProps) {
     if (!current) return
 
     void loadDashboardData(data ?? '', current.member.isAdmin, {
+      background: hasLoadedOnce(),
       periodOverride: normalizedPeriodOverride,
       todayOverride: normalizedTodayOverride
     })
@@ -486,11 +490,17 @@ export function DashboardProvider(props: ParentProps) {
     initData: string,
     isAdmin: boolean,
     overrides: {
+      background?: boolean
       periodOverride?: string | null
       todayOverride?: string | null
     } = {}
   ) {
-    setLoading(true)
+    const background = overrides.background ?? false
+    if (background) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     const resolvedPeriodOverride =
       overrides.periodOverride === undefined
         ? (derivedTestingPeriodOverride() ?? demoDefaultPeriodOverride())
@@ -503,7 +513,12 @@ export function DashboardProvider(props: ParentProps) {
         periodOverride: resolvedPeriodOverride,
         todayOverride: resolvedTodayOverride
       })
-      setLoading(false)
+      setHasLoadedOnce(true)
+      if (background) {
+        setRefreshing(false)
+      } else {
+        setLoading(false)
+      }
       return
     }
 
@@ -517,7 +532,9 @@ export function DashboardProvider(props: ParentProps) {
       if (import.meta.env.DEV) {
         console.warn('Failed to load mini app dashboard', error)
       }
-      setDashboard(null)
+      if (!background) {
+        setDashboard(null)
+      }
     }
 
     if (isAdmin) {
@@ -534,6 +551,11 @@ export function DashboardProvider(props: ParentProps) {
         if (import.meta.env.DEV) {
           console.warn('Failed to load admin data', error)
         }
+        if (!background) {
+          setAdminSettings(null)
+          setCycleState(null)
+          setPendingMembers([])
+        }
       }
     } else {
       setAdminSettings(null)
@@ -541,7 +563,12 @@ export function DashboardProvider(props: ParentProps) {
       setPendingMembers([])
     }
 
-    setLoading(false)
+    setHasLoadedOnce(true)
+    if (background) {
+      setRefreshing(false)
+    } else {
+      setLoading(false)
+    }
   }
 
   async function refreshDashboardData() {
@@ -550,7 +577,9 @@ export function DashboardProvider(props: ParentProps) {
     if (!data || !current) return
 
     await invalidateHouseholdQueries(data)
-    await loadDashboardData(data, current.member.isAdmin)
+    await loadDashboardData(data, current.member.isAdmin, {
+      background: dashboard() !== null
+    })
   }
 
   function applyDemoState(
@@ -586,6 +615,7 @@ export function DashboardProvider(props: ParentProps) {
         dashboard,
         setDashboard,
         loading,
+        refreshing,
         adminSettings,
         setAdminSettings,
         cycleState,
