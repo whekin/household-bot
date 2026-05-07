@@ -3,7 +3,10 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from
 import { createDbClient, schema } from '@household/db'
 import type {
   FinanceBalanceLedgerEntryRecord,
+  FinanceParsedPurchaseRecord,
+  FinancePurchaseTopicMessageRecord,
   FinanceRepository,
+  FinanceSavedPurchaseParticipantToggleResult,
   FinanceUtilityBillingPlanPayload,
   FinanceUtilityBillingPlanRecord
 } from '@household/ports'
@@ -181,6 +184,7 @@ export function createDbFinanceRepository(
       readonly {
         id: string
         memberId: string
+        included: boolean
         shareAmountMinor: bigint | null
       }[]
     >
@@ -216,6 +220,78 @@ export function createDbFinanceRepository(
     }
 
     return grouped
+  }
+
+  async function getParsedPurchaseById(
+    purchaseId: string
+  ): Promise<FinanceParsedPurchaseRecord | null> {
+    const rows = await db
+      .select({
+        id: schema.purchaseMessages.id,
+        cycleId: schema.purchaseMessages.cycleId,
+        cyclePeriod: schema.billingCycles.period,
+        payerMemberId: schema.purchaseMessages.payerMemberId,
+        amountMinor: schema.purchaseMessages.parsedAmountMinor,
+        currency: schema.purchaseMessages.parsedCurrency,
+        description: schema.purchaseMessages.parsedItemDescription,
+        occurredAt: schema.purchaseMessages.messageSentAt,
+        splitMode: schema.purchaseMessages.participantSplitMode
+      })
+      .from(schema.purchaseMessages)
+      .leftJoin(schema.billingCycles, eq(schema.purchaseMessages.cycleId, schema.billingCycles.id))
+      .where(
+        and(
+          eq(schema.purchaseMessages.householdId, householdId),
+          eq(schema.purchaseMessages.id, purchaseId),
+          isNotNull(schema.purchaseMessages.payerMemberId),
+          isNotNull(schema.purchaseMessages.parsedAmountMinor),
+          isNotNull(schema.purchaseMessages.parsedCurrency),
+          or(
+            eq(schema.purchaseMessages.processingStatus, 'parsed'),
+            eq(schema.purchaseMessages.processingStatus, 'confirmed')
+          )
+        )
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row || !row.payerMemberId || row.amountMinor == null || row.currency == null) {
+      return null
+    }
+
+    const participantsByPurchaseId = await loadPurchaseParticipants([row.id])
+    return {
+      id: row.id,
+      cycleId: row.cycleId,
+      cyclePeriod: row.cyclePeriod,
+      payerMemberId: row.payerMemberId,
+      amountMinor: row.amountMinor,
+      currency: toCurrencyCode(row.currency),
+      description: row.description,
+      occurredAt: instantFromDatabaseValue(row.occurredAt),
+      splitMode: row.splitMode === 'custom_amounts' ? 'custom_amounts' : 'equal',
+      participants: participantsByPurchaseId.get(row.id) ?? []
+    }
+  }
+
+  function mapPurchaseTopicMessage(row: {
+    purchaseMessageId: string
+    householdId: string
+    telegramChatId: string
+    telegramThreadId: string
+    telegramMessageId: string
+    status: string
+    lastError: string | null
+  }): FinancePurchaseTopicMessageRecord {
+    return {
+      purchaseMessageId: row.purchaseMessageId,
+      householdId: row.householdId,
+      telegramChatId: row.telegramChatId,
+      telegramThreadId: row.telegramThreadId,
+      telegramMessageId: row.telegramMessageId,
+      status: row.status === 'failed' || row.status === 'deleted' ? row.status : 'sent',
+      lastError: row.lastError
+    }
   }
 
   const repository: FinanceRepository = {
@@ -702,6 +778,219 @@ export function createDbFinanceRepository(
         })
 
       return rows.length > 0
+    },
+
+    async getParsedPurchase(purchaseId) {
+      return getParsedPurchaseById(purchaseId)
+    },
+
+    async ensureEqualPurchaseParticipants(purchaseId) {
+      const purchase = await getParsedPurchaseById(purchaseId)
+      if (!purchase || purchase.splitMode === 'custom_amounts') {
+        return purchase
+      }
+
+      if (purchase.participants && purchase.participants.length > 0) {
+        return purchase
+      }
+
+      const memberRows = await db
+        .select({
+          id: schema.members.id,
+          lifecycleStatus: schema.members.lifecycleStatus
+        })
+        .from(schema.members)
+        .where(eq(schema.members.householdId, householdId))
+
+      const eligibleMembers = memberRows.filter((member) => member.lifecycleStatus !== 'left')
+      if (eligibleMembers.length === 0) {
+        return purchase
+      }
+
+      const hasActiveMember = eligibleMembers.some((member) => member.lifecycleStatus === 'active')
+      await db
+        .insert(schema.purchaseMessageParticipants)
+        .values(
+          eligibleMembers.map((member) => ({
+            purchaseMessageId: purchase.id,
+            memberId: member.id,
+            included:
+              member.lifecycleStatus === 'active' ||
+              (!hasActiveMember && member.id === purchase.payerMemberId)
+                ? 1
+                : 0,
+            shareAmountMinor: null
+          }))
+        )
+        .onConflictDoNothing()
+
+      return getParsedPurchaseById(purchaseId)
+    },
+
+    async toggleSavedPurchaseParticipant(
+      participantId,
+      actorTelegramUserId
+    ): Promise<FinanceSavedPurchaseParticipantToggleResult> {
+      const result = await db.transaction(
+        async (
+          tx
+        ): Promise<
+          | { status: 'updated'; purchaseId: string }
+          | { status: 'not_found' | 'forbidden' | 'not_editable' | 'at_least_one_required' }
+        > => {
+          const rows = await tx
+            .select({
+              participantId: schema.purchaseMessageParticipants.id,
+              purchaseMessageId: schema.purchaseMessageParticipants.purchaseMessageId,
+              memberId: schema.purchaseMessageParticipants.memberId,
+              included: schema.purchaseMessageParticipants.included,
+              purchaseHouseholdId: schema.purchaseMessages.householdId,
+              splitMode: schema.purchaseMessages.participantSplitMode,
+              processingStatus: schema.purchaseMessages.processingStatus
+            })
+            .from(schema.purchaseMessageParticipants)
+            .innerJoin(
+              schema.purchaseMessages,
+              eq(schema.purchaseMessageParticipants.purchaseMessageId, schema.purchaseMessages.id)
+            )
+            .where(
+              and(
+                eq(schema.purchaseMessageParticipants.id, participantId),
+                eq(schema.purchaseMessages.householdId, householdId)
+              )
+            )
+            .limit(1)
+
+          const row = rows[0]
+          if (!row) {
+            return { status: 'not_found' as const }
+          }
+
+          const actorRows = await tx
+            .select({
+              id: schema.members.id,
+              lifecycleStatus: schema.members.lifecycleStatus
+            })
+            .from(schema.members)
+            .where(
+              and(
+                eq(schema.members.householdId, row.purchaseHouseholdId),
+                eq(schema.members.telegramUserId, actorTelegramUserId)
+              )
+            )
+            .limit(1)
+
+          const actor = actorRows[0]
+          if (!actor || actor.lifecycleStatus !== 'active') {
+            return { status: 'forbidden' as const }
+          }
+
+          if (
+            row.splitMode === 'custom_amounts' ||
+            (row.processingStatus !== 'confirmed' && row.processingStatus !== 'parsed')
+          ) {
+            return { status: 'not_editable' as const }
+          }
+
+          if (row.included === 1) {
+            const includedRows = await tx
+              .select({ id: schema.purchaseMessageParticipants.id })
+              .from(schema.purchaseMessageParticipants)
+              .where(
+                and(
+                  eq(schema.purchaseMessageParticipants.purchaseMessageId, row.purchaseMessageId),
+                  eq(schema.purchaseMessageParticipants.included, 1)
+                )
+              )
+
+            if (includedRows.length <= 1) {
+              return { status: 'at_least_one_required' as const }
+            }
+          }
+
+          await tx
+            .update(schema.purchaseMessageParticipants)
+            .set({
+              included: row.included === 1 ? 0 : 1,
+              updatedAt: new Date()
+            })
+            .where(eq(schema.purchaseMessageParticipants.id, participantId))
+
+          return { status: 'updated' as const, purchaseId: row.purchaseMessageId }
+        }
+      )
+
+      if (result.status !== 'updated') {
+        return result
+      }
+
+      const purchase = await getParsedPurchaseById(result.purchaseId)
+      return purchase ? { status: 'updated' as const, purchase } : { status: 'not_found' as const }
+    },
+
+    async getPurchaseTopicMessage(purchaseId) {
+      const rows = await db
+        .select({
+          purchaseMessageId: schema.purchaseTopicMessages.purchaseMessageId,
+          householdId: schema.purchaseTopicMessages.householdId,
+          telegramChatId: schema.purchaseTopicMessages.telegramChatId,
+          telegramThreadId: schema.purchaseTopicMessages.telegramThreadId,
+          telegramMessageId: schema.purchaseTopicMessages.telegramMessageId,
+          status: schema.purchaseTopicMessages.status,
+          lastError: schema.purchaseTopicMessages.lastError
+        })
+        .from(schema.purchaseTopicMessages)
+        .where(
+          and(
+            eq(schema.purchaseTopicMessages.householdId, householdId),
+            eq(schema.purchaseTopicMessages.purchaseMessageId, purchaseId)
+          )
+        )
+        .limit(1)
+
+      return rows[0] ? mapPurchaseTopicMessage(rows[0]) : null
+    },
+
+    async upsertPurchaseTopicMessage(input) {
+      const rows = await db
+        .insert(schema.purchaseTopicMessages)
+        .values({
+          purchaseMessageId: input.purchaseMessageId,
+          householdId,
+          telegramChatId: input.telegramChatId,
+          telegramThreadId: input.telegramThreadId,
+          telegramMessageId: input.telegramMessageId,
+          status: input.status,
+          lastError: input.lastError ?? null,
+          updatedAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: schema.purchaseTopicMessages.purchaseMessageId,
+          set: {
+            telegramChatId: input.telegramChatId,
+            telegramThreadId: input.telegramThreadId,
+            telegramMessageId: input.telegramMessageId,
+            status: input.status,
+            lastError: input.lastError ?? null,
+            updatedAt: new Date()
+          }
+        })
+        .returning({
+          purchaseMessageId: schema.purchaseTopicMessages.purchaseMessageId,
+          householdId: schema.purchaseTopicMessages.householdId,
+          telegramChatId: schema.purchaseTopicMessages.telegramChatId,
+          telegramThreadId: schema.purchaseTopicMessages.telegramThreadId,
+          telegramMessageId: schema.purchaseTopicMessages.telegramMessageId,
+          status: schema.purchaseTopicMessages.status,
+          lastError: schema.purchaseTopicMessages.lastError
+        })
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to upsert purchase topic message')
+      }
+
+      return mapPurchaseTopicMessage(row)
     },
 
     async updateUtilityBill(input) {

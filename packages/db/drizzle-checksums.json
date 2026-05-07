@@ -35,6 +35,7 @@
     "0031_moaning_kinsey_walden.sql": "cf3e32e41d56859ccfd957cac39a4bef4aa5fcde4c3a0c2490f6410b83f823a4",
     "0032_stable_utility_plan_identity.sql": "4f913bedab7e6a2dec76cc823b137ac854374c69db57918aa442ed934e5c6c08",
     "0033_member_balance_ledger.sql": "7b2c53eb6cf08f0eac0eb6e181491353a1035ba218c1d0991f06787631e51a2c",
-    "0034_household_audit_notifications.sql": "41081b4f5cf20ce4c3c3243fa4c25a1c9ca65ed18dac4958ec3d3e7e6e3c4b3f"
+    "0034_household_audit_notifications.sql": "41081b4f5cf20ce4c3c3243fa4c25a1c9ca65ed18dac4958ec3d3e7e6e3c4b3f",
+    "0035_purchase_topic_messages.sql": "0a25fd8e62bc4eb4bd6e81f6b2cf1f5fb4bd1a0ba61f898b5afe27a1c4e7ccc7"
   }
 }

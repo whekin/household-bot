@@ -91,6 +91,7 @@ import {
   createPurchaseMessageRepository,
   registerConfiguredPurchaseTopicIngestion
 } from './purchase-topic-ingestion'
+import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
@@ -388,6 +389,18 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     shutdownTasks.push(scheduledDispatchRepositoryClient.close)
   }
 
+  const purchaseTopicNoticeService =
+    runtime.databaseUrl && householdConfigurationRepositoryClient
+      ? createPurchaseTopicNoticeService({
+          bot,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          financeRepositoryForHousehold: (householdId) =>
+            financeRepositoryForHousehold(householdId).repository,
+          financeServiceForHousehold,
+          logger: getLogger('purchase-topic-notices')
+        })
+      : null
+
   if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     registerConfiguredPurchaseTopicIngestion(
       bot,
@@ -412,6 +425,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             }
           : {}),
         ...(auditNotificationService ? { auditNotificationService } : {}),
+        ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
         logger: getLogger('purchase-ingestion')
       }
     )
@@ -952,6 +966,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             financeServiceForHousehold,
             adHocNotificationService,
             ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -970,6 +985,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             financeServiceForHousehold,
             adHocNotificationService,
             ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -988,6 +1004,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             financeServiceForHousehold,
             adHocNotificationService,
             ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:

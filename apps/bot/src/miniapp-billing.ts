@@ -11,6 +11,7 @@ import type { MiniAppSessionResult } from './miniapp-auth'
 import { formatUserFacingMoney } from './i18n/money'
 import { loadMiniAppDashboardPayload } from './miniapp-dashboard'
 import type { HouseholdAuditNotificationCategory } from '@household/ports'
+import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 
 import {
   allowedMiniAppOrigin,
@@ -74,6 +75,52 @@ async function recordMiniAppAuditEvent(input: {
         error: error instanceof Error ? error.message : String(error)
       },
       'Failed to record mini app audit event'
+    )
+  }
+}
+
+async function recordMiniAppPurchaseTopicNotice(input: {
+  service: PurchaseTopicNoticeService | undefined
+  logger: Logger | undefined
+  action: 'publish' | 'sync' | 'delete'
+  householdId: string
+  purchaseId: string
+}) {
+  if (!input.service) {
+    return
+  }
+
+  try {
+    if (input.action === 'publish') {
+      await input.service.publishPurchase({
+        householdId: input.householdId,
+        purchaseId: input.purchaseId
+      })
+      return
+    }
+
+    if (input.action === 'sync') {
+      await input.service.syncPurchase({
+        householdId: input.householdId,
+        purchaseId: input.purchaseId
+      })
+      return
+    }
+
+    await input.service.markPurchaseDeleted({
+      householdId: input.householdId,
+      purchaseId: input.purchaseId
+    })
+  } catch (error) {
+    input.logger?.warn(
+      {
+        event: 'miniapp.purchase_topic_notice_failed',
+        householdId: input.householdId,
+        purchaseId: input.purchaseId,
+        action: input.action,
+        error: error instanceof Error ? error.message : String(error)
+      },
+      'Failed to update purchase topic notice'
     )
   }
 }
@@ -1520,6 +1567,7 @@ export function createMiniAppAddPurchaseHandler(options: {
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  purchaseTopicNoticeService?: PurchaseTopicNoticeService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories' | 'listHouseholdMembers'
@@ -1587,6 +1635,13 @@ export function createMiniAppAddPurchaseHandler(options: {
             split: payload.split
           })
         })
+        await recordMiniAppPurchaseTopicNotice({
+          service: options.purchaseTopicNoticeService,
+          logger: options.logger,
+          action: 'publish',
+          householdId: auth.member.householdId,
+          purchaseId: purchase.purchaseId
+        })
 
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
@@ -1622,6 +1677,7 @@ export function createMiniAppUpdatePurchaseHandler(options: {
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  purchaseTopicNoticeService?: PurchaseTopicNoticeService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories' | 'listHouseholdMembers'
@@ -1695,6 +1751,13 @@ export function createMiniAppUpdatePurchaseHandler(options: {
             split: payload.split
           })
         })
+        await recordMiniAppPurchaseTopicNotice({
+          service: options.purchaseTopicNoticeService,
+          logger: options.logger,
+          action: 'sync',
+          householdId: auth.member.householdId,
+          purchaseId: updated.purchaseId
+        })
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
           viewerMemberId: auth.member.id,
@@ -1729,6 +1792,7 @@ export function createMiniAppDeletePurchaseHandler(options: {
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  purchaseTopicNoticeService?: PurchaseTopicNoticeService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories' | 'listHouseholdMembers'
@@ -1780,6 +1844,13 @@ export function createMiniAppDeletePurchaseHandler(options: {
           metadata: {
             purchaseId: payload.purchaseId
           }
+        })
+        await recordMiniAppPurchaseTopicNotice({
+          service: options.purchaseTopicNoticeService,
+          logger: options.logger,
+          action: 'delete',
+          householdId: auth.member.householdId,
+          purchaseId: payload.purchaseId
         })
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,

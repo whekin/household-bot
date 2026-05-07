@@ -8,6 +8,7 @@ import type {
   FinanceMemberOverduePaymentRecord,
   FinancePaymentKind,
   FinancePaymentPurchaseAllocationRecord,
+  FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
   FinanceUtilityBillingPlanPayload,
@@ -2923,6 +2924,18 @@ export interface FinanceCommandService {
     currency: CurrencyCode
   }>
   deletePurchase(purchaseId: string): Promise<boolean>
+  togglePurchaseParticipant?(
+    participantId: string,
+    actorTelegramUserId: string
+  ): Promise<
+    | {
+        status: 'updated'
+        purchase: FinanceParsedPurchaseRecord
+      }
+    | {
+        status: 'not_found' | 'forbidden' | 'not_editable' | 'at_least_one_required'
+      }
+  >
   addPayment(
     memberId: string,
     kind: FinancePaymentKind,
@@ -3540,6 +3553,23 @@ export function createFinanceCommandService(
       }
 
       return deleted
+    },
+
+    async togglePurchaseParticipant(participantId, actorTelegramUserId) {
+      if (!repository.toggleSavedPurchaseParticipant) {
+        return {
+          status: 'not_editable'
+        }
+      }
+      const result = await repository.toggleSavedPurchaseParticipant(
+        participantId,
+        actorTelegramUserId
+      )
+      if (result.status === 'updated') {
+        await invalidateCurrentUtilityBillingPlan(repository)
+      }
+
+      return result
     },
 
     async addPayment(memberId, kind, amountArg, currencyArg, periodArg) {

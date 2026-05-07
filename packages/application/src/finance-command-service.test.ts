@@ -279,6 +279,36 @@ class FinanceRepositoryStub implements FinanceRepository {
     return existed
   }
 
+  async getParsedPurchase(purchaseId: string) {
+    return this.purchases.find((purchase) => purchase.id === purchaseId) ?? null
+  }
+
+  async ensureEqualPurchaseParticipants(purchaseId: string) {
+    return this.getParsedPurchase(purchaseId)
+  }
+
+  async toggleSavedPurchaseParticipant() {
+    return { status: 'not_found' as const }
+  }
+
+  async getPurchaseTopicMessage() {
+    return null
+  }
+
+  async upsertPurchaseTopicMessage(
+    input: Parameters<FinanceRepository['upsertPurchaseTopicMessage']>[0]
+  ) {
+    return {
+      purchaseMessageId: input.purchaseMessageId,
+      householdId: this.householdId,
+      telegramChatId: input.telegramChatId,
+      telegramThreadId: input.telegramThreadId,
+      telegramMessageId: input.telegramMessageId,
+      status: input.status,
+      lastError: input.lastError ?? null
+    }
+  }
+
   async addPaymentRecord(input: {
     cycleId: string
     memberId: string

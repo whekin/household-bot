@@ -38,6 +38,7 @@ import {
 } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
 import { stripExplicitBotMention } from './telegram-mentions'
+import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
 const PURCHASE_CANCEL_CALLBACK_PREFIX = 'purchase:cancel:'
@@ -2417,7 +2418,8 @@ function registerPurchaseProposalCallbacks(
   repository: PurchaseMessageIngestionRepository,
   resolveLocale: (householdId: string) => Promise<BotLocale>,
   logger?: Logger,
-  auditNotificationService?: HouseholdAuditNotificationService
+  auditNotificationService?: HouseholdAuditNotificationService,
+  purchaseTopicNoticeService?: PurchaseTopicNoticeService
 ): void {
   bot.callbackQuery(
     new RegExp(`^${PURCHASE_PAYER_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
@@ -2586,9 +2588,24 @@ function registerPurchaseProposalCallbacks(
     })
 
     if (ctx.msg) {
-      await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
-        reply_markup: emptyInlineKeyboard()
-      })
+      const message = ctx.callbackQuery.message
+      const replaced =
+        result.status === 'confirmed' && message && purchaseTopicNoticeService
+          ? await purchaseTopicNoticeService.replaceExistingPurchaseMessage({
+              householdId: result.householdId,
+              purchaseId: result.purchaseMessageId,
+              telegramChatId: String(message.chat.id),
+              telegramThreadId:
+                message.message_thread_id !== undefined ? String(message.message_thread_id) : '',
+              telegramMessageId: String(message.message_id)
+            })
+          : false
+
+      if (!replaced) {
+        await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+          reply_markup: emptyInlineKeyboard()
+        })
+      }
     }
 
     if (result.status === 'confirmed' && auditNotificationService) {
@@ -2757,9 +2774,17 @@ export function registerPurchaseTopicIngestion(
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
     auditNotificationService?: HouseholdAuditNotificationService
+    purchaseTopicNoticeService?: PurchaseTopicNoticeService
   } = {}
 ): void {
-  void registerPurchaseProposalCallbacks(bot, repository, async () => 'en', options.logger)
+  void registerPurchaseProposalCallbacks(
+    bot,
+    repository,
+    async () => 'en',
+    options.logger,
+    options.auditNotificationService,
+    options.purchaseTopicNoticeService
+  )
 
   bot.on('message', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
@@ -2901,6 +2926,7 @@ export function registerConfiguredPurchaseTopicIngestion(
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
     auditNotificationService?: HouseholdAuditNotificationService
+    purchaseTopicNoticeService?: PurchaseTopicNoticeService
   } = {}
 ): void {
   void registerPurchaseProposalCallbacks(
@@ -2908,7 +2934,8 @@ export function registerConfiguredPurchaseTopicIngestion(
     repository,
     async (householdId) => resolveHouseholdLocale(householdConfigurationRepository, householdId),
     options.logger,
-    options.auditNotificationService
+    options.auditNotificationService,
+    options.purchaseTopicNoticeService
   )
 
   bot.on('message', async (ctx, next) => {

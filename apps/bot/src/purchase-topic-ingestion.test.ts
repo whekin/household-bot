@@ -20,6 +20,7 @@ import {
   type PurchaseMessageIngestionRepository,
   type PurchaseTopicCandidate
 } from './purchase-topic-ingestion'
+import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 
 const config = {
   householdId: '11111111-1111-4111-8111-111111111111',
@@ -3332,6 +3333,80 @@ Participants:
         }
       }
     })
+  })
+
+  test('confirmed proposals become editable saved purchase messages when notice service is configured', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const noticeCalls: Parameters<
+      PurchaseTopicNoticeService['replaceExistingPurchaseMessage']
+    >[0][] = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        return {
+          status: 'confirmed' as const,
+          purchaseMessageId: 'proposal-1',
+          householdId: config.householdId,
+          parsedAmountMinor: 3000n,
+          parsedCurrency: 'GEL' as const,
+          parsedItemDescription: 'toilet paper',
+          parserConfidence: 92,
+          parserMode: 'llm' as const,
+          participants: participants()
+        }
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        throw new Error('not used')
+      }
+    }
+
+    const purchaseTopicNoticeService: PurchaseTopicNoticeService = {
+      publishPurchase: async () => {},
+      syncPurchase: async () => {},
+      markPurchaseDeleted: async () => {},
+      replaceExistingPurchaseMessage: async (input) => {
+        noticeCalls.push(input)
+        return true
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository, {
+      purchaseTopicNoticeService
+    })
+    await bot.handleUpdate(callbackUpdate('purchase:confirm:proposal-1') as never)
+
+    expect(noticeCalls).toEqual([
+      {
+        householdId: config.householdId,
+        purchaseId: 'proposal-1',
+        telegramChatId: config.householdChatId,
+        telegramThreadId: '',
+        telegramMessageId: '77'
+      }
+    ])
+    expect(calls.map((call) => call.method)).toEqual(['answerCallbackQuery'])
   })
 
   test('allows the reported buyer to confirm a third-person purchase proposal', async () => {

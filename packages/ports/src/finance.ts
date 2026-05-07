@@ -52,6 +52,34 @@ export interface FinanceParsedPurchaseRecord {
   }[]
 }
 
+export interface FinancePurchaseTopicMessageRecord {
+  purchaseMessageId: string
+  householdId: string
+  telegramChatId: string
+  telegramThreadId: string
+  telegramMessageId: string
+  status: 'sent' | 'failed' | 'deleted'
+  lastError: string | null
+}
+
+export type FinanceSavedPurchaseParticipantToggleResult =
+  | {
+      status: 'updated'
+      purchase: FinanceParsedPurchaseRecord
+    }
+  | {
+      status: 'not_found'
+    }
+  | {
+      status: 'forbidden'
+    }
+  | {
+      status: 'not_editable'
+    }
+  | {
+      status: 'at_least_one_required'
+    }
+
 export interface FinancePaymentPurchaseAllocationRecord {
   id: string
   paymentRecordId: string
@@ -333,6 +361,21 @@ export interface FinanceRepository {
     }[]
   }): Promise<FinanceParsedPurchaseRecord | null>
   deleteParsedPurchase(purchaseId: string): Promise<boolean>
+  getParsedPurchase(purchaseId: string): Promise<FinanceParsedPurchaseRecord | null>
+  ensureEqualPurchaseParticipants(purchaseId: string): Promise<FinanceParsedPurchaseRecord | null>
+  toggleSavedPurchaseParticipant(
+    participantId: string,
+    actorTelegramUserId: string
+  ): Promise<FinanceSavedPurchaseParticipantToggleResult>
+  getPurchaseTopicMessage(purchaseId: string): Promise<FinancePurchaseTopicMessageRecord | null>
+  upsertPurchaseTopicMessage(input: {
+    purchaseMessageId: string
+    telegramChatId: string
+    telegramThreadId: string
+    telegramMessageId: string
+    status: 'sent' | 'failed' | 'deleted'
+    lastError?: string | null
+  }): Promise<FinancePurchaseTopicMessageRecord>
   updateUtilityBill(input: {
     billId: string
     billName: string

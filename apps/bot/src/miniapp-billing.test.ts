@@ -25,6 +25,7 @@ import {
   createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
+import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 function onboardingRepository(): HouseholdConfigurationRepository {
@@ -180,6 +181,40 @@ function createAuditNotificationServiceStub() {
     }
   }
   return { service, events }
+}
+
+function createPurchaseTopicNoticeServiceStub(input?: {
+  fail?: boolean
+}): PurchaseTopicNoticeService & {
+  calls: Array<{ action: 'publish' | 'sync' | 'delete'; householdId: string; purchaseId: string }>
+} {
+  const calls: Array<{
+    action: 'publish' | 'sync' | 'delete'
+    householdId: string
+    purchaseId: string
+  }> = []
+  const maybeFail = () => {
+    if (input?.fail) {
+      throw new Error('Telegram failed')
+    }
+  }
+
+  return {
+    calls,
+    publishPurchase: async (call) => {
+      calls.push({ action: 'publish', ...call })
+      maybeFail()
+    },
+    syncPurchase: async (call) => {
+      calls.push({ action: 'sync', ...call })
+      maybeFail()
+    },
+    markPurchaseDeleted: async (call) => {
+      calls.push({ action: 'delete', ...call })
+      maybeFail()
+    },
+    replaceExistingPurchaseMessage: async () => true
+  }
 }
 
 function createDashboardStub() {
@@ -627,6 +662,7 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
   test('forwards purchase split edits to the finance service', async () => {
     const repository = onboardingRepository()
     let capturedSplit: Parameters<FinanceCommandService['updatePurchase']>[4] | undefined
+    const purchaseTopicNoticeService = createPurchaseTopicNoticeServiceStub()
 
     const handler = createMiniAppUpdatePurchaseHandler({
       allowedOrigins: ['http://localhost:5173'],
@@ -635,6 +671,7 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
         repository
       }),
       adHocNotificationService,
+      purchaseTopicNoticeService,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         updatePurchase: async (_purchaseId, _description, _amountArg, _currencyArg, split) => {
@@ -711,6 +748,13 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
         }
       ]
     })
+    expect(purchaseTopicNoticeService.calls).toEqual([
+      {
+        action: 'sync',
+        householdId: 'household-1',
+        purchaseId: 'purchase-1'
+      }
+    ])
   })
 })
 
@@ -719,6 +763,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
     const repository = onboardingRepository()
     let capturedArgs: any = null
     const audit = createAuditNotificationServiceStub()
+    const purchaseTopicNoticeService = createPurchaseTopicNoticeServiceStub()
 
     const handler = createMiniAppAddPurchaseHandler({
       allowedOrigins: ['http://localhost:5173'],
@@ -728,6 +773,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
       }),
       adHocNotificationService,
       auditNotificationService: audit.service,
+      purchaseTopicNoticeService,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         addPurchase: async (
@@ -806,6 +852,54 @@ describe('createMiniAppAddPurchaseHandler', () => {
           currency: 'GEL',
           payerMemberId: 'member-123456'
         }
+      }
+    ])
+    expect(purchaseTopicNoticeService.calls).toEqual([
+      {
+        action: 'publish',
+        householdId: 'household-1',
+        purchaseId: 'new-purchase-1'
+      }
+    ])
+  })
+
+  test('does not fail purchase creation when topic notice delivery fails', async () => {
+    const repository = onboardingRepository()
+    const purchaseTopicNoticeService = createPurchaseTopicNoticeServiceStub({ fail: true })
+
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      adHocNotificationService,
+      purchaseTopicNoticeService,
+      financeServiceForHousehold: () => createFinanceServiceStub()
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(purchaseTopicNoticeService.calls).toEqual([
+      {
+        action: 'publish',
+        householdId: 'household-1',
+        purchaseId: 'test-purchase'
       }
     ])
   })
@@ -901,6 +995,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
 describe('createMiniAppDeletePurchaseHandler', () => {
   test('returns a refreshed dashboard after deleting a purchase', async () => {
     const repository = onboardingRepository()
+    const purchaseTopicNoticeService = createPurchaseTopicNoticeServiceStub()
     const handler = createMiniAppDeletePurchaseHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
@@ -908,6 +1003,7 @@ describe('createMiniAppDeletePurchaseHandler', () => {
         repository
       }),
       adHocNotificationService,
+      purchaseTopicNoticeService,
       financeServiceForHousehold: () => createFinanceServiceStub()
     })
 
@@ -933,6 +1029,13 @@ describe('createMiniAppDeletePurchaseHandler', () => {
         period: '2026-03'
       }
     })
+    expect(purchaseTopicNoticeService.calls).toEqual([
+      {
+        action: 'delete',
+        householdId: 'household-1',
+        purchaseId: 'purchase-1'
+      }
+    ])
   })
 })
 

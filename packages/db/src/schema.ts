@@ -456,6 +456,31 @@ export const purchaseMessageParticipants = pgTable(
   })
 )
 
+export const purchaseTopicMessages = pgTable(
+  'purchase_topic_messages',
+  {
+    purchaseMessageId: uuid('purchase_message_id').primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramThreadId: text('telegram_thread_id').notNull(),
+    telegramMessageId: text('telegram_message_id').notNull(),
+    status: text('status').default('sent').notNull(),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdIdx: index('purchase_topic_messages_household_idx').on(table.householdId),
+    telegramMessageUnique: uniqueIndex('purchase_topic_messages_telegram_message_unique').on(
+      table.telegramChatId,
+      table.telegramThreadId,
+      table.telegramMessageId
+    )
+  })
+)
+
 export const processedBotMessages = pgTable(
   'processed_bot_messages',
   {
@@ -1032,6 +1057,7 @@ export type BillingCycle = typeof billingCycles.$inferSelect
 export type BillingCycleExchangeRate = typeof billingCycleExchangeRates.$inferSelect
 export type UtilityBill = typeof utilityBills.$inferSelect
 export type PurchaseMessage = typeof purchaseMessages.$inferSelect
+export type PurchaseTopicMessage = typeof purchaseTopicMessages.$inferSelect
 export type TopicMessage = typeof topicMessages.$inferSelect
 export type AnonymousMessage = typeof anonymousMessages.$inferSelect
 export type PaymentConfirmation = typeof paymentConfirmations.$inferSelect

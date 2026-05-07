@@ -93,6 +93,19 @@ function repository(
         })) ?? []
     }),
     deleteParsedPurchase: async () => false,
+    getParsedPurchase: async () => null,
+    ensureEqualPurchaseParticipants: async () => null,
+    toggleSavedPurchaseParticipant: async () => ({ status: 'not_found' }),
+    getPurchaseTopicMessage: async () => null,
+    upsertPurchaseTopicMessage: async (input) => ({
+      purchaseMessageId: input.purchaseMessageId,
+      householdId: 'household-1',
+      telegramChatId: input.telegramChatId,
+      telegramThreadId: input.telegramThreadId,
+      telegramMessageId: input.telegramMessageId,
+      status: input.status,
+      lastError: input.lastError ?? null
+    }),
     updateUtilityBill: async () => null,
     deleteUtilityBill: async () => false,
     addPaymentRecord: async (input) => ({
