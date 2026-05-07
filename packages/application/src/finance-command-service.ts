@@ -138,6 +138,8 @@ export interface FinanceDashboardMemberLine {
   rentShare: Money
   utilityShare: Money
   purchaseOffset: Money
+  carryForwardCredit?: Money
+  effectivePurchaseBalance?: Money
   netDue: Money
   paid: Money
   remaining: Money
@@ -2455,28 +2457,52 @@ async function buildFinanceDashboard(
     currentUtilityPlan: ensuredUtilityPlan.computed,
     activeCarryoverCreditByMemberId
   })
-  const dashboardMembers = settlement.lines.map((line) => ({
-    memberId: line.memberId.toString(),
-    displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
-    status: members.find((member) => member.id === line.memberId.toString())?.status ?? 'active',
-    daysPresent: resolvedParticipation.get(line.memberId.toString())?.daysPresent ?? 0,
-    predictedUtilityShare: previousUtilityShareByMemberId.get(line.memberId.toString()) ?? null,
-    rentShare: line.rentShare,
-    utilityShare: line.utilityShare,
-    purchaseOffset: line.purchaseOffset,
-    netDue: line.netDue,
-    paid: paymentsByMemberId.get(line.memberId.toString()) ?? Money.zero(cycle.currency),
-    remaining: line.netDue.subtract(
-      paymentsByMemberId.get(line.memberId.toString()) ?? Money.zero(cycle.currency)
-    ),
-    overduePayments:
-      overduePaymentsByMemberId.get(line.memberId.toString())?.map((overdue) => ({
-        kind: overdue.kind,
-        amountMinor: overdue.amountMinor,
-        periods: overdue.periods
-      })) ?? [],
-    explanations: line.explanations
-  }))
+  const currentPlanCarryForwardCreditByMemberId = new Map<string, bigint>()
+  if (ensuredUtilityPlan.record.status === 'settled') {
+    for (const credit of ensuredUtilityPlan.computed.carryForwardCredits ?? []) {
+      const signedCreditMinor = credit.creditCreated.amountMinor - credit.creditConsumed.amountMinor
+      if (signedCreditMinor !== 0n) {
+        currentPlanCarryForwardCreditByMemberId.set(
+          credit.memberId,
+          (currentPlanCarryForwardCreditByMemberId.get(credit.memberId) ?? 0n) + signedCreditMinor
+        )
+      }
+    }
+  }
+  const dashboardMembers = settlement.lines.map((line) => {
+    const memberId = line.memberId.toString()
+    const carryForwardCredit = Money.fromMinor(
+      clampNonNegativeMinor(
+        (activeCarryoverCreditByMemberId.get(memberId) ?? 0n) +
+          (currentPlanCarryForwardCreditByMemberId.get(memberId) ?? 0n)
+      ),
+      cycle.currency
+    )
+    const paid = paymentsByMemberId.get(memberId) ?? Money.zero(cycle.currency)
+
+    return {
+      memberId,
+      displayName: memberNameById.get(memberId) ?? memberId,
+      status: members.find((member) => member.id === memberId)?.status ?? 'active',
+      daysPresent: resolvedParticipation.get(memberId)?.daysPresent ?? 0,
+      predictedUtilityShare: previousUtilityShareByMemberId.get(memberId) ?? null,
+      rentShare: line.rentShare,
+      utilityShare: line.utilityShare,
+      purchaseOffset: line.purchaseOffset,
+      carryForwardCredit,
+      effectivePurchaseBalance: line.purchaseOffset.subtract(carryForwardCredit),
+      netDue: line.netDue,
+      paid,
+      remaining: line.netDue.subtract(paid),
+      overduePayments:
+        overduePaymentsByMemberId.get(memberId)?.map((overdue) => ({
+          kind: overdue.kind,
+          amountMinor: overdue.amountMinor,
+          periods: overdue.periods
+        })) ?? [],
+      explanations: line.explanations
+    }
+  })
   const paymentPeriods = await buildPaymentPeriodSummaries({
     dependencies,
     currentCycle: cycle,

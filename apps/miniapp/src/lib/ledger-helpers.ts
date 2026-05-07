@@ -55,6 +55,12 @@ export function memberBaseDueMajor(member: MiniAppDashboard['members'][number]):
   )
 }
 
+export function memberEffectivePurchaseBalanceMajor(
+  member: MiniAppDashboard['members'][number]
+): string {
+  return member.effectivePurchaseBalanceMajor ?? member.purchaseOffsetMajor
+}
+
 export function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {
   const remainingMinor = majorStringToMinor(member.remainingMajor)
 
@@ -70,7 +76,7 @@ export function memberRemainingClass(member: MiniAppDashboard['members'][number]
 }
 
 export function memberCreditClass(member: MiniAppDashboard['members'][number]): string {
-  const purchaseOffsetMinor = majorStringToMinor(member.purchaseOffsetMajor)
+  const purchaseOffsetMinor = majorStringToMinor(memberEffectivePurchaseBalanceMajor(member))
 
   if (purchaseOffsetMinor < 0n) {
     return 'is-credit'

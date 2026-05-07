@@ -176,6 +176,8 @@ export interface MiniAppDashboard {
     rentShareMajor: string
     utilityShareMajor: string
     purchaseOffsetMajor: string
+    carryForwardCreditMajor?: string
+    effectivePurchaseBalanceMajor?: string
     netDueMajor: string
     paidMajor: string
     remainingMajor: string

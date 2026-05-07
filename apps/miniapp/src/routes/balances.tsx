@@ -6,7 +6,11 @@ import { PurchaseBalanceRail, normalizedRailWidth } from '../components/purchase
 import { Card } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton'
 import { formatFriendlyDate } from '../lib/dates'
-import { formatMoneyLabel, formatSemanticMoneyLabel } from '../lib/ledger-helpers'
+import {
+  formatMoneyLabel,
+  formatSemanticMoneyLabel,
+  memberEffectivePurchaseBalanceMajor
+} from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import type { MiniAppDashboard } from '../miniapp-api'
 
@@ -81,8 +85,8 @@ export default function BalancesRoute() {
     const rows = data.members.map((member) => ({
       memberId: member.memberId,
       displayName: member.displayName,
-      purchaseBalanceMinor: majorStringToMinor(member.purchaseOffsetMajor),
-      purchaseBalanceMajor: member.purchaseOffsetMajor,
+      purchaseBalanceMinor: majorStringToMinor(memberEffectivePurchaseBalanceMajor(member)),
+      purchaseBalanceMajor: memberEffectivePurchaseBalanceMajor(member),
       isCurrent: currentMemberValue?.memberId === member.memberId
     }))
 
@@ -327,7 +331,7 @@ export default function BalancesRoute() {
                         <span>{copy().balancesBreakdownPurchaseLabel}</span>
                         <strong>
                           {formatSemanticMoneyLabel(
-                            member().purchaseOffsetMajor,
+                            memberEffectivePurchaseBalanceMajor(member()),
                             data().currency,
                             locale()
                           ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
@@ -499,7 +503,7 @@ export default function BalancesRoute() {
                         <span>{copy().balancesBreakdownPurchaseLabel}</span>
                         <strong>
                           {formatSemanticMoneyLabel(
-                            member().purchaseOffsetMajor,
+                            memberEffectivePurchaseBalanceMajor(member()),
                             data().currency,
                             locale()
                           ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}

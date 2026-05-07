@@ -17,6 +17,7 @@ import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
 import {
   formatAbsoluteMoneyLabel,
+  memberEffectivePurchaseBalanceMajor,
   formatMoneyLabel,
   formatSemanticMoneyLabel,
   semanticMoneyTone
@@ -836,19 +837,16 @@ export default function HomeRoute() {
                   const idlePurchases = () => currentPurchaseEntries().slice(0, 3)
                   const hasMoreIdlePurchases = () => currentPurchaseEntries().length > 3
                   const coveredPurchases = () => otherPurchaseEntries().slice(0, 2)
-                  const purchaseBalanceTone = () => semanticMoneyTone(member().purchaseOffsetMajor)
+                  const purchaseBalanceMajor = () => memberEffectivePurchaseBalanceMajor(member())
+                  const purchaseBalanceTone = () => semanticMoneyTone(purchaseBalanceMajor())
                   const purchaseBalanceSummary = () =>
-                    formatSemanticMoneyLabel(
-                      member().purchaseOffsetMajor,
-                      data().currency,
-                      locale()
-                    )
+                    formatSemanticMoneyLabel(purchaseBalanceMajor(), data().currency, locale())
                   const purchaseComparisonRows = () => {
                     const rows = data().members.map((line) => ({
                       memberId: line.memberId,
                       displayName: line.displayName,
-                      balanceMinor: majorStringToMinor(line.purchaseOffsetMajor),
-                      balanceMajor: line.purchaseOffsetMajor,
+                      balanceMinor: majorStringToMinor(memberEffectivePurchaseBalanceMajor(line)),
+                      balanceMajor: memberEffectivePurchaseBalanceMajor(line),
                       isCurrent: line.memberId === member().memberId
                     }))
                     const maxBalanceMinor = rows.reduce((max, row) => {
@@ -1205,9 +1203,7 @@ export default function HomeRoute() {
                                 <Show when={policy() === 'utilities'}>
                                   <div class="home-payment-card__meta-row">
                                     <span>{copy().balanceAdjustmentLabel}</span>
-                                    <strong>
-                                      {formatMajorAmount(member().purchaseOffsetMajor)}
-                                    </strong>
+                                    <strong>{formatMajorAmount(purchaseBalanceMajor())}</strong>
                                   </div>
                                 </Show>
                               </div>
@@ -1383,7 +1379,7 @@ export default function HomeRoute() {
                               <Show when={policy() === 'rent'}>
                                 <div class="home-payment-card__meta-row">
                                   <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>{formatMajorAmount(member().purchaseOffsetMajor)}</strong>
+                                  <strong>{formatMajorAmount(purchaseBalanceMajor())}</strong>
                                 </div>
                               </Show>
                             </div>
@@ -1424,7 +1420,7 @@ export default function HomeRoute() {
                                   }}
                                 >
                                   {formatAbsoluteMoneyLabel(
-                                    member().purchaseOffsetMajor,
+                                    purchaseBalanceMajor(),
                                     data().currency,
                                     locale()
                                   )}
@@ -1664,7 +1660,7 @@ export default function HomeRoute() {
                                 <span>{copy().homeIdlePurchaseBalanceHint}</span>
                                 <strong>
                                   {formatSemanticMoneyLabel(
-                                    member().purchaseOffsetMajor,
+                                    purchaseBalanceMajor(),
                                     data().currency,
                                     locale()
                                   ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}

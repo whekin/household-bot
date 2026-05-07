@@ -18,7 +18,7 @@ import {
   fetchPendingMembersQuery,
   invalidateHouseholdQueries
 } from '../app/miniapp-queries'
-import { absoluteMinor } from '../lib/ledger-helpers'
+import { absoluteMinor, memberEffectivePurchaseBalanceMajor } from '../lib/ledger-helpers'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -148,7 +148,9 @@ function computeMemberBalanceVisuals(
   const totals = data.members.map((member) => {
     const rentMinor = absoluteMinor(majorStringToMinor(member.rentShareMajor))
     const utilityMinor = absoluteMinor(majorStringToMinor(member.utilityShareMajor))
-    const purchaseMinor = absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor))
+    const purchaseMinor = absoluteMinor(
+      majorStringToMinor(memberEffectivePurchaseBalanceMajor(member))
+    )
 
     return {
       member,
@@ -168,11 +170,11 @@ function computeMemberBalanceVisuals(
         },
         {
           key:
-            majorStringToMinor(member.purchaseOffsetMajor) < 0n
+            majorStringToMinor(memberEffectivePurchaseBalanceMajor(member)) < 0n
               ? 'purchase-credit'
               : 'purchase-debit',
           label: copy.shareOffset,
-          amountMajor: member.purchaseOffsetMajor,
+          amountMajor: memberEffectivePurchaseBalanceMajor(member),
           amountMinor: purchaseMinor
         }
       ]
@@ -325,9 +327,9 @@ function computeMemberPurchaseBalanceVisuals(data: MiniAppDashboard | null): Mem
   return data.members
     .map((member) => ({
       member,
-      amountMajor: member.purchaseOffsetMajor,
-      amountMinor: absoluteMinor(majorStringToMinor(member.purchaseOffsetMajor)),
-      isCredit: majorStringToMinor(member.purchaseOffsetMajor) < 0n
+      amountMajor: memberEffectivePurchaseBalanceMajor(member),
+      amountMinor: absoluteMinor(majorStringToMinor(memberEffectivePurchaseBalanceMajor(member))),
+      isCredit: majorStringToMinor(memberEffectivePurchaseBalanceMajor(member)) < 0n
     }))
     .sort((left, right) => {
       if (right.amountMinor === left.amountMinor) {

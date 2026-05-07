@@ -3376,6 +3376,13 @@ describe('createFinanceCommandService', () => {
         amountMinor: 5000n
       })
     )
+    const settledMayDashboard = await service.generateDashboard('2026-05')
+    const aliceSettledLine = settledMayDashboard?.members.find(
+      (member) => member.memberId === 'alice'
+    )
+    expect(aliceSettledLine?.purchaseOffset.amountMinor).toBe(0n)
+    expect(aliceSettledLine?.carryForwardCredit?.amountMinor).toBe(5000n)
+    expect(aliceSettledLine?.effectivePurchaseBalance?.amountMinor).toBe(-5000n)
 
     repository.openCycleRecord = repository.cycles[1]!
     repository.latestCycleRecord = repository.cycles[1]!
