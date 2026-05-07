@@ -1,6 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
-import { Show, type JSX, type ParentProps } from 'solid-js'
-import { Loader2 } from 'lucide-solid'
+import type { JSX, ParentProps } from 'solid-js'
 
 import { cn } from '../../lib/cn'
 
@@ -39,12 +38,11 @@ export function Button(props: ButtonProps) {
     <button
       type={props.type ?? 'button'}
       class={cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)}
+      data-loading={props.loading ? 'true' : undefined}
+      aria-busy={props.loading ? 'true' : 'false'}
       disabled={props.disabled || props.loading}
       onClick={props.onClick}
     >
-      <Show when={props.loading}>
-        <Loader2 class="ui-button__spinner" size={16} />
-      </Show>
       {props.children}
     </button>
   )

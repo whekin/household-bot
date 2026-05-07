@@ -57,6 +57,7 @@ export default function BillsRoute() {
   const {
     adminSettings,
     cycleState,
+    setCycleState,
     dashboard,
     effectiveBillingStage,
     effectiveIsAdmin,
@@ -196,23 +197,25 @@ export default function BillsRoute() {
 
     setSavingUtilityName(categoryName)
     try {
+      let nextCycleState = cycleState()
       if (currentEntry && amountMajor.length === 0) {
-        await deleteMiniAppUtilityBill(data, currentEntry.id)
+        nextCycleState = await deleteMiniAppUtilityBill(data, currentEntry.id)
       } else if (currentEntry) {
-        await updateMiniAppUtilityBill(data, {
+        nextCycleState = await updateMiniAppUtilityBill(data, {
           billId: currentEntry.id,
           billName: categoryName,
           amountMajor,
           currency: currentEntry.currency
         })
       } else if (amountMajor.length > 0) {
-        await addMiniAppUtilityBill(data, {
+        nextCycleState = await addMiniAppUtilityBill(data, {
           billName: categoryName,
           amountMajor,
           currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
         })
       }
 
+      setCycleState(nextCycleState)
       await refreshDashboardData()
     } finally {
       setSavingUtilityName(null)
@@ -228,12 +231,13 @@ export default function BillsRoute() {
     setSavingRent(true)
     try {
       const fxRateMicros = rateStringToMicros(draft.fxRate)
-      await updateMiniAppCycleRent(data, {
+      const nextCycleState = await updateMiniAppCycleRent(data, {
         amountMajor: draft.amountMajor,
         currency: draft.currency,
         period: current.period,
         ...(fxRateMicros ? { fxRateMicros } : {})
       })
+      setCycleState(nextCycleState)
       await refreshDashboardData()
     } finally {
       setSavingRent(false)
