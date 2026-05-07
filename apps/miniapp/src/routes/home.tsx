@@ -2225,6 +2225,7 @@ export default function HomeRoute() {
           }}
           secondaryActionLabel={copy().quickPurchaseOpenLedgerAction}
           resetKey={() => `${quickPurchaseOpen()}:${dashboard()?.period ?? 'none'}`}
+          datePickerPortal={false}
         />
       </Modal>
 

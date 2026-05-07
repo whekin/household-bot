@@ -672,17 +672,24 @@ a {
 }
 
 .ui-date-picker__day-cell[data-selected] .ui-date-picker__day-trigger,
-.ui-date-picker__month-cell[data-selected] .ui-date-picker__month-trigger {
+.ui-date-picker__month-cell[data-selected] .ui-date-picker__month-trigger,
+.ui-date-picker__day-trigger[data-selected],
+.ui-date-picker__month-trigger[data-selected],
+.ui-date-picker__day-trigger[aria-selected='true'],
+.ui-date-picker__month-trigger[aria-selected='true'] {
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--accent) 92%, white 6%),
     color-mix(in srgb, var(--accent-hover) 90%, black 2%)
   );
-  box-shadow: 0 12px 24px rgba(62, 207, 142, 0.24);
-  color: #07120d;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 82%, white 8%),
+    0 12px 24px color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--accent-contrast);
+  font-weight: 700;
 }
 
-.ui-date-picker__day-cell[data-today] .ui-date-picker__day-trigger,
+.ui-date-picker__day-cell[data-today]:not([data-selected]) .ui-date-picker__day-trigger,
 .ui-date-picker__month-cell[data-focused] .ui-date-picker__month-trigger {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 78%, white 6%);
   color: var(--text-primary);
@@ -1320,7 +1327,7 @@ a {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
   animation: modal-sheet-in var(--transition-slow);
 }
 
@@ -1342,10 +1349,7 @@ a {
   align-items: flex-start;
   gap: var(--spacing-md);
   padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-md);
-  position: sticky;
-  top: 0;
   background: var(--bg-surface);
-  z-index: 1;
 }
 
 .modal-sheet__header [data-kb-dialog-title] {
@@ -1383,8 +1387,6 @@ a {
 .modal-sheet__footer {
   padding: var(--spacing-md) var(--spacing-xl) var(--spacing-xl);
   border-top: 1px solid var(--border);
-  position: sticky;
-  bottom: 0;
   background: var(--bg-surface);
 }
 

@@ -35,6 +35,7 @@ type QuickPurchaseComposerProps = {
   onSecondaryAction?: () => void
   secondaryActionLabel?: string
   resetKey: Accessor<string | number>
+  datePickerPortal?: boolean
 }
 
 export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
@@ -268,6 +269,7 @@ export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
               locale={props.locale()}
               value={props.draft().occurredOn ?? ''}
               placeholder={props.copy().purchaseDateLabel}
+              {...(props.datePickerPortal === undefined ? {} : { portal: props.datePickerPortal })}
               onChange={(value) =>
                 props.setDraft((draft) => ({
                   ...draft,
