@@ -1007,24 +1007,6 @@ export default function HomeRoute() {
                         </Card>
                       </Show>
 
-                      <Card accent class="home-capture-card">
-                        <div class="home-capture-card__header">
-                          <div class="home-capture-card__copy">
-                            <span class="eyebrow">{copy().purchaseAddAction}</span>
-                            <h3>{copy().quickPurchaseHeroTitle}</h3>
-                            <p>{copy().quickPurchaseHeroBody}</p>
-                          </div>
-                          <Button variant="primary" onClick={openQuickPurchase}>
-                            <Plus size={16} />
-                            {copy().purchaseAddAction}
-                          </Button>
-                        </div>
-                        <div class="home-capture-card__meta">
-                          <Badge variant="accent">{copy().quickPurchaseSplitEveryone}</Badge>
-                          <Badge variant="muted">{readySession()?.member.displayName ?? '—'}</Badge>
-                        </div>
-                      </Card>
-
                       <Show when={overduePaymentFor('utilities')}>
                         {(overdue) => (
                           <Card accent>
@@ -1874,6 +1856,27 @@ export default function HomeRoute() {
                           </div>
                         </Card>
                       </Show>
+
+                      <Card muted class="home-actions-card">
+                        <div class="home-actions-card__header">
+                          <div class="home-actions-card__copy">
+                            <span class="home-actions-card__eyebrow">
+                              {copy().homeQuickActionsTitle}
+                            </span>
+                            <strong>{copy().purchaseAddAction}</strong>
+                            <p>{copy().homeQuickActionsBody}</p>
+                          </div>
+                        </div>
+                        <div class="home-actions-card__buttons">
+                          <Button variant="secondary" size="sm" onClick={openQuickPurchase}>
+                            <Plus size={14} />
+                            {copy().purchaseAddAction}
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => navigate('/purchases')}>
+                            {copy().homeIdleViewPurchasesAction}
+                          </Button>
+                        </div>
+                      </Card>
                     </>
                   )
                 }}
