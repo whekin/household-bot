@@ -1,6 +1,5 @@
 import { useNavigate } from '@solidjs/router'
 import { Show, createSignal, type ParentProps } from 'solid-js'
-import { Settings } from 'lucide-solid'
 
 import { useSession } from '../../contexts/session-context'
 import { useI18n } from '../../contexts/i18n-context'
@@ -8,7 +7,7 @@ import { useDashboard } from '../../contexts/dashboard-context'
 import { formatCyclePeriod, formatFriendlyDate } from '../../lib/dates'
 import { NavigationTabs } from './navigation-tabs'
 import { Badge } from '../ui/badge'
-import { Button, IconButton } from '../ui/button'
+import { Button } from '../ui/button'
 import { DatePickerField } from '../ui/date-picker'
 import { Modal } from '../ui/dialog'
 import { Field } from '../ui/field'
@@ -68,6 +67,9 @@ export function AppShell(props: ParentProps) {
   let tapCount = 0
   let tapTimer: ReturnType<typeof setTimeout> | undefined
   function handleRoleChipTap() {
+    if (readySession()?.mode !== 'demo' && !import.meta.env.DEV) {
+      return
+    }
     tapCount++
     if (tapCount >= 5) {
       setTestingSurfaceOpen(true)
@@ -107,9 +109,9 @@ export function AppShell(props: ParentProps) {
               </button>
             </div>
           </div>
-          <IconButton label="Settings" onClick={() => navigate('/settings')}>
-            <Settings size={18} />
-          </IconButton>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/activity')}>
+            {locale() === 'ru' ? 'Лента' : 'Feed'}
+          </Button>
         </div>
       </section>
 
@@ -130,9 +132,18 @@ export function AppShell(props: ParentProps) {
               </Badge>
             }
           >
-            <button class="ui-badge ui-badge--muted" onClick={handleRoleChipTap}>
-              {effectiveIsAdmin() ? copy().adminTag : copy().residentTag}
-            </button>
+            <Show
+              when={readySession()?.mode === 'demo' || import.meta.env.DEV}
+              fallback={
+                <Badge variant="muted">
+                  {effectiveIsAdmin() ? copy().adminTag : copy().residentTag}
+                </Badge>
+              }
+            >
+              <button class="ui-badge ui-badge--muted" onClick={handleRoleChipTap}>
+                {effectiveIsAdmin() ? copy().adminTag : copy().residentTag}
+              </button>
+            </Show>
           </Show>
           <Badge variant="muted">
             {readySession()?.member.status
