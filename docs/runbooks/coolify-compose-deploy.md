@@ -172,6 +172,10 @@ Manual checks:
 Use `.github/workflows/cd-coolify.yml` to trigger a Coolify redeploy after `CI` passes on `main`.
 The workflow also supports manual redeploys through GitHub Actions `Run workflow`.
 
+Coolify is the only active CD workflow. Former cloud deployment workflows are archived under
+`docs/archive/github-workflows/` so GitHub does not run them, but their contents remain available if
+GCP or AWS deployment needs to be restored later.
+
 Required GitHub environment secrets for `Production`:
 
 - `COOLIFY_WEBHOOK` — Coolify resource deploy webhook URL from the application `Webhooks` page
