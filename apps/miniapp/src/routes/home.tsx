@@ -234,7 +234,7 @@ function notificationInputValue(iso: string, timeZone: string) {
 
 export default function HomeRoute() {
   const navigate = useNavigate()
-  const { readySession, initData } = useSession()
+  const { readySession, initData, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
   const {
     dashboard,
@@ -612,6 +612,9 @@ export default function HomeRoute() {
       })
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       console.error('[miniapp] home quick payment failed', {
         memberId: currentMember.memberId,
         kind: type,
@@ -672,7 +675,10 @@ export default function HomeRoute() {
         type: 'success'
       })
       await refreshDashboardData()
-    } catch {
+    } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setToastState({
         visible: true,
         message:
@@ -702,7 +708,10 @@ export default function HomeRoute() {
         type: 'success'
       })
       await refreshDashboardData()
-    } catch {
+    } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setToastState({
         visible: true,
         message:

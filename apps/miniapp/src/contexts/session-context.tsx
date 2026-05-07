@@ -2,6 +2,7 @@ import { createContext, createSignal, onMount, useContext, type ParentProps } fr
 
 import type { Locale } from '../i18n'
 import {
+  isMiniAppSessionExpiredError,
   joinMiniAppHousehold,
   updateMiniAppLocalePreference,
   updateMiniAppOwnDisplayName
@@ -15,7 +16,7 @@ import { useI18n } from './i18n-context'
 
 export type SessionState =
   | { status: 'loading' }
-  | { status: 'blocked'; reason: 'telegram_only' | 'error' }
+  | { status: 'blocked'; reason: 'telegram_only' | 'session_expired' | 'error' }
   | {
       status: 'onboarding'
       mode: 'join_required' | 'pending' | 'open_from_group'
@@ -61,6 +62,7 @@ type SessionContextValue = {
   handleSaveOwnDisplayName: () => Promise<void>
   handleMemberLocaleChange: (nextLocale: Locale) => Promise<void>
   handleHouseholdLocaleChange: (nextLocale: Locale) => Promise<void>
+  handleMiniAppRequestError: (error: unknown) => boolean
   refreshHouseholdData: (includeAdmin?: boolean, forceRefresh?: boolean) => Promise<void>
   registerRefreshListener: (
     listener: (initData: string, isAdmin: boolean) => Promise<void>
@@ -165,6 +167,15 @@ export function SessionProvider(
   }
   const initData = () => webApp?.initData?.trim() || undefined
 
+  function handleMiniAppRequestError(error: unknown): boolean {
+    if (!isMiniAppSessionExpiredError(error)) {
+      return false
+    }
+
+    setSession({ status: 'blocked', reason: 'session_expired' })
+    return true
+  }
+
   async function bootstrap() {
     webApp?.ready?.()
     webApp?.expand?.()
@@ -212,11 +223,14 @@ export function SessionProvider(
         telegramUser: payload.telegramUser
       })
       await props.onReady?.(data, payload.member.isAdmin)
-    } catch {
+    } catch (error) {
       if (import.meta.env.DEV) {
         setSession(demoSession)
         setDisplayNameDraft(demoSession.member.displayName)
         await props.onReady?.('', true)
+        return
+      }
+      if (handleMiniAppRequestError(error)) {
         return
       }
       setSession({ status: 'blocked', reason: 'error' })
@@ -260,7 +274,10 @@ export function SessionProvider(
           languageCode: null
         }
       })
-    } catch {
+    } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setSession({ status: 'blocked', reason: 'error' })
     } finally {
       setJoining(false)
@@ -282,6 +299,10 @@ export function SessionProvider(
           : prev
       )
       setDisplayNameDraft(updatedMember.displayName)
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        throw error
+      }
     } finally {
       setSavingOwnDisplayName(false)
     }
@@ -309,7 +330,10 @@ export function SessionProvider(
           : prev
       )
       setLocale(updated.effectiveLocale)
-    } catch {
+    } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       // Locale was already set optimistically
     }
   }
@@ -332,8 +356,8 @@ export function SessionProvider(
       if (!current.member.preferredLocale) {
         setLocale(updated.effectiveLocale)
       }
-    } catch {
-      // Ignore
+    } catch (error) {
+      handleMiniAppRequestError(error)
     }
   }
 
@@ -377,6 +401,7 @@ export function SessionProvider(
         handleSaveOwnDisplayName,
         handleMemberLocaleChange,
         handleHouseholdLocaleChange,
+        handleMiniAppRequestError,
         refreshHouseholdData,
         registerRefreshListener
       }}

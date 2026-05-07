@@ -39,12 +39,16 @@ function AppContent() {
             title={
               blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyTitle
-                : copy().unexpectedErrorTitle
+                : blockedSession()?.reason === 'session_expired'
+                  ? copy().sessionExpiredTitle
+                  : copy().unexpectedErrorTitle
             }
             body={
               blockedSession()?.reason === 'telegram_only'
                 ? copy().telegramOnlyBody
-                : copy().unexpectedErrorBody
+                : blockedSession()?.reason === 'session_expired'
+                  ? copy().sessionExpiredBody
+                  : copy().unexpectedErrorBody
             }
             reloadLabel={copy().reload}
             onReload={() => window.location.reload()}

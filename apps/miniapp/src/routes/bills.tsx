@@ -53,7 +53,7 @@ function sameCategory(left: string, right: string): boolean {
 
 export default function BillsRoute() {
   const { copy, locale } = useI18n()
-  const { initData, readySession } = useSession()
+  const { initData, readySession, handleMiniAppRequestError } = useSession()
   const {
     adminSettings,
     cycleState,
@@ -217,6 +217,10 @@ export default function BillsRoute() {
 
       setCycleState(nextCycleState)
       await refreshDashboardData()
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        throw error
+      }
     } finally {
       setSavingUtilityName(null)
     }
@@ -239,6 +243,10 @@ export default function BillsRoute() {
       })
       setCycleState(nextCycleState)
       await refreshDashboardData()
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        throw error
+      }
     } finally {
       setSavingRent(false)
     }
@@ -250,6 +258,10 @@ export default function BillsRoute() {
     try {
       await action()
       await refreshDashboardData()
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        throw error
+      }
     } finally {
       setUtilityActionKey(null)
     }

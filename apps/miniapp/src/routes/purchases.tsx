@@ -333,7 +333,7 @@ function PurchaseDraftFields(props: {
 }
 
 export default function PurchasesRoute() {
-  const { initData, session } = useSession()
+  const { initData, session, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
   const {
     dashboard,
@@ -457,6 +457,9 @@ export default function PurchasesRoute() {
       closeComposer()
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )
@@ -489,6 +492,9 @@ export default function PurchasesRoute() {
       setPurchaseDraft(null)
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )
@@ -512,6 +518,9 @@ export default function PurchasesRoute() {
       setPurchaseDraft(null)
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setPurchaseMutationError(
         error instanceof Error ? error.message : copy().purchaseMutationFailed
       )

@@ -368,7 +368,8 @@ function periodFromCalendarValue(value: string | null | undefined): string | nul
 /* ── Provider ───────────────────────────────────────── */
 
 export function DashboardProvider(props: ParentProps) {
-  const { initData, readySession, registerRefreshListener } = useSession()
+  const { initData, readySession, registerRefreshListener, handleMiniAppRequestError } =
+    useSession()
   const { copy } = useI18n()
 
   const [dashboard, setDashboard] = createSignal<MiniAppDashboard | null>(null)
@@ -529,6 +530,15 @@ export function DashboardProvider(props: ParentProps) {
       })
       setDashboard(nextDashboard)
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        setHasLoadedOnce(true)
+        if (background) {
+          setRefreshing(false)
+        } else {
+          setLoading(false)
+        }
+        return
+      }
       if (import.meta.env.DEV) {
         console.warn('Failed to load mini app dashboard', error)
       }
@@ -548,6 +558,15 @@ export function DashboardProvider(props: ParentProps) {
         setCycleState(cycle)
         setPendingMembers(pending)
       } catch (error) {
+        if (handleMiniAppRequestError(error)) {
+          setHasLoadedOnce(true)
+          if (background) {
+            setRefreshing(false)
+          } else {
+            setLoading(false)
+          }
+          return
+        }
         if (import.meta.env.DEV) {
           console.warn('Failed to load admin data', error)
         }

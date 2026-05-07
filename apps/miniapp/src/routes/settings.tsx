@@ -94,7 +94,8 @@ export default function SettingsRoute() {
     displayNameDraft,
     setDisplayNameDraft,
     savingOwnDisplayName,
-    handleSaveOwnDisplayName
+    handleSaveOwnDisplayName,
+    handleMiniAppRequestError
   } = useSession()
   const { copy, locale } = useI18n()
   const { showError } = useToast()
@@ -347,6 +348,9 @@ export default function SettingsRoute() {
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru' ? 'Не получилось подтвердить участника.' : 'Failed to approve member.'
@@ -366,6 +370,9 @@ export default function SettingsRoute() {
       setPendingMembers((prev) => prev.filter((member) => member.telegramUserId !== telegramUserId))
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru' ? 'Не получилось отклонить участника.' : 'Failed to reject member.'
@@ -389,6 +396,9 @@ export default function SettingsRoute() {
       setBillingEditing(false)
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru' ? 'Не получилось сохранить настройки.' : 'Failed to save settings.'
@@ -412,6 +422,9 @@ export default function SettingsRoute() {
       setAssistantEditing(false)
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru'
@@ -459,6 +472,9 @@ export default function SettingsRoute() {
       closeCategoryEditor()
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru' ? 'Не получилось сохранить категорию.' : 'Failed to save category.'
@@ -541,6 +557,9 @@ export default function SettingsRoute() {
       setEditMemberId(null)
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       showError(
         error,
         locale() === 'ru' ? 'Не получилось сохранить участника.' : 'Failed to save member.'

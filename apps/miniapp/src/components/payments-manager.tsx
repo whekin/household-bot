@@ -33,7 +33,7 @@ function sortPeriodsDesc<T extends { period: string }>(items: readonly T[]): T[]
 }
 
 export function PaymentsManager() {
-  const { initData } = useSession()
+  const { initData, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
   const { dashboard, effectiveIsAdmin, paymentLedger, refreshDashboardData } = useDashboard()
 
@@ -149,6 +149,9 @@ export function PaymentsManager() {
       })
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       console.error('[miniapp] quick payment failed', {
         memberId: input.memberId,
         kind: input.kind,
@@ -217,6 +220,9 @@ export function PaymentsManager() {
       })
       await refreshDashboardData()
     } catch (error) {
+      if (handleMiniAppRequestError(error)) {
+        return
+      }
       setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
     } finally {
       setAddingPayment(false)
@@ -240,6 +246,10 @@ export function PaymentsManager() {
       })
       closePaymentEditor()
       await refreshDashboardData()
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
+      }
     } finally {
       setSavingPayment(false)
     }
@@ -255,6 +265,10 @@ export function PaymentsManager() {
       await deleteMiniAppPayment(data, entry.id)
       closePaymentEditor()
       await refreshDashboardData()
+    } catch (error) {
+      if (!handleMiniAppRequestError(error)) {
+        setPaymentActionError(error instanceof Error ? error.message : copy().quickPaymentFailed)
+      }
     } finally {
       setDeletingPayment(false)
     }

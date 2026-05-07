@@ -27,6 +27,9 @@ export const dictionary = {
     telegramOnlyTitle: 'Open this app from Telegram',
     telegramOnlyBody:
       'The real session gate needs Telegram mini app data. Local development falls back to a preview shell.',
+    sessionExpiredTitle: 'Session expired',
+    sessionExpiredBody:
+      'Reload the mini app from Telegram to get a fresh secure session, then try again.',
     reload: 'Retry',
     language: 'Language',
     householdLanguage: 'Household language',
@@ -548,6 +551,9 @@ export const dictionary = {
     telegramOnlyTitle: 'Открой приложение из Telegram',
     telegramOnlyBody:
       'Настоящая проверка требует данные Telegram Mini App. Локально показывается демо-оболочка.',
+    sessionExpiredTitle: 'Сессия истекла',
+    sessionExpiredBody:
+      'Перезагрузи мини-приложение из Telegram, чтобы получить новую защищённую сессию, и попробуй ещё раз.',
     reload: 'Повторить',
     language: 'Язык',
     householdLanguage: 'Язык дома',

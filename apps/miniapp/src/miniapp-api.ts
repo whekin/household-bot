@@ -312,6 +312,46 @@ function apiBaseUrl(): string {
   return window.location.origin
 }
 
+type MiniAppErrorPayload = {
+  error?: string
+}
+
+export class MiniAppApiError extends Error {
+  readonly status: number
+  readonly code: 'session_expired' | 'request_failed'
+
+  constructor(
+    message: string,
+    options: {
+      status: number
+      code: 'session_expired' | 'request_failed'
+    }
+  ) {
+    super(message)
+    this.name = 'MiniAppApiError'
+    this.status = options.status
+    this.code = options.code
+  }
+}
+
+export function isMiniAppSessionExpiredError(error: unknown): boolean {
+  return error instanceof MiniAppApiError && error.code === 'session_expired'
+}
+
+function miniAppApiError(
+  response: Response,
+  payload: MiniAppErrorPayload,
+  fallbackMessage: string
+): MiniAppApiError {
+  const message = payload.error ?? fallbackMessage
+  const sessionExpired = response.status === 401 && message === 'Invalid Telegram init data'
+
+  return new MiniAppApiError(message, {
+    status: response.status,
+    code: sessionExpired ? 'session_expired' : 'request_failed'
+  })
+}
+
 export async function fetchMiniAppSession(
   initData: string,
   joinToken?: string
@@ -341,7 +381,7 @@ export async function fetchMiniAppSession(
   }
 
   if (!response.ok) {
-    throw new Error(payload.error ?? 'Failed to create mini app session')
+    throw miniAppApiError(response, payload, 'Failed to create mini app session')
   }
 
   return {
@@ -377,7 +417,7 @@ export async function joinMiniAppHousehold(
   }
 
   if (!response.ok) {
-    throw new Error(payload.error ?? 'Failed to join household')
+    throw miniAppApiError(response, payload, 'Failed to join household')
   }
 
   return {
@@ -415,7 +455,7 @@ export async function fetchMiniAppDashboard(
   }
 
   if (!response.ok || !payload.authorized || !payload.dashboard) {
-    throw new Error(payload.error ?? 'Failed to load dashboard')
+    throw miniAppApiError(response, payload, 'Failed to load dashboard')
   }
 
   return payload.dashboard
@@ -449,7 +489,7 @@ export async function updateMiniAppNotification(
   }
 
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to update notification')
+    throw miniAppApiError(response, payload, 'Failed to update notification')
   }
 }
 
@@ -475,7 +515,7 @@ export async function cancelMiniAppNotification(
   }
 
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to cancel notification')
+    throw miniAppApiError(response, payload, 'Failed to cancel notification')
   }
 }
 
@@ -500,7 +540,7 @@ export async function fetchMiniAppPendingMembers(
   }
 
   if (!response.ok || !payload.authorized || !payload.members) {
-    throw new Error(payload.error ?? 'Failed to load pending members')
+    throw miniAppApiError(response, payload, 'Failed to load pending members')
   }
 
   return payload.members
@@ -528,7 +568,7 @@ export async function approveMiniAppPendingMember(
   }
 
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to approve member')
+    throw miniAppApiError(response, payload, 'Failed to approve member')
   }
 }
 
@@ -554,7 +594,7 @@ export async function rejectMiniAppPendingMember(
   }
 
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to reject member')
+    throw miniAppApiError(response, payload, 'Failed to reject member')
   }
 }
 
@@ -583,7 +623,7 @@ export async function updateMiniAppLocalePreference(
   }
 
   if (!response.ok || !payload.authorized || !payload.locale) {
-    throw new Error(payload.error ?? 'Failed to update locale preference')
+    throw miniAppApiError(response, payload, 'Failed to update locale preference')
   }
 
   return payload.locale
@@ -626,7 +666,7 @@ export async function fetchMiniAppAdminSettings(
     !payload.categories ||
     !payload.members
   ) {
-    throw new Error(payload.error ?? 'Failed to load admin settings')
+    throw miniAppApiError(response, payload, 'Failed to load admin settings')
   }
 
   return {
@@ -699,7 +739,7 @@ export async function updateMiniAppBillingSettings(
     !payload.assistantConfig ||
     !payload.notificationSettings
   ) {
-    throw new Error(payload.error ?? 'Failed to update billing settings')
+    throw miniAppApiError(response, payload, 'Failed to update billing settings')
   }
 
   return {
@@ -742,7 +782,7 @@ export async function upsertMiniAppUtilityCategory(
   }
 
   if (!response.ok || !payload.authorized || !payload.category) {
-    throw new Error(payload.error ?? 'Failed to save utility category')
+    throw miniAppApiError(response, payload, 'Failed to save utility category')
   }
 
   return payload.category
@@ -771,7 +811,7 @@ export async function promoteMiniAppMember(
   }
 
   if (!response.ok || !payload.authorized || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to promote member')
+    throw miniAppApiError(response, payload, 'Failed to promote member')
   }
 
   return payload.member
@@ -800,7 +840,7 @@ export async function updateMiniAppOwnDisplayName(
   }
 
   if (!response.ok || !payload.authorized || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to update display name')
+    throw miniAppApiError(response, payload, 'Failed to update display name')
   }
 
   return payload.member
@@ -831,7 +871,7 @@ export async function updateMiniAppMemberDisplayName(
   }
 
   if (!response.ok || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to update member display name')
+    throw miniAppApiError(response, payload, 'Failed to update member display name')
   }
 
   return payload.member
@@ -862,7 +902,7 @@ export async function updateMiniAppMemberRentWeight(
   }
 
   if (!response.ok || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to update member rent weight')
+    throw miniAppApiError(response, payload, 'Failed to update member rent weight')
   }
 
   return payload.member
@@ -893,7 +933,7 @@ export async function updateMiniAppMemberStatus(
   }
 
   if (!response.ok || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to update member status')
+    throw miniAppApiError(response, payload, 'Failed to update member status')
   }
 
   return payload.member
@@ -922,7 +962,7 @@ export async function demoteMiniAppMember(
   }
 
   if (!response.ok || !payload.member) {
-    throw new Error(payload.error ?? 'Failed to remove admin access')
+    throw miniAppApiError(response, payload, 'Failed to remove admin access')
   }
 
   return payload.member
@@ -955,7 +995,7 @@ export async function updateMiniAppMemberPresenceDays(
   }
 
   if (!response.ok || !payload.presenceDays) {
-    throw new Error(payload.error ?? 'Failed to update member presence days')
+    throw miniAppApiError(response, payload, 'Failed to update member presence days')
   }
 
   return payload.presenceDays
@@ -980,7 +1020,7 @@ export async function fetchMiniAppBillingCycle(initData: string): Promise<MiniAp
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to load billing cycle')
+    throw miniAppApiError(response, payload, 'Failed to load billing cycle')
   }
 
   return payload.cycleState
@@ -1012,7 +1052,7 @@ export async function openMiniAppBillingCycle(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to open billing cycle')
+    throw miniAppApiError(response, payload, 'Failed to open billing cycle')
   }
 
   return payload.cycleState
@@ -1045,7 +1085,7 @@ export async function closeMiniAppBillingCycle(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to close billing cycle')
+    throw miniAppApiError(response, payload, 'Failed to close billing cycle')
   }
 
   return payload.cycleState
@@ -1079,7 +1119,7 @@ export async function updateMiniAppCycleRent(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to update rent')
+    throw miniAppApiError(response, payload, 'Failed to update rent')
   }
 
   return payload.cycleState
@@ -1112,7 +1152,7 @@ export async function addMiniAppUtilityBill(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to add utility bill')
+    throw miniAppApiError(response, payload, 'Failed to add utility bill')
   }
 
   return payload.cycleState
@@ -1144,7 +1184,7 @@ export async function submitMiniAppUtilityBill(
   }
 
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to submit utility bill')
+    throw miniAppApiError(response, payload, 'Failed to submit utility bill')
   }
 }
 
@@ -1176,7 +1216,7 @@ export async function updateMiniAppUtilityBill(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to update utility bill')
+    throw miniAppApiError(response, payload, 'Failed to update utility bill')
   }
 
   return payload.cycleState
@@ -1205,7 +1245,7 @@ export async function deleteMiniAppUtilityBill(
   }
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {
-    throw new Error(payload.error ?? 'Failed to delete utility bill')
+    throw miniAppApiError(response, payload, 'Failed to delete utility bill')
   }
 
   return payload.cycleState
@@ -1247,7 +1287,7 @@ export async function addMiniAppPurchase(
     error?: string
   }
   if (!response.ok || !payload.authorized || !payload.dashboard) {
-    throw new Error(payload.error ?? 'Failed to add purchase')
+    throw miniAppApiError(response, payload, 'Failed to add purchase')
   }
 
   return payload.dashboard
@@ -1290,7 +1330,7 @@ export async function updateMiniAppPurchase(
     error?: string
   }
   if (!response.ok || !payload.authorized || !payload.dashboard) {
-    throw new Error(payload.error ?? 'Failed to update purchase')
+    throw miniAppApiError(response, payload, 'Failed to update purchase')
   }
 
   return payload.dashboard
@@ -1318,7 +1358,7 @@ export async function deleteMiniAppPurchase(
     error?: string
   }
   if (!response.ok || !payload.authorized || !payload.dashboard) {
-    throw new Error(payload.error ?? 'Failed to delete purchase')
+    throw miniAppApiError(response, payload, 'Failed to delete purchase')
   }
 
   return payload.dashboard
@@ -1347,7 +1387,7 @@ export async function addMiniAppPayment(
 
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to add payment')
+    throw miniAppApiError(response, payload, 'Failed to add payment')
   }
 }
 
@@ -1372,7 +1412,7 @@ export async function resolveMiniAppUtilityPlan(
 
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to resolve planned utility bills')
+    throw miniAppApiError(response, payload, 'Failed to resolve planned utility bills')
   }
 }
 
@@ -1399,7 +1439,7 @@ export async function recordMiniAppUtilityVendorPayment(
 
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to record utility vendor payment')
+    throw miniAppApiError(response, payload, 'Failed to record utility vendor payment')
   }
 }
 
@@ -1426,7 +1466,7 @@ export async function updateMiniAppPayment(
 
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to update payment')
+    throw miniAppApiError(response, payload, 'Failed to update payment')
   }
 }
 
@@ -1444,6 +1484,6 @@ export async function deleteMiniAppPayment(initData: string, paymentId: string):
 
   const payload = (await response.json()) as { ok: boolean; authorized?: boolean; error?: string }
   if (!response.ok || !payload.authorized) {
-    throw new Error(payload.error ?? 'Failed to delete payment')
+    throw miniAppApiError(response, payload, 'Failed to delete payment')
   }
 }
