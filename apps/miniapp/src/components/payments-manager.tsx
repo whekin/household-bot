@@ -19,6 +19,7 @@ import {
   type PaymentDraft
 } from '../lib/ledger-helpers'
 import { majorStringToMinor } from '../lib/money'
+import { paymentQueueGroups } from '../lib/billing-ui-helpers'
 import {
   addMiniAppPayment,
   deleteMiniAppPayment,
@@ -50,28 +51,7 @@ export function PaymentsManager() {
   const currentPeriodSummary = createMemo(() =>
     paymentPeriodSummaries().find((summary) => summary.isCurrentPeriod)
   )
-  const billingStage = createMemo(() => dashboard()?.billingStage ?? 'idle')
-  const activePaymentKind = createMemo((): 'rent' | 'utilities' | null => {
-    const stage = billingStage()
-    if (stage === 'idle') return null
-    return stage
-  })
-  const memberPaymentRows = createMemo(() => {
-    const kind = activePaymentKind()
-    const current = currentPeriodSummary()
-    if (!kind || !current) return []
-
-    const kindSummary = current.kinds.find((k) => k.kind === kind)
-    if (!kindSummary) return []
-
-    return kindSummary.unresolvedMembers.map((member) => ({
-      memberId: member.memberId,
-      displayName: member.displayName,
-      kind,
-      remainingMajor: member.remainingMajor,
-      suggestedAmountMajor: member.suggestedAmountMajor
-    }))
-  })
+  const paymentQueue = createMemo(() => paymentQueueGroups(paymentPeriodSummaries()))
   const historyPeriodSummaries = createMemo(() =>
     sortPeriodsDesc(
       paymentPeriodSummaries().filter(
@@ -124,36 +104,38 @@ export function PaymentsManager() {
   async function handleQuickPayment(input: {
     memberId: string
     kind: 'rent' | 'utilities'
+    period: string
     amountMajor: string
   }) {
     const data = initData()
-    const current = currentPeriodSummary()
-    if (!data || !current) return
+    if (!data) return
 
     setProcessingMember(input.memberId)
     try {
       setPaymentActionError(null)
 
       const usePlannedUtilityResolution =
-        input.kind === 'utilities' && actionableUtilityPlanMembers().has(input.memberId)
+        input.kind === 'utilities' &&
+        input.period === dashboard()?.period &&
+        actionableUtilityPlanMembers().has(input.memberId)
 
       console.info('[miniapp] quick payment start', {
         memberId: input.memberId,
         kind: input.kind,
-        period: current.period,
+        period: input.period,
         mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
       })
 
       if (usePlannedUtilityResolution) {
         await resolveMiniAppUtilityPlan(data, {
           memberId: input.memberId,
-          period: current.period
+          period: input.period
         })
       } else {
         await addMiniAppPayment(data, {
           memberId: input.memberId,
           kind: input.kind,
-          period: current.period,
+          period: input.period,
           amountMajor: input.amountMajor,
           currency: (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'
         })
@@ -162,7 +144,7 @@ export function PaymentsManager() {
       console.info('[miniapp] quick payment completed', {
         memberId: input.memberId,
         kind: input.kind,
-        period: current.period,
+        period: input.period,
         mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
       })
       await refreshDashboardData()
@@ -284,7 +266,7 @@ export function PaymentsManager() {
 
   return (
     <>
-      <Show when={memberPaymentRows().length > 0}>
+      <Show when={paymentQueue().length > 0}>
         <Card>
           <div class="statement-section-heading">
             <div>
@@ -319,60 +301,114 @@ export function PaymentsManager() {
 
           <Show when={paymentActionError()}>{(error) => <p class="empty-state">{error()}</p>}</Show>
 
-          <div class="payments-compact-list">
-            <For each={memberPaymentRows()}>
-              {(row) => (
-                <div class="payment-compact-row">
-                  <div class="payment-compact-row__info">
-                    <strong>{row.displayName}</strong>
-                    <div class="payment-compact-row__details">
-                      <span>{row.kind === 'rent' ? copy().shareRent : copy().shareUtilities}</span>
+          <div class="payments-queue">
+            <For each={paymentQueue()}>
+              {(group) => (
+                <section class="payments-queue-group">
+                  <header class="payments-queue-group__header">
+                    <div>
                       <strong>
+                        {renderKindTitle(group.kind)} · {formatCyclePeriod(group.period, locale())}
+                      </strong>
+                      <span>
+                        {locale() === 'ru' ? 'Осталось' : 'Remaining'}{' '}
                         {formatMoneyLabel(
-                          row.remainingMajor,
+                          group.totalRemainingMajor,
                           (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
                           locale()
                         )}
-                      </strong>
+                      </span>
                     </div>
+                    <span
+                      class={`payments-period__badge ${
+                        group.hasOverdueBalance ? 'is-overdue' : 'is-current'
+                      }`}
+                    >
+                      {group.hasOverdueBalance
+                        ? locale() === 'ru'
+                          ? 'Просрочено'
+                          : 'Overdue'
+                        : locale() === 'ru'
+                          ? 'Текущий'
+                          : 'Current'}
+                    </span>
+                  </header>
+
+                  <div class="payments-compact-list">
+                    <For each={group.unresolvedMembers}>
+                      {(row) => (
+                        <div class="payment-compact-row">
+                          <div class="payment-compact-row__info">
+                            <strong>{row.displayName}</strong>
+                            <div class="payment-compact-row__details">
+                              <span>
+                                {locale() === 'ru' ? 'База' : 'Base'}{' '}
+                                {formatMoneyLabel(
+                                  row.baseDueMajor,
+                                  (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                  locale()
+                                )}
+                              </span>
+                              <span>
+                                {locale() === 'ru' ? 'Оплачено' : 'Paid'}{' '}
+                                {formatMoneyLabel(
+                                  row.paidMajor,
+                                  (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                  locale()
+                                )}
+                              </span>
+                              <strong>
+                                {formatMoneyLabel(
+                                  row.remainingMajor,
+                                  (dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL',
+                                  locale()
+                                )}
+                              </strong>
+                            </div>
+                          </div>
+                          <Show when={effectiveIsAdmin()}>
+                            <div class="payment-compact-row__actions">
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                loading={processingMember() === row.memberId}
+                                onClick={() =>
+                                  void handleQuickPayment({
+                                    memberId: row.memberId,
+                                    kind: group.kind,
+                                    period: group.period,
+                                    amountMajor: row.suggestedAmountMajor
+                                  })
+                                }
+                              >
+                                {group.kind === 'rent'
+                                  ? locale() === 'ru'
+                                    ? 'Оплатил аренду'
+                                    : 'Paid rent'
+                                  : locale() === 'ru'
+                                    ? 'Оплатил коммуналку'
+                                    : 'Paid utilities'}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  openCustomPayment({
+                                    memberId: row.memberId,
+                                    kind: group.kind,
+                                    period: group.period
+                                  })
+                                }
+                              >
+                                {locale() === 'ru' ? 'Другая сумма' : 'Custom'}
+                              </Button>
+                            </div>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
                   </div>
-                  <Show when={effectiveIsAdmin()}>
-                    <div class="payment-compact-row__actions">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        loading={processingMember() === row.memberId}
-                        onClick={() =>
-                          void handleQuickPayment({
-                            memberId: row.memberId,
-                            kind: row.kind,
-                            amountMajor: row.suggestedAmountMajor
-                          })
-                        }
-                      >
-                        {row.kind === 'rent'
-                          ? locale() === 'ru'
-                            ? 'Оплатил аренду'
-                            : 'Paid rent'
-                          : locale() === 'ru'
-                            ? 'Оплатил коммуналку'
-                            : 'Paid utilities'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          openCustomPayment({
-                            memberId: row.memberId,
-                            kind: row.kind
-                          })
-                        }
-                      >
-                        {locale() === 'ru' ? 'Другая сумма' : 'Custom'}
-                      </Button>
-                    </div>
-                  </Show>
-                </div>
+                </section>
               )}
             </For>
           </div>

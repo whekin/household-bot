@@ -13,6 +13,14 @@ import { Skeleton } from '../components/ui/skeleton'
 import { formatMoneyLabel, formatSemanticMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
+  hasUtilityPlanAssignments,
+  isSettledQuietPlan,
+  isUtilityPlanActionable,
+  utilityPlanMemberRows,
+  utilityPlanSnapshotOutcomes,
+  utilityPlanTotals
+} from '../lib/billing-ui-helpers'
+import {
   addMiniAppUtilityBill,
   deleteMiniAppUtilityBill,
   recordMiniAppUtilityVendorPayment,
@@ -108,36 +116,39 @@ export default function BillsRoute() {
   const canResolveUtilityPlan = createMemo(() => {
     const plan = utilityBillingPlan()
     if (!plan || !currentMemberIsAdmin()) return false
-    return (
-      plan.status !== 'settled' &&
-      plan.memberSummaries.some(
-        (summary) => majorStringToMinor(summary.assignedThisCycleMajor) > 0n
-      )
-    )
+    return plan.status !== 'settled' && hasUtilityPlanAssignments(plan)
+  })
+  const utilityPlanIsSnapshot = createMemo(() => {
+    const data = dashboard()
+    return data ? isSettledQuietPlan(data) : false
+  })
+  const utilityPlanIsActionMode = createMemo(() => {
+    const data = dashboard()
+    const plan = utilityBillingPlan()
+    if (!data || !plan || utilityPlanIsSnapshot()) return false
+    return data.billingStage === 'utilities' || isUtilityPlanActionable(plan)
+  })
+  const utilityPlanSummaryTotals = createMemo(() => {
+    const data = dashboard()
+    const plan = utilityBillingPlan()
+    return data && plan ? utilityPlanTotals(plan, data.members) : null
+  })
+  const utilityPlanOutcomes = createMemo(() => {
+    const data = dashboard()
+    const plan = utilityBillingPlan()
+    return data && plan ? utilityPlanSnapshotOutcomes({ plan, members: data.members }) : []
   })
   const householdUtilityPlanMembers = createMemo(() => {
+    const data = dashboard()
     const plan = utilityBillingPlan()
-    if (!plan) return []
+    if (!data || !plan) return []
 
-    const currentId = currentMemberId()
-    const categoriesByMemberId = new Map<string, typeof plan.categories>()
-    for (const summary of plan.memberSummaries) {
-      categoriesByMemberId.set(
-        summary.memberId,
-        plan.categories.filter((category) => category.assignedMemberId === summary.memberId)
-      )
-    }
-
-    return [...plan.memberSummaries]
-      .sort((left, right) => {
-        if (left.memberId === currentId) return -1
-        if (right.memberId === currentId) return 1
-        return left.displayName.localeCompare(right.displayName)
-      })
-      .map((summary) => ({
-        ...summary,
-        categories: categoriesByMemberId.get(summary.memberId) ?? []
-      }))
+    return utilityPlanMemberRows({
+      plan,
+      members: data.members,
+      currentMemberId: currentMemberId(),
+      mode: utilityPlanIsActionMode() ? 'action' : 'snapshot'
+    })
   })
   const currentRentSummary = createMemo(
     () =>
@@ -365,13 +376,11 @@ export default function BillsRoute() {
                                       locale(),
                                       {
                                         credit:
-                                          locale() === 'ru'
-                                            ? 'В плюсе после оплаты'
-                                            : 'Credit after payment',
+                                          locale() === 'ru' ? 'В плюсе по плану' : 'Credit by plan',
                                         debit:
                                           locale() === 'ru'
-                                            ? 'К доплате после оплаты'
-                                            : 'Still to pay'
+                                            ? 'К доплате по плану'
+                                            : 'Still due by plan'
                                       }
                                     )}
                                   >
@@ -425,13 +434,11 @@ export default function BillsRoute() {
                                       locale(),
                                       {
                                         credit:
-                                          locale() === 'ru'
-                                            ? 'В плюсе после оплаты'
-                                            : 'Credit after payment',
+                                          locale() === 'ru' ? 'В плюсе по плану' : 'Credit by plan',
                                         debit:
                                           locale() === 'ru'
-                                            ? 'К доплате после оплаты'
-                                            : 'Still to pay'
+                                            ? 'К доплате по плану'
+                                            : 'Still due by plan'
                                       }
                                     )}
                                   >
@@ -607,7 +614,15 @@ export default function BillsRoute() {
                     <Card>
                       <div class="statement-section-heading">
                         <div>
-                          <strong>{locale() === 'ru' ? 'План по дому' : 'Household plan'}</strong>
+                          <strong>
+                            {utilityPlanIsSnapshot()
+                              ? locale() === 'ru'
+                                ? 'План закрыт'
+                                : 'Plan settled'
+                              : locale() === 'ru'
+                                ? 'План по дому'
+                                : 'Household plan'}
+                          </strong>
                           <p>
                             {(locale() === 'ru' ? 'Версия' : 'Version') + ` ${plan().version}`} ·{' '}
                             {locale() === 'ru' ? 'Срок' : 'Due'} {plan().dueDate}
@@ -645,148 +660,273 @@ export default function BillsRoute() {
                           </Show>
                         </div>
                       </div>
-                      <div class="statement-list">
-                        <For each={householdUtilityPlanMembers()}>
-                          {(summary) => (
-                            <div class="statement-list__item statement-list__item--stack">
-                              <div class="utility-member-card__header">
-                                <div>
-                                  <strong>{summary.displayName}</strong>
-                                  <Show when={summary.memberId === currentMemberId()}>
-                                    <span class="utility-member-card__current">
-                                      {locale() === 'ru' ? 'Сначала ты' : 'You first'}
-                                    </span>
-                                  </Show>
-                                </div>
-                                <Show
-                                  when={
-                                    canResolveUtilityPlan() &&
-                                    summary.memberId !== currentMemberId() &&
-                                    majorStringToMinor(summary.assignedThisCycleMajor) > 0n
-                                  }
+                      <Show
+                        when={utilityPlanIsSnapshot()}
+                        fallback={
+                          <div class="utility-plan-queue">
+                            <For each={householdUtilityPlanMembers()}>
+                              {(summary) => (
+                                <article
+                                  class="utility-plan-member-row"
+                                  classList={{
+                                    'is-pending': summary.hasPendingAssignment,
+                                    'is-muted': !summary.hasPendingAssignment
+                                  }}
                                 >
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    loading={utilityActionKey() === `resolve:${summary.memberId}`}
-                                    onClick={() => void handleResolvePlanned(summary.memberId)}
+                                  <div class="utility-plan-member-row__main">
+                                    <div class="utility-plan-member-row__title">
+                                      <strong>{summary.displayName}</strong>
+                                      <Show
+                                        when={summary.isCurrent && summary.hasPendingAssignment}
+                                      >
+                                        <span class="utility-member-card__current">
+                                          {locale() === 'ru' ? 'Ты' : 'You'}
+                                        </span>
+                                      </Show>
+                                    </div>
+                                    <div class="utility-plan-member-row__metrics">
+                                      <span>
+                                        {copy().balancesAssignedNowLabel}:{' '}
+                                        <strong>
+                                          {formatMoneyLabel(
+                                            summary.assignedThisCycleMajor,
+                                            data().currency,
+                                            locale()
+                                          )}
+                                        </strong>
+                                      </span>
+                                      <span>
+                                        {copy().balancesPaidLabel}:{' '}
+                                        <strong>
+                                          {formatMoneyLabel(
+                                            summary.vendorPaidMajor,
+                                            data().currency,
+                                            locale()
+                                          )}
+                                        </strong>
+                                      </span>
+                                      <span>
+                                        {copy().balancesAfterPlanLabel}:{' '}
+                                        <strong>
+                                          {formatSemanticMoneyLabel(
+                                            summary.projectedDeltaAfterPlanMajor,
+                                            data().currency,
+                                            locale(),
+                                            {
+                                              neutral:
+                                                locale() === 'ru' ? 'Без доплаты' : 'No extra due'
+                                            }
+                                          ) ?? (locale() === 'ru' ? 'Без доплаты' : 'No extra due')}
+                                        </strong>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <Show
+                                    when={canResolveUtilityPlan() && summary.hasPendingAssignment}
                                   >
-                                    {locale() === 'ru'
-                                      ? `Записать за ${summary.displayName}`
-                                      : `Record for ${summary.displayName}`}
-                                  </Button>
-                                </Show>
-                              </div>
-                              <div class="statement-chip-grid">
-                                <div class="statement-chip">
-                                  <span>{copy().balancesTargetLabel}</span>
-                                  <strong>
-                                    {formatMoneyLabel(
-                                      summary.fairShareMajor,
-                                      data().currency,
-                                      locale()
-                                    )}
-                                  </strong>
-                                </div>
-                                <div class="statement-chip">
-                                  <span>{copy().balancesPaidLabel}</span>
-                                  <strong>
-                                    {formatMoneyLabel(
-                                      summary.vendorPaidMajor,
-                                      data().currency,
-                                      locale()
-                                    )}
-                                  </strong>
-                                </div>
-                                <div class="statement-chip">
+                                    <Button
+                                      variant={summary.isCurrent ? 'primary' : 'ghost'}
+                                      size="sm"
+                                      loading={utilityActionKey() === `resolve:${summary.memberId}`}
+                                      onClick={() => void handleResolvePlanned(summary.memberId)}
+                                    >
+                                      {summary.isCurrent
+                                        ? locale() === 'ru'
+                                          ? 'Оплатил по плану'
+                                          : 'Resolve mine'
+                                        : locale() === 'ru'
+                                          ? `Записать за ${summary.displayName}`
+                                          : `Record for ${summary.displayName}`}
+                                    </Button>
+                                  </Show>
+                                  <Show when={summary.categories.length > 0}>
+                                    <details class="utility-plan-member-details">
+                                      <summary>
+                                        {locale() === 'ru' ? 'Назначенные счета' : 'Assigned bills'}
+                                      </summary>
+                                      <div class="utility-plan-member-details__list">
+                                        <For each={summary.categories}>
+                                          {(category) => (
+                                            <div class="utility-plan-category-row">
+                                              <div>
+                                                <strong>
+                                                  {`${category.isFullAssignment ? copy().balancesAssignmentFullLabel : copy().balancesAssignmentSplitLabel} · ${category.billName}`}
+                                                </strong>
+                                                <span>
+                                                  {formatMoneyLabel(
+                                                    category.assignedAmountMajor,
+                                                    data().currency,
+                                                    locale()
+                                                  )}
+                                                </span>
+                                                <Show when={!category.isFullAssignment}>
+                                                  <span>
+                                                    {locale() === 'ru'
+                                                      ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
+                                                      : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
+                                                  </span>
+                                                </Show>
+                                              </div>
+                                              <Show
+                                                when={
+                                                  plan().status === 'active' &&
+                                                  currentMemberId() &&
+                                                  currentMemberId() !== category.assignedMemberId &&
+                                                  majorStringToMinor(category.paidAmountMajor) <
+                                                    majorStringToMinor(category.assignedAmountMajor)
+                                                }
+                                              >
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  loading={
+                                                    utilityActionKey() ===
+                                                    `vendor:${category.utilityBillId}:${currentMemberId()}`
+                                                  }
+                                                  onClick={() =>
+                                                    currentMemberId() &&
+                                                    void handleRecordVendorPayment(
+                                                      category.utilityBillId,
+                                                      currentMemberId()!
+                                                    )
+                                                  }
+                                                >
+                                                  {locale() === 'ru'
+                                                    ? 'Я оплатил вместо этого'
+                                                    : 'I paid this instead'}
+                                                </Button>
+                                              </Show>
+                                            </div>
+                                          )}
+                                        </For>
+                                      </div>
+                                    </details>
+                                  </Show>
+                                </article>
+                              )}
+                            </For>
+                          </div>
+                        }
+                      >
+                        <div class="utility-plan-snapshot">
+                          <Show when={utilityPlanSummaryTotals()}>
+                            {(totals) => (
+                              <div class="utility-plan-snapshot__totals">
+                                <div>
                                   <span>{copy().balancesAssignedNowLabel}</span>
                                   <strong>
                                     {formatMoneyLabel(
-                                      summary.assignedThisCycleMajor,
+                                      totals().assignedTotalMajor,
                                       data().currency,
                                       locale()
                                     )}
                                   </strong>
                                 </div>
-                                <div class="statement-chip">
-                                  <span>{copy().balancesAfterPlanLabel}</span>
+                                <div>
+                                  <span>{copy().balancesPaidLabel}</span>
                                   <strong>
-                                    {formatSemanticMoneyLabel(
-                                      summary.projectedDeltaAfterPlanMajor,
+                                    {formatMoneyLabel(
+                                      totals().paidTotalMajor,
                                       data().currency,
                                       locale()
-                                    ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
+                                    )}
                                   </strong>
                                 </div>
+                                <div>
+                                  <span>{locale() === 'ru' ? 'Осталось' : 'Remaining'}</span>
+                                  <strong>
+                                    {formatMoneyLabel(
+                                      totals().remainingTotalMajor,
+                                      data().currency,
+                                      locale()
+                                    )}
+                                  </strong>
+                                </div>
+                                <Show
+                                  when={majorStringToMinor(totals().carryForwardCreditMajor) > 0n}
+                                >
+                                  <div class="is-credit">
+                                    <span>
+                                      {locale() === 'ru' ? 'Зачёт дальше' : 'Carry-forward'}
+                                    </span>
+                                    <strong>
+                                      {formatMoneyLabel(
+                                        totals().carryForwardCreditMajor,
+                                        data().currency,
+                                        locale()
+                                      )}
+                                    </strong>
+                                  </div>
+                                </Show>
                               </div>
-                              <Show
-                                when={summary.categories.length > 0}
-                                fallback={
-                                  <span class="statement-list__empty">
-                                    {locale() === 'ru'
-                                      ? 'Сейчас ничего не назначено.'
-                                      : 'Nothing is assigned right now.'}
-                                  </span>
-                                }
-                              >
-                                <div class="statement-list">
-                                  <For each={summary.categories}>
-                                    {(category) => (
-                                      <div class="statement-list__item">
-                                        <div>
-                                          <strong>
-                                            {`${category.isFullAssignment ? copy().balancesAssignmentFullLabel : copy().balancesAssignmentSplitLabel} · ${category.billName}`}
-                                          </strong>
+                            )}
+                          </Show>
+
+                          <Show when={utilityPlanOutcomes().length > 0}>
+                            <div class="utility-plan-snapshot__outcomes">
+                              <For each={utilityPlanOutcomes()}>
+                                {(outcome) => (
+                                  <div class="utility-plan-outcome-row">
+                                    <strong>{outcome.displayName}</strong>
+                                    <span>
+                                      {locale() === 'ru'
+                                        ? 'зачёт на следующий период'
+                                        : 'credit for next period'}
+                                    </span>
+                                    <strong>
+                                      {formatMoneyLabel(
+                                        outcome.amountMajor,
+                                        data().currency,
+                                        locale()
+                                      )}
+                                    </strong>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+
+                          <details class="utility-plan-audit">
+                            <summary>
+                              {locale() === 'ru' ? 'Детали закрытого плана' : 'Settled plan audit'}
+                            </summary>
+                            <div class="utility-plan-audit__list">
+                              <For each={householdUtilityPlanMembers()}>
+                                {(summary) => (
+                                  <div class="utility-plan-audit-member">
+                                    <div class="utility-plan-audit-member__head">
+                                      <strong>{summary.displayName}</strong>
+                                      <span>
+                                        {formatMoneyLabel(
+                                          summary.vendorPaidMajor,
+                                          data().currency,
+                                          locale()
+                                        )}
+                                      </span>
+                                    </div>
+                                    <For each={summary.categories}>
+                                      {(category) => (
+                                        <div class="utility-plan-audit-category">
                                           <span>
+                                            {`${category.isFullAssignment ? copy().balancesAssignmentFullLabel : copy().balancesAssignmentSplitLabel} · ${category.billName}`}
+                                          </span>
+                                          <strong>
                                             {formatMoneyLabel(
                                               category.assignedAmountMajor,
                                               data().currency,
                                               locale()
                                             )}
-                                          </span>
-                                          <Show when={!category.isFullAssignment}>
-                                            <span>
-                                              {locale() === 'ru'
-                                                ? `Счёт целиком: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
-                                                : `Bill total: ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
-                                            </span>
-                                          </Show>
+                                          </strong>
                                         </div>
-                                        <Show
-                                          when={
-                                            currentMemberId() &&
-                                            currentMemberId() !== category.assignedMemberId
-                                          }
-                                        >
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            loading={
-                                              utilityActionKey() ===
-                                              `vendor:${category.utilityBillId}:${currentMemberId()}`
-                                            }
-                                            onClick={() =>
-                                              currentMemberId() &&
-                                              void handleRecordVendorPayment(
-                                                category.utilityBillId,
-                                                currentMemberId()!
-                                              )
-                                            }
-                                          >
-                                            {locale() === 'ru'
-                                              ? 'Я оплатил вместо этого'
-                                              : 'I paid this instead'}
-                                          </Button>
-                                        </Show>
-                                      </div>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
+                                      )}
+                                    </For>
+                                  </div>
+                                )}
+                              </For>
                             </div>
-                          )}
-                        </For>
-                      </div>
+                          </details>
+                        </div>
+                      </Show>
                     </Card>
                   )}
                 </Show>

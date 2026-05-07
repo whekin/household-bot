@@ -449,7 +449,8 @@ export default function BalancesRoute() {
                                           {
                                             credit: locale() === 'ru' ? 'В плюсе' : 'In credit',
                                             debit: locale() === 'ru' ? 'К доплате' : 'To pay',
-                                            neutral: locale() === 'ru' ? 'Закрыто' : 'Settled'
+                                            neutral:
+                                              locale() === 'ru' ? 'Без доплаты' : 'No extra due'
                                           }
                                         )}
                                       </strong>
