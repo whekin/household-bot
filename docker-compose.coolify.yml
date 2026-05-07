@@ -41,7 +41,7 @@ services:
     environment:
       BOT_API_URL: ${BOT_API_URL:?BOT_API_URL is required}
     expose:
-      - '8080'
+      - '80'
     restart: unless-stopped
 
   scheduler:
@@ -49,6 +49,12 @@ services:
       context: .
       dockerfile: apps/bot/Dockerfile
     command: ['bun', 'apps/bot/dist/scheduler-runner.js']
+    healthcheck:
+      test: ['CMD', 'bun', '-e', 'process.exit(0)']
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     environment:
       NODE_ENV: production
       BOT_INTERNAL_BASE_URL: http://bot:8080

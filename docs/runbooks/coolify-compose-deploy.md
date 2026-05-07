@@ -46,6 +46,7 @@ Runtime model:
 - `bot` handles webhook/API traffic
 - `scheduler` calls `http://bot:8080/jobs/dispatch-due` repeatedly through the internal Compose network
 - both services build from `apps/bot/Dockerfile`, but `scheduler` overrides the command with `bun apps/bot/dist/scheduler-runner.js`
+- `scheduler` overrides the bot image HTTP healthcheck because it is a worker process, not an HTTP server
 - scheduled dispatch provider is `self-hosted`
 
 ## Migrations
@@ -71,9 +72,18 @@ docker compose -f docker-compose.coolify.yml run --rm bot bun packages/db/dist/m
 Suggested public domains:
 
 - `household-bot.whekin.dev` -> `bot:8080`
-- `household.whekin.dev` -> `miniapp:8080`
+- `household.whekin.dev` -> `miniapp:80`
 
 Coolify should manage the public routing/TLS for these services.
+
+In Coolify's domain fields:
+
+- Domains for `bot`: `https://household-bot.whekin.dev:8080`
+- Domains for `miniapp`: `https://household.whekin.dev`
+- Domains for `scheduler`: leave blank
+
+The `:8080` suffix is only needed for the bot because it listens on container port `8080`.
+The mini app uses nginx on container port `80`, so no port suffix is needed for its domain.
 
 ## Required Coolify variables
 
@@ -131,7 +141,7 @@ The deployment target changes; the app should not become Coolify-only.
 2. Select Docker Compose as the application build pack.
 3. Set the compose file path to `docker-compose.coolify.yml`.
 4. Fill all required variables in Coolify.
-5. Assign domains to `bot:8080` and `miniapp:8080`.
+5. Assign domains to `bot:8080` and `miniapp:80`.
 6. Deploy the stack.
 7. Run the manual migration command in the `bot` service environment.
 8. Set the Telegram webhook:
@@ -156,6 +166,26 @@ Manual checks:
 - `GET https://household-bot.whekin.dev/healthz` returns `{ "ok": true }`
 - `GET https://household.whekin.dev/health` succeeds
 - unauthenticated `POST https://household-bot.whekin.dev/jobs/dispatch-due` returns `401`
+
+## GitHub Actions redeploy
+
+Use `.github/workflows/cd-coolify.yml` to trigger a Coolify redeploy after `CI` passes on `main`.
+The workflow also supports manual redeploys through GitHub Actions `Run workflow`.
+
+Required GitHub environment secrets for `Production`:
+
+- `COOLIFY_WEBHOOK` — Coolify resource deploy webhook URL from the application `Webhooks` page
+- `COOLIFY_TOKEN` — Coolify API token with deploy permission
+
+To redeploy immediately:
+
+1. Ensure the target commit is pushed to `main`.
+2. Open GitHub Actions.
+3. Select `CD / Coolify`.
+4. Click `Run workflow`.
+
+The workflow only calls Coolify's deploy webhook. Coolify still pulls the Git repository and builds
+`docker-compose.coolify.yml` on the VPS.
 
 ## Notes for later
 

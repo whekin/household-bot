@@ -1,0 +1,56 @@
+name: CD / Coolify
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-coolify-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Trigger Coolify deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: Production
+    steps:
+      - name: Check Coolify secrets
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          missing=false
+
+          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
+            echo "COOLIFY_WEBHOOK is not configured."
+            missing=true
+          fi
+
+          if [[ -z "$COOLIFY_TOKEN" ]]; then
+            echo "COOLIFY_TOKEN is not configured."
+            missing=true
+          fi
+
+          if [[ "$missing" == "true" ]]; then
+            exit 1
+          fi
+
+      - name: Trigger deploy webhook
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          curl --fail --show-error --silent \
+            --request GET "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN"
