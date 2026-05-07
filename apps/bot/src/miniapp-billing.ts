@@ -1,6 +1,7 @@
 import type {
   AdHocNotificationService,
   FinanceCommandService,
+  HouseholdAuditNotificationService,
   HouseholdOnboardingService
 } from '@household/application'
 import { BillingPeriod } from '@household/domain'
@@ -9,6 +10,7 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 import { formatUserFacingMoney } from './i18n/money'
 import { loadMiniAppDashboardPayload } from './miniapp-dashboard'
+import type { HouseholdAuditNotificationCategory } from '@household/ports'
 
 import {
   allowedMiniAppOrigin,
@@ -37,6 +39,42 @@ function serializeCycleState(
       createdByMemberId: bill.createdByMemberId,
       createdAt: bill.createdAt.toString()
     }))
+  }
+}
+
+async function recordMiniAppAuditEvent(input: {
+  service: HouseholdAuditNotificationService | undefined
+  logger: Logger | undefined
+  authMember: NonNullable<MiniAppSessionResult['member']>
+  category: HouseholdAuditNotificationCategory
+  eventType: string
+  summaryText: string
+  metadata?: Record<string, unknown>
+}) {
+  if (!input.service) {
+    return
+  }
+
+  try {
+    await input.service.recordEvent({
+      householdId: input.authMember.householdId,
+      actorMemberId: input.authMember.id,
+      actorDisplayName: input.authMember.displayName,
+      eventType: input.eventType,
+      category: input.category,
+      summaryText: input.summaryText,
+      metadata: input.metadata ?? {}
+    })
+  } catch (error) {
+    input.logger?.warn(
+      {
+        event: 'miniapp.audit_event_failed',
+        householdId: input.authMember.householdId,
+        eventType: input.eventType,
+        error: error instanceof Error ? error.message : String(error)
+      },
+      'Failed to record mini app audit event'
+    )
   }
 }
 
@@ -698,6 +736,7 @@ export function createMiniAppOpenCycleHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -732,6 +771,18 @@ export function createMiniAppOpenCycleHandler(options: {
         const payload = await readOpenCyclePayload(request)
         const service = options.financeServiceForHousehold(auth.member.householdId)
         await service.openCycle(payload.period, payload.currency)
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'period_events',
+          eventType: 'cycle.opened',
+          summaryText: `${auth.member.displayName} opened period ${payload.period}`,
+          metadata: {
+            period: payload.period,
+            currency: payload.currency
+          }
+        })
         const cycleState = await service.getAdminCycleState(payload.period)
 
         return miniAppJsonResponse(
@@ -755,6 +806,7 @@ export function createMiniAppCloseCycleHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -789,6 +841,17 @@ export function createMiniAppCloseCycleHandler(options: {
         const payload = await readCycleQueryPayload(request)
         const service = options.financeServiceForHousehold(auth.member.householdId)
         await service.closeCycle(payload.period)
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'period_events',
+          eventType: 'cycle.closed',
+          summaryText: `${auth.member.displayName} closed period ${payload.period}`,
+          metadata: {
+            period: payload.period
+          }
+        })
         const cycleState = await service.getAdminCycleState()
 
         return miniAppJsonResponse(
@@ -812,6 +875,7 @@ export function createMiniAppRentUpdateHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -859,6 +923,20 @@ export function createMiniAppRentUpdateHandler(options: {
           )
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'period_events',
+          eventType: 'rent.updated',
+          summaryText: `${auth.member.displayName} updated rent: ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period,
+            fxRateMicros: result.fxRateMicros?.toString() ?? null
+          }
+        })
         const cycleState = await service.getAdminCycleState(result.period)
 
         return miniAppJsonResponse(
@@ -882,6 +960,7 @@ export function createMiniAppAddUtilityBillHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -930,6 +1009,20 @@ export function createMiniAppAddUtilityBillHandler(options: {
           )
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType: 'utility_bill.added',
+          summaryText: `${auth.member.displayName} added utility bill: ${payload.billName} ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            billName: payload.billName,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period
+          }
+        })
         const cycleState = await service.getAdminCycleState(result.period)
 
         return miniAppJsonResponse(
@@ -953,6 +1046,7 @@ export function createMiniAppSubmitUtilityBillHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1001,6 +1095,20 @@ export function createMiniAppSubmitUtilityBillHandler(options: {
           )
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType: 'utility_bill.added',
+          summaryText: `${auth.member.displayName} added utility bill: ${payload.billName} ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            billName: payload.billName,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period
+          }
+        })
         return miniAppJsonResponse(
           {
             ok: true,
@@ -1022,6 +1130,7 @@ export function createMiniAppSubmitPaymentHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
   householdConfigurationRepository: HouseholdConfigurationRepository
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1134,14 +1243,33 @@ export function createMiniAppSubmitPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Failed to record payment' }, 500, origin)
         }
 
-        await notifyPaymentRecorded({
-          householdId: auth.member.householdId,
-          memberName: auth.member.displayName,
-          kind: payload.kind,
-          amountMajor: payment.amount.toMajorString(),
-          currency: payment.currency,
-          period: payment.period
-        })
+        if (options.auditNotificationService) {
+          await recordMiniAppAuditEvent({
+            service: options.auditNotificationService,
+            logger: options.logger,
+            authMember: auth.member,
+            category: 'payment_events',
+            eventType: 'payment.recorded',
+            summaryText: `${auth.member.displayName} recorded ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)} (${payment.period})`,
+            metadata: {
+              paymentId: payment.paymentId,
+              memberId: auth.member.id,
+              kind: payload.kind,
+              amountMinor: payment.amount.amountMinor.toString(),
+              currency: payment.currency,
+              period: payment.period
+            }
+          })
+        } else {
+          await notifyPaymentRecorded({
+            householdId: auth.member.householdId,
+            memberName: auth.member.displayName,
+            kind: payload.kind,
+            amountMajor: payment.amount.toMajorString(),
+            currency: payment.currency,
+            period: payment.period
+          })
+        }
         options.logger?.info(
           {
             event: 'miniapp.payment.record_completed',
@@ -1177,6 +1305,7 @@ export function createMiniAppUpdateUtilityBillHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1221,6 +1350,20 @@ export function createMiniAppUpdateUtilityBillHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Utility bill not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType: 'utility_bill.updated',
+          summaryText: `${auth.member.displayName} updated utility bill: ${payload.billName} ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)}`,
+          metadata: {
+            billId: result.billId,
+            billName: payload.billName,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency
+          }
+        })
         const cycleState = await service.getAdminCycleState()
 
         return miniAppJsonResponse(
@@ -1244,6 +1387,7 @@ export function createMiniAppDeleteUtilityBillHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1283,6 +1427,17 @@ export function createMiniAppDeleteUtilityBillHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Utility bill not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType: 'utility_bill.deleted',
+          summaryText: `${auth.member.displayName} deleted utility bill`,
+          metadata: {
+            billId: payload.billId
+          }
+        })
         const cycleState = await service.getAdminCycleState()
 
         return miniAppJsonResponse(
@@ -1307,6 +1462,7 @@ export function createMiniAppAddPurchaseHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories'
@@ -1347,7 +1503,7 @@ export function createMiniAppAddPurchaseHandler(options: {
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
         const payerMemberId = payload.payerMemberId ?? auth.member.id
-        await service.addPurchase(
+        const purchase = await service.addPurchase(
           payload.description,
           payload.amountMajor,
           payerMemberId,
@@ -1355,6 +1511,21 @@ export function createMiniAppAddPurchaseHandler(options: {
           payload.split,
           payload.occurredOn
         )
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'purchase_events',
+          eventType: 'purchase.added',
+          summaryText: `${auth.member.displayName} added purchase: ${payload.description} ${formatUserFacingMoney(purchase.amount.toMajorString(), purchase.currency)}`,
+          metadata: {
+            purchaseId: purchase.purchaseId,
+            description: payload.description,
+            amountMinor: purchase.amount.amountMinor.toString(),
+            currency: purchase.currency,
+            payerMemberId
+          }
+        })
 
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
@@ -1389,6 +1560,7 @@ export function createMiniAppUpdatePurchaseHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories'
@@ -1443,6 +1615,22 @@ export function createMiniAppUpdatePurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'purchase_events',
+          eventType: 'purchase.updated',
+          summaryText: `${auth.member.displayName} updated purchase: ${payload.description} ${formatUserFacingMoney(updated.amount.toMajorString(), updated.currency)}`,
+          metadata: {
+            purchaseId: updated.purchaseId,
+            description: payload.description,
+            amountMinor: updated.amount.amountMinor.toString(),
+            currency: updated.currency,
+            payerMemberId: payerMemberId ?? null,
+            splitMode: payload.split?.mode ?? null
+          }
+        })
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
           viewerMemberId: auth.member.id,
@@ -1476,6 +1664,7 @@ export function createMiniAppDeletePurchaseHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   adHocNotificationService: AdHocNotificationService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories'
@@ -1517,6 +1706,17 @@ export function createMiniAppDeletePurchaseHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'purchase_events',
+          eventType: 'purchase.deleted',
+          summaryText: `${auth.member.displayName} deleted purchase`,
+          metadata: {
+            purchaseId: payload.purchaseId
+          }
+        })
         const dashboard = await loadMiniAppDashboardPayload({
           householdId: auth.member.householdId,
           viewerMemberId: auth.member.id,
@@ -1549,6 +1749,7 @@ export function createMiniAppAddPaymentHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1610,6 +1811,22 @@ export function createMiniAppAddPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'No open billing cycle' }, 409, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'payment_events',
+          eventType: 'payment.recorded',
+          summaryText: `${auth.member.displayName} recorded ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)} (${payment.period})`,
+          metadata: {
+            paymentId: payment.paymentId,
+            memberId: payload.memberId,
+            kind: payload.kind,
+            amountMinor: payment.amount.amountMinor.toString(),
+            currency: payment.currency,
+            period: payment.period
+          }
+        })
         options.logger?.info(
           {
             event: 'miniapp.payment.record_completed',
@@ -1638,6 +1855,7 @@ export function createMiniAppUpdatePaymentHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1685,6 +1903,21 @@ export function createMiniAppUpdatePaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Payment not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'payment_events',
+          eventType: 'payment.updated',
+          summaryText: `${auth.member.displayName} updated ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)}`,
+          metadata: {
+            paymentId: payment.paymentId,
+            memberId: payload.memberId,
+            kind: payload.kind,
+            amountMinor: payment.amount.amountMinor.toString(),
+            currency: payment.currency
+          }
+        })
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
@@ -1698,6 +1931,7 @@ export function createMiniAppDeletePaymentHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1739,6 +1973,17 @@ export function createMiniAppDeletePaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'Payment not found' }, 404, origin)
         }
 
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'payment_events',
+          eventType: 'payment.deleted',
+          summaryText: `${auth.member.displayName} deleted payment`,
+          metadata: {
+            paymentId: payload.paymentId
+          }
+        })
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
@@ -1752,6 +1997,7 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1827,6 +2073,26 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             origin
           )
         }
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType:
+            result.plan?.status === 'settled' ? 'utility_plan.settled' : 'utility_plan.resolved',
+          summaryText:
+            result.plan?.status === 'settled'
+              ? `${auth.member.displayName} marked utility plan settled for ${result.period}`
+              : `${auth.member.displayName} resolved utility plan for ${result.period}`,
+          metadata: {
+            period: result.period,
+            memberId: memberId ?? null,
+            allMembers: payload.allMembers === true,
+            resolvedBillIds: result.resolvedBillIds,
+            planVersion: result.plan?.version ?? null,
+            planStatus: result.plan?.status ?? null
+          }
+        })
         options.logger?.info(
           {
             event: 'miniapp.utility_plan.resolve_completed',
@@ -1852,6 +2118,7 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -1888,7 +2155,7 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
-        await service.recordUtilityVendorPayment({
+        const result = await service.recordUtilityVendorPayment({
           utilityBillId: payload.utilityBillId,
           payerMemberId,
           actorMemberId: auth.member.id,
@@ -1897,6 +2164,25 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
           ...(payload.period ? { periodArg: payload.period } : {})
         })
 
+        if (result) {
+          await recordMiniAppAuditEvent({
+            service: options.auditNotificationService,
+            logger: options.logger,
+            authMember: auth.member,
+            category: 'plan_events',
+            eventType: 'utility_vendor_payment.recorded',
+            summaryText: `${auth.member.displayName} recorded utility bill payment (${result.period})`,
+            metadata: {
+              utilityBillId: payload.utilityBillId,
+              payerMemberId,
+              amountMajor: payload.amountMajor ?? null,
+              currency: payload.currency ?? null,
+              period: result.period,
+              planVersion: result.plan?.version ?? null,
+              planStatus: result.plan?.status ?? null
+            }
+          })
+        }
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)

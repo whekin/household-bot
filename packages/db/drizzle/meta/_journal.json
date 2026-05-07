@@ -239,6 +239,13 @@
       "when": 1778136000000,
       "tag": "0033_member_balance_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1778222400000,
+      "tag": "0034_household_audit_notifications",
+      "breakpoints": true
     }
   ]
 }

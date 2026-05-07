@@ -99,11 +99,19 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       'The household is a large shared house in Kojori with a backyard, a guest room, and a long-running purchase ledger.',
     assistantTone: 'Playful but concise'
   },
+  notificationSettings: {
+    householdId: 'demo-household',
+    periodEvents: true,
+    planEvents: true,
+    purchaseEvents: true,
+    paymentEvents: true
+  },
   topics: [
     { role: 'purchase', telegramThreadId: '101', topicName: 'Purchases' },
     { role: 'feedback', telegramThreadId: '102', topicName: 'Anonymous feedback' },
     { role: 'reminders', telegramThreadId: '103', topicName: 'Reminders' },
-    { role: 'payments', telegramThreadId: '104', topicName: 'Payments' }
+    { role: 'payments', telegramThreadId: '104', topicName: 'Payments' },
+    { role: 'notifications', telegramThreadId: '105', topicName: 'Notifications' }
   ],
   categories: [
     {

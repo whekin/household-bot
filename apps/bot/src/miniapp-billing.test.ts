@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { AdHocNotificationService, FinanceCommandService } from '@household/application'
+import type {
+  AdHocNotificationService,
+  FinanceCommandService,
+  HouseholdAuditNotificationService
+} from '@household/application'
 import { createHouseholdOnboardingService } from '@household/application'
 import { instantFromIso, Money } from '@household/domain'
 import type {
@@ -151,6 +155,32 @@ function onboardingRepository(): HouseholdConfigurationRepository {
 const adHocNotificationService = {
   listUpcomingNotifications: async () => []
 } as unknown as AdHocNotificationService
+
+function createAuditNotificationServiceStub() {
+  const events: Parameters<HouseholdAuditNotificationService['recordEvent']>[0][] = []
+  const service: HouseholdAuditNotificationService = {
+    recordEvent: async (input) => {
+      events.push(input)
+      return {
+        id: `audit-${events.length}`,
+        householdId: input.householdId,
+        actorMemberId: input.actorMemberId ?? null,
+        actorDisplayName: input.actorDisplayName,
+        eventType: input.eventType,
+        category: input.category,
+        summaryText: input.summaryText,
+        metadata: input.metadata ?? {},
+        deliveryStatus: 'pending',
+        deliveredTelegramChatId: null,
+        deliveredTelegramThreadId: null,
+        deliveredTelegramMessageId: null,
+        deliveryError: null,
+        createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+      }
+    }
+  }
+  return { service, events }
+}
 
 function createDashboardStub() {
   return {
@@ -474,13 +504,15 @@ test('createMiniAppDeleteUtilityBillHandler deletes a utility bill for the curre
 describe('createMiniAppOpenCycleHandler', () => {
   test('opens a billing cycle for an authenticated admin', async () => {
     const repository = onboardingRepository()
+    const audit = createAuditNotificationServiceStub()
     const handler = createMiniAppOpenCycleHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      financeServiceForHousehold: () => createFinanceServiceStub()
+      financeServiceForHousehold: () => createFinanceServiceStub(),
+      auditNotificationService: audit.service
     })
 
     const response = await handler.handler(
@@ -506,6 +538,16 @@ describe('createMiniAppOpenCycleHandler', () => {
       period: '2026-03',
       currency: 'USD'
     })
+    expect(audit.events).toMatchObject([
+      {
+        householdId: 'household-1',
+        actorMemberId: 'member-123456',
+        actorDisplayName: 'Stan',
+        category: 'period_events',
+        eventType: 'cycle.opened',
+        summaryText: 'Stan opened period 2026-03'
+      }
+    ])
   })
 })
 
@@ -676,6 +718,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
   test('forwards purchase creation with split to the finance service', async () => {
     const repository = onboardingRepository()
     let capturedArgs: any = null
+    const audit = createAuditNotificationServiceStub()
 
     const handler = createMiniAppAddPurchaseHandler({
       allowedOrigins: ['http://localhost:5173'],
@@ -684,6 +727,7 @@ describe('createMiniAppAddPurchaseHandler', () => {
         repository
       }),
       adHocNotificationService,
+      auditNotificationService: audit.service,
       financeServiceForHousehold: () => ({
         ...createFinanceServiceStub(),
         addPurchase: async (
@@ -747,6 +791,23 @@ describe('createMiniAppAddPurchaseHandler', () => {
         ]
       }
     })
+    expect(audit.events).toMatchObject([
+      {
+        householdId: 'household-1',
+        actorMemberId: 'member-123456',
+        actorDisplayName: 'Stan',
+        category: 'purchase_events',
+        eventType: 'purchase.added',
+        summaryText: 'Stan added purchase: Pizza 30.00 ₾',
+        metadata: {
+          purchaseId: 'new-purchase-1',
+          description: 'Pizza',
+          amountMinor: '3000',
+          currency: 'GEL',
+          payerMemberId: 'member-123456'
+        }
+      }
+    ])
   })
 
   test('accepts excluded participants without explicit share amounts in custom splits', async () => {
@@ -879,13 +940,15 @@ describe('utility billing action handlers', () => {
   test('resolve planned utility payment records the selected member action', async () => {
     const repository = onboardingRepository()
     const financeService = createFinanceServiceStub()
+    const audit = createAuditNotificationServiceStub()
     const handler = createMiniAppResolveUtilityPlanHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      financeServiceForHousehold: () => financeService
+      financeServiceForHousehold: () => financeService,
+      auditNotificationService: audit.service
     })
 
     const response = await handler.handler(
@@ -910,6 +973,16 @@ describe('utility billing action handlers', () => {
         memberId: 'member-123456',
         actorMemberId: 'member-123456',
         periodArg: '2026-03'
+      }
+    ])
+    expect(audit.events).toMatchObject([
+      {
+        householdId: 'household-1',
+        actorMemberId: 'member-123456',
+        actorDisplayName: 'Stan',
+        category: 'plan_events',
+        eventType: 'utility_plan.resolved',
+        summaryText: 'Stan resolved utility plan for 2026-03'
       }
     ])
   })
@@ -954,6 +1027,7 @@ describe('utility billing action handlers', () => {
 
   test('resolve planned utility payment returns 409 when no active plan exists', async () => {
     const repository = onboardingRepository()
+    const audit = createAuditNotificationServiceStub()
     const financeService = {
       ...createFinanceServiceStub(),
       resolveUtilityBillAsPlanned: async function (
@@ -969,7 +1043,8 @@ describe('utility billing action handlers', () => {
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      financeServiceForHousehold: () => financeService
+      financeServiceForHousehold: () => financeService,
+      auditNotificationService: audit.service
     })
 
     const response = await handler.handler(
@@ -1000,6 +1075,7 @@ describe('utility billing action handlers', () => {
         periodArg: '2026-03'
       }
     ])
+    expect(audit.events).toEqual([])
   })
 
   test('custom vendor payment supports admin acting for another member', async () => {

@@ -2,14 +2,16 @@ import type {
   HouseholdAssistantConfigRecord,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
+  HouseholdAuditNotificationRepository,
   HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
   HouseholdRentPaymentDestination,
   HouseholdTopicBindingRecord,
-  HouseholdUtilityCategoryRecord
+  HouseholdUtilityCategoryRecord,
+  HouseholdNotificationSettingsRecord
 } from '@household/ports'
-import { BillingPeriod, Money, type CurrencyCode } from '@household/domain'
+import { BillingPeriod, Money, nowInstant, type CurrencyCode } from '@household/domain'
 import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
@@ -69,6 +71,7 @@ export interface MiniAppAdminService {
         categories: readonly HouseholdUtilityCategoryRecord[]
         members: readonly HouseholdMemberRecord[]
         topics: readonly HouseholdTopicBindingRecord[]
+        notificationSettings: HouseholdNotificationSettingsRecord
       }
     | {
         status: 'rejected'
@@ -92,12 +95,19 @@ export interface MiniAppAdminService {
     rentPaymentDestinations?: unknown
     assistantContext?: string
     assistantTone?: string
+    notificationSettings?: {
+      periodEvents?: boolean
+      planEvents?: boolean
+      purchaseEvents?: boolean
+      paymentEvents?: boolean
+    }
   }): Promise<
     | {
         status: 'ok'
         householdName: string
         settings: HouseholdBillingSettingsRecord
         assistantConfig: HouseholdAssistantConfigRecord
+        notificationSettings: HouseholdNotificationSettingsRecord
       }
     | {
         status: 'rejected'
@@ -319,6 +329,19 @@ function defaultAssistantConfig(householdId: string): HouseholdAssistantConfigRe
   }
 }
 
+function defaultNotificationSettings(householdId: string): HouseholdNotificationSettingsRecord {
+  const now = nowInstant()
+  return {
+    householdId,
+    periodEvents: true,
+    planEvents: true,
+    purchaseEvents: true,
+    paymentEvents: true,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
 function normalizeAssistantText(
   raw: string | undefined,
   maxLength: number
@@ -344,7 +367,8 @@ export function createMiniAppAdminService(
   scheduledDispatchService?: ScheduledDispatchService,
   _options?: {
     resolveEffectiveFromPeriod?: (householdId: string) => Promise<string | null>
-  }
+  },
+  auditNotificationRepository?: HouseholdAuditNotificationRepository
 ): MiniAppAdminService {
   return {
     async getSettings(input) {
@@ -360,15 +384,19 @@ export function createMiniAppAdminService(
         throw new Error('Failed to resolve household chat for mini app settings')
       }
 
-      const [settings, assistantConfig, categories, members, topics] = await Promise.all([
-        repository.getHouseholdBillingSettings(input.householdId),
-        repository.getHouseholdAssistantConfig
-          ? repository.getHouseholdAssistantConfig(input.householdId)
-          : Promise.resolve(defaultAssistantConfig(input.householdId)),
-        repository.listHouseholdUtilityCategories(input.householdId),
-        repository.listHouseholdMembers(input.householdId),
-        repository.listHouseholdTopicBindings(input.householdId)
-      ])
+      const [settings, assistantConfig, categories, members, topics, notificationSettings] =
+        await Promise.all([
+          repository.getHouseholdBillingSettings(input.householdId),
+          repository.getHouseholdAssistantConfig
+            ? repository.getHouseholdAssistantConfig(input.householdId)
+            : Promise.resolve(defaultAssistantConfig(input.householdId)),
+          repository.listHouseholdUtilityCategories(input.householdId),
+          repository.listHouseholdMembers(input.householdId),
+          repository.listHouseholdTopicBindings(input.householdId),
+          auditNotificationRepository
+            ? auditNotificationRepository.getNotificationSettings(input.householdId)
+            : Promise.resolve(defaultNotificationSettings(input.householdId))
+        ])
 
       return {
         status: 'ok',
@@ -377,7 +405,8 @@ export function createMiniAppAdminService(
         assistantConfig,
         categories,
         members,
-        topics
+        topics,
+        notificationSettings
       }
     },
 
@@ -485,7 +514,7 @@ export function createMiniAppAdminService(
       const shouldUpdateAssistantConfig =
         assistantContext !== undefined || assistantTone !== undefined
 
-      const [settings, nextAssistantConfig, household] = await Promise.all([
+      const [settings, nextAssistantConfig, household, notificationSettings] = await Promise.all([
         repository.updateHouseholdBillingSettings({
           householdId: input.householdId,
           ...(settlementCurrency
@@ -547,7 +576,16 @@ export function createMiniAppAdminService(
               }),
         nextHouseholdName !== undefined && repository.updateHouseholdName
           ? repository.updateHouseholdName(input.householdId, nextHouseholdName)
-          : repository.getHouseholdChatByHouseholdId(input.householdId)
+          : repository.getHouseholdChatByHouseholdId(input.householdId),
+        auditNotificationRepository && input.notificationSettings
+          ? auditNotificationRepository.updateNotificationSettings({
+              householdId: input.householdId,
+              ...input.notificationSettings,
+              updatedAt: nowInstant()
+            })
+          : auditNotificationRepository
+            ? auditNotificationRepository.getNotificationSettings(input.householdId)
+            : Promise.resolve(defaultNotificationSettings(input.householdId))
       ])
 
       if (!household) {
@@ -562,7 +600,8 @@ export function createMiniAppAdminService(
         status: 'ok',
         householdName: household.householdName,
         settings,
-        assistantConfig: nextAssistantConfig
+        assistantConfig: nextAssistantConfig,
+        notificationSettings
       }
     },
 

@@ -1,4 +1,7 @@
-import type { FinanceCommandService } from '@household/application'
+import type {
+  FinanceCommandService,
+  HouseholdAuditNotificationService
+} from '@household/application'
 import { Money, nowInstant } from '@household/domain'
 import type {
   HouseholdBillingSettingsRecord,
@@ -741,6 +744,7 @@ export function createFinanceCommandsService(options: {
   promptRepository?: TelegramPendingActionRepository
   miniAppUrl?: string
   botUsername?: string
+  auditNotificationService?: HouseholdAuditNotificationService
 }): {
   register: (bot: Bot) => void
 } {
@@ -963,6 +967,28 @@ export function createFinanceCommandsService(options: {
     }
 
     return resolved
+  }
+
+  async function recordCommandAudit(input: {
+    resolved: NonNullable<Awaited<ReturnType<typeof requireMember>>>
+    category: 'period_events' | 'plan_events' | 'payment_events'
+    eventType: string
+    summaryText: string
+    metadata?: Record<string, unknown>
+  }) {
+    if (!options.auditNotificationService) {
+      return
+    }
+
+    await options.auditNotificationService.recordEvent({
+      householdId: input.resolved.householdId,
+      actorMemberId: input.resolved.member.id,
+      actorDisplayName: input.resolved.member.displayName,
+      eventType: input.eventType,
+      category: input.category,
+      summaryText: input.summaryText,
+      metadata: input.metadata ?? {}
+    })
   }
 
   function formatUtilityBillPlan(input: {
@@ -2200,6 +2226,16 @@ export function createFinanceCommandsService(options: {
 
       try {
         const cycle = await resolved.service.openCycle(args[0]!, args[1])
+        await recordCommandAudit({
+          resolved,
+          category: 'period_events',
+          eventType: 'cycle.opened',
+          summaryText: `${resolved.member.displayName} opened period ${cycle.period}`,
+          metadata: {
+            period: cycle.period,
+            currency: cycle.currency
+          }
+        })
         await ctx.reply(t.cycleOpened(cycle.period, cycle.currency))
       } catch (error) {
         await ctx.reply(t.cycleOpenFailed((error as Error).message))
@@ -2224,6 +2260,15 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        await recordCommandAudit({
+          resolved,
+          category: 'period_events',
+          eventType: 'cycle.closed',
+          summaryText: `${resolved.member.displayName} closed period ${cycle.period}`,
+          metadata: {
+            period: cycle.period
+          }
+        })
         await ctx.reply(t.cycleClosed(cycle.period))
       } catch (error) {
         await ctx.reply(t.cycleCloseFailed((error as Error).message))
@@ -2254,6 +2299,17 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        await recordCommandAudit({
+          resolved,
+          category: 'period_events',
+          eventType: 'rent.updated',
+          summaryText: `${resolved.member.displayName} updated rent: ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period
+          }
+        })
         await ctx.reply(t.rentSaved(result.amount.toMajorString(), result.currency, result.period))
       } catch (error) {
         await ctx.reply(t.rentSaveFailed((error as Error).message))
@@ -2289,6 +2345,18 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        await recordCommandAudit({
+          resolved,
+          category: 'plan_events',
+          eventType: 'utility_bill.added',
+          summaryText: `${resolved.member.displayName} added utility bill: ${args[0]!} ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            billName: args[0]!,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period
+          }
+        })
         await ctx.reply(
           t.utilityAdded(args[0]!, result.amount.toMajorString(), result.currency, result.period)
         )
@@ -2354,6 +2422,20 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        await recordCommandAudit({
+          resolved,
+          category: 'payment_events',
+          eventType: 'payment.recorded',
+          summaryText: `${resolved.member.displayName} recorded ${kind} payment: ${formatUserFacingMoney(result.amount.toMajorString(), result.currency)} (${result.period})`,
+          metadata: {
+            paymentId: result.paymentId,
+            memberId: resolved.member.id,
+            kind,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.currency,
+            period: result.period
+          }
+        })
         await ctx.reply(
           t.paymentAdded(kind, result.amount.toMajorString(), result.currency, result.period)
         )

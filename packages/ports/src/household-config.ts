@@ -6,7 +6,8 @@ export const HOUSEHOLD_TOPIC_ROLES = [
   'purchase',
   'feedback',
   'reminders',
-  'payments'
+  'payments',
+  'notifications'
 ] as const
 export const HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES = ['active', 'away', 'left'] as const
 export const HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES = [

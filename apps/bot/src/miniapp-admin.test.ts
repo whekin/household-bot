@@ -553,6 +553,13 @@ describe('createMiniAppSettingsHandler', () => {
         assistantContext: 'House in Kojori',
         assistantTone: 'Playful'
       },
+      notificationSettings: {
+        householdId: 'household-1',
+        periodEvents: true,
+        planEvents: true,
+        purchaseEvents: true,
+        paymentEvents: true
+      },
       topics: [
         {
           householdId: 'household-1',
@@ -656,6 +663,13 @@ describe('createMiniAppUpdateSettingsHandler', () => {
         householdId: 'household-1',
         assistantContext: 'House in Kojori',
         assistantTone: 'Playful'
+      },
+      notificationSettings: {
+        householdId: 'household-1',
+        periodEvents: true,
+        planEvents: true,
+        purchaseEvents: true,
+        paymentEvents: true
       }
     })
   })

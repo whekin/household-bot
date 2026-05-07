@@ -56,6 +56,12 @@ type BillingFormState = {
   }[]
   assistantContext: string
   assistantTone: string
+  notificationSettings: {
+    periodEvents: boolean
+    planEvents: boolean
+    purchaseEvents: boolean
+    paymentEvents: boolean
+  }
 }
 
 function truncateValue(value: string | null | undefined, maxLength = 40): string {
@@ -135,7 +141,13 @@ export default function SettingsRoute() {
     timezone: 'Asia/Tbilisi',
     rentPaymentDestinations: [],
     assistantContext: '',
-    assistantTone: ''
+    assistantTone: '',
+    notificationSettings: {
+      periodEvents: true,
+      planEvents: true,
+      purchaseEvents: true,
+      paymentEvents: true
+    }
   })
 
   const [approvingId, setApprovingId] = createSignal<string | null>(null)
@@ -190,7 +202,13 @@ export default function SettingsRoute() {
       timezone: settings?.settings.timezone ?? 'Asia/Tbilisi',
       rentPaymentDestinations: [...(settings?.settings.rentPaymentDestinations ?? [])],
       assistantContext: settings?.assistantConfig?.assistantContext ?? '',
-      assistantTone: settings?.assistantConfig?.assistantTone ?? ''
+      assistantTone: settings?.assistantConfig?.assistantTone ?? '',
+      notificationSettings: {
+        periodEvents: settings?.notificationSettings.periodEvents ?? true,
+        planEvents: settings?.notificationSettings.planEvents ?? true,
+        purchaseEvents: settings?.notificationSettings.purchaseEvents ?? true,
+        paymentEvents: settings?.notificationSettings.paymentEvents ?? true
+      }
     }
   }
 
@@ -363,12 +381,10 @@ export default function SettingsRoute() {
 
     setSavingSettings(true)
     try {
-      const { householdName, settings, assistantConfig } = await updateMiniAppBillingSettings(
-        data,
-        billingForm()
-      )
+      const { householdName, settings, assistantConfig, notificationSettings } =
+        await updateMiniAppBillingSettings(data, billingForm())
       setAdminSettings((prev) =>
-        prev ? { ...prev, householdName, settings, assistantConfig } : prev
+        prev ? { ...prev, householdName, settings, assistantConfig, notificationSettings } : prev
       )
       setBillingEditing(false)
       await refreshDashboardData()
@@ -388,12 +404,10 @@ export default function SettingsRoute() {
 
     setSavingAssistant(true)
     try {
-      const { householdName, settings, assistantConfig } = await updateMiniAppBillingSettings(
-        data,
-        billingForm()
-      )
+      const { householdName, settings, assistantConfig, notificationSettings } =
+        await updateMiniAppBillingSettings(data, billingForm())
       setAdminSettings((prev) =>
-        prev ? { ...prev, householdName, settings, assistantConfig } : prev
+        prev ? { ...prev, householdName, settings, assistantConfig, notificationSettings } : prev
       )
       setAssistantEditing(false)
       await refreshDashboardData()
@@ -542,7 +556,8 @@ export default function SettingsRoute() {
       purchase: copy().topicPurchase,
       feedback: copy().topicFeedback,
       reminders: copy().topicReminders,
-      payments: copy().topicPayments
+      payments: copy().topicPayments,
+      notifications: copy().topicNotifications
     }
     return labels[role] ?? role
   }
@@ -1130,6 +1145,66 @@ export default function SettingsRoute() {
                   }
                 />
               </Field>
+            </div>
+          </div>
+
+          <div class="settings-sheet-section">
+            <div class="settings-sheet-section__header">
+              <strong>{copy().notificationSettingsTitle}</strong>
+            </div>
+            <div class="settings-form-grid settings-form-grid--compact">
+              <Toggle
+                checked={billingForm().notificationSettings.periodEvents}
+                label={copy().notificationPeriodEvents}
+                onChange={(checked) =>
+                  setBillingForm((form) => ({
+                    ...form,
+                    notificationSettings: {
+                      ...form.notificationSettings,
+                      periodEvents: checked
+                    }
+                  }))
+                }
+              />
+              <Toggle
+                checked={billingForm().notificationSettings.planEvents}
+                label={copy().notificationPlanEvents}
+                onChange={(checked) =>
+                  setBillingForm((form) => ({
+                    ...form,
+                    notificationSettings: {
+                      ...form.notificationSettings,
+                      planEvents: checked
+                    }
+                  }))
+                }
+              />
+              <Toggle
+                checked={billingForm().notificationSettings.purchaseEvents}
+                label={copy().notificationPurchaseEvents}
+                onChange={(checked) =>
+                  setBillingForm((form) => ({
+                    ...form,
+                    notificationSettings: {
+                      ...form.notificationSettings,
+                      purchaseEvents: checked
+                    }
+                  }))
+                }
+              />
+              <Toggle
+                checked={billingForm().notificationSettings.paymentEvents}
+                label={copy().notificationPaymentEvents}
+                onChange={(checked) =>
+                  setBillingForm((form) => ({
+                    ...form,
+                    notificationSettings: {
+                      ...form.notificationSettings,
+                      paymentEvents: checked
+                    }
+                  }))
+                }
+              />
             </div>
           </div>
 

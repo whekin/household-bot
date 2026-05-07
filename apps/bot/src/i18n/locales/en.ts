@@ -97,6 +97,8 @@ export const enBotTranslations: BotTranslationCatalog = {
           return 'Reminders'
         case 'payments':
           return 'Payments'
+        case 'notifications':
+          return 'Notifications'
       }
     },
     setupTopicSuggestedName: (role) => {
@@ -111,6 +113,8 @@ export const enBotTranslations: BotTranslationCatalog = {
           return 'Reminders'
         case 'payments':
           return 'Payments'
+        case 'notifications':
+          return 'Notifications'
       }
     },
     onlyTelegramAdminsUnsetup: 'Only Telegram group admins can run /unsetup.',

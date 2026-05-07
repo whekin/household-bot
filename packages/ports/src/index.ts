@@ -1,5 +1,17 @@
 export { REMINDER_TYPES, type ReminderTarget, type ReminderType } from './reminders'
 export {
+  HOUSEHOLD_AUDIT_DELIVERY_STATUSES,
+  HOUSEHOLD_AUDIT_NOTIFICATION_CATEGORIES,
+  type CreateHouseholdAuditEventInput,
+  type HouseholdAuditDeliveryStatus,
+  type HouseholdAuditEventRecord,
+  type HouseholdAuditNotificationCategory,
+  type HouseholdAuditNotificationRepository,
+  type HouseholdNotificationSettingsRecord,
+  type UpdateHouseholdAuditEventDeliveryInput,
+  type UpdateHouseholdNotificationSettingsInput
+} from './audit-notifications'
+export {
   AD_HOC_NOTIFICATION_DELIVERY_MODES,
   AD_HOC_NOTIFICATION_STATUSES,
   AD_HOC_NOTIFICATION_TIME_PRECISIONS,

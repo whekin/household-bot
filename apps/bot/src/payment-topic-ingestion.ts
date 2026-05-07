@@ -1,6 +1,7 @@
 import {
   parsePaymentConfirmationMessage,
   type FinanceCommandService,
+  type HouseholdAuditNotificationService,
   type PaymentConfirmationService
 } from '@household/application'
 import { instantFromEpochSeconds, Money, nowInstant, type Instant } from '@household/domain'
@@ -635,6 +636,7 @@ export function registerConfiguredPaymentTopicIngestion(
     memoryStore?: AssistantConversationMemoryStore
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
+    auditNotificationService?: HouseholdAuditNotificationService
   } = {}
 ): void {
   bot.callbackQuery(
@@ -718,6 +720,23 @@ export function registerConfiguredPaymentTopicIngestion(
         await ctx.editMessageText(recordedText, {
           reply_markup: {
             inline_keyboard: []
+          }
+        })
+      }
+
+      if (options.auditNotificationService) {
+        await options.auditNotificationService.recordEvent({
+          householdId: payload.householdId,
+          actorMemberId: payload.memberId,
+          actorDisplayName: payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone',
+          eventType: 'payment.recorded',
+          category: 'payment_events',
+          summaryText: `${payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'} recorded ${result.kind} payment: ${result.amount.toMajorString()} ${result.amount.currency}`,
+          metadata: {
+            memberId: payload.memberId,
+            kind: result.kind,
+            amountMinor: result.amount.amountMinor.toString(),
+            currency: result.amount.currency
           }
         })
       }

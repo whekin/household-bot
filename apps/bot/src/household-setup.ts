@@ -25,7 +25,8 @@ const HOUSEHOLD_TOPIC_ROLE_ORDER: readonly HouseholdTopicRole[] = [
   'purchase',
   'feedback',
   'reminders',
-  'payments'
+  'payments',
+  'notifications'
 ]
 
 function commandArgText(ctx: Context): string {
@@ -989,7 +990,9 @@ export function registerHouseholdSetupCommands(options: {
 
   if (options.promptRepository) {
     options.bot.callbackQuery(
-      new RegExp(`^${SETUP_CREATE_TOPIC_CALLBACK_PREFIX}(purchase|feedback|reminders|payments)$`),
+      new RegExp(
+        `^${SETUP_CREATE_TOPIC_CALLBACK_PREFIX}(purchase|feedback|reminders|payments|notifications)$`
+      ),
       async (ctx) => {
         const locale = await resolveReplyLocale({
           ctx,
@@ -1103,7 +1106,7 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     options.bot.callbackQuery(
-      /^bind_topic:(purchase|feedback|reminders|payments):(\d+)$/,
+      /^bind_topic:(purchase|feedback|reminders|payments|notifications):(\d+)$/,
       async (ctx) => {
         const locale = await resolveReplyLocale({
           ctx,

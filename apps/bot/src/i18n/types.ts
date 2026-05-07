@@ -101,10 +101,10 @@ export interface BotTranslationCatalog {
     setupTopicBindCancelled: string
     setupTopicBindNotAvailable: string
     setupTopicBindRoleName: (
-      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
+      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments' | 'notifications'
     ) => string
     setupTopicSuggestedName: (
-      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments'
+      role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments' | 'notifications'
     ) => string
     onlyTelegramAdminsUnsetup: string
     useUnsetupInGroup: string

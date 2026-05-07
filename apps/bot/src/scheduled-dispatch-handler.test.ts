@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { ScheduledDispatchService } from '@household/application'
+import type {
+  HouseholdAuditNotificationService,
+  ScheduledDispatchService
+} from '@household/application'
 import { Temporal } from '@household/domain'
 import type {
   AdHocNotificationRecord,
@@ -57,6 +60,32 @@ function notification(input: Partial<AdHocNotificationRecord> = {}): AdHocNotifi
     createdAt: input.createdAt ?? Temporal.Instant.from('2026-03-24T00:00:00Z'),
     updatedAt: input.updatedAt ?? Temporal.Instant.from('2026-03-24T00:00:00Z')
   }
+}
+
+function createAuditNotificationServiceStub() {
+  const events: Parameters<HouseholdAuditNotificationService['recordEvent']>[0][] = []
+  const service: HouseholdAuditNotificationService = {
+    recordEvent: async (input) => {
+      events.push(input)
+      return {
+        id: `audit-${events.length}`,
+        householdId: input.householdId,
+        actorMemberId: input.actorMemberId ?? null,
+        actorDisplayName: input.actorDisplayName,
+        eventType: input.eventType,
+        category: input.category,
+        summaryText: input.summaryText,
+        metadata: input.metadata ?? {},
+        deliveryStatus: 'pending',
+        deliveredTelegramChatId: null,
+        deliveredTelegramThreadId: null,
+        deliveredTelegramMessageId: null,
+        deliveryError: null,
+        createdAt: Temporal.Instant.from('2026-03-24T00:00:00Z')
+      }
+    }
+  }
+  return { service, events }
 }
 
 describe('createScheduledDispatchHandler', () => {
@@ -216,5 +245,121 @@ describe('createScheduledDispatchHandler', () => {
     expect(payload.ok).toBe(true)
     expect(payload.outcome).toBe('stale')
     expect(released).toBe(true)
+  })
+
+  test('routes built-in due dispatches through audit notifications and reconciles schedule', async () => {
+    const dispatch = scheduledDispatch({
+      id: 'dispatch-utilities',
+      householdId: 'household-1',
+      kind: 'utilities',
+      period: '2026-03'
+    })
+    const audit = createAuditNotificationServiceStub()
+    const markedDispatches: string[] = []
+    const reconciledHouseholds: string[] = []
+
+    const service: ScheduledDispatchService = {
+      scheduleAdHocNotification: async () => dispatch,
+      cancelAdHocNotification: async () => {},
+      reconcileHouseholdBuiltInDispatches: async (householdId) => {
+        reconciledHouseholds.push(householdId)
+      },
+      reconcileAllBuiltInDispatches: async () => {},
+      listDueDispatches: async () => [dispatch],
+      getDispatchById: async () => dispatch,
+      claimDispatch: async () => true,
+      releaseDispatch: async () => {},
+      markDispatchSent: async (dispatchId) => {
+        markedDispatches.push(dispatchId)
+        return dispatch
+      }
+    }
+
+    const handler = createScheduledDispatchHandler({
+      scheduledDispatchService: service,
+      adHocNotificationRepository: {
+        async getNotificationById() {
+          throw new Error('not used')
+        },
+        async markNotificationSent() {
+          throw new Error('not used')
+        }
+      },
+      householdConfigurationRepository: {
+        async getHouseholdChatByHouseholdId(): Promise<HouseholdTelegramChatRecord | null> {
+          return {
+            householdId: 'household-1',
+            householdName: 'Kojori',
+            telegramChatId: 'chat-1',
+            telegramChatType: 'supergroup',
+            title: 'Kojori',
+            defaultLocale: 'en'
+          }
+        },
+        async getHouseholdTopicBinding(): Promise<HouseholdTopicBindingRecord | null> {
+          return {
+            householdId: 'household-1',
+            role: 'notifications',
+            telegramThreadId: '501',
+            topicName: 'Notifications'
+          }
+        },
+        async getHouseholdBillingSettings() {
+          throw new Error('not used')
+        },
+        async listHouseholdMembers(): Promise<readonly HouseholdMemberRecord[]> {
+          return []
+        }
+      },
+      auditNotificationService: audit.service,
+      sendTopicMessage: async () => {
+        throw new Error('direct topic send should be delegated to audit service')
+      },
+      sendDirectMessage: async () => {
+        throw new Error('not used')
+      }
+    })
+
+    const response = await handler.handleDueDispatches(
+      new Request('http://localhost/jobs/dispatch-due?limit=10', { method: 'POST' })
+    )
+    const payload = (await response.json()) as {
+      ok: boolean
+      scanned: number
+      results: Array<{
+        dispatchId: string
+        householdId: string | null
+        kind: string | null
+        outcome: string
+      }>
+    }
+
+    expect(payload.ok).toBe(true)
+    expect(payload.scanned).toBe(1)
+    expect(payload.results).toEqual([
+      {
+        dispatchId: 'dispatch-utilities',
+        householdId: 'household-1',
+        kind: 'utilities',
+        outcome: 'sent'
+      }
+    ])
+    expect(audit.events).toMatchObject([
+      {
+        householdId: 'household-1',
+        actorMemberId: null,
+        actorDisplayName: 'System',
+        category: 'period_events',
+        eventType: 'period.utilities',
+        metadata: {
+          dispatchId: 'dispatch-utilities',
+          kind: 'utilities',
+          period: '2026-03'
+        }
+      }
+    ])
+    expect(audit.events[0]?.summaryText).toContain('Utilities')
+    expect(markedDispatches).toEqual(['dispatch-utilities'])
+    expect(reconciledHouseholds).toEqual(['household-1'])
   })
 })

@@ -31,6 +31,11 @@ export {
   type UtilityVendorPaymentFactInput
 } from './utilities-billing-plan'
 export { createHouseholdSetupService, type HouseholdSetupService } from './household-setup-service'
+export {
+  createHouseholdAuditNotificationService,
+  formatAuditNotificationSummary,
+  type HouseholdAuditNotificationService
+} from './household-audit-notification-service'
 export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'
 export { createMiniAppAdminService, type MiniAppAdminService } from './miniapp-admin-service'
 export {

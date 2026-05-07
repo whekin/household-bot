@@ -4,6 +4,7 @@ import {
   createAdHocNotificationService,
   createAnonymousFeedbackService,
   createFinanceCommandService,
+  createHouseholdAuditNotificationService,
   createHouseholdAdminService,
   createHouseholdOnboardingService,
   createHouseholdSetupService,
@@ -14,6 +15,7 @@ import {
 } from '@household/application'
 import {
   createDbAdHocNotificationRepository,
+  createDbAuditNotificationRepository,
   createDbAnonymousFeedbackRepository,
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
@@ -171,19 +173,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository
         })
       : null
-  const miniAppAdminService = householdConfigurationRepositoryClient
-    ? createMiniAppAdminService(
-        householdConfigurationRepositoryClient.repository,
-        scheduledDispatchService ?? undefined,
-        {
-          resolveEffectiveFromPeriod: async (householdId) => {
-            const repository = financeRepositoryForHousehold(householdId).repository
-            const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
-            return cycle?.period ?? null
-          }
-        }
-      )
-    : null
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
     : null
@@ -243,6 +232,35 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const adHocNotificationRepositoryClient = runtime.databaseUrl
     ? createDbAdHocNotificationRepository(runtime.databaseUrl)
     : null
+  const auditNotificationRepositoryClient = runtime.databaseUrl
+    ? createDbAuditNotificationRepository(runtime.databaseUrl)
+    : null
+  const auditNotificationService =
+    auditNotificationRepositoryClient && householdConfigurationRepositoryClient
+      ? createHouseholdAuditNotificationService({
+          repository: auditNotificationRepositoryClient.repository,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          sendTopicMessage: async (input) => {
+            const threadId = input.threadId ? Number(input.threadId) : undefined
+            const message = await bot.api.sendMessage(input.chatId, input.text, {
+              ...(threadId && Number.isInteger(threadId)
+                ? {
+                    message_thread_id: threadId
+                  }
+                : {}),
+              ...(input.replyMarkup
+                ? {
+                    reply_markup: input.replyMarkup as never
+                  }
+                : {})
+            })
+            return {
+              telegramMessageId: String(message.message_id)
+            }
+          },
+          logger: getLogger('audit-notifications')
+        })
+      : null
   const adHocNotificationService =
     adHocNotificationRepositoryClient && householdConfigurationRepositoryClient
       ? createAdHocNotificationService({
@@ -255,6 +273,20 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             : {})
         })
       : null
+  const miniAppAdminService = householdConfigurationRepositoryClient
+    ? createMiniAppAdminService(
+        householdConfigurationRepositoryClient.repository,
+        scheduledDispatchService ?? undefined,
+        {
+          resolveEffectiveFromPeriod: async (householdId) => {
+            const repository = financeRepositoryForHousehold(householdId).repository
+            const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
+            return cycle?.period ?? null
+          }
+        },
+        auditNotificationRepositoryClient?.repository
+      )
+    : null
 
   function financeServiceForHousehold(householdId: string) {
     const existing = financeServices.get(householdId)
@@ -336,6 +368,9 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   if (topicMessageHistoryRepositoryClient) {
     shutdownTasks.push(topicMessageHistoryRepositoryClient.close)
   }
+  if (auditNotificationRepositoryClient) {
+    shutdownTasks.push(auditNotificationRepositoryClient.close)
+  }
 
   if (adHocNotificationRepositoryClient) {
     shutdownTasks.push(adHocNotificationRepositoryClient.close)
@@ -368,6 +403,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               interpreter: purchaseInterpreter
             }
           : {}),
+        ...(auditNotificationService ? { auditNotificationService } : {}),
         logger: getLogger('purchase-ingestion')
       }
     )
@@ -391,7 +427,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
                 : {})
             }
           : {}),
-        logger: getLogger('payment-ingestion')
+        logger: getLogger('payment-ingestion'),
+        ...(auditNotificationService ? { auditNotificationService } : {})
       }
     )
   } else {
@@ -418,7 +455,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             miniAppUrl: runtime.miniAppUrl,
             botUsername: bot.botInfo?.username
           }
-        : {})
+        : {}),
+      ...(auditNotificationService ? { auditNotificationService } : {})
     })
 
     financeCommands.register(bot)
@@ -512,6 +550,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           sendDirectMessage: async (input) => {
             await bot.api.sendMessage(input.telegramUserId, input.text)
           },
+          ...(auditNotificationService
+            ? {
+                auditNotificationService
+              }
+            : {}),
           ...(runtime.miniAppUrl
             ? {
                 miniAppUrl: runtime.miniAppUrl
@@ -818,6 +861,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -827,6 +871,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -836,6 +881,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -845,6 +891,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -854,6 +901,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -863,6 +911,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -872,6 +921,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -892,6 +942,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             onboardingService: householdOnboardingService,
             financeServiceForHousehold,
             adHocNotificationService,
+            ...(auditNotificationService ? { auditNotificationService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -909,6 +960,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             onboardingService: householdOnboardingService,
             financeServiceForHousehold,
             adHocNotificationService,
+            ...(auditNotificationService ? { auditNotificationService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -926,6 +978,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             onboardingService: householdOnboardingService,
             financeServiceForHousehold,
             adHocNotificationService,
+            ...(auditNotificationService ? { auditNotificationService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -941,6 +994,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -950,6 +1004,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -959,6 +1014,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -968,6 +1024,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -977,6 +1034,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
+          ...(auditNotificationService ? { auditNotificationService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,

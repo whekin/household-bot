@@ -84,6 +84,14 @@ export interface MiniAppAssistantConfig {
   assistantTone: string | null
 }
 
+export interface MiniAppNotificationSettings {
+  householdId: string
+  periodEvents: boolean
+  planEvents: boolean
+  purchaseEvents: boolean
+  paymentEvents: boolean
+}
+
 export interface MiniAppUtilityCategory {
   id: string
   householdId: string
@@ -98,7 +106,7 @@ export interface MiniAppUtilityCategory {
 }
 
 export interface MiniAppTopicBinding {
-  role: 'purchase' | 'feedback' | 'reminders' | 'payments'
+  role: 'purchase' | 'feedback' | 'reminders' | 'payments' | 'notifications'
   telegramThreadId: string
   topicName: string | null
 }
@@ -259,6 +267,7 @@ export interface MiniAppAdminSettingsPayload {
   householdName: string
   settings: MiniAppBillingSettings
   assistantConfig: MiniAppAssistantConfig
+  notificationSettings: MiniAppNotificationSettings
   topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
   members: readonly MiniAppMember[]
@@ -599,6 +608,7 @@ export async function fetchMiniAppAdminSettings(
     householdName?: string
     settings?: MiniAppBillingSettings
     assistantConfig?: MiniAppAssistantConfig
+    notificationSettings?: MiniAppNotificationSettings
     topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
     members?: MiniAppMember[]
@@ -611,6 +621,7 @@ export async function fetchMiniAppAdminSettings(
     !payload.householdName ||
     !payload.settings ||
     !payload.assistantConfig ||
+    !payload.notificationSettings ||
     !payload.topics ||
     !payload.categories ||
     !payload.members
@@ -622,6 +633,7 @@ export async function fetchMiniAppAdminSettings(
     householdName: payload.householdName,
     settings: payload.settings,
     assistantConfig: payload.assistantConfig,
+    notificationSettings: payload.notificationSettings,
     topics: payload.topics,
     categories: payload.categories,
     members: payload.members
@@ -645,11 +657,18 @@ export async function updateMiniAppBillingSettings(
     rentPaymentDestinations?: readonly MiniAppRentPaymentDestination[] | null
     assistantContext?: string
     assistantTone?: string
+    notificationSettings?: {
+      periodEvents?: boolean
+      planEvents?: boolean
+      purchaseEvents?: boolean
+      paymentEvents?: boolean
+    }
   }
 ): Promise<{
   householdName: string
   settings: MiniAppBillingSettings
   assistantConfig: MiniAppAssistantConfig
+  notificationSettings: MiniAppNotificationSettings
 }> {
   const response = await fetch(`${apiBaseUrl()}/api/miniapp/admin/settings/update`, {
     method: 'POST',
@@ -668,6 +687,7 @@ export async function updateMiniAppBillingSettings(
     householdName?: string
     settings?: MiniAppBillingSettings
     assistantConfig?: MiniAppAssistantConfig
+    notificationSettings?: MiniAppNotificationSettings
     error?: string
   }
 
@@ -676,7 +696,8 @@ export async function updateMiniAppBillingSettings(
     !payload.authorized ||
     !payload.householdName ||
     !payload.settings ||
-    !payload.assistantConfig
+    !payload.assistantConfig ||
+    !payload.notificationSettings
   ) {
     throw new Error(payload.error ?? 'Failed to update billing settings')
   }
@@ -684,7 +705,8 @@ export async function updateMiniAppBillingSettings(
   return {
     householdName: payload.householdName,
     settings: payload.settings,
-    assistantConfig: payload.assistantConfig
+    assistantConfig: payload.assistantConfig,
+    notificationSettings: payload.notificationSettings
   }
 }
 

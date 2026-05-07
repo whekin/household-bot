@@ -99,6 +99,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
           return 'Напоминания'
         case 'payments':
           return 'Оплаты'
+        case 'notifications':
+          return 'Уведомления'
       }
     },
     setupTopicSuggestedName: (role) => {
@@ -113,6 +115,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
           return 'Напоминания'
         case 'payments':
           return 'Оплаты'
+        case 'notifications':
+          return 'Уведомления'
       }
     },
     onlyTelegramAdminsUnsetup: 'Только админы Telegram-группы могут запускать /unsetup.',

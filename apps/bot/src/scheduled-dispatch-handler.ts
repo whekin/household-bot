@@ -1,4 +1,7 @@
-import type { ScheduledDispatchService } from '@household/application'
+import type {
+  HouseholdAuditNotificationService,
+  ScheduledDispatchService
+} from '@household/application'
 import { BillingPeriod, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -71,6 +74,7 @@ export function createScheduledDispatchHandler(options: {
     replyMarkup?: InlineKeyboardMarkup
   }) => Promise<void>
   sendDirectMessage: (input: { telegramUserId: string; text: string }) => Promise<void>
+  auditNotificationService?: HouseholdAuditNotificationService
   miniAppUrl?: string
   botUsername?: string
   logger?: Logger
@@ -228,17 +232,38 @@ export function createScheduledDispatchHandler(options: {
           : {})
       })
 
-      await options.sendTopicMessage({
-        householdId: dispatch.householdId,
-        chatId: chat.telegramChatId,
-        threadId: reminderTopic?.telegramThreadId ?? null,
-        text: content.text,
-        ...(content.replyMarkup
-          ? {
-              replyMarkup: content.replyMarkup
-            }
-          : {})
-      })
+      if (options.auditNotificationService) {
+        await options.auditNotificationService.recordEvent({
+          householdId: dispatch.householdId,
+          actorMemberId: null,
+          actorDisplayName: 'System',
+          eventType: `period.${dispatch.kind}`,
+          category: 'period_events',
+          summaryText: content.text,
+          metadata: {
+            dispatchId: dispatch.id,
+            kind: dispatch.kind,
+            period: dispatch.period ?? null
+          },
+          ...(content.replyMarkup
+            ? {
+                replyMarkup: content.replyMarkup
+              }
+            : {})
+        })
+      } else {
+        await options.sendTopicMessage({
+          householdId: dispatch.householdId,
+          chatId: chat.telegramChatId,
+          threadId: reminderTopic?.telegramThreadId ?? null,
+          text: content.text,
+          ...(content.replyMarkup
+            ? {
+                replyMarkup: content.replyMarkup
+              }
+            : {})
+        })
+      }
 
       await options.scheduledDispatchService.markDispatchSent(dispatch.id, currentNow)
       await options.scheduledDispatchService.reconcileHouseholdBuiltInDispatches(

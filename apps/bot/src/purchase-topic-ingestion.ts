@@ -8,6 +8,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
+import type { HouseholdAuditNotificationService } from '@household/application'
 import type {
   HouseholdConfigurationRepository,
   HouseholdTopicBindingRecord,
@@ -2415,7 +2416,8 @@ function registerPurchaseProposalCallbacks(
   bot: Bot,
   repository: PurchaseMessageIngestionRepository,
   resolveLocale: (householdId: string) => Promise<BotLocale>,
-  logger?: Logger
+  logger?: Logger,
+  auditNotificationService?: HouseholdAuditNotificationService
 ): void {
   bot.callbackQuery(
     new RegExp(`^${PURCHASE_PAYER_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
@@ -2589,6 +2591,32 @@ function registerPurchaseProposalCallbacks(
       })
     }
 
+    if (result.status === 'confirmed' && auditNotificationService) {
+      const amountText =
+        result.parsedAmountMinor !== null && result.parsedCurrency
+          ? `${Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency).toMajorString()} ${
+              result.parsedCurrency
+            }`
+          : ''
+      await auditNotificationService.recordEvent({
+        householdId: result.householdId,
+        actorMemberId: null,
+        actorDisplayName: ctx.from?.first_name ?? 'Someone',
+        eventType: 'purchase.confirmed',
+        category: 'purchase_events',
+        summaryText: `${ctx.from?.first_name ?? 'Someone'} confirmed purchase: ${
+          result.parsedItemDescription ?? 'shared purchase'
+        } ${amountText}`.trim(),
+        metadata: {
+          purchaseMessageId: result.purchaseMessageId,
+          actorTelegramUserId,
+          amountMinor: result.parsedAmountMinor?.toString() ?? null,
+          currency: result.parsedCurrency,
+          description: result.parsedItemDescription
+        }
+      })
+    }
+
     logger?.info(
       {
         event: 'purchase.confirmation',
@@ -2728,6 +2756,7 @@ export function registerPurchaseTopicIngestion(
     memoryStore?: AssistantConversationMemoryStore
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
+    auditNotificationService?: HouseholdAuditNotificationService
   } = {}
 ): void {
   void registerPurchaseProposalCallbacks(bot, repository, async () => 'en', options.logger)
@@ -2871,13 +2900,15 @@ export function registerConfiguredPurchaseTopicIngestion(
     memoryStore?: AssistantConversationMemoryStore
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
+    auditNotificationService?: HouseholdAuditNotificationService
   } = {}
 ): void {
   void registerPurchaseProposalCallbacks(
     bot,
     repository,
     async (householdId) => resolveHouseholdLocale(householdConfigurationRepository, householdId),
-    options.logger
+    options.logger,
+    options.auditNotificationService
   )
 
   bot.on('message', async (ctx, next) => {

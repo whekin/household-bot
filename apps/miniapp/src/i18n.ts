@@ -353,8 +353,16 @@ export const dictionary = {
     topicFeedback: 'Feedback',
     topicReminders: 'Reminders',
     topicPayments: 'Payments',
+    topicNotifications: 'Notifications',
     topicBound: 'Bound',
     topicUnbound: 'Unbound',
+    notificationSettingsTitle: 'Action notifications',
+    notificationSettingsBody:
+      'Choose which short audit updates are posted to the notifications topic.',
+    notificationPeriodEvents: 'Periods',
+    notificationPlanEvents: 'Plans',
+    notificationPurchaseEvents: 'Purchases',
+    notificationPaymentEvents: 'Payments',
     billingSettingsTitle: 'Billing settings',
     assistantSettingsTitle: 'Bot personality',
     assistantSettingsBody:
@@ -868,8 +876,16 @@ export const dictionary = {
     topicFeedback: 'Обратная связь',
     topicReminders: 'Напоминания',
     topicPayments: 'Оплаты',
+    topicNotifications: 'Уведомления',
     topicBound: 'Привязан',
     topicUnbound: 'Не привязан',
+    notificationSettingsTitle: 'Уведомления о действиях',
+    notificationSettingsBody:
+      'Выбери, какие короткие аудиторские обновления отправлять в топик уведомлений.',
+    notificationPeriodEvents: 'Периоды',
+    notificationPlanEvents: 'Планы',
+    notificationPurchaseEvents: 'Покупки',
+    notificationPaymentEvents: 'Оплаты',
     billingSettingsTitle: 'Настройки биллинга',
     assistantSettingsTitle: 'Характер бота',
     assistantSettingsBody:

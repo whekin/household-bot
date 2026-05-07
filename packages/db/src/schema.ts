@@ -908,6 +908,65 @@ export const memberBalanceLedgerEntries = pgTable(
   })
 )
 
+export const householdNotificationSettings = pgTable(
+  'household_notification_settings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    periodEvents: integer('period_events').default(1).notNull(),
+    planEvents: integer('plan_events').default(1).notNull(),
+    purchaseEvents: integer('purchase_events').default(1).notNull(),
+    paymentEvents: integer('payment_events').default(1).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdUnique: uniqueIndex('household_notification_settings_household_unique').on(
+      table.householdId
+    )
+  })
+)
+
+export const householdAuditEvents = pgTable(
+  'household_audit_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    actorMemberId: uuid('actor_member_id').references(() => members.id, {
+      onDelete: 'set null'
+    }),
+    actorDisplayName: text('actor_display_name').notNull(),
+    eventType: text('event_type').notNull(),
+    category: text('category').notNull(),
+    summaryText: text('summary_text').notNull(),
+    metadata: jsonb('metadata')
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    deliveryStatus: text('delivery_status').default('pending').notNull(),
+    deliveredTelegramChatId: text('delivered_telegram_chat_id'),
+    deliveredTelegramThreadId: text('delivered_telegram_thread_id'),
+    deliveredTelegramMessageId: text('delivered_telegram_message_id'),
+    deliveryError: text('delivery_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdCreatedIdx: index('household_audit_events_household_created_idx').on(
+      table.householdId,
+      table.createdAt
+    ),
+    householdCategoryIdx: index('household_audit_events_household_category_idx').on(
+      table.householdId,
+      table.category,
+      table.createdAt
+    ),
+    actorIdx: index('household_audit_events_actor_idx').on(table.actorMemberId)
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {
@@ -982,4 +1041,6 @@ export type UtilityVendorPaymentFact = typeof utilityVendorPaymentFacts.$inferSe
 export type UtilityReimbursementFact = typeof utilityReimbursementFacts.$inferSelect
 export type PaymentPurchaseAllocation = typeof paymentPurchaseAllocations.$inferSelect
 export type MemberBalanceLedgerEntry = typeof memberBalanceLedgerEntries.$inferSelect
+export type HouseholdNotificationSettings = typeof householdNotificationSettings.$inferSelect
+export type HouseholdAuditEvent = typeof householdAuditEvents.$inferSelect
 export type Settlement = typeof settlements.$inferSelect

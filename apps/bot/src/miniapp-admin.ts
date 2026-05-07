@@ -3,7 +3,8 @@ import type { Logger } from '@household/observability'
 import {
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   type HouseholdBillingSettingsRecord,
-  type HouseholdMemberLifecycleStatus
+  type HouseholdMemberLifecycleStatus,
+  type HouseholdNotificationSettingsRecord
 } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 import type { AssistantUsageTracker } from './dm-assistant'
@@ -61,6 +62,12 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
   rentPaymentDestinations?: unknown
   assistantContext?: string
   assistantTone?: string
+  notificationSettings?: {
+    periodEvents?: boolean
+    planEvents?: boolean
+    purchaseEvents?: boolean
+    paymentEvents?: boolean
+  }
 }> {
   const clonedRequest = request.clone()
   const payload = await readMiniAppRequestPayload(request)
@@ -84,6 +91,12 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     rentPaymentDestinations?: unknown
     assistantContext?: string
     assistantTone?: string
+    notificationSettings?: {
+      periodEvents?: boolean
+      planEvents?: boolean
+      purchaseEvents?: boolean
+      paymentEvents?: boolean
+    }
   }
   try {
     parsed = JSON.parse(text)
@@ -141,6 +154,34 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
     ...(parsed.rentPaymentDestinations !== undefined
       ? {
           rentPaymentDestinations: parsed.rentPaymentDestinations
+        }
+      : {}),
+    ...(parsed.notificationSettings !== null &&
+    parsed.notificationSettings !== undefined &&
+    typeof parsed.notificationSettings === 'object'
+      ? {
+          notificationSettings: {
+            ...(typeof parsed.notificationSettings.periodEvents === 'boolean'
+              ? {
+                  periodEvents: parsed.notificationSettings.periodEvents
+                }
+              : {}),
+            ...(typeof parsed.notificationSettings.planEvents === 'boolean'
+              ? {
+                  planEvents: parsed.notificationSettings.planEvents
+                }
+              : {}),
+            ...(typeof parsed.notificationSettings.purchaseEvents === 'boolean'
+              ? {
+                  purchaseEvents: parsed.notificationSettings.purchaseEvents
+                }
+              : {}),
+            ...(typeof parsed.notificationSettings.paymentEvents === 'boolean'
+              ? {
+                  paymentEvents: parsed.notificationSettings.paymentEvents
+                }
+              : {})
+          }
         }
       : {}),
     rentDueDay: parsed.rentDueDay,
@@ -419,6 +460,16 @@ function serializeAssistantConfig(config: {
   }
 }
 
+function serializeNotificationSettings(settings: HouseholdNotificationSettingsRecord) {
+  return {
+    householdId: settings.householdId,
+    periodEvents: settings.periodEvents,
+    planEvents: settings.planEvents,
+    purchaseEvents: settings.purchaseEvents,
+    paymentEvents: settings.paymentEvents
+  }
+}
+
 async function authenticateAdminSession(
   request: Request,
   sessionService: ReturnType<typeof createMiniAppSessionService>,
@@ -589,6 +640,7 @@ export function createMiniAppSettingsHandler(options: {
             householdName: result.householdName,
             settings: serializeBillingSettings(result.settings),
             assistantConfig: serializeAssistantConfig(result.assistantConfig),
+            notificationSettings: serializeNotificationSettings(result.notificationSettings),
             topics: result.topics,
             categories: result.categories,
             members: result.members,
@@ -710,6 +762,11 @@ export function createMiniAppUpdateSettingsHandler(options: {
             ? {
                 assistantTone: payload.assistantTone
               }
+            : {}),
+          ...(payload.notificationSettings !== undefined
+            ? {
+                notificationSettings: payload.notificationSettings
+              }
             : {})
         })
 
@@ -733,7 +790,8 @@ export function createMiniAppUpdateSettingsHandler(options: {
             authorized: true,
             householdName: result.householdName,
             settings: serializeBillingSettings(result.settings),
-            assistantConfig: serializeAssistantConfig(result.assistantConfig)
+            assistantConfig: serializeAssistantConfig(result.assistantConfig),
+            notificationSettings: serializeNotificationSettings(result.notificationSettings)
           },
           200,
           origin

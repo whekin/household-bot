@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import { Temporal } from '@household/domain'
+import type {
+  HouseholdAuditNotificationRepository,
+  HouseholdConfigurationRepository,
+  HouseholdNotificationSettingsRecord
+} from '@household/ports'
 
 import { createMiniAppAdminService } from './miniapp-admin-service'
 
@@ -294,6 +299,47 @@ function repository(): HouseholdConfigurationRepository {
   }
 }
 
+function auditNotificationRepository(): HouseholdAuditNotificationRepository & {
+  settings: HouseholdNotificationSettingsRecord
+} {
+  const now = Temporal.Instant.from('2026-03-24T00:00:00Z')
+  let settings: HouseholdNotificationSettingsRecord = {
+    householdId: 'household-1',
+    periodEvents: true,
+    planEvents: true,
+    purchaseEvents: true,
+    paymentEvents: true,
+    createdAt: now,
+    updatedAt: now
+  }
+  const repository = {
+    get settings() {
+      return settings
+    },
+    set settings(value) {
+      settings = value
+    },
+    createAuditEvent: async () => {
+      throw new Error('not used')
+    },
+    getNotificationSettings: async () => settings,
+    updateNotificationSettings: async (input) => {
+      settings = {
+        ...settings,
+        ...input
+      }
+      return settings
+    },
+    updateAuditEventDelivery: async () => {
+      throw new Error('not used')
+    },
+    listAuditEventsForHousehold: async () => []
+  } satisfies HouseholdAuditNotificationRepository & {
+    settings: HouseholdNotificationSettingsRecord
+  }
+  return repository
+}
+
 describe('createMiniAppAdminService', () => {
   test('returns billing settings, topic bindings, utility categories, and members for admins', async () => {
     const service = createMiniAppAdminService(repository())
@@ -324,6 +370,13 @@ describe('createMiniAppAdminService', () => {
         assistantContext: 'House in Kojori',
         assistantTone: 'Playful'
       },
+      notificationSettings: expect.objectContaining({
+        householdId: 'household-1',
+        periodEvents: true,
+        planEvents: true,
+        purchaseEvents: true,
+        paymentEvents: true
+      }),
       topics: [
         {
           householdId: 'household-1',
@@ -385,8 +438,47 @@ describe('createMiniAppAdminService', () => {
         householdId: 'household-1',
         assistantContext: 'House in Kojori',
         assistantTone: 'Playful'
+      },
+      notificationSettings: expect.objectContaining({
+        householdId: 'household-1',
+        periodEvents: true,
+        planEvents: true,
+        purchaseEvents: true,
+        paymentEvents: true
+      })
+    })
+  })
+
+  test('updates notification category settings for admins', async () => {
+    const auditRepository = auditNotificationRepository()
+    const service = createMiniAppAdminService(repository(), undefined, undefined, auditRepository)
+
+    const result = await service.updateSettings({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      rentDueDay: 21,
+      rentWarningDay: 18,
+      utilitiesDueDay: 5,
+      utilitiesReminderDay: 4,
+      timezone: 'Asia/Tbilisi',
+      notificationSettings: {
+        purchaseEvents: false,
+        paymentEvents: false
       }
     })
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      notificationSettings: {
+        householdId: 'household-1',
+        periodEvents: true,
+        planEvents: true,
+        purchaseEvents: false,
+        paymentEvents: false
+      }
+    })
+    expect(auditRepository.settings.purchaseEvents).toBe(false)
+    expect(auditRepository.settings.paymentEvents).toBe(false)
   })
 
   test('rejects invalid timezones when updating billing settings', async () => {
