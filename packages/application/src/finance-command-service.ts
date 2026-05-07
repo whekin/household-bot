@@ -1630,6 +1630,7 @@ async function computeMemberOverduePayments(input: {
   members: readonly HouseholdMemberRecord[]
   memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
+  currentUtilityPlan: UtilityBillingPlanComputed | null
 }): Promise<ReadonlyMap<string, readonly FinanceMemberOverduePaymentRecord[]>> {
   const localDate = localDateInTimezone(input.settings.timezone)
   const overdueByMemberId = new Map<string, MutableOverdueSummary>()
@@ -1653,6 +1654,14 @@ async function computeMemberOverduePayments(input: {
       BillingPeriod.fromString(cycle.period),
       input.settings.utilitiesDueDay
     )
+    const currentUtilityPlanSummaryByMemberId =
+      cycle.id === input.currentCycle.id && input.currentUtilityPlan
+        ? new Map(
+            input.currentUtilityPlan.memberSummaries.map(
+              (summary) => [summary.memberId, summary] as const
+            )
+          )
+        : null
 
     for (const line of baseLines) {
       const current = overdueByMemberId.get(line.memberId) ?? {
@@ -1669,10 +1678,12 @@ async function computeMemberOverduePayments(input: {
         current.rent.periods.push(cycle.period)
       }
 
-      const utilityRemainingMinor = effectiveRemainingMinor(
-        line.utilityShare.amountMinor,
-        line.utilityPaid.amountMinor
-      )
+      const plannedUtilityRemainingMinor =
+        currentUtilityPlanSummaryByMemberId?.get(line.memberId)?.assignedThisCycle.amountMinor ??
+        null
+      const utilityRemainingMinor =
+        plannedUtilityRemainingMinor ??
+        effectiveRemainingMinor(line.utilityShare.amountMinor, line.utilityPaid.amountMinor)
       if (
         Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
         utilityRemainingMinor > 0n
@@ -2017,13 +2028,6 @@ async function buildFinanceDashboard(
   const previousSnapshotLines = previousCycle
     ? await dependencies.repository.getSettlementSnapshotLines(previousCycle.id)
     : []
-  const overduePaymentsByMemberId = await computeMemberOverduePayments({
-    dependencies,
-    currentCycle: cycle,
-    members,
-    memberPresenceDays,
-    settings
-  })
   const previousUtilityShareByMemberId = new Map(
     previousSnapshotLines.map((line) => [
       line.memberId,
@@ -2258,6 +2262,28 @@ async function buildFinanceDashboard(
       current.add(Money.fromMinor(payment.amountMinor, payment.currency))
     )
   }
+  const ensuredUtilityPlan = await ensureUtilityBillingPlan({
+    dependencies,
+    cycle,
+    members,
+    settings,
+    settlementLines: settlement.lines.map((line) => ({
+      memberId: line.memberId.toString(),
+      utilityShare: line.utilityShare,
+      purchaseOffset: line.purchaseOffset
+    })),
+    convertedUtilityBills,
+    purchaseIds: [...currentCyclePurchaseIds],
+    ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
+  })
+  const overduePaymentsByMemberId = await computeMemberOverduePayments({
+    dependencies,
+    currentCycle: cycle,
+    members,
+    memberPresenceDays,
+    settings,
+    currentUtilityPlan: ensuredUtilityPlan.computed
+  })
   const dashboardMembers = settlement.lines.map((line) => ({
     memberId: line.memberId.toString(),
     displayName: memberNameById.get(line.memberId.toString()) ?? line.memberId.toString(),
@@ -2280,20 +2306,6 @@ async function buildFinanceDashboard(
       })) ?? [],
     explanations: line.explanations
   }))
-  const ensuredUtilityPlan = await ensureUtilityBillingPlan({
-    dependencies,
-    cycle,
-    members,
-    settings,
-    settlementLines: settlement.lines.map((line) => ({
-      memberId: line.memberId.toString(),
-      utilityShare: line.utilityShare,
-      purchaseOffset: line.purchaseOffset
-    })),
-    convertedUtilityBills,
-    purchaseIds: [...currentCyclePurchaseIds],
-    ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
-  })
   const paymentPeriods = await buildPaymentPeriodSummaries({
     dependencies,
     currentCycle: cycle,
@@ -2835,11 +2847,14 @@ export function createFinanceCommandService(
     >
     existingPaymentRecords: Awaited<ReturnType<FinanceRepository['listPaymentRecordsForCycle']>>
   }): Promise<readonly string[]> {
+    const plannedSummary = input.utilityPlan.memberSummaries.find(
+      (summary) => summary.memberId === input.memberId
+    )
     const categories = input.utilityPlan.categories.filter(
       (category) =>
         category.assignedMemberId === input.memberId && category.assignedAmount.amountMinor > 0n
     )
-    if (categories.length === 0) {
+    if (!plannedSummary && categories.length === 0) {
       throw new Error('No planned utility bills assigned to this member')
     }
 
@@ -2900,6 +2915,18 @@ export function createFinanceCommandService(
       .sort((left, right) =>
         (right.recordedAt.toString() ?? '').localeCompare(left.recordedAt.toString() ?? '')
       )[0]
+    const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+      dependencies.householdId
+    )
+    const allocationResult = await allocatePaymentPurchaseOverage({
+      dependencies,
+      cyclePeriod: input.dashboard.period,
+      memberId: input.memberId,
+      kind: 'utilities',
+      paymentAmount:
+        plannedSummary?.fairShare ?? Money.fromMinor(paymentAmountMinor, input.dashboard.currency),
+      settings
+    })
     const payment =
       paymentAmountMinor > 0n
         ? await repository.addPaymentRecord({
@@ -2910,25 +2937,19 @@ export function createFinanceCommandService(
             currency: input.dashboard.currency,
             recordedAt: input.recordedAt
           })
-        : existingPaymentRecord
+        : (existingPaymentRecord ??
+          (allocationResult.allocations.length > 0
+            ? await repository.addPaymentRecord({
+                cycleId: input.cycle.id,
+                memberId: input.memberId,
+                kind: 'utilities',
+                amountMinor: 0n,
+                currency: input.dashboard.currency,
+                recordedAt: input.recordedAt
+              })
+            : undefined))
 
     if (payment) {
-      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
-        dependencies.householdId
-      )
-      const plannedSummary = input.utilityPlan.memberSummaries.find(
-        (summary) => summary.memberId === input.memberId
-      )
-      const allocationResult = await allocatePaymentPurchaseOverage({
-        dependencies,
-        cyclePeriod: input.dashboard.period,
-        memberId: input.memberId,
-        kind: 'utilities',
-        paymentAmount:
-          plannedSummary?.fairShare ??
-          Money.fromMinor(payment.amountMinor, input.dashboard.currency),
-        settings
-      })
       const existingAllocations = await repository.listPaymentPurchaseAllocations()
       const existingPaymentAllocations = existingAllocations.filter(
         (allocation) => allocation.paymentRecordId === payment.id
@@ -3534,11 +3555,12 @@ export function createFinanceCommandService(
       const utilityPlan = dashboard.utilityBillingPlan
       const memberIds = input.allMembers
         ? [
-            ...new Set(
-              utilityPlan.categories
+            ...new Set([
+              ...utilityPlan.categories
                 .filter((category) => category.assignedAmount.amountMinor > 0n)
-                .map((category) => category.assignedMemberId)
-            )
+                .map((category) => category.assignedMemberId),
+              ...utilityPlan.memberSummaries.map((summary) => summary.memberId)
+            ])
           ]
         : input.memberId
           ? [input.memberId]

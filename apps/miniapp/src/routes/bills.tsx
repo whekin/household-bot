@@ -623,7 +623,7 @@ export default function BillsRoute() {
                                 : 'Rebalanced'}
                         </span>
                       </div>
-                      <Show when={currentMemberIsAdmin() && plan().status !== 'settled'}>
+                      <Show when={currentMemberIsAdmin()}>
                         <div class="statement-actions statement-actions--single">
                           <Button
                             variant="primary"

@@ -3079,6 +3079,261 @@ describe('createFinanceCommandService', () => {
     ).toBe(true)
   })
 
+  test('resolveUtilityBillAsPlanned full plan closes purchases for members covered by balance', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      {
+        id: 'stas',
+        telegramUserId: '3',
+        displayName: 'Stas',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-04', period: '2026-04', currency: 'GEL' },
+      { id: 'cycle-2026-05', period: '2026-05', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[1]!
+    repository.latestCycleRecord = repository.cycles[1]!
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'bob', period: '2026-05', daysPresent: 31 },
+      { memberId: 'stas', period: '2026-05', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-05',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-april',
+        cycleId: 'cycle-2026-04',
+        cyclePeriod: '2026-04',
+        payerMemberId: 'alice',
+        amountMinor: 1200n,
+        currency: 'GEL',
+        description: 'April supplies',
+        occurredAt: instantFromIso('2026-04-27T09:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-05',
+        version: 1,
+        status: 'active',
+        dueDate: '2026-05-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 3,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '20000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: false,
+              splitGroupId: 'bill-gas'
+            },
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '20000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'bob',
+              paidAmountMinor: '0',
+              isFullAssignment: false,
+              splitGroupId: 'bill-gas'
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'stas',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '10000' },
+            { memberId: 'bob', amountMinor: '10000' },
+            { memberId: 'stas', amountMinor: '0' }
+          ],
+          preferredUtilityPayerMemberId: null
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-05'
+    })
+
+    expect(repository.addedPaymentRecords).toContainEqual(
+      expect.objectContaining({
+        memberId: 'stas',
+        kind: 'utilities',
+        amountMinor: 0n
+      })
+    )
+    expect(repository.paymentPurchaseAllocations).toContainEqual(
+      expect.objectContaining({
+        purchaseId: 'purchase-april',
+        memberId: 'stas',
+        amountMinor: 400n,
+        resolutionMethod: 'utilities_plan',
+        resolutionPlanId: 'utility-plan-1'
+      })
+    )
+    expect(repository.utilityBillingPlans[0]?.status).toBe('settled')
+  })
+
+  test('generateDashboard does not show overdue utilities when the current plan covered them', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'stas',
+        telegramUserId: '2',
+        displayName: 'Stas',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-05',
+      period: '2026-05',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'stas', period: '2026-05', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-05',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-05',
+        version: 1,
+        status: 'active',
+        dueDate: '2026-05-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 3,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '20000',
+              assignedAmountMinor: '20000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '20000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '20000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'stas',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '20000' },
+            { memberId: 'stas', amountMinor: '0' }
+          ],
+          preferredUtilityPayerMemberId: null
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-05')
+    const stas = dashboard?.members.find((member) => member.memberId === 'stas')
+
+    expect(stas?.utilityShare.amountMinor).toBeGreaterThan(0n)
+    expect(stas?.overduePayments.find((payment) => payment.kind === 'utilities')).toBeUndefined()
+  })
+
   test('new purchases and utility bills do not replan after a planned utility payment', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
