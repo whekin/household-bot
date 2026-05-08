@@ -3074,7 +3074,8 @@ a {
 .activity-card__item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
   padding: var(--spacing-sm) 0;
   border-bottom: 1px solid var(--border);
   font-size: var(--text-sm);
@@ -3084,15 +3085,34 @@ a {
   border-bottom: 0;
 }
 
+.activity-card__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.activity-card__title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .activity-card__title {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.activity-card__meta {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
 }
 
 .activity-card__amount {
   color: var(--text-secondary);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 .activity-card__show-more {

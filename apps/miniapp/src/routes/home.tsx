@@ -236,6 +236,23 @@ function notificationInputValue(iso: string, timeZone: string) {
   return `${dateKey(target)}T${String(target.hour).padStart(2, '0')}:${String(target.minute).padStart(2, '0')}`
 }
 
+function activityKindLabel(
+  entry: MiniAppDashboard['ledger'][number],
+  copy: ReturnType<typeof useI18n>['copy']
+) {
+  if (entry.kind === 'payment') {
+    if (entry.paymentKind === 'rent') return copy().paymentLedgerRent
+    if (entry.paymentKind === 'utilities') return copy().paymentLedgerUtilities
+    return copy().paymentsTitle
+  }
+
+  if (entry.kind === 'utility') {
+    return copy().homeUtilitiesBillsTitle
+  }
+
+  return copy().purchasesTitle
+}
+
 export default function HomeRoute() {
   const navigate = useNavigate()
   const { readySession, initData, handleMiniAppRequestError } = useSession()
@@ -293,6 +310,9 @@ export default function HomeRoute() {
   )
 
   const activeHouseholdMembers = createMemo(() => dashboard()?.members ?? [])
+  const memberNamesById = createMemo(
+    () => new Map(activeHouseholdMembers().map((member) => [member.memberId, member.displayName]))
+  )
   const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
   const utilityCategoryByName = createMemo(
     () =>
@@ -2032,18 +2052,42 @@ export default function HomeRoute() {
                       <For
                         each={showAllActivity() ? latestActivity() : latestActivity().slice(0, 5)}
                       >
-                        {(entry) => (
-                          <div class="activity-card__item">
-                            <span class="activity-card__title">{entry.title}</span>
-                            <span class="activity-card__amount">
-                              {formatMoneyLabel(
-                                entry.displayAmountMajor,
-                                entry.displayCurrency,
-                                locale()
-                              )}
-                            </span>
-                          </div>
-                        )}
+                        {(entry) => {
+                          const actorLabel =
+                            entry.actorDisplayName ??
+                            (entry.memberId ? memberNamesById().get(entry.memberId) : null) ??
+                            copy().ledgerActorFallback
+                          const metaParts = [
+                            actorLabel,
+                            entry.occurredAt
+                              ? formatFriendlyDate(entry.occurredAt, locale())
+                              : null,
+                            entry.kind === 'payment' && entry.memberId
+                              ? memberNamesById().get(entry.memberId) !== actorLabel
+                                ? memberNamesById().get(entry.memberId)
+                                : null
+                              : null
+                          ].filter(Boolean)
+
+                          return (
+                            <div class="activity-card__item">
+                              <div class="activity-card__copy">
+                                <div class="activity-card__title-line">
+                                  <span class="activity-card__title">{entry.title}</span>
+                                  <Badge variant="muted">{activityKindLabel(entry, copy)}</Badge>
+                                </div>
+                                <span class="activity-card__meta">{metaParts.join(' · ')}</span>
+                              </div>
+                              <span class="activity-card__amount">
+                                {formatMoneyLabel(
+                                  entry.displayAmountMajor,
+                                  entry.displayCurrency,
+                                  locale()
+                                )}
+                              </span>
+                            </div>
+                          )
+                        }}
                       </For>
                     </div>
                     <Show when={latestActivity().length > 5}>
