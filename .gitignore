@@ -44,6 +44,12 @@ infra/pulumi/aws/.pulumi
 # omx runtime state
 .omx
 
+# Oh My OpenAgent local runtime state
+.sisyphus/
+.sysphus/
+.omo/
+.opencode/
+
 # Codex local runtime config
 .codex
 
