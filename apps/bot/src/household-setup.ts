@@ -17,6 +17,12 @@ import type { Bot, Context } from 'grammy'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import {
+  TELEGRAM_HOME_BALANCES_CALLBACK,
+  TELEGRAM_HOME_HELP_CALLBACK,
+  TELEGRAM_HOME_MY_BILL_CALLBACK,
+  TELEGRAM_HOME_STATUS_CALLBACK
+} from './telegram-commands'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
@@ -421,6 +427,79 @@ function openMiniAppReplyMarkup(
     : {}
 }
 
+function telegramHomeReply(input: {
+  locale: BotLocale
+  isPrivate: boolean
+  miniAppUrl: string | undefined
+  botUsername: string | undefined
+}) {
+  const t = getBotTranslations(input.locale).home
+  const rows: Array<
+    Array<{ text: string; callback_data: string } | { text: string; web_app: { url: string } }>
+  > = [
+    [
+      {
+        text: t.myBillButton,
+        callback_data: TELEGRAM_HOME_MY_BILL_CALLBACK
+      },
+      {
+        text: t.householdStatusButton,
+        callback_data: TELEGRAM_HOME_STATUS_CALLBACK
+      }
+    ],
+    [
+      {
+        text: t.balancesButton,
+        callback_data: TELEGRAM_HOME_BALANCES_CALLBACK
+      }
+    ]
+  ]
+  const webAppUrl = input.isPrivate
+    ? buildOpenMiniAppUrl(input.miniAppUrl, input.botUsername)
+    : null
+
+  if (webAppUrl) {
+    rows.push([
+      {
+        text: t.miniAppButton,
+        web_app: {
+          url: webAppUrl
+        }
+      }
+    ])
+  }
+
+  rows.push([
+    {
+      text: t.helpButton,
+      callback_data: TELEGRAM_HOME_HELP_CALLBACK
+    }
+  ])
+
+  return {
+    text: [t.title, input.isPrivate ? t.introPrivate : t.introGroup].join('\n\n'),
+    reply_markup: {
+      inline_keyboard: rows
+    }
+  }
+}
+
+async function replyWithTelegramHome(input: {
+  ctx: Context
+  locale: BotLocale
+  miniAppUrl: string | undefined
+}) {
+  const reply = telegramHomeReply({
+    locale: input.locale,
+    isPrivate: input.ctx.chat?.type === 'private',
+    miniAppUrl: input.miniAppUrl,
+    botUsername: input.ctx.me.username
+  })
+  await input.ctx.reply(reply.text, {
+    reply_markup: reply.reply_markup
+  })
+}
+
 export function registerHouseholdSetupCommands(options: {
   bot: Bot
   householdSetupService: HouseholdSetupService
@@ -521,7 +600,11 @@ export function registerHouseholdSetupCommands(options: {
         return
       }
 
-      await ctx.reply(t.common.useHelp)
+      await replyWithTelegramHome({
+        ctx,
+        locale,
+        miniAppUrl: options.miniAppUrl
+      })
       return
     }
 
@@ -1239,6 +1322,19 @@ export function registerHouseholdSetupCommands(options: {
         ctx.chat?.type === 'private'
       )
     )
+  })
+
+  options.bot.command('home', async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+
+    await replyWithTelegramHome({
+      ctx,
+      locale,
+      miniAppUrl: options.miniAppUrl
+    })
   })
 
   options.bot.command('keyboard', async (ctx) => {

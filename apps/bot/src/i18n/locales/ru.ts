@@ -4,7 +4,8 @@ import { formatUserFacingMoney } from '../money'
 export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
   commands: {
-    help: 'Показать список команд',
+    help: 'Показать подсказки по задачам',
+    home: 'Открыть центр управления домом',
     bill: 'Показать общий счёт по дому',
     bill_full: 'Показать общий счёт со всеми покупками',
     my_bill: 'Показать только ваш текущий счёт',
@@ -27,10 +28,28 @@ export const ruBotTranslations: BotTranslationCatalog = {
     keyboard: 'Вкл/выкл кнопку дашборда'
   },
   help: {
-    intro: 'Бот для дома подключен.',
+    intro: 'Что вы хотите сделать?',
+    tasksHeading: 'Частые задачи:',
+    checkMyBill: '• Проверить, сколько вы должны: /my_bill',
+    checkHouseholdStatus: '• Посмотреть статус дома: /household_status',
+    checkBalances: '• Проверить балансы по покупкам: /balance',
+    openDashboard: '• Открыть центр управления: /home',
+    setupHousehold: '• Настроить группу дома: /setup',
+    manageMembers: '• Пригласить и подтвердить участников: /join_link, /pending_members',
+    advancedHeading: 'Расширенный список команд:',
     privateChatHeading: 'Личный чат:',
     groupHeading: 'Группа дома:',
     groupAdminsHeading: 'Админы группы:'
+  },
+  home: {
+    title: '🏡 Центр управления домом',
+    introPrivate: 'Используйте кнопки ниже для основных финансовых сценариев без записи данных.',
+    introGroup: 'Используйте кнопки ниже, чтобы управлять финансами дома прямо в Telegram.',
+    myBillButton: 'Мой счёт',
+    householdStatusButton: 'Статус дома',
+    balancesButton: 'Балансы',
+    miniAppButton: 'Открыть мини-приложение',
+    helpButton: 'Помощь'
   },
   common: {
     unableToIdentifySender: 'Не удалось определить отправителя для этой команды.',
@@ -244,7 +263,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     statementTotal: (amount, currency) => `Итого: ${formatUserFacingMoney(amount, currency)}`,
     statementFailed: (message) => `Не удалось построить выписку: ${message}`,
     utilitiesTopicRequired: 'Эта команда должна использоваться внутри топика.',
-    utilitiesNotLinked: 'Этот топик не привязан к домохозяйству.'
+    utilitiesNotLinked: 'Этот топик не привязан к домохозяйству.',
+    chooseHouseholdForBalances: 'Выберите дом для балансов:'
   },
   reminders: {
     utilities: (period) => `Напоминание по коммунальным платежам за ${period}`,

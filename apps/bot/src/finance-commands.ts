@@ -18,6 +18,11 @@ import {
   REMINDER_UTILITY_ACTION,
   REMINDER_UTILITY_ACTION_TTL_MS
 } from './reminder-topic-utilities'
+import {
+  TELEGRAM_HOME_BALANCES_CALLBACK,
+  TELEGRAM_HOME_MY_BILL_CALLBACK,
+  TELEGRAM_HOME_STATUS_CALLBACK
+} from './telegram-commands'
 
 type FinanceDashboardForBot = NonNullable<
   Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
@@ -29,6 +34,7 @@ const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
 const STATUS_SHOW_CALLBACK_PREFIX = 'status:show:'
 const STATUS_DETAILS_CALLBACK_PREFIX = 'status:details:'
 const STATUS_BALANCES_CALLBACK_PREFIX = 'status:balances:'
+const HOME_BALANCE_SHOW_CALLBACK_PREFIX = 'home:bal:'
 const BILL_SHOW_PENDING_ACTION = 'bill_command'
 const BILL_PENDING_ACTION_TTL_MS = 1000 * 60 * 60
 export const ASSISTANT_COMMAND_ACTION = 'assistant_command_suggestion'
@@ -883,6 +889,92 @@ export function createFinanceCommandsService(options: {
         index < memberBalances.length - 1 ? [block, ''] : [block]
       )
     ].join('\n')
+  }
+
+  async function replyWithBalances(input: {
+    ctx: Context
+    locale: BotLocale
+    service: FinanceCommandService
+    periodArg?: string
+  }) {
+    const t = getBotTranslations(input.locale).finance
+    const dashboard = await input.service.generateDashboard(input.periodArg)
+    if (!dashboard) {
+      await input.ctx.reply(t.noStatementCycle)
+      return
+    }
+
+    await input.ctx.reply(formatBalances(input.locale, dashboard))
+  }
+
+  async function replyWithRequestedBalances(input: { ctx: Context; locale: BotLocale }) {
+    const t = getBotTranslations(input.locale).finance
+    const telegramUserId = input.ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      await input.ctx.reply(t.unableToIdentifySender)
+      return
+    }
+
+    if (isGroupChat(input.ctx)) {
+      const resolved = await requireMember(input.ctx)
+      if (!resolved) {
+        return
+      }
+
+      await replyWithBalances({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: resolved.service
+      })
+      return
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+    if (memberships.length === 0) {
+      await input.ctx.reply(t.notMember)
+      return
+    }
+
+    if (memberships.length === 1) {
+      await replyWithBalances({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: options.financeServiceForHousehold(memberships[0]!.householdId)
+      })
+      return
+    }
+
+    const households = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      }))
+    )
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'balances_choose',
+        choices: households.map(({ membership }) => ({
+          householdId: membership.householdId,
+          memberId: membership.id
+        }))
+      }
+    })
+    await input.ctx.reply(t.chooseHouseholdForBalances, {
+      reply_markup: {
+        inline_keyboard: households.map(({ membership, household }, index) => [
+          {
+            text: household?.householdName ?? membership.householdId,
+            callback_data: `${HOME_BALANCE_SHOW_CALLBACK_PREFIX}${index}`
+          }
+        ])
+      }
+    })
   }
 
   function formatHouseholdStatus(
@@ -2455,6 +2547,87 @@ export function createFinanceCommandsService(options: {
       }
     )
 
+    bot.callbackQuery(TELEGRAM_HOME_MY_BILL_CALLBACK, async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      await replyWithRequestedBillPlan({
+        ctx,
+        locale,
+        forcedMode: null,
+        showMode: 'viewer',
+        detailMode: 'compact'
+      })
+      await ctx.answerCallbackQuery()
+    })
+
+    bot.callbackQuery(TELEGRAM_HOME_STATUS_CALLBACK, async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      await replyWithRequestedHouseholdStatus({
+        ctx,
+        locale
+      })
+      await ctx.answerCallbackQuery()
+    })
+
+    bot.callbackQuery(TELEGRAM_HOME_BALANCES_CALLBACK, async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
+      await replyWithRequestedBalances({
+        ctx,
+        locale
+      })
+      await ctx.answerCallbackQuery()
+    })
+
+    bot.callbackQuery(
+      new RegExp(`^${HOME_BALANCE_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const choiceIndex = Number(
+          ctx.callbackQuery.data.slice(HOME_BALANCE_SHOW_CALLBACK_PREFIX.length)
+        )
+        if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const pendingAction = await getBillPendingAction(ctx)
+        const choices = Array.isArray(pendingAction?.payload.choices)
+          ? pendingAction.payload.choices
+          : []
+        const choice = choices[choiceIndex]
+        const householdId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.householdId
+            : null
+        if (!householdId) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId
+        })
+        await replyWithBalances({
+          ctx,
+          locale,
+          service: options.financeServiceForHousehold(householdId)
+        })
+        await ctx.answerCallbackQuery()
+      }
+    )
+
     bot.callbackQuery(
       new RegExp(`^${ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
@@ -2606,19 +2779,9 @@ export function createFinanceCommandsService(options: {
         repository: options.householdConfigurationRepository
       })
       const t = getBotTranslations(locale).finance
-      const resolved = await requireMember(ctx)
-      if (!resolved) {
-        return
-      }
 
       try {
-        const dashboard = await resolved.service.generateDashboard(commandArgs(ctx)[0])
-        if (!dashboard) {
-          await ctx.reply(t.noStatementCycle)
-          return
-        }
-
-        await ctx.reply(formatBalances(locale, dashboard))
+        await replyWithRequestedBalances({ ctx, locale })
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

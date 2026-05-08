@@ -589,6 +589,85 @@ describe('registerHouseholdSetupCommands', () => {
     })
   })
 
+  test('opens Telegram home from a plain private start payload', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createRejectedHouseholdSetupService(),
+      householdOnboardingService: {
+        async ensureHouseholdJoinToken() {
+          throw new Error('not used')
+        },
+        async getMiniAppAccess() {
+          throw new Error('not used')
+        },
+        async joinHousehold() {
+          throw new Error('not used')
+        }
+      },
+      householdAdminService: createHouseholdAdminService(),
+      miniAppUrl: 'https://miniapp.example.app'
+    })
+
+    await bot.handleUpdate(startUpdate('/start') as never)
+
+    const payload = calls[0]?.payload as
+      | {
+          text?: string
+          reply_markup?: {
+            inline_keyboard?: Array<
+              Array<{ text: string; callback_data?: string; web_app?: { url: string } }>
+            >
+          }
+        }
+      | undefined
+    expect(payload?.text).toContain('Household control center')
+    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
+      { text: 'My bill', callback_data: 'home:my_bill' },
+      { text: 'Household status', callback_data: 'home:status' }
+    ])
+    expect(payload?.reply_markup?.inline_keyboard?.[1]).toEqual([
+      { text: 'Balances', callback_data: 'home:balances' }
+    ])
+    expect(payload?.reply_markup?.inline_keyboard?.[2]?.[0]).toEqual({
+      text: 'Open mini app',
+      web_app: { url: 'https://miniapp.example.app/?bot=household_test_bot' }
+    })
+  })
+
   test('offers an Open mini app button after a DM join request', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { filterTelegramCommandCatalog, formatAssistantCommandCatalog } from './telegram-commands'
+import {
+  filterTelegramCommandCatalog,
+  formatAssistantCommandCatalog,
+  getTelegramCommandScopes
+} from './telegram-commands'
 
 describe('telegram command catalog', () => {
   test('filters private member commands without admin-only entries', () => {
@@ -11,6 +15,7 @@ describe('telegram command catalog', () => {
     }).map((entry) => entry.command)
 
     expect(commands).toContain('my_bill_full')
+    expect(commands).toContain('home')
     expect(commands).toContain('app')
     expect(commands).not.toContain('setup')
     expect(commands).not.toContain('bill_json')
@@ -52,7 +57,15 @@ describe('telegram command catalog', () => {
       isAdmin: false
     }).map((entry) => entry.command)
 
-    expect(commands).toEqual(['help', 'cancel'])
+    expect(commands).toEqual(['help', 'home', 'cancel'])
+  })
+
+  test('includes home in default private and group command scopes', () => {
+    const scopes = getTelegramCommandScopes('en')
+
+    for (const scope of scopes) {
+      expect(scope.commands.map((command) => command.command)).toContain('home')
+    }
   })
 
   test('formats only read-only assistant-executable commands for assistant context', () => {

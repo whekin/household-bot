@@ -979,6 +979,55 @@ describe('createFinanceCommandsService', () => {
     })
   })
 
+  test('handles home finance navigation callbacks as read-only flows', async () => {
+    const repository = createRepository()
+    const financeService = createFinanceService()
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(callbackUpdate('home:balances', 'ru', 'private') as never)
+
+    const messagePayload = calls.find((call) => call.method === 'sendMessage')?.payload as
+      | { text?: string }
+      | undefined
+    expect(messagePayload?.text).toContain('🛒 Покупки')
+    expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
+  })
+
   test('lets private users choose a household before rendering status', async () => {
     const repository: HouseholdConfigurationRepository = {
       ...createRepository(),

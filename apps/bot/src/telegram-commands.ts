@@ -17,6 +17,11 @@ export interface TelegramHelpOptions {
   includeAdminCommands?: boolean
 }
 
+export const TELEGRAM_HOME_HELP_CALLBACK = 'home:help'
+export const TELEGRAM_HOME_MY_BILL_CALLBACK = 'home:my_bill'
+export const TELEGRAM_HOME_STATUS_CALLBACK = 'home:status'
+export const TELEGRAM_HOME_BALANCES_CALLBACK = 'home:balances'
+
 export type TelegramCommandPermission = 'public' | 'member' | 'admin'
 export type TelegramCommandAvailability = 'private' | 'group'
 
@@ -47,6 +52,15 @@ export const TELEGRAM_COMMAND_CATALOG = [
     defaultCommand: true,
     assistantExecutable: true,
     aliases: ['help', 'commands', 'what can you do', 'что умеешь', 'команды']
+  },
+  {
+    command: 'home',
+    permission: 'public',
+    availability: ['private', 'group'],
+    behavior: 'read',
+    defaultCommand: true,
+    assistantExecutable: true,
+    aliases: ['home', 'control center', 'dashboard', 'домой', 'центр управления']
   },
   {
     command: 'bill',
@@ -369,6 +383,20 @@ export function formatTelegramHelpText(
     : []
 
   const sections = [t.help.intro]
+
+  sections.push(
+    t.help.tasksHeading,
+    t.help.checkMyBill,
+    t.help.checkHouseholdStatus,
+    t.help.checkBalances,
+    t.help.openDashboard
+  )
+
+  if (includeAdminCommands) {
+    sections.push(t.help.setupHousehold, t.help.manageMembers)
+  }
+
+  sections.push('', t.help.advancedHeading)
 
   if (privateCommands.length > 0) {
     sections.push(

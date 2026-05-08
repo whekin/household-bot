@@ -3,7 +3,7 @@ import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { resolveReplyLocale } from './bot-locale'
-import { formatTelegramHelpText } from './telegram-commands'
+import { formatTelegramHelpText, TELEGRAM_HOME_HELP_CALLBACK } from './telegram-commands'
 
 async function shouldShowAdminCommands(options: {
   ctx: Context
@@ -64,6 +64,28 @@ export function createTelegramBot(
         includeAdminCommands
       })
     )
+  })
+  bot.callbackQuery(TELEGRAM_HOME_HELP_CALLBACK, async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: householdConfigurationRepository
+    })
+    const includeAdminCommands = await shouldShowAdminCommands({
+      ctx,
+      ...(householdConfigurationRepository
+        ? {
+            householdConfigurationRepository
+          }
+        : {})
+    })
+    await ctx.reply(
+      formatTelegramHelpText(locale, {
+        includePrivateCommands: ctx.chat?.type === 'private',
+        includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
+        includeAdminCommands
+      })
+    )
+    await ctx.answerCallbackQuery()
   })
   bot.catch((error) => {
     logger?.error(

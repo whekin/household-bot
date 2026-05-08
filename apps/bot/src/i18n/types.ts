@@ -2,6 +2,7 @@ export type BotLocale = 'en' | 'ru'
 
 export type TelegramCommandName =
   | 'help'
+  | 'home'
   | 'bill'
   | 'bill_full'
   | 'my_bill'
@@ -25,6 +26,7 @@ export type TelegramCommandName =
 
 export interface BotCommandDescriptions {
   help: string
+  home: string
   bill: string
   bill_full: string
   my_bill: string
@@ -58,9 +60,27 @@ export interface BotTranslationCatalog {
   commands: BotCommandDescriptions
   help: {
     intro: string
+    tasksHeading: string
+    checkMyBill: string
+    checkHouseholdStatus: string
+    checkBalances: string
+    openDashboard: string
+    setupHousehold: string
+    manageMembers: string
+    advancedHeading: string
     privateChatHeading: string
     groupHeading: string
     groupAdminsHeading: string
+  }
+  home: {
+    title: string
+    introPrivate: string
+    introGroup: string
+    myBillButton: string
+    householdStatusButton: string
+    balancesButton: string
+    miniAppButton: string
+    helpButton: string
   }
   common: {
     unableToIdentifySender: string
@@ -222,6 +242,7 @@ export interface BotTranslationCatalog {
     statementFailed: (message: string) => string
     utilitiesTopicRequired: string
     utilitiesNotLinked: string
+    chooseHouseholdForBalances: string
   }
   reminders: {
     utilities: (period: string) => string

@@ -4,7 +4,8 @@ import { formatUserFacingMoney } from '../money'
 export const enBotTranslations: BotTranslationCatalog = {
   localeName: 'English',
   commands: {
-    help: 'Show command list',
+    help: 'Show task-based guidance',
+    home: 'Open the household control center',
     bill: 'Show the household bill view',
     bill_full: 'Show the household bill with all purchase impact',
     my_bill: 'Show only your current bill',
@@ -27,10 +28,28 @@ export const enBotTranslations: BotTranslationCatalog = {
     keyboard: 'Toggle persistent dashboard button'
   },
   help: {
-    intro: 'Household bot is live.',
+    intro: 'What do you want to do?',
+    tasksHeading: 'Common tasks:',
+    checkMyBill: '• Check what you owe: /my_bill',
+    checkHouseholdStatus: '• See household status: /household_status',
+    checkBalances: '• Review purchase balances: /balance',
+    openDashboard: '• Open the control center: /home',
+    setupHousehold: '• Set up a household group: /setup',
+    manageMembers: '• Invite and approve members: /join_link, /pending_members',
+    advancedHeading: 'Advanced command list:',
     privateChatHeading: 'Private chat:',
     groupHeading: 'Group chat:',
     groupAdminsHeading: 'Group admins:'
+  },
+  home: {
+    title: '🏡 Household control center',
+    introPrivate: 'Use the buttons below for the common read-only finance flows.',
+    introGroup: 'Use the buttons below to navigate household finance without leaving Telegram.',
+    myBillButton: 'My bill',
+    householdStatusButton: 'Household status',
+    balancesButton: 'Balances',
+    miniAppButton: 'Open mini app',
+    helpButton: 'Help'
   },
   common: {
     unableToIdentifySender: 'Unable to identify sender for this command.',
@@ -241,7 +260,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     statementTotal: (amount, currency) => `Total: ${formatUserFacingMoney(amount, currency)}`,
     statementFailed: (message) => `Failed to generate statement: ${message}`,
     utilitiesTopicRequired: 'This command must be used inside a topic.',
-    utilitiesNotLinked: 'This topic is not linked to a household.'
+    utilitiesNotLinked: 'This topic is not linked to a household.',
+    chooseHouseholdForBalances: 'Choose a household for balances:'
   },
   reminders: {
     utilities: (period) => `Utilities reminder for ${period}`,
