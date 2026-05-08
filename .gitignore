@@ -44,5 +44,8 @@ infra/pulumi/aws/.pulumi
 # omx runtime state
 .omx
 
+# Codex local runtime config
+.codex
+
 # kiro specs and config
 .kiro

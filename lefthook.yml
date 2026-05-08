@@ -5,22 +5,22 @@ pre-commit:
   commands:
     db-migration-manifest:
       glob: 'packages/db/drizzle/*.sql'
-      run: bun run db:migrations:manifest && git add packages/db/drizzle-checksums.json
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run db:migrations:manifest && git add packages/db/drizzle-checksums.json
     format:
       glob: '*.{ts,tsx,js,jsx,json,md}'
-      run: bun run format:check
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run format:check
     lint:
       glob: '*.{ts,tsx,js,jsx}'
-      run: bun run lint
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run lint
 
 pre-push:
   parallel: true
   commands:
     db-migrations:
-      run: bun run db:migrations:check
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run db:migrations:check
     typecheck:
-      run: bun run typecheck
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run typecheck
     test:
-      run: bun run test
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run test
     build:
-      run: bun run build
+      run: PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/Cellar/bun/1.3.12/bin:$PATH" bun run build
