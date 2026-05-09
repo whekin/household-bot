@@ -286,10 +286,20 @@ describe('looksLikeLikelyCompletedPurchase', () => {
     expect(looksLikeLikelyCompletedPurchase('стиральный порошок уже купил 12 лари')).toBe(true)
   })
 
+  test('accepts forwarded receipt-like amount-first purchase shorthand', () => {
+    expect(
+      looksLikeLikelyCompletedPurchase('> Alisa 🤍:\n"34 лари отглистка/отклещка/отблошка меймун"')
+    ).toBe(true)
+  })
+
   test('does not treat shopping-list chatter as a completed purchase', () => {
     expect(
       looksLikeLikelyCompletedPurchase('Сейчас заканчивается туалетка и стиральный порошок')
     ).toBe(false)
+  })
+
+  test('does not treat price chatter as receipt shorthand', () => {
+    expect(looksLikeLikelyCompletedPurchase('This machine costs 300 gel, scary')).toBe(false)
   })
 })
 

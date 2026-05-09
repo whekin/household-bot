@@ -53,6 +53,10 @@ const PLANNING_PURCHASE_PATTERN =
   /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|(?:^|[^\p{L}])(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:купим|возьмем|возьмём|закажем|оплатим)(?=$|[^\p{L}])/iu
 const MONEY_SIGNAL_PATTERN =
   /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лар(?:и|а|ов)?|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
+const PRICE_CHATTER_PATTERN =
+  /\b(?:costs?|price|worth)\b|(?:^|[^\p{L}])(?:стоит|цена|ценник|стоимость)(?=$|[^\p{L}])/iu
+const RECEIPT_SHORTHAND_PURCHASE_PATTERN =
+  /(?:^|[\s"'“”«»])\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|лар(?:и|а|ов)?|ლარი|ლარ)\s+[^\d\s][^\n]{2,}/iu
 const EXPLICIT_PARTICIPANT_SUBSET_PATTERN =
   /\b(?:split\s+(?:with|between)|share\s+with|for\s+(?:me|us|myself)\s+and|for\s+me\s+only|only\s+for|just\s+for)\b|(?:^|[^\p{L}])(?:на\s+нас|для\s+(?:меня|нас|себя)\s+и|только\s+(?:для|на)|лишь\s+(?:для|на)|между\s+нами|делим\s+(?:с|между)|раздели(?:ть|м)?\s+(?:с|между))(?=$|[^\p{L}])/iu
 const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
@@ -326,6 +330,10 @@ function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
 export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
   if (PLANNING_PURCHASE_PATTERN.test(rawText)) {
     return false
+  }
+
+  if (RECEIPT_SHORTHAND_PURCHASE_PATTERN.test(rawText) && !PRICE_CHATTER_PATTERN.test(rawText)) {
+    return true
   }
 
   if (!LIKELY_PURCHASE_VERB_PATTERN.test(rawText)) {
