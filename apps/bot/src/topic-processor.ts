@@ -306,6 +306,7 @@ Purchase detection is CONTENT-BASED. This topic is a workflow topic, not a casua
 If the message reports a completed purchase (past-tense buy verb + realistic item + amount), classify as "purchase" REGARDLESS of mention/engagement.
 - Completed buy verbs: купил, bought, ordered, picked up, spent, взял, заказал, потратил, сходил взял, etc.
 - Russian completed-purchase word order can be item + completed verb + amount, for example "стиральный порошок уже купил 12 лари". This is a purchase, not clarification.
+- Receipt-like shorthand in the purchase topic also counts as a purchase when it has amount + currency + realistic item, even without a buy verb, for example "34 лари отглистка/отклещка/отблошка меймун".
 - Realistic household items: food, groceries, household goods, toiletries, medicine, transport, cafe, restaurant
 - Amount under 500 currency units for household purchases
 - Third-person reports still count as purchases: "Дима купил швабру за 39 лари" should be "purchase", not "silent"
