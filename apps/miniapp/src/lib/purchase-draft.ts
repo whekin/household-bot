@@ -93,6 +93,22 @@ export type QuickPurchasePreviewMember = {
   purchaseBalanceMajor: string
 }
 
+export function purchaseDraftWithSelectedPayer(
+  draft: PurchaseDraft,
+  selectedPayerMemberId: string | null
+): PurchaseDraft {
+  return {
+    description: draft.description,
+    amountMajor: draft.amountMajor,
+    currency: draft.currency,
+    occurredOn: draft.occurredOn,
+    ...(selectedPayerMemberId ? { payerMemberId: selectedPayerMemberId } : {}),
+    splitMode: draft.splitMode,
+    splitInputMode: draft.splitInputMode,
+    participants: draft.participants
+  }
+}
+
 export function buildQuickPurchasePreview(
   draft: PurchaseDraft,
   members: readonly QuickPurchasePreviewMember[]

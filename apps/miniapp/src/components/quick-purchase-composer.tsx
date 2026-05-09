@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronUp } from 'lucide-solid'
-import { For, Show, createEffect, createMemo, createSignal, type Accessor } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, untrack, type Accessor } from 'solid-js'
 
 import { dictionary } from '../i18n'
 import {
   applyQuickPurchasePreset,
   buildQuickPurchasePreview,
+  purchaseDraftWithSelectedPayer,
   type QuickPurchasePreviewMember,
   type QuickPurchasePreset
 } from '../lib/purchase-draft'
@@ -41,11 +42,19 @@ type QuickPurchaseComposerProps = {
 export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
   const [preset, setPreset] = createSignal<QuickPurchasePreset>('everyone')
   const [advanced, setAdvanced] = createSignal(false)
+  const [selectedPayerMemberId, setSelectedPayerMemberId] = createSignal<string | null>(
+    props.draft().payerMemberId ?? null
+  )
 
   createEffect(() => {
     props.resetKey()
     setPreset('everyone')
     setAdvanced(false)
+    setSelectedPayerMemberId(untrack(() => props.draft().payerMemberId ?? null))
+  })
+
+  createEffect(() => {
+    setSelectedPayerMemberId(props.draft().payerMemberId ?? null)
   })
 
   const memberNames = createMemo(
@@ -66,15 +75,18 @@ export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
     return count === 1 ? '1 person' : `${count} participants`
   })
   const payerLabel = createMemo(() => {
-    const payerMemberId = props.draft().payerMemberId
+    const payerMemberId = selectedPayerMemberId()
     if (!payerMemberId) {
       return memberNames().get(props.currentMemberId() ?? '') ?? '—'
     }
 
     return memberNames().get(payerMemberId) ?? '—'
   })
+  const previewDraft = createMemo((): PurchaseDraft => {
+    return purchaseDraftWithSelectedPayer(props.draft(), selectedPayerMemberId())
+  })
   const previewRows = createMemo(() =>
-    buildQuickPurchasePreview(props.draft(), props.activeMembers())
+    buildQuickPurchasePreview(previewDraft(), props.activeMembers())
   )
 
   function handlePresetChange(nextPreset: QuickPurchasePreset) {
@@ -238,7 +250,7 @@ export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
         <div class="quick-purchase-sheet__grid quick-purchase-sheet__grid--advanced">
           <Field label={props.copy().purchasePayerLabel}>
             <Select
-              value={props.draft().payerMemberId ?? ''}
+              value={selectedPayerMemberId() ?? ''}
               ariaLabel={props.copy().purchasePayerLabel}
               placeholder="—"
               options={[
@@ -248,7 +260,8 @@ export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
                   label: member.displayName
                 }))
               ]}
-              onChange={(value) =>
+              onChange={(value) => {
+                setSelectedPayerMemberId(value || null)
                 props.setDraft((draft) => {
                   if (value) {
                     return {
@@ -261,7 +274,7 @@ export function QuickPurchaseComposer(props: QuickPurchaseComposerProps) {
                   const { payerMemberId, ...rest } = draft
                   return rest
                 })
-              }
+              }}
             />
           </Field>
           <Field label={props.copy().purchaseDateLabel}>
