@@ -11,27 +11,30 @@ export interface ScopedTelegramCommands {
   commands: readonly TelegramCommandDefinition[]
 }
 
+export type TelegramCommandHelpVisibility = 'primary' | 'advanced' | 'hidden'
 export interface TelegramHelpOptions {
   includePrivateCommands?: boolean
   includeGroupCommands?: boolean
   includeAdminCommands?: boolean
+  miniAppAvailable?: boolean
+  anonymousFeedbackAvailable?: boolean
+  financeCommandsAvailable?: boolean
 }
-
-export const TELEGRAM_HOME_HELP_CALLBACK = 'home:help'
-export const TELEGRAM_HOME_MY_BILL_CALLBACK = 'home:my_bill'
-export const TELEGRAM_HOME_STATUS_CALLBACK = 'home:status'
-export const TELEGRAM_HOME_BALANCES_CALLBACK = 'home:balances'
 
 export type TelegramCommandPermission = 'public' | 'member' | 'admin'
 export type TelegramCommandAvailability = 'private' | 'group'
+export type TelegramCommandCapability = 'finance' | 'mini_app' | 'anonymous_feedback'
 
 export interface TelegramCommandCatalogEntry {
   command: TelegramCommandName
   permission: TelegramCommandPermission
   availability: readonly TelegramCommandAvailability[]
   behavior: 'read' | 'write'
-  defaultCommand: boolean
+  telegramVisible: boolean
+  telegramDefaultVisible: boolean
   assistantExecutable: boolean
+  helpVisibility: TelegramCommandHelpVisibility
+  capability?: TelegramCommandCapability
   aliases: readonly string[]
 }
 
@@ -41,16 +44,21 @@ export interface TelegramCommandFilterInput {
   isAdmin: boolean
   readOnlyOnly?: boolean
   assistantExecutableOnly?: boolean
+  telegramVisibleOnly?: boolean
+  helpVisibility?: TelegramCommandHelpVisibility | readonly TelegramCommandHelpVisibility[]
+  enabledCapabilities?: readonly TelegramCommandCapability[]
 }
 
-export const TELEGRAM_COMMAND_CATALOG = [
+export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = [
   {
     command: 'help',
     permission: 'public',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: true,
+    telegramDefaultVisible: true,
     assistantExecutable: true,
+    helpVisibility: 'primary',
     aliases: ['help', 'commands', 'what can you do', 'что умеешь', 'команды']
   },
   {
@@ -58,8 +66,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'public',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: true,
+    telegramDefaultVisible: true,
     assistantExecutable: true,
+    helpVisibility: 'primary',
     aliases: ['home', 'control center', 'dashboard', 'домой', 'центр управления']
   },
   {
@@ -67,8 +77,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['household bill', 'everyone bill', 'общий счет', 'общий счёт']
   },
   {
@@ -76,8 +89,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['full household bill', 'all purchase impact', 'полный счет', 'полный счёт']
   },
   {
@@ -85,8 +101,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['my bill', 'what do i owe', 'мой счет', 'мой счёт', 'сколько я должен']
   },
   {
@@ -94,8 +113,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: [
       'my full bill',
       'my purchase impact',
@@ -110,8 +132,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['household status', 'current status', 'статус дома']
   },
   {
@@ -119,8 +144,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: true,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['balances', 'purchases', 'покупки', 'балансы']
   },
   {
@@ -128,8 +156,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['private', 'group'],
     behavior: 'read',
-    defaultCommand: false,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'hidden',
+    capability: 'finance',
     aliases: ['billing json', 'audit json']
   },
   {
@@ -137,8 +168,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'primary',
+    capability: 'anonymous_feedback',
     aliases: ['anonymous feedback']
   },
   {
@@ -146,8 +180,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'public',
     availability: ['private'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'primary',
     aliases: ['cancel']
   },
   {
@@ -155,8 +191,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private'],
     behavior: 'read',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'primary',
+    capability: 'mini_app',
     aliases: ['open app', 'mini app', 'dashboard app']
   },
   {
@@ -164,8 +203,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private'],
     behavior: 'read',
-    defaultCommand: false,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: true,
+    helpVisibility: 'hidden',
+    capability: 'mini_app',
     aliases: ['dashboard']
   },
   {
@@ -173,8 +215,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'primary',
+    capability: 'finance',
     aliases: ['record payment']
   },
   {
@@ -182,8 +227,11 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'primary',
+    capability: 'finance',
     aliases: ['utilities template']
   },
   {
@@ -191,8 +239,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'advanced',
     aliases: ['setup household']
   },
   {
@@ -200,8 +250,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'advanced',
     aliases: ['unsetup household']
   },
   {
@@ -209,8 +261,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'advanced',
     aliases: ['bind topic']
   },
   {
@@ -218,8 +272,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'read',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'advanced',
     aliases: ['join link']
   },
   {
@@ -227,8 +283,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'read',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'advanced',
     aliases: ['pending members']
   },
   {
@@ -236,8 +294,10 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'admin',
     availability: ['group'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: false,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'hidden',
     aliases: ['approve member']
   },
   {
@@ -245,27 +305,45 @@ export const TELEGRAM_COMMAND_CATALOG = [
     permission: 'member',
     availability: ['private'],
     behavior: 'write',
-    defaultCommand: false,
+    telegramVisible: true,
+    telegramDefaultVisible: false,
     assistantExecutable: false,
+    helpVisibility: 'primary',
+    capability: 'mini_app',
     aliases: ['keyboard']
   }
-] as const satisfies readonly TelegramCommandCatalogEntry[]
+] as const
 
-const DEFAULT_COMMAND_NAMES = TELEGRAM_COMMAND_CATALOG.filter((entry) => entry.defaultCommand).map(
-  (entry) => entry.command
-)
+const TELEGRAM_DEFAULT_COMMAND_NAMES: readonly TelegramCommandName[] =
+  TELEGRAM_COMMAND_CATALOG.filter((entry) => entry.telegramDefaultVisible).map(
+    (entry) => entry.command
+  )
 
 export function filterTelegramCommandCatalog(
   input: TelegramCommandFilterInput
 ): readonly TelegramCommandCatalogEntry[] {
+  const helpVisibility = input.helpVisibility
+    ? new Set(Array.isArray(input.helpVisibility) ? input.helpVisibility : [input.helpVisibility])
+    : null
+  const enabledCapabilities = input.enabledCapabilities ? new Set(input.enabledCapabilities) : null
+
   return TELEGRAM_COMMAND_CATALOG.filter((entry) => {
     if (!entry.availability.some((availability) => availability === input.chatType)) {
+      return false
+    }
+    if (input.telegramVisibleOnly && !entry.telegramVisible) {
       return false
     }
     if (input.readOnlyOnly && entry.behavior !== 'read') {
       return false
     }
     if (input.assistantExecutableOnly && !entry.assistantExecutable) {
+      return false
+    }
+    if (helpVisibility && !helpVisibility.has(entry.helpVisibility)) {
+      return false
+    }
+    if (entry.capability && enabledCapabilities && !enabledCapabilities.has(entry.capability)) {
       return false
     }
     if (entry.permission === 'member' && !input.isMember) {
@@ -309,23 +387,29 @@ export function getTelegramCommandScopes(locale: BotLocale): readonly ScopedTele
   const privateCommands = filterTelegramCommandCatalog({
     chatType: 'private',
     isMember: true,
-    isAdmin: false
+    isAdmin: false,
+    telegramVisibleOnly: true,
+    enabledCapabilities: ['anonymous_feedback', 'mini_app']
   }).map((entry) => entry.command)
   const groupMemberCommands = filterTelegramCommandCatalog({
     chatType: 'group',
     isMember: true,
-    isAdmin: false
+    isAdmin: false,
+    telegramVisibleOnly: true,
+    enabledCapabilities: ['finance']
   }).map((entry) => entry.command)
   const groupAdminCommands = filterTelegramCommandCatalog({
     chatType: 'group',
     isMember: true,
-    isAdmin: true
+    isAdmin: true,
+    telegramVisibleOnly: true,
+    enabledCapabilities: ['finance']
   }).map((entry) => entry.command)
 
   return [
     {
       scope: 'default',
-      commands: mapCommands(locale, DEFAULT_COMMAND_NAMES)
+      commands: mapCommands(locale, TELEGRAM_DEFAULT_COMMAND_NAMES)
     },
     {
       scope: 'all_private_chats',
@@ -347,14 +431,25 @@ export function formatTelegramHelpText(
   options: TelegramHelpOptions = {}
 ): string {
   const t = getBotTranslations(locale)
-  const defaultCommands = new Set<TelegramCommandName>(DEFAULT_COMMAND_NAMES)
   const includePrivateCommands = options.includePrivateCommands ?? true
   const includeGroupCommands = options.includeGroupCommands ?? false
   const includeAdminCommands = options.includeAdminCommands ?? false
+  const enabledCapabilities: TelegramCommandCapability[] = []
+  if (options.financeCommandsAvailable ?? true) {
+    enabledCapabilities.push('finance')
+  }
+  if (options.miniAppAvailable) {
+    enabledCapabilities.push('mini_app')
+  }
+  if (options.anonymousFeedbackAvailable) {
+    enabledCapabilities.push('anonymous_feedback')
+  }
   const groupMemberCommandNames = filterTelegramCommandCatalog({
     chatType: 'group',
     isMember: true,
-    isAdmin: false
+    isAdmin: false,
+    helpVisibility: 'primary',
+    enabledCapabilities
   }).map((entry) => entry.command)
   const groupMemberCommandsSet = new Set<TelegramCommandName>(groupMemberCommandNames)
   const privateCommands = includePrivateCommands
@@ -363,7 +458,9 @@ export function formatTelegramHelpText(
         filterTelegramCommandCatalog({
           chatType: 'private',
           isMember: true,
-          isAdmin: includeAdminCommands
+          isAdmin: includeAdminCommands,
+          helpVisibility: 'primary',
+          enabledCapabilities
         }).map((entry) => entry.command)
       )
     : []
@@ -374,23 +471,28 @@ export function formatTelegramHelpText(
         filterTelegramCommandCatalog({
           chatType: 'group',
           isMember: true,
-          isAdmin: true
+          isAdmin: true,
+          helpVisibility: ['primary', 'advanced'],
+          enabledCapabilities
         }).map((entry) => entry.command)
       ).filter(
         (command) =>
-          !defaultCommands.has(command.command) && !groupMemberCommandsSet.has(command.command)
+          !TELEGRAM_DEFAULT_COMMAND_NAMES.includes(command.command) &&
+          !groupMemberCommandsSet.has(command.command)
       )
     : []
 
   const sections = [t.help.intro]
 
-  sections.push(
-    t.help.tasksHeading,
-    t.help.checkMyBill,
-    t.help.checkHouseholdStatus,
-    t.help.checkBalances,
-    t.help.openDashboard
-  )
+  sections.push(t.help.tasksHeading)
+
+  if (options.financeCommandsAvailable ?? true) {
+    sections.push(t.help.checkMyBill, t.help.checkHouseholdStatus, t.help.checkBalances)
+  }
+
+  if (options.miniAppAvailable) {
+    sections.push(t.help.openDashboard)
+  }
 
   if (includeAdminCommands) {
     sections.push(t.help.setupHousehold, t.help.manageMembers)

@@ -22,7 +22,7 @@ import {
   TELEGRAM_HOME_BALANCES_CALLBACK,
   TELEGRAM_HOME_MY_BILL_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
-} from './telegram-commands'
+} from './home-menu'
 
 type FinanceDashboardForBot = NonNullable<
   Awaited<ReturnType<FinanceCommandService['generateDashboard']>>

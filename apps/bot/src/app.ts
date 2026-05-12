@@ -122,7 +122,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const bot = createTelegramBot(
     runtime.telegramBotToken,
     getLogger('telegram'),
-    householdConfigurationRepositoryClient?.repository
+    householdConfigurationRepositoryClient?.repository,
+    {
+      miniAppAvailable: Boolean(runtime.miniAppUrl),
+      anonymousFeedbackAvailable: runtime.anonymousFeedbackEnabled,
+      financeCommandsAvailable: runtime.financeCommandsEnabled
+    }
   )
   bot.botInfo = await bot.api.getMe()
   const webhookHandler = webhookCallback(bot, 'std/http', {
@@ -515,6 +520,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             miniAppUrl: runtime.miniAppUrl
           }
         : {}),
+      anonymousFeedbackAvailable: runtime.anonymousFeedbackEnabled,
       logger: getLogger('household-setup')
     })
   } else {

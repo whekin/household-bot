@@ -3,7 +3,14 @@ import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { resolveReplyLocale } from './bot-locale'
-import { formatTelegramHelpText, TELEGRAM_HOME_HELP_CALLBACK } from './telegram-commands'
+import { TELEGRAM_HOME_HELP_CALLBACK } from './home-menu'
+import { formatTelegramHelpText, type TelegramHelpOptions } from './telegram-commands'
+
+export interface TelegramBotFeatureCapabilities {
+  miniAppAvailable?: boolean
+  anonymousFeedbackAvailable?: boolean
+  financeCommandsAvailable?: boolean
+}
 
 async function shouldShowAdminCommands(options: {
   ctx: Context
@@ -40,9 +47,18 @@ async function shouldShowAdminCommands(options: {
 export function createTelegramBot(
   token: string,
   logger?: Logger,
-  householdConfigurationRepository?: HouseholdConfigurationRepository
+  householdConfigurationRepository?: HouseholdConfigurationRepository,
+  capabilities: TelegramBotFeatureCapabilities = {}
 ): Bot {
   const bot = new Bot(token)
+  const helpCapabilities = {
+    miniAppAvailable: capabilities.miniAppAvailable ?? false,
+    anonymousFeedbackAvailable: capabilities.anonymousFeedbackAvailable ?? false,
+    financeCommandsAvailable: capabilities.financeCommandsAvailable ?? true
+  } satisfies Pick<
+    TelegramHelpOptions,
+    'miniAppAvailable' | 'anonymousFeedbackAvailable' | 'financeCommandsAvailable'
+  >
 
   bot.command('help', async (ctx) => {
     const locale = await resolveReplyLocale({
@@ -61,7 +77,8 @@ export function createTelegramBot(
       formatTelegramHelpText(locale, {
         includePrivateCommands: ctx.chat?.type === 'private',
         includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
-        includeAdminCommands
+        includeAdminCommands,
+        ...helpCapabilities
       })
     )
   })
@@ -82,7 +99,8 @@ export function createTelegramBot(
       formatTelegramHelpText(locale, {
         includePrivateCommands: ctx.chat?.type === 'private',
         includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
-        includeAdminCommands
+        includeAdminCommands,
+        ...helpCapabilities
       })
     )
     await ctx.answerCallbackQuery()

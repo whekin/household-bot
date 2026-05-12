@@ -80,7 +80,13 @@ export interface BotTranslationCatalog {
     householdStatusButton: string
     balancesButton: string
     miniAppButton: string
+    setupButton: string
+    feedbackButton: string
     helpButton: string
+    setupMenuTitle: string
+    setupMenuBody: string
+    feedbackMenuTitle: string
+    feedbackMenuBody: string
   }
   common: {
     unableToIdentifySender: string

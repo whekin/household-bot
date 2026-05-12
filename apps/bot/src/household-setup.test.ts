@@ -102,6 +102,20 @@ function createHouseholdAdminService(): HouseholdAdminService {
   }
 }
 
+function createUnusedHouseholdOnboardingService(): HouseholdOnboardingService {
+  return {
+    async ensureHouseholdJoinToken() {
+      throw new Error('not used')
+    },
+    async getMiniAppAccess() {
+      throw new Error('not used')
+    },
+    async joinHousehold() {
+      throw new Error('not used')
+    }
+  }
+}
+
 function groupCommandUpdate(text: string) {
   const commandToken = text.split(' ')[0] ?? text
 
@@ -553,17 +567,7 @@ describe('registerHouseholdSetupCommands', () => {
     registerHouseholdSetupCommands({
       bot,
       householdSetupService: createRejectedHouseholdSetupService(),
-      householdOnboardingService: {
-        async ensureHouseholdJoinToken() {
-          throw new Error('not used')
-        },
-        async getMiniAppAccess() {
-          throw new Error('not used')
-        },
-        async joinHousehold() {
-          throw new Error('not used')
-        }
-      },
+      householdOnboardingService: createUnusedHouseholdOnboardingService(),
       householdAdminService: createHouseholdAdminService(),
       miniAppUrl: 'https://miniapp.example.app'
     })
@@ -627,17 +631,7 @@ describe('registerHouseholdSetupCommands', () => {
     registerHouseholdSetupCommands({
       bot,
       householdSetupService: createRejectedHouseholdSetupService(),
-      householdOnboardingService: {
-        async ensureHouseholdJoinToken() {
-          throw new Error('not used')
-        },
-        async getMiniAppAccess() {
-          throw new Error('not used')
-        },
-        async joinHousehold() {
-          throw new Error('not used')
-        }
-      },
+      householdOnboardingService: createUnusedHouseholdOnboardingService(),
       householdAdminService: createHouseholdAdminService(),
       miniAppUrl: 'https://miniapp.example.app'
     })
@@ -656,16 +650,152 @@ describe('registerHouseholdSetupCommands', () => {
       | undefined
     expect(payload?.text).toContain('Household control center')
     expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
-      { text: 'My bill', callback_data: 'home:my_bill' },
-      { text: 'Household status', callback_data: 'home:status' }
+      { text: '💸 My bill', callback_data: 'home:my_bill' },
+      { text: '🏠 Status', callback_data: 'home:status' }
     ])
     expect(payload?.reply_markup?.inline_keyboard?.[1]).toEqual([
-      { text: 'Balances', callback_data: 'home:balances' }
+      { text: '🛒 Balances', callback_data: 'home:balances' }
     ])
     expect(payload?.reply_markup?.inline_keyboard?.[2]?.[0]).toEqual({
-      text: 'Open mini app',
+      text: '📱 Mini app',
       web_app: { url: 'https://miniapp.example.app/?bot=household_test_bot' }
     })
+    expect(payload?.reply_markup?.inline_keyboard?.[3]).toEqual([
+      { text: '❔ Help', callback_data: 'home:help' }
+    ])
+  })
+
+  test('renders private home with feedback action only when available', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createRejectedHouseholdSetupService(),
+      householdOnboardingService: createUnusedHouseholdOnboardingService(),
+      householdAdminService: createHouseholdAdminService(),
+      anonymousFeedbackAvailable: true
+    })
+
+    await bot.handleUpdate(startUpdate('/start') as never)
+
+    const payload = calls[0]?.payload as
+      | {
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>
+          }
+        }
+      | undefined
+    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
+      { text: '🕶 Anonymous note', callback_data: 'home:feedback' }
+    ])
+    expect(JSON.stringify(payload?.reply_markup)).not.toContain('Mini app')
+  })
+
+  test('renders group home with setup action for Telegram admins', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'getChatMember') {
+        return {
+          ok: true,
+          result: {
+            status: 'administrator',
+            user: {
+              id: 123456,
+              is_bot: false,
+              first_name: 'Stan'
+            }
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createRejectedHouseholdSetupService(),
+      householdOnboardingService: createUnusedHouseholdOnboardingService(),
+      householdAdminService: createHouseholdAdminService(),
+      miniAppUrl: 'https://miniapp.example.app',
+      anonymousFeedbackAvailable: true
+    })
+
+    await bot.handleUpdate(groupCommandUpdate('/home') as never)
+
+    const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
+      | {
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>>
+          }
+        }
+      | undefined
+    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
+      { text: '📱 Mini app', url: 'https://t.me/household_test_bot/app' }
+    ])
+    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
+      { text: '🧰 Setup/Admin', callback_data: 'home:setup' }
+    ])
+    expect(JSON.stringify(payload?.reply_markup)).not.toContain('home:feedback')
   })
 
   test('offers an Open mini app button after a DM join request', async () => {

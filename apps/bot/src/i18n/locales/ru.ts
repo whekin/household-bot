@@ -28,28 +28,36 @@ export const ruBotTranslations: BotTranslationCatalog = {
     keyboard: 'Вкл/выкл кнопку дашборда'
   },
   help: {
-    intro: 'Что вы хотите сделать?',
+    intro: '🏡 Выберите задачу через /home. Список команд ниже — только быстрый доступ.',
     tasksHeading: 'Частые задачи:',
-    checkMyBill: '• Проверить, сколько вы должны: /my_bill',
-    checkHouseholdStatus: '• Посмотреть статус дома: /household_status',
-    checkBalances: '• Проверить балансы по покупкам: /balance',
-    openDashboard: '• Открыть центр управления: /home',
-    setupHousehold: '• Настроить группу дома: /setup',
-    manageMembers: '• Пригласить и подтвердить участников: /join_link, /pending_members',
-    advancedHeading: 'Расширенный список команд:',
+    checkMyBill: '• 💸 Проверить, сколько вы должны: /home → Мой счёт',
+    checkHouseholdStatus: '• 🏠 Посмотреть статус дома: /home → Статус',
+    checkBalances: '• 🛒 Проверить балансы по покупкам: /home → Балансы',
+    openDashboard: '• 📱 Открыть дашборд: /home → Мини-приложение',
+    setupHousehold: '• 🧰 Настроить или обслуживать дом: /home → Настройка/админ',
+    manageMembers: '• 👥 Пригласить и подтвердить участников: /home → Настройка/админ',
+    advancedHeading: 'Быстрые команды:',
     privateChatHeading: 'Личный чат:',
     groupHeading: 'Группа дома:',
     groupAdminsHeading: 'Админы группы:'
   },
   home: {
     title: '🏡 Центр управления домом',
-    introPrivate: 'Используйте кнопки ниже для основных финансовых сценариев без записи данных.',
-    introGroup: 'Используйте кнопки ниже, чтобы управлять финансами дома прямо в Telegram.',
-    myBillButton: 'Мой счёт',
-    householdStatusButton: 'Статус дома',
-    balancesButton: 'Балансы',
-    miniAppButton: 'Открыть мини-приложение',
-    helpButton: 'Помощь'
+    introPrivate: 'Выберите задачу. Список команд не будет мешать.',
+    introGroup: 'Управляйте финансами дома прямо в Telegram.',
+    myBillButton: '💸 Мой счёт',
+    householdStatusButton: '🏠 Статус',
+    balancesButton: '🛒 Балансы',
+    miniAppButton: '📱 Мини-приложение',
+    setupButton: '🧰 Настройка/админ',
+    feedbackButton: '🕶 Анонимно',
+    helpButton: '❔ Помощь',
+    setupMenuTitle: '🧰 Настройка/админ',
+    setupMenuBody:
+      'Используйте /setup в группе дома, чтобы подключить её, /bind внутри топика, чтобы привязать его, /join_link для приглашения участников и /pending_members для подтверждения заявок.',
+    feedbackMenuTitle: '🕶 Анонимное сообщение',
+    feedbackMenuBody:
+      'Используйте /anon в этом личном чате, чтобы отправить сообщение по дому анонимно.'
   },
   common: {
     unableToIdentifySender: 'Не удалось определить отправителя для этой команды.',

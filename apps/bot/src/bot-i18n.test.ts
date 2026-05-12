@@ -185,16 +185,20 @@ describe('createTelegramBot i18n', () => {
     })
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('Что вы хотите сделать?')
+    expect(payload?.text).toContain('Выберите задачу через /home')
     expect(payload?.text).toContain('Частые задачи:')
-    expect(payload?.text).toContain('Расширенный список команд:')
-    expect(payload?.text).toContain('/my_bill - Показать только ваш текущий счёт')
-    expect(payload?.text).toContain('/anon - Отправить анонимное сообщение по дому')
+    expect(payload?.text).toContain('Быстрые команды:')
+    expect(payload?.text).toContain('/home - Открыть центр управления домом')
+    expect(payload?.text).not.toContain('/my_bill - Показать только ваш текущий счёт')
+    expect(payload?.text).not.toContain('/anon - Отправить анонимное сообщение по дому')
     expect(payload?.text).not.toContain('/setup')
   })
 
   test('shows admin commands in private help for household admins', async () => {
-    const bot = createTelegramBot('000000:test-token', undefined, createRepository(true))
+    const bot = createTelegramBot('000000:test-token', undefined, createRepository(true), {
+      miniAppAvailable: true,
+      anonymousFeedbackAvailable: true
+    })
     const calls: Array<{ method: string; payload: unknown }> = []
 
     bot.botInfo = {
@@ -230,6 +234,8 @@ describe('createTelegramBot i18n', () => {
     await bot.handleUpdate(helpUpdate('ru') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(payload?.text).toContain('/anon - Отправить анонимное сообщение по дому')
+    expect(payload?.text).toContain('/app - Открыть мини-приложение Kojori')
     expect(payload?.text).toContain('/setup - Подключить эту группу как дом')
   })
 

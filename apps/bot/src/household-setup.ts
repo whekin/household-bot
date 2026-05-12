@@ -19,10 +19,12 @@ import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import {
   TELEGRAM_HOME_BALANCES_CALLBACK,
+  TELEGRAM_HOME_FEEDBACK_CALLBACK,
   TELEGRAM_HOME_HELP_CALLBACK,
   TELEGRAM_HOME_MY_BILL_CALLBACK,
+  TELEGRAM_HOME_SETUP_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
-} from './telegram-commands'
+} from './home-menu'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
@@ -430,12 +432,18 @@ function openMiniAppReplyMarkup(
 function telegramHomeReply(input: {
   locale: BotLocale
   isPrivate: boolean
+  showSetupMenu: boolean
+  anonymousFeedbackAvailable: boolean
   miniAppUrl: string | undefined
   botUsername: string | undefined
 }) {
   const t = getBotTranslations(input.locale).home
   const rows: Array<
-    Array<{ text: string; callback_data: string } | { text: string; web_app: { url: string } }>
+    Array<
+      | { text: string; callback_data: string }
+      | { text: string; web_app: { url: string } }
+      | { text: string; url: string }
+    >
   > = [
     [
       {
@@ -467,6 +475,31 @@ function telegramHomeReply(input: {
         }
       }
     ])
+  } else if (!input.isPrivate && input.miniAppUrl && input.botUsername) {
+    rows.push([
+      {
+        text: t.miniAppButton,
+        url: `https://t.me/${input.botUsername}/app`
+      }
+    ])
+  }
+
+  if (input.anonymousFeedbackAvailable && input.isPrivate) {
+    rows.push([
+      {
+        text: t.feedbackButton,
+        callback_data: TELEGRAM_HOME_FEEDBACK_CALLBACK
+      }
+    ])
+  }
+
+  if (input.showSetupMenu) {
+    rows.push([
+      {
+        text: t.setupButton,
+        callback_data: TELEGRAM_HOME_SETUP_CALLBACK
+      }
+    ])
   }
 
   rows.push([
@@ -488,10 +521,14 @@ async function replyWithTelegramHome(input: {
   ctx: Context
   locale: BotLocale
   miniAppUrl: string | undefined
+  anonymousFeedbackAvailable: boolean
+  showSetupMenu: boolean
 }) {
   const reply = telegramHomeReply({
     locale: input.locale,
     isPrivate: input.ctx.chat?.type === 'private',
+    showSetupMenu: input.showSetupMenu,
+    anonymousFeedbackAvailable: input.anonymousFeedbackAvailable,
     miniAppUrl: input.miniAppUrl,
     botUsername: input.ctx.me.username
   })
@@ -508,8 +545,27 @@ export function registerHouseholdSetupCommands(options: {
   promptRepository?: TelegramPendingActionRepository
   householdConfigurationRepository?: HouseholdConfigurationRepository
   miniAppUrl?: string
+  anonymousFeedbackAvailable?: boolean
   logger?: Logger
 }): void {
+  async function shouldShowSetupMenu(ctx: Context): Promise<boolean> {
+    if (isGroupChat(ctx)) {
+      return isGroupAdmin(ctx)
+    }
+
+    const telegramUserId = ctx.from?.id?.toString()
+    if (!telegramUserId || !options.householdConfigurationRepository) {
+      return false
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+
+    return memberships.some((member) => member.isAdmin)
+  }
+
   async function isInviteAuthorized(ctx: Context, householdId: string): Promise<boolean> {
     if (await isGroupAdmin(ctx)) {
       return true
@@ -603,7 +659,9 @@ export function registerHouseholdSetupCommands(options: {
       await replyWithTelegramHome({
         ctx,
         locale,
-        miniAppUrl: options.miniAppUrl
+        miniAppUrl: options.miniAppUrl,
+        anonymousFeedbackAvailable: options.anonymousFeedbackAvailable ?? false,
+        showSetupMenu: await shouldShowSetupMenu(ctx)
       })
       return
     }
@@ -1333,8 +1391,32 @@ export function registerHouseholdSetupCommands(options: {
     await replyWithTelegramHome({
       ctx,
       locale,
-      miniAppUrl: options.miniAppUrl
+      miniAppUrl: options.miniAppUrl,
+      anonymousFeedbackAvailable: options.anonymousFeedbackAvailable ?? false,
+      showSetupMenu: await shouldShowSetupMenu(ctx)
     })
+  })
+
+  options.bot.callbackQuery(TELEGRAM_HOME_SETUP_CALLBACK, async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale).home
+
+    await ctx.reply([t.setupMenuTitle, t.setupMenuBody].join('\n\n'))
+    await ctx.answerCallbackQuery()
+  })
+
+  options.bot.callbackQuery(TELEGRAM_HOME_FEEDBACK_CALLBACK, async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+    const t = getBotTranslations(locale).home
+
+    await ctx.reply([t.feedbackMenuTitle, t.feedbackMenuBody].join('\n\n'))
+    await ctx.answerCallbackQuery()
   })
 
   options.bot.command('keyboard', async (ctx) => {
