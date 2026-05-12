@@ -136,7 +136,9 @@ describe('telegram command catalog', () => {
     const text = formatAssistantCommandCatalog('en', entries)
 
     expect(text).toContain('/my_bill')
+    expect(text).toContain('/my_bill - Show your personal finance summary')
     expect(text).toContain('/my_bill_full')
+    expect(text).toContain('/my_bill_full - Show your detailed personal bill')
     expect(text).toContain('/household_status')
     expect(text).toContain('/balance')
     expect(text).not.toContain('/anon')
@@ -153,6 +155,7 @@ describe('telegram command catalog', () => {
       financeCommandsAvailable: false
     })
 
+    expect(disabledText.split('\n').slice(0, 3).join('\n')).toContain('/home opens the main menu')
     expect(disabledText).toContain('/home - Open the household control center')
     expect(disabledText).toContain('/help - Show task-based guidance')
     expect(disabledText).toContain('Common tasks:')

@@ -185,11 +185,11 @@ describe('createTelegramBot i18n', () => {
     })
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('Выберите задачу через /home')
+    expect(payload?.text).toContain('/home открывает главное меню')
     expect(payload?.text).toContain('Частые задачи:')
     expect(payload?.text).toContain('Быстрые команды:')
     expect(payload?.text).toContain('/home - Открыть центр управления домом')
-    expect(payload?.text).not.toContain('/my_bill - Показать только ваш текущий счёт')
+    expect(payload?.text).not.toContain('/my_bill - Показать вашу финансовую сводку')
     expect(payload?.text).not.toContain('/anon - Отправить анонимное сообщение по дому')
     expect(payload?.text).not.toContain('/setup')
   })

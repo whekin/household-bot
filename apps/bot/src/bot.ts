@@ -3,7 +3,9 @@ import type { Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { resolveReplyLocale } from './bot-locale'
-import { TELEGRAM_HOME_HELP_CALLBACK } from './home-menu'
+import { buildTelegramHomeMenuReplyMarkup, TELEGRAM_HOME_HELP_CALLBACK } from './home-menu'
+import { getBotTranslations } from './i18n'
+import { tryEditMessageText } from './telegram-message-edit'
 import { formatTelegramHelpText, type TelegramHelpOptions } from './telegram-commands'
 
 export interface TelegramBotFeatureCapabilities {
@@ -79,7 +81,8 @@ export function createTelegramBot(
         includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
         includeAdminCommands,
         ...helpCapabilities
-      })
+      }),
+      buildTelegramHomeMenuReplyMarkup(getBotTranslations(locale).home.menuButton)
     )
   })
   bot.callbackQuery(TELEGRAM_HOME_HELP_CALLBACK, async (ctx) => {
@@ -95,14 +98,16 @@ export function createTelegramBot(
           }
         : {})
     })
-    await ctx.reply(
-      formatTelegramHelpText(locale, {
-        includePrivateCommands: ctx.chat?.type === 'private',
-        includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
-        includeAdminCommands,
-        ...helpCapabilities
-      })
-    )
+    const text = formatTelegramHelpText(locale, {
+      includePrivateCommands: ctx.chat?.type === 'private',
+      includeGroupCommands: ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup',
+      includeAdminCommands,
+      ...helpCapabilities
+    })
+    const replyMarkup = buildTelegramHomeMenuReplyMarkup(getBotTranslations(locale).home.menuButton)
+    if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
+      await ctx.reply(text, replyMarkup)
+    }
     await ctx.answerCallbackQuery()
   })
   bot.catch((error) => {

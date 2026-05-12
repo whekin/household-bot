@@ -8,8 +8,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     home: 'Открыть центр управления домом',
     bill: 'Показать общий счёт по дому',
     bill_full: 'Показать общий счёт со всеми покупками',
-    my_bill: 'Показать только ваш текущий счёт',
-    my_bill_full: 'Показать ваш счёт со всеми покупками',
+    my_bill: 'Показать вашу финансовую сводку',
+    my_bill_full: 'Показать ваш счёт подробно',
     bill_json: 'Выгрузить расчёты по платежам в JSON',
     household_status: 'Показать текущий статус дома',
     balance: 'Показать балансы по покупкам для всех участников',
@@ -28,7 +28,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     keyboard: 'Вкл/выкл кнопку дашборда'
   },
   help: {
-    intro: '🏡 Выберите задачу через /home. Список команд ниже — только быстрый доступ.',
+    intro:
+      '🏡 /home открывает главное меню. Начинайте с него; список команд ниже — только быстрый доступ.',
     tasksHeading: 'Частые задачи:',
     checkMyBill: '• 💸 Проверить, сколько вы должны: /home → Мой счёт',
     checkHouseholdStatus: '• 🏠 Посмотреть статус дома: /home → Статус',
@@ -48,6 +49,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     myBillButton: '💸 Мой счёт',
     householdStatusButton: '🏠 Статус',
     balancesButton: '🛒 Балансы',
+    fullBillButton: '🔎 Весь счёт',
+    menuButton: '🏡 Меню',
     miniAppButton: '📱 Мини-приложение',
     setupButton: '🧰 Настройка/админ',
     feedbackButton: '🕶 Анонимно',

@@ -18,13 +18,16 @@ import type { Bot, Context } from 'grammy'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import {
+  buildTelegramHomeMenuReplyMarkup,
   TELEGRAM_HOME_BALANCES_CALLBACK,
   TELEGRAM_HOME_FEEDBACK_CALLBACK,
   TELEGRAM_HOME_HELP_CALLBACK,
+  TELEGRAM_HOME_MENU_CALLBACK,
   TELEGRAM_HOME_MY_BILL_CALLBACK,
   TELEGRAM_HOME_SETUP_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
 } from './home-menu'
+import { tryEditMessageText } from './telegram-message-edit'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
 const SETUP_CREATE_TOPIC_CALLBACK_PREFIX = 'setup_topic:create:'
@@ -523,6 +526,7 @@ async function replyWithTelegramHome(input: {
   miniAppUrl: string | undefined
   anonymousFeedbackAvailable: boolean
   showSetupMenu: boolean
+  editMessage?: boolean | undefined
 }) {
   const reply = telegramHomeReply({
     locale: input.locale,
@@ -532,9 +536,14 @@ async function replyWithTelegramHome(input: {
     miniAppUrl: input.miniAppUrl,
     botUsername: input.ctx.me.username
   })
-  await input.ctx.reply(reply.text, {
+  const options = {
     reply_markup: reply.reply_markup
-  })
+  }
+  if (input.editMessage && (await tryEditMessageText(input.ctx, reply.text, options))) {
+    return
+  }
+
+  await input.ctx.reply(reply.text, options)
 }
 
 export function registerHouseholdSetupCommands(options: {
@@ -1397,6 +1406,23 @@ export function registerHouseholdSetupCommands(options: {
     })
   })
 
+  options.bot.callbackQuery(TELEGRAM_HOME_MENU_CALLBACK, async (ctx) => {
+    const locale = await resolveReplyLocale({
+      ctx,
+      repository: options.householdConfigurationRepository
+    })
+
+    await replyWithTelegramHome({
+      ctx,
+      locale,
+      miniAppUrl: options.miniAppUrl,
+      anonymousFeedbackAvailable: options.anonymousFeedbackAvailable ?? false,
+      showSetupMenu: await shouldShowSetupMenu(ctx),
+      editMessage: true
+    })
+    await ctx.answerCallbackQuery()
+  })
+
   options.bot.callbackQuery(TELEGRAM_HOME_SETUP_CALLBACK, async (ctx) => {
     const locale = await resolveReplyLocale({
       ctx,
@@ -1404,7 +1430,11 @@ export function registerHouseholdSetupCommands(options: {
     })
     const t = getBotTranslations(locale).home
 
-    await ctx.reply([t.setupMenuTitle, t.setupMenuBody].join('\n\n'))
+    const text = [t.setupMenuTitle, t.setupMenuBody].join('\n\n')
+    const replyMarkup = buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
+      await ctx.reply(text, replyMarkup)
+    }
     await ctx.answerCallbackQuery()
   })
 
@@ -1415,7 +1445,11 @@ export function registerHouseholdSetupCommands(options: {
     })
     const t = getBotTranslations(locale).home
 
-    await ctx.reply([t.feedbackMenuTitle, t.feedbackMenuBody].join('\n\n'))
+    const text = [t.feedbackMenuTitle, t.feedbackMenuBody].join('\n\n')
+    const replyMarkup = buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
+      await ctx.reply(text, replyMarkup)
+    }
     await ctx.answerCallbackQuery()
   })
 

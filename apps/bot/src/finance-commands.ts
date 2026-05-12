@@ -19,16 +19,20 @@ import {
   REMINDER_UTILITY_ACTION_TTL_MS
 } from './reminder-topic-utilities'
 import {
+  buildTelegramHomeMenuButton,
   TELEGRAM_HOME_BALANCES_CALLBACK,
   TELEGRAM_HOME_MY_BILL_CALLBACK,
+  TELEGRAM_HOME_MY_BILL_FULL_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
 } from './home-menu'
+import { tryEditMessageText } from './telegram-message-edit'
 
 type FinanceDashboardForBot = NonNullable<
   Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
 >
 
 const BILL_SHOW_CALLBACK_PREFIX = 'bill:show:'
+const PERSONAL_BILL_SHOW_CALLBACK_PREFIX = 'my_bill:show:'
 const BILL_RESOLVE_CALLBACK_PREFIX = 'bill:resolve:'
 const BILL_JSON_CALLBACK_PREFIX = 'bill:json:'
 const STATUS_SHOW_CALLBACK_PREFIX = 'status:show:'
@@ -812,6 +816,61 @@ export function createFinanceCommandsService(options: {
     return action
   }
 
+  function homeMenuRow(locale: BotLocale): Array<{ text: string; callback_data: string }> {
+    return [buildTelegramHomeMenuButton(getBotTranslations(locale).home.menuButton)]
+  }
+
+  function homeMenuReplyMarkup(locale: BotLocale): {
+    inline_keyboard: Array<Array<{ text: string; callback_data: string }>>
+  } {
+    return {
+      inline_keyboard: [homeMenuRow(locale)]
+    }
+  }
+
+  function appendHomeMenuRow(
+    locale: BotLocale,
+    rows: Array<Array<{ text: string; callback_data: string }>>
+  ): Array<Array<{ text: string; callback_data: string }>> {
+    return [...rows, homeMenuRow(locale)]
+  }
+
+  async function replyOrEditText(input: {
+    ctx: Context
+    text: string
+    options?: Parameters<Context['reply']>[1]
+    editMessage?: boolean | undefined
+  }) {
+    if (
+      input.editMessage &&
+      (await tryEditMessageText(
+        input.ctx,
+        input.text,
+        input.options as Parameters<Context['editMessageText']>[1]
+      ))
+    ) {
+      return
+    }
+
+    await input.ctx.reply(input.text, input.options)
+  }
+
+  async function replyOrEditWithHomeMenu(input: {
+    ctx: Context
+    locale: BotLocale
+    text: string
+    editMessage?: boolean | undefined
+  }) {
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: input.text,
+      options: {
+        reply_markup: homeMenuReplyMarkup(input.locale)
+      },
+      editMessage: input.editMessage
+    })
+  }
+
   function formatStatement(
     locale: Parameters<typeof getBotTranslations>[0],
     dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
@@ -896,22 +955,44 @@ export function createFinanceCommandsService(options: {
     locale: BotLocale
     service: FinanceCommandService
     periodArg?: string
+    editMessage?: boolean | undefined
   }) {
     const t = getBotTranslations(input.locale).finance
     const dashboard = await input.service.generateDashboard(input.periodArg)
     if (!dashboard) {
-      await input.ctx.reply(t.noStatementCycle)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: t.noStatementCycle,
+        editMessage: input.editMessage
+      })
       return
     }
 
-    await input.ctx.reply(formatBalances(input.locale, dashboard))
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: formatBalances(input.locale, dashboard),
+      options: {
+        reply_markup: homeMenuReplyMarkup(input.locale)
+      },
+      editMessage: input.editMessage
+    })
   }
 
-  async function replyWithRequestedBalances(input: { ctx: Context; locale: BotLocale }) {
+  async function replyWithRequestedBalances(input: {
+    ctx: Context
+    locale: BotLocale
+    editMessage?: boolean | undefined
+  }) {
     const t = getBotTranslations(input.locale).finance
     const telegramUserId = input.ctx.from?.id?.toString()
     if (!telegramUserId) {
-      await input.ctx.reply(t.unableToIdentifySender)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: t.unableToIdentifySender,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -924,7 +1005,8 @@ export function createFinanceCommandsService(options: {
       await replyWithBalances({
         ctx: input.ctx,
         locale: input.locale,
-        service: resolved.service
+        service: resolved.service,
+        editMessage: input.editMessage
       })
       return
     }
@@ -934,7 +1016,12 @@ export function createFinanceCommandsService(options: {
         telegramUserId
       )
     if (memberships.length === 0) {
-      await input.ctx.reply(t.notMember)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: t.notMember,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -942,7 +1029,8 @@ export function createFinanceCommandsService(options: {
       await replyWithBalances({
         ctx: input.ctx,
         locale: input.locale,
-        service: options.financeServiceForHousehold(memberships[0]!.householdId)
+        service: options.financeServiceForHousehold(memberships[0]!.householdId),
+        editMessage: input.editMessage
       })
       return
     }
@@ -965,15 +1053,23 @@ export function createFinanceCommandsService(options: {
         }))
       }
     })
-    await input.ctx.reply(t.chooseHouseholdForBalances, {
-      reply_markup: {
-        inline_keyboard: households.map(({ membership, household }, index) => [
-          {
-            text: household?.householdName ?? membership.householdId,
-            callback_data: `${HOME_BALANCE_SHOW_CALLBACK_PREFIX}${index}`
-          }
-        ])
-      }
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: t.chooseHouseholdForBalances,
+      options: {
+        reply_markup: {
+          inline_keyboard: [
+            ...households.map(({ membership, household }, index) => [
+              {
+                text: household?.householdName ?? membership.householdId,
+                callback_data: `${HOME_BALANCE_SHOW_CALLBACK_PREFIX}${index}`
+              }
+            ]),
+            homeMenuRow(input.locale)
+          ]
+        }
+      },
+      editMessage: input.editMessage
     })
   }
 
@@ -1509,6 +1605,121 @@ export function createFinanceCommandsService(options: {
     })
   }
 
+  function formatPersonalBillSummary(input: {
+    locale: BotLocale
+    dashboard: FinanceDashboardForBot
+    memberId: string
+    householdName?: string | null
+  }): string {
+    const member = input.dashboard.members.find((item) => item.memberId === input.memberId)
+    const title =
+      input.locale === 'ru'
+        ? `💸 Мой счёт · ${formatBillingPeriodLabel(input.locale, input.dashboard.period)}`
+        : `💸 My bill · ${formatBillingPeriodLabel(input.locale, input.dashboard.period)}`
+    if (!member) {
+      return [
+        title,
+        ...(input.householdName ? [input.householdName] : []),
+        '',
+        input.locale === 'ru'
+          ? 'Не удалось найти вашу строку в текущих расчётах.'
+          : 'I could not find your line in the current calculation.'
+      ].join('\n')
+    }
+
+    const remainingLine =
+      member.remaining.amountMinor > 0n
+        ? `${input.locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.dashboard.currency)}`
+        : input.locale === 'ru'
+          ? 'К оплате: всё закрыто'
+          : 'To pay: settled'
+    const purchaseLine = formatPurchaseBalanceLine({
+      locale: input.locale,
+      amount: member.purchaseOffset,
+      currency: input.dashboard.currency
+    })
+
+    return [
+      title,
+      ...(input.householdName ? [input.householdName] : []),
+      formatHouseholdStageLine(input.locale, input.dashboard),
+      '',
+      `👤 ${member.displayName}`,
+      `💰 ${remainingLine}`,
+      `${input.locale === 'ru' ? 'Начислено' : 'Total due'}: ${formatUserFacingMoney(member.netDue.toMajorString(), input.dashboard.currency)}`,
+      `${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(member.paid.toMajorString(), input.dashboard.currency)}`,
+      ...(purchaseLine ? [`🛒 ${purchaseLine}`] : []),
+      '',
+      `${input.locale === 'ru' ? 'Аренда' : 'Rent'}: ${formatUserFacingMoney(member.rentShare.toMajorString(), input.dashboard.currency)} · ${input.locale === 'ru' ? 'коммуналка' : 'utilities'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), input.dashboard.currency)}`
+    ].join('\n')
+  }
+
+  function buildPersonalBillSummaryReplyMarkup(locale: BotLocale): {
+    inline_keyboard: Array<Array<{ text: string; callback_data: string }>>
+  } {
+    const t = getBotTranslations(locale).home
+    return {
+      inline_keyboard: [
+        [
+          {
+            text: t.fullBillButton,
+            callback_data: TELEGRAM_HOME_MY_BILL_FULL_CALLBACK
+          },
+          {
+            text: t.balancesButton,
+            callback_data: TELEGRAM_HOME_BALANCES_CALLBACK
+          }
+        ],
+        [
+          {
+            text: t.householdStatusButton,
+            callback_data: TELEGRAM_HOME_STATUS_CALLBACK
+          },
+          buildTelegramHomeMenuButton(t.menuButton)
+        ]
+      ]
+    }
+  }
+
+  async function replyWithPersonalBillSummary(input: {
+    ctx: Context
+    locale: BotLocale
+    service: FinanceCommandService
+    householdId: string
+    memberId: string
+    householdName?: string | null
+    periodArg?: string
+    editMessage?: boolean | undefined
+  }) {
+    const dashboard = await input.service.generateDashboard(input.periodArg)
+    const text = dashboard
+      ? formatPersonalBillSummary({
+          locale: input.locale,
+          dashboard,
+          memberId: input.memberId,
+          ...(input.householdName === undefined ? {} : { householdName: input.householdName })
+        })
+      : getBotTranslations(input.locale).finance.noStatementCycle
+
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'personal_summary',
+        householdId: input.householdId,
+        memberId: input.memberId,
+        periodArg: input.periodArg ?? null
+      }
+    })
+    await replyOrEditText({
+      ctx: input.ctx,
+      text,
+      options: {
+        reply_markup: buildPersonalBillSummaryReplyMarkup(input.locale)
+      },
+      editMessage: input.editMessage
+    })
+  }
+
   async function replyWithBillPlan(input: {
     ctx: Context
     service: FinanceCommandService
@@ -1519,6 +1730,7 @@ export function createFinanceCommandsService(options: {
     forcedMode?: 'utilities' | 'rent' | null
     orderMemberId?: string | null
     detailMode: 'compact' | 'full'
+    editMessage?: boolean | undefined
   }) {
     const locale = await resolveReplyLocale({
       ctx: input.ctx,
@@ -1531,7 +1743,12 @@ export function createFinanceCommandsService(options: {
       options.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId)
     ])
     if (!plan) {
-      await input.ctx.reply(getBotTranslations(locale).finance.noStatementCycle)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale,
+        text: getBotTranslations(locale).finance.noStatementCycle,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1561,40 +1778,47 @@ export function createFinanceCommandsService(options: {
       ])
     }
 
-    await input.ctx.reply(
-      buildBillReply({
-        locale,
-        householdName: input.householdName,
-        plan,
-        utilityCategories: utilityCategories
-          .filter((category) => category.isActive)
-          .map((category) => ({
-            name: category.name,
-            providerName: category.providerName ?? null,
-            customerNumber: category.customerNumber ?? null,
-            paymentLink: category.paymentLink ?? null,
-            note: category.note ?? null
-          })),
-        adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
-        detailMode: input.detailMode,
-        ...(input.forcedMode === undefined
-          ? {}
-          : {
-              forcedMode: input.forcedMode
-            }),
-        ...(input.viewerMemberId === undefined
-          ? {}
-          : {
-              viewerMemberId: input.viewerMemberId
-            }),
-        ...(input.orderMemberId === undefined
-          ? {}
-          : {
-              orderMemberId: input.orderMemberId
-            })
-      }),
-      keyboard.length > 0 ? { reply_markup: { inline_keyboard: keyboard } } : {}
-    )
+    const text = buildBillReply({
+      locale,
+      householdName: input.householdName,
+      plan,
+      utilityCategories: utilityCategories
+        .filter((category) => category.isActive)
+        .map((category) => ({
+          name: category.name,
+          providerName: category.providerName ?? null,
+          customerNumber: category.customerNumber ?? null,
+          paymentLink: category.paymentLink ?? null,
+          note: category.note ?? null
+        })),
+      adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+      detailMode: input.detailMode,
+      ...(input.forcedMode === undefined
+        ? {}
+        : {
+            forcedMode: input.forcedMode
+          }),
+      ...(input.viewerMemberId === undefined
+        ? {}
+        : {
+            viewerMemberId: input.viewerMemberId
+          }),
+      ...(input.orderMemberId === undefined
+        ? {}
+        : {
+            orderMemberId: input.orderMemberId
+          })
+    })
+    await replyOrEditText({
+      ctx: input.ctx,
+      text,
+      options: {
+        reply_markup: {
+          inline_keyboard: appendHomeMenuRow(locale, keyboard)
+        }
+      },
+      editMessage: input.editMessage
+    })
   }
 
   function statusCallbackPeriod(periodArg: string | undefined): string {
@@ -1650,6 +1874,8 @@ export function createFinanceCommandsService(options: {
       ])
     }
 
+    rows.push(homeMenuRow(input.locale))
+
     return rows.length > 0 ? { inline_keyboard: rows } : null
   }
 
@@ -1661,17 +1887,17 @@ export function createFinanceCommandsService(options: {
     memberId: string
     householdName?: string | null
     periodArg?: string
-    editMessage?: boolean
+    editMessage?: boolean | undefined
   }) {
     const dashboard = await input.service.generateDashboard(input.periodArg)
     if (!dashboard) {
       const text = getBotTranslations(input.locale).finance.noStatementCycle
-      if (input.editMessage) {
-        await input.ctx.editMessageText(text)
-        return
-      }
-
-      await input.ctx.reply(text)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1692,12 +1918,12 @@ export function createFinanceCommandsService(options: {
     const replyOptions = replyMarkup ? { reply_markup: replyMarkup } : {}
     const text = formatHouseholdStatus(input.locale, dashboard, input.householdName)
 
-    if (input.editMessage) {
-      await input.ctx.editMessageText(text, replyOptions)
-      return
-    }
-
-    await input.ctx.reply(text, replyOptions)
+    await replyOrEditText({
+      ctx: input.ctx,
+      text,
+      options: replyOptions,
+      editMessage: input.editMessage
+    })
   }
 
   async function resolvePrivateStatusTarget(input: {
@@ -1793,10 +2019,16 @@ export function createFinanceCommandsService(options: {
     ctx: Context
     locale: BotLocale
     periodArg?: string
+    editMessage?: boolean | undefined
   }) {
     const telegramUserId = input.ctx.from?.id?.toString()
     if (!telegramUserId) {
-      await input.ctx.reply(getBotTranslations(input.locale).finance.unableToIdentifySender)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.unableToIdentifySender,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1813,7 +2045,8 @@ export function createFinanceCommandsService(options: {
         householdId: resolved.householdId,
         memberId: resolved.member.id,
         householdName: resolved.householdName,
-        ...(input.periodArg ? { periodArg: input.periodArg } : {})
+        ...(input.periodArg ? { periodArg: input.periodArg } : {}),
+        editMessage: input.editMessage
       })
       return
     }
@@ -1823,7 +2056,12 @@ export function createFinanceCommandsService(options: {
         telegramUserId
       )
     if (memberships.length === 0) {
-      await input.ctx.reply(getBotTranslations(input.locale).finance.notMember)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.notMember,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1840,7 +2078,8 @@ export function createFinanceCommandsService(options: {
         householdId: membership.householdId,
         memberId: membership.id,
         householdName: household?.householdName ?? membership.householdId,
-        ...(input.periodArg ? { periodArg: input.periodArg } : {})
+        ...(input.periodArg ? { periodArg: input.periodArg } : {}),
+        editMessage: input.editMessage
       })
       return
     }
@@ -1864,19 +2103,24 @@ export function createFinanceCommandsService(options: {
         }))
       }
     })
-    await input.ctx.reply(
-      input.locale === 'ru' ? 'Выберите дом для статуса:' : 'Choose a household:',
-      {
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: input.locale === 'ru' ? 'Выберите дом для статуса:' : 'Choose a household:',
+      options: {
         reply_markup: {
-          inline_keyboard: households.map(({ membership, household }, index) => [
-            {
-              text: household?.householdName ?? membership.householdId,
-              callback_data: `${STATUS_SHOW_CALLBACK_PREFIX}${index}`
-            }
-          ])
+          inline_keyboard: [
+            ...households.map(({ membership, household }, index) => [
+              {
+                text: household?.householdName ?? membership.householdId,
+                callback_data: `${STATUS_SHOW_CALLBACK_PREFIX}${index}`
+              }
+            ]),
+            homeMenuRow(input.locale)
+          ]
         }
-      }
-    )
+      },
+      editMessage: input.editMessage
+    })
   }
 
   async function replyWithBillingAuditExport(input: {
@@ -1924,10 +2168,16 @@ export function createFinanceCommandsService(options: {
     forcedMode: 'utilities' | 'rent' | null
     showMode: 'household' | 'viewer'
     detailMode: 'compact' | 'full'
+    editMessage?: boolean | undefined
   }) {
     const telegramUserId = input.ctx.from?.id?.toString()
     if (!telegramUserId) {
-      await input.ctx.reply(getBotTranslations(input.locale).finance.unableToIdentifySender)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.unableToIdentifySender,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1949,7 +2199,8 @@ export function createFinanceCommandsService(options: {
               viewerMemberId: resolved.member.id
             }),
         forcedMode: input.forcedMode,
-        detailMode: input.detailMode
+        detailMode: input.detailMode,
+        editMessage: input.editMessage
       })
       return
     }
@@ -1959,7 +2210,12 @@ export function createFinanceCommandsService(options: {
         telegramUserId
       )
     if (memberships.length === 0) {
-      await input.ctx.reply(getBotTranslations(input.locale).finance.notMember)
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.notMember,
+        editMessage: input.editMessage
+      })
       return
     }
 
@@ -1982,7 +2238,8 @@ export function createFinanceCommandsService(options: {
               viewerMemberId: membership.id
             }),
         forcedMode: input.forcedMode,
-        detailMode: input.detailMode
+        detailMode: input.detailMode,
+        editMessage: input.editMessage
       })
       return
     }
@@ -2007,19 +2264,132 @@ export function createFinanceCommandsService(options: {
         }))
       }
     })
-    await input.ctx.reply(
-      input.locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
-      {
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: input.locale === 'ru' ? 'Выберите дом для просмотра счета:' : 'Choose a household:',
+      options: {
         reply_markup: {
-          inline_keyboard: households.map(({ membership, household }, index) => [
-            {
-              text: household?.householdName ?? membership.householdId,
-              callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${input.forcedMode ?? 'auto'}:${input.detailMode}`
-            }
-          ])
+          inline_keyboard: [
+            ...households.map(({ membership, household }, index) => [
+              {
+                text: household?.householdName ?? membership.householdId,
+                callback_data: `${BILL_SHOW_CALLBACK_PREFIX}${index}:${input.forcedMode ?? 'auto'}:${input.detailMode}`
+              }
+            ]),
+            homeMenuRow(input.locale)
+          ]
         }
+      },
+      editMessage: input.editMessage
+    })
+  }
+
+  async function replyWithRequestedPersonalBillSummary(input: {
+    ctx: Context
+    locale: BotLocale
+    periodArg?: string
+    editMessage?: boolean | undefined
+  }) {
+    const telegramUserId = input.ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.unableToIdentifySender,
+        editMessage: input.editMessage
+      })
+      return
+    }
+
+    if (isGroupChat(input.ctx)) {
+      const resolved = await requireMember(input.ctx)
+      if (!resolved) {
+        return
       }
+
+      await replyWithPersonalBillSummary({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: resolved.service,
+        householdId: resolved.householdId,
+        memberId: resolved.member.id,
+        householdName: resolved.householdName,
+        ...(input.periodArg ? { periodArg: input.periodArg } : {}),
+        editMessage: input.editMessage
+      })
+      return
+    }
+
+    const memberships =
+      await options.householdConfigurationRepository.listHouseholdMembersByTelegramUserId(
+        telegramUserId
+      )
+    if (memberships.length === 0) {
+      await replyOrEditWithHomeMenu({
+        ctx: input.ctx,
+        locale: input.locale,
+        text: getBotTranslations(input.locale).finance.notMember,
+        editMessage: input.editMessage
+      })
+      return
+    }
+
+    if (memberships.length === 1) {
+      const membership = memberships[0]!
+      const household =
+        await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      await replyWithPersonalBillSummary({
+        ctx: input.ctx,
+        locale: input.locale,
+        service: options.financeServiceForHousehold(membership.householdId),
+        householdId: membership.householdId,
+        memberId: membership.id,
+        householdName: household?.householdName ?? membership.householdId,
+        ...(input.periodArg ? { periodArg: input.periodArg } : {}),
+        editMessage: input.editMessage
+      })
+      return
+    }
+
+    const households = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        household: await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+          membership.householdId
+        )
+      }))
     )
+    await storeBillPendingAction({
+      ctx: input.ctx,
+      payload: {
+        kind: 'personal_summary_choose',
+        periodArg: input.periodArg ?? null,
+        choices: households.map(({ membership }) => ({
+          householdId: membership.householdId,
+          memberId: membership.id
+        }))
+      }
+    })
+    await replyOrEditText({
+      ctx: input.ctx,
+      text: input.locale === 'ru' ? 'Выберите дом для сводки:' : 'Choose a household:',
+      options: {
+        reply_markup: {
+          inline_keyboard: [
+            ...households.map(({ membership, household }, index) => [
+              {
+                text: household?.householdName ?? membership.householdId,
+                callback_data: `${PERSONAL_BILL_SHOW_CALLBACK_PREFIX}${index}`
+              }
+            ]),
+            homeMenuRow(input.locale)
+          ]
+        }
+      },
+      editMessage: input.editMessage
+    })
   }
 
   function register(bot: Bot): void {
@@ -2068,9 +2438,18 @@ export function createFinanceCommandsService(options: {
         ctx,
         repository: options.householdConfigurationRepository
       })
-      const { forcedMode, detailMode, hasInvalidArgs } = parseBillArgs(commandArgs(ctx))
+      const args = commandArgs(ctx)
+      const { forcedMode, detailMode, hasInvalidArgs } = parseBillArgs(args)
       if (hasInvalidArgs) {
         await ctx.reply(getBotTranslations(locale).common.useHelp)
+        return
+      }
+
+      if (args.length === 0) {
+        await replyWithRequestedPersonalBillSummary({
+          ctx,
+          locale
+        })
         return
       }
 
@@ -2257,8 +2636,9 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await ctx.editMessageText(
-          buildBillReply({
+        await replyOrEditText({
+          ctx,
+          text: buildBillReply({
             locale,
             householdName: household?.householdName ?? householdId,
             plan,
@@ -2281,8 +2661,75 @@ export function createFinanceCommandsService(options: {
               : {
                   viewerMemberId: memberId
                 })
-          })
+          }),
+          options: {
+            reply_markup: {
+              inline_keyboard: [homeMenuRow(locale)]
+            }
+          },
+          editMessage: true
+        })
+        await ctx.answerCallbackQuery()
+      }
+    )
+
+    bot.callbackQuery(
+      new RegExp(`^${PERSONAL_BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
+      async (ctx) => {
+        const choiceIndex = Number(
+          ctx.callbackQuery.data.slice(PERSONAL_BILL_SHOW_CALLBACK_PREFIX.length)
         )
+        if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const pendingAction = await getBillPendingAction(ctx)
+        const choices = Array.isArray(pendingAction?.payload.choices)
+          ? pendingAction.payload.choices
+          : []
+        const choice = choices[choiceIndex]
+        const householdId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.householdId
+            : null
+        const memberId =
+          choice &&
+          typeof choice === 'object' &&
+          typeof choice.householdId === 'string' &&
+          typeof choice.memberId === 'string'
+            ? choice.memberId
+            : null
+        const periodArg =
+          pendingAction?.payload.kind === 'personal_summary_choose' &&
+          typeof pendingAction.payload.periodArg === 'string'
+            ? pendingAction.payload.periodArg
+            : undefined
+        if (!householdId || !memberId) {
+          await ctx.answerCallbackQuery()
+          return
+        }
+
+        const locale = await resolveReplyLocale({
+          ctx,
+          repository: options.householdConfigurationRepository,
+          householdId
+        })
+        const household =
+          await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
+        await replyWithPersonalBillSummary({
+          ctx,
+          locale,
+          service: options.financeServiceForHousehold(householdId),
+          householdId,
+          memberId,
+          householdName: household?.householdName ?? householdId,
+          ...(periodArg ? { periodArg } : {}),
+          editMessage: true
+        })
         await ctx.answerCallbackQuery()
       }
     )
@@ -2400,8 +2847,9 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await ctx.editMessageText(
-          buildBillReply({
+        await replyOrEditText({
+          ctx,
+          text: buildBillReply({
             locale,
             householdName: household?.householdName ?? householdId,
             plan,
@@ -2418,8 +2866,14 @@ export function createFinanceCommandsService(options: {
             forcedMode: 'utilities',
             viewerMemberId: actingMember.id,
             detailMode: 'compact'
-          })
-        )
+          }),
+          options: {
+            reply_markup: {
+              inline_keyboard: [homeMenuRow(locale)]
+            }
+          },
+          editMessage: true
+        })
         await ctx.answerCallbackQuery({
           text: locale === 'ru' ? 'Коммуналка отмечена по плану.' : 'Marked as paid as planned.'
         })
@@ -2515,7 +2969,8 @@ export function createFinanceCommandsService(options: {
           ...(target.periodArg ? { periodArg: target.periodArg } : {}),
           orderMemberId: target.memberId,
           forcedMode: null,
-          detailMode: 'full'
+          detailMode: 'full',
+          editMessage: true
         })
         await ctx.answerCallbackQuery()
       }
@@ -2536,13 +2991,13 @@ export function createFinanceCommandsService(options: {
           repository: options.householdConfigurationRepository,
           householdId: target.householdId
         })
-        const dashboard = await target.service.generateDashboard(target.periodArg)
-        if (!dashboard) {
-          await ctx.answerCallbackQuery()
-          return
-        }
-
-        await ctx.reply(formatBalances(locale, dashboard))
+        await replyWithBalances({
+          ctx,
+          locale,
+          service: target.service,
+          ...(target.periodArg ? { periodArg: target.periodArg } : {}),
+          editMessage: true
+        })
         await ctx.answerCallbackQuery()
       }
     )
@@ -2552,12 +3007,26 @@ export function createFinanceCommandsService(options: {
         ctx,
         repository: options.householdConfigurationRepository
       })
+      await replyWithRequestedPersonalBillSummary({
+        ctx,
+        locale,
+        editMessage: true
+      })
+      await ctx.answerCallbackQuery()
+    })
+
+    bot.callbackQuery(TELEGRAM_HOME_MY_BILL_FULL_CALLBACK, async (ctx) => {
+      const locale = await resolveReplyLocale({
+        ctx,
+        repository: options.householdConfigurationRepository
+      })
       await replyWithRequestedBillPlan({
         ctx,
         locale,
         forcedMode: null,
         showMode: 'viewer',
-        detailMode: 'compact'
+        detailMode: 'full',
+        editMessage: true
       })
       await ctx.answerCallbackQuery()
     })
@@ -2569,7 +3038,8 @@ export function createFinanceCommandsService(options: {
       })
       await replyWithRequestedHouseholdStatus({
         ctx,
-        locale
+        locale,
+        editMessage: true
       })
       await ctx.answerCallbackQuery()
     })
@@ -2581,7 +3051,8 @@ export function createFinanceCommandsService(options: {
       })
       await replyWithRequestedBalances({
         ctx,
-        locale
+        locale,
+        editMessage: true
       })
       await ctx.answerCallbackQuery()
     })
@@ -2622,7 +3093,8 @@ export function createFinanceCommandsService(options: {
         await replyWithBalances({
           ctx,
           locale,
-          service: options.financeServiceForHousehold(householdId)
+          service: options.financeServiceForHousehold(householdId),
+          editMessage: true
         })
         await ctx.answerCallbackQuery()
       }
@@ -2731,6 +3203,23 @@ export function createFinanceCommandsService(options: {
             householdId
           })
           await replyWithHouseholdStatus({
+            ctx,
+            locale,
+            service,
+            householdId,
+            memberId: actingMemberId,
+            ...(resolvedHouseholdName ? { householdName: resolvedHouseholdName } : {})
+          })
+          return
+        }
+
+        if (command === 'my_bill' && !forcedMode && detailMode === 'compact') {
+          const locale = await resolveReplyLocale({
+            ctx,
+            repository: options.householdConfigurationRepository,
+            householdId
+          })
+          await replyWithPersonalBillSummary({
             ctx,
             locale,
             service,

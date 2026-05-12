@@ -8,8 +8,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     home: 'Open the household control center',
     bill: 'Show the household bill view',
     bill_full: 'Show the household bill with all purchase impact',
-    my_bill: 'Show only your current bill',
-    my_bill_full: 'Show your current bill with all purchase impact',
+    my_bill: 'Show your personal finance summary',
+    my_bill_full: 'Show your detailed personal bill',
     bill_json: 'Export the current billing calculation audit as JSON',
     household_status: 'Show current household status',
     balance: 'Show purchase balances for all members',
@@ -28,7 +28,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     keyboard: 'Toggle persistent dashboard button'
   },
   help: {
-    intro: '🏡 Choose a task from /home. The command list below is for quick access.',
+    intro:
+      '🏡 /home opens the main menu. Use it first; the command list below is for quick access.',
     tasksHeading: 'Common tasks:',
     checkMyBill: '• 💸 Check what you owe: /home → My bill',
     checkHouseholdStatus: '• 🏠 See household status: /home → Status',
@@ -48,6 +49,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     myBillButton: '💸 My bill',
     householdStatusButton: '🏠 Status',
     balancesButton: '🛒 Balances',
+    fullBillButton: '🔎 Full bill',
+    menuButton: '🏡 Menu',
     miniAppButton: '📱 Mini app',
     setupButton: '🧰 Setup/Admin',
     feedbackButton: '🕶 Anonymous note',

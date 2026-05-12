@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import type { FinanceCommandService } from '@household/application'
 import { Money, instantFromIso, nowInstant } from '@household/domain'
 import type {
@@ -499,6 +500,12 @@ function createFinanceService(): FinanceCommandService {
 }
 
 describe('createFinanceCommandsService', () => {
+  test('keeps finance commands independent from household setup feature imports', () => {
+    const source = readFileSync(new URL('./finance-commands.ts', import.meta.url), 'utf8')
+    expect(source).not.toContain("from './household-setup'")
+    expect(source).not.toContain('from "./household-setup"')
+  })
+
   test('replies with a clearer localized household status summary', async () => {
     const repository = createRepository()
     const financeService: FinanceCommandService = {
@@ -1022,7 +1029,7 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(callbackUpdate('home:balances', 'ru', 'private') as never)
 
-    const messagePayload = calls.find((call) => call.method === 'sendMessage')?.payload as
+    const messagePayload = calls.find((call) => call.method === 'editMessageText')?.payload as
       | { text?: string }
       | undefined
     expect(messagePayload?.text).toContain('🛒 Покупки')
@@ -1118,7 +1125,8 @@ describe('createFinanceCommandsService', () => {
     expect(chooserPayload?.text).toBe('Выберите дом для статуса:')
     expect(chooserPayload?.reply_markup?.inline_keyboard).toEqual([
       [{ text: 'Kojori House', callback_data: 'status:show:0' }],
-      [{ text: 'City Flat', callback_data: 'status:show:1' }]
+      [{ text: 'City Flat', callback_data: 'status:show:1' }],
+      [{ text: '🏡 Меню', callback_data: 'home:menu' }]
     ])
     expect(promptRepository.current()?.payload).toMatchObject({
       kind: 'status_choose',
@@ -1439,9 +1447,151 @@ describe('createFinanceCommandsService', () => {
           text: 'Оплатил по плану',
           callback_data: 'bill:resolve:current'
         }
+      ],
+      [
+        {
+          text: '🏡 Меню',
+          callback_data: 'home:menu'
+        }
       ]
     ])
     expect(promptRepository.current()?.action).toBe('bill_command')
+  })
+
+  test('renders plain /my_bill as a personal finance summary with navigation buttons', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => createDashboard()
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository: createPromptRepository()
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(privateHouseholdStatusUpdate('/my_bill', 'ru') as never)
+
+    const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
+      | {
+          text?: string
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
+          }
+        }
+      | undefined
+    expect(payload?.text).toContain('💸 Мой счёт')
+    expect(payload?.text).toContain('К оплате: 110.00 ₾')
+    expect(payload?.text).toContain('Начислено: 210.00 ₾')
+    expect(payload?.text).toContain('По покупкам в плюсе: 10.00 ₾')
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        {
+          text: '🔎 Весь счёт',
+          callback_data: 'home:my_bill_full'
+        },
+        {
+          text: '🛒 Балансы',
+          callback_data: 'home:balances'
+        }
+      ],
+      [
+        {
+          text: '🏠 Статус',
+          callback_data: 'home:status'
+        },
+        {
+          text: '🏡 Меню',
+          callback_data: 'home:menu'
+        }
+      ]
+    ])
+  })
+
+  test('falls back to a reply when editing the home my bill result fails', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => createDashboard()
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository: createPromptRepository()
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      if (method === 'editMessageText') {
+        throw new Error('message is not editable')
+      }
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(callbackUpdate('home:my_bill', 'ru', 'private') as never)
+
+    expect(calls.some((call) => call.method === 'editMessageText')).toBe(true)
+    expect(calls.some((call) => call.method === 'sendMessage')).toBe(true)
+    expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
   })
 
   test('renders /bill for non-admin members with the current member first', async () => {

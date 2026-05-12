@@ -79,6 +79,8 @@ export interface BotTranslationCatalog {
     myBillButton: string
     householdStatusButton: string
     balancesButton: string
+    fullBillButton: string
+    menuButton: string
     miniAppButton: string
     setupButton: string
     feedbackButton: string
