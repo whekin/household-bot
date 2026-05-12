@@ -131,14 +131,17 @@
   opacity: 0.82;
 }
 
-.today-stage-rail > div[data-state='done'] > span,
 .today-stage-rail > div[data-state='active'] > span {
   background: linear-gradient(90deg, var(--status-credit), var(--accent));
 }
 
-.today-stage-rail > div[data-state='done'] > strong,
-.today-stage-rail > div[data-state='done'] > em {
-  color: color-mix(in srgb, var(--text-secondary) 78%, white 22%);
+.today-stage-rail > div[data-state='carried'] > span {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.today-stage-rail > div[data-state='carried'] > strong,
+.today-stage-rail > div[data-state='carried'] > em {
+  color: color-mix(in srgb, var(--accent) 72%, white 12%);
 }
 
 .today-stage-rail > div[data-state='active'] > strong,

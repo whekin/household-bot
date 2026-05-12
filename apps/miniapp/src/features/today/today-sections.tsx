@@ -23,20 +23,18 @@ import {
 type Copy = ReturnType<typeof useI18n>['copy']
 
 function stageRailState(
-  current: TodayViewModel['stage'],
-  target: 'utilities' | 'rent' | 'idle'
-): 'done' | 'active' | 'pending' {
-  if (current === 'utilities') {
-    return target === 'utilities' ? 'active' : 'pending'
+  model: TodayViewModel,
+  segment: TodayViewModel['timelineSegments'][number]
+): 'active' | 'carried' | 'inactive' {
+  if (model.currentTimelineSegmentKey === segment.key) {
+    return 'active'
   }
 
-  if (current === 'rent') {
-    if (target === 'utilities') return 'done'
-    return target === 'rent' ? 'active' : 'pending'
+  if (model.stage !== 'idle' && model.stage === segment.kind) {
+    return 'carried'
   }
 
-  if (target === 'idle') return 'active'
-  return 'done'
+  return 'inactive'
 }
 
 function stageLabel(
@@ -116,7 +114,7 @@ export function CurrentPeriodPanel(props: {
           <For each={props.model.timelineSegments}>
             {(segment) => (
               <div
-                data-state={stageRailState(props.model.stage, segment.kind)}
+                data-state={stageRailState(props.model, segment)}
                 style={{ '--segment-span': String(segment.renderSpanDays) }}
               >
                 <span />

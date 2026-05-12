@@ -31,6 +31,7 @@ export type TodayViewModel = {
     renderSpanDays: number
     label: string
   }[]
+  currentTimelineSegmentKey: string | null
   isExtendedPeriod: boolean
   remainingMajor: string
   totalMajor: string
@@ -74,21 +75,7 @@ export function chooseTodayStage(input: {
   effectiveStage: TodayStage
   periodSummary: TodayPeriodSummary | null
 }): TodayStage {
-  if (input.effectiveStage === 'utilities' || input.effectiveStage === 'rent') {
-    return input.effectiveStage
-  }
-
-  const utilitiesRemaining = majorStringToMinor(
-    periodKindSummary(input.periodSummary, 'utilities')?.totalRemainingMajor ?? '0.00'
-  )
-  if (utilitiesRemaining > 0n) {
-    return 'utilities'
-  }
-
-  const rentRemaining = majorStringToMinor(
-    periodKindSummary(input.periodSummary, 'rent')?.totalRemainingMajor ?? '0.00'
-  )
-  return rentRemaining > 0n ? 'rent' : 'idle'
+  return input.effectiveStage
 }
 
 export function memberRemainingMajor(
@@ -234,6 +221,23 @@ function nextWindowForToday(input: {
   return null
 }
 
+function currentTimelineSegmentKey(input: {
+  segments: TodayViewModel['timelineSegments']
+  period: string
+  timezone: string
+  todayOverride?: CalendarDateParts | null
+}): string | null {
+  const totalDays = daysInPeriod(input.period)
+  const today = input.todayOverride ?? currentDayParts(input.timezone)
+  if (!today) return null
+
+  return (
+    input.segments.find((segment) =>
+      dayInSegment(today.day, segment.startDay, segment.endDay, totalDays)
+    )?.key ?? null
+  )
+}
+
 export function buildTodayTimeline(input: {
   period: string
   rentStartDay: number
@@ -345,6 +349,12 @@ export function buildTodayViewModel(input: {
     periodSummary,
     kindSummary,
     timelineSegments,
+    currentTimelineSegmentKey: currentTimelineSegmentKey({
+      segments: timelineSegments,
+      period,
+      timezone: input.dashboard.timezone,
+      todayOverride: input.todayOverride ?? null
+    }),
     isExtendedPeriod:
       periodSummary?.hasOverdueBalance === true ||
       (periodSummary?.period !== undefined && periodSummary.period !== input.dashboard.period),

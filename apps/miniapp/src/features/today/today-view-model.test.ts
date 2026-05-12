@@ -129,13 +129,13 @@ describe('today view model', () => {
     expect(
       chooseTodayStage({
         dashboard: dashboard(summary),
-        effectiveStage: 'idle',
+        effectiveStage: 'utilities',
         periodSummary: summary
       })
     ).toBe('utilities')
   })
 
-  test('falls back to rent when utilities are closed and rent remains', () => {
+  test('does not promote idle into rent before the configured rent window starts', () => {
     const summary = periodSummary({ rentRemaining: '300.00' })
 
     expect(
@@ -144,7 +144,7 @@ describe('today view model', () => {
         effectiveStage: 'idle',
         periodSummary: summary
       })
-    ).toBe('rent')
+    ).toBe('idle')
   })
 
   test('uses between-period state when every payment kind is closed', () => {
@@ -159,12 +159,12 @@ describe('today view model', () => {
     ).toBe('idle')
   })
 
-  test('builds member close rows from the selected period kind', () => {
+  test('builds member close rows from the effective stage', () => {
     const model = buildTodayViewModel({
       dashboard: dashboard(periodSummary({ rentRemaining: '300.00' })),
       currentMemberId: 'member-a',
       effectivePeriod: '2026-03',
-      effectiveStage: 'idle'
+      effectiveStage: 'rent'
     })
 
     expect(model.stage).toBe('rent')
@@ -327,5 +327,24 @@ describe('today view model', () => {
       label: 'rent',
       rangeLabel: '15-20'
     })
+  })
+
+  test('tracks the current timeline segment separately from an extended utilities stage', () => {
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ utilitiesRemaining: '42.00' })),
+        rentWarningDay: 17,
+        rentDueDay: 20,
+        utilitiesReminderDay: 1,
+        utilitiesDueDay: 6
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-05',
+      effectiveStage: 'utilities',
+      todayOverride: { year: 2026, month: 5, day: 13 }
+    })
+
+    expect(model.stage).toBe('utilities')
+    expect(model.currentTimelineSegmentKey).toBe('pause-before-rent')
   })
 })
