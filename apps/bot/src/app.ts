@@ -65,6 +65,7 @@ import {
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
+  createMiniAppClosePaymentPeriodHandler,
   createMiniAppCloseCycleHandler,
   createMiniAppDeletePaymentHandler,
   createMiniAppDeletePurchaseHandler,
@@ -1024,6 +1025,24 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('miniapp-billing')
         })
       : undefined,
+    miniAppClosePaymentPeriod:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppClosePaymentPeriodHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            financeServiceForHousehold,
+            adHocNotificationService,
+            ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(householdConfigurationRepositoryClient
+              ? {
+                  householdConfigurationRepository:
+                    householdConfigurationRepositoryClient.repository
+                }
+              : {}),
+            logger: getLogger('miniapp-billing')
+          })
+        : undefined,
     miniAppUpdatePayment: householdOnboardingService
       ? createMiniAppUpdatePaymentHandler({
           allowedOrigins: runtime.miniAppAllowedOrigins,

@@ -88,6 +88,9 @@ export function AppShell(props: ParentProps) {
         <div class="topbar__copy">
           <p class="eyebrow">{copy().appSubtitle}</p>
           <h1>{readySession()?.member.householdName ?? copy().appTitle}</h1>
+          <Show when={readySession()?.member.displayName}>
+            {(displayName) => <p class="topbar__member">{displayName()}</p>}
+          </Show>
         </div>
 
         <div class="topbar__actions">
@@ -109,8 +112,8 @@ export function AppShell(props: ParentProps) {
               </button>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/activity')}>
-            {locale() === 'ru' ? 'Лента' : 'Feed'}
+          <Button variant="ghost" size="sm" onClick={() => navigate('/purchases')}>
+            {copy().homeIdleViewPurchasesAction}
           </Button>
         </div>
       </section>

@@ -1,597 +1,122 @@
-import { Show, For, createEffect, createMemo, createSignal, Switch, Match } from 'solid-js'
-import { Clock, ChevronDown, ChevronUp, Copy, Check, CreditCard, Plus } from 'lucide-solid'
+import { Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
 import { useI18n } from '../contexts/i18n-context'
 import { useDashboard } from '../contexts/dashboard-context'
-import { Card } from '../components/ui/card'
-import { Badge } from '../components/ui/badge'
-import { Button } from '../components/ui/button'
-import { QuickPurchaseComposer } from '../components/quick-purchase-composer'
-import { PurchaseBalanceRail, normalizedRailWidth } from '../components/purchase-balance-rail'
-import { CurrencyToggle } from '../components/ui/currency-toggle'
-import { Field } from '../components/ui/field'
-import { Input } from '../components/ui/input'
 import { Modal } from '../components/ui/dialog'
-import { Toast } from '../components/ui/toast'
 import { Skeleton } from '../components/ui/skeleton'
-import {
-  formatAbsoluteMoneyLabel,
-  memberEffectivePurchaseBalanceMajor,
-  formatMoneyLabel,
-  formatSemanticMoneyLabel,
-  semanticMoneyTone,
-  type PurchaseDraft
-} from '../lib/ledger-helpers'
-import { majorStringToMinor, minorToMajorString } from '../lib/money'
+import { Toast } from '../components/ui/toast'
+import { QuickPurchaseComposer } from '../components/quick-purchase-composer'
+import { memberEffectivePurchaseBalanceMajor, type PurchaseDraft } from '../lib/ledger-helpers'
 import { buildEmptyPurchaseDraft, buildPurchaseSplitPayload } from '../lib/purchase-draft'
-import {
-  type CalendarDateParts,
-  compareTodayToPeriodDay,
-  daysUntilPeriodDay,
-  formatCyclePeriod,
-  formatFriendlyDate,
-  formatPeriodDay,
-  nextCyclePeriod
-} from '../lib/dates'
+import { majorStringToMinor } from '../lib/money'
 import {
   addMiniAppPurchase,
-  submitMiniAppUtilityBill,
-  addMiniAppPayment,
-  resolveMiniAppUtilityPlan,
-  updateMiniAppNotification,
-  cancelMiniAppNotification
+  closeMiniAppPaymentPeriod,
+  type MiniAppDashboard
 } from '../miniapp-api'
-import type { MiniAppDashboard } from '../miniapp-api'
+import {
+  AdminCloseConfirmDialog,
+  AdminClosePanel,
+  CurrentPeriodPanel,
+  HouseholdSummaryPanel,
+  MemberCloseList,
+  PurchaseStream
+} from '../features/today/today-sections'
+import {
+  buildTodayViewModel,
+  type TodayMemberCloseLine,
+  type TodayPaymentKind
+} from '../features/today/today-view-model'
 
-function entryOccurredAtSortValue(entry: MiniAppDashboard['ledger'][number]): string {
-  return entry.occurredAt ?? ''
-}
-
-function purchaseResolutionRank(entry: MiniAppDashboard['ledger'][number]): number {
-  return entry.resolutionStatus === 'unresolved' ? 0 : 1
-}
-
-function splitEvenlyShareMinor(amountMajor: string, includedCount: number, index: number): bigint {
-  if (includedCount <= 0) {
-    return 0n
-  }
-
-  const amountMinor = majorStringToMinor(amountMajor)
-  const base = amountMinor / BigInt(includedCount)
-  const leftover = amountMinor % BigInt(includedCount)
-
-  return base + (BigInt(index) < leftover ? 1n : 0n)
-}
-
-function purchaseShareForMember(
-  entry: MiniAppDashboard['ledger'][number],
-  memberId: string
-): string | null {
-  const participant = (entry.purchaseParticipants ?? []).find(
-    (item) => item.memberId === memberId && item.included
-  )
-  if (!participant) {
-    return null
-  }
-
-  if (participant.shareAmountMajor) {
-    return participant.shareAmountMajor
-  }
-
-  const includedParticipants = (entry.purchaseParticipants ?? []).filter((item) => item.included)
-  const participantIndex = includedParticipants.findIndex((item) => item.memberId === memberId)
-
-  if (participantIndex === -1) {
-    return null
-  }
-
-  return minorToMajorString(
-    splitEvenlyShareMinor(entry.displayAmountMajor, includedParticipants.length, participantIndex)
-  )
-}
-
-function paymentRemainingMinor(
-  data: MiniAppDashboard,
-  memberId: string,
-  kind: 'rent' | 'utilities'
-): bigint {
-  if (kind === 'rent') {
-    const rentSummary = data.rentBillingState.memberSummaries.find(
-      (summary) => summary.memberId === memberId
-    )
-    return majorStringToMinor(rentSummary?.remainingMajor ?? '0.00')
-  }
-
-  if (data.utilityBillingPlan) {
-    return utilityPlanAssignedMinor(data, memberId)
-  }
-
-  const periodSummary = (data.paymentPeriods ?? []).find((summary) => summary.isCurrentPeriod)
-  const utilityKind = periodSummary?.kinds.find((entry) => entry.kind === 'utilities')
-  const memberSummary = utilityKind?.unresolvedMembers.find((entry) => entry.memberId === memberId)
-
-  return majorStringToMinor(memberSummary?.remainingMajor ?? '0.00')
-}
-
-function utilityPlanAssignedMinor(data: MiniAppDashboard, memberId: string): bigint {
-  if (!data.utilityBillingPlan) {
-    return 0n
-  }
-
-  return data.utilityBillingPlan.categories
-    .filter((category) => category.assignedMemberId === memberId)
-    .reduce((sum, category) => sum + majorStringToMinor(category.assignedAmountMajor), 0n)
-}
-
-function zonedDateTimeParts(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(date)
-
-  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? '0')
-
-  return {
-    year: read('year'),
-    month: read('month'),
-    day: read('day'),
-    hour: read('hour'),
-    minute: read('minute')
-  }
-}
-
-function dateKey(input: { year: number; month: number; day: number }) {
-  return [
-    String(input.year).padStart(4, '0'),
-    String(input.month).padStart(2, '0'),
-    String(input.day).padStart(2, '0')
-  ].join('-')
-}
-
-function shiftDateKey(currentKey: string, days: number): string {
-  const [yearText = '1970', monthText = '01', dayText = '01'] = currentKey.split('-')
-  const year = Number(yearText)
-  const month = Number(monthText)
-  const day = Number(dayText)
-  const shifted = new Date(Date.UTC(year, month - 1, day + days))
-  return [
-    shifted.getUTCFullYear(),
-    String(shifted.getUTCMonth() + 1).padStart(2, '0'),
-    String(shifted.getUTCDate()).padStart(2, '0')
-  ].join('-')
-}
-
-function formatNotificationTimeOfDay(locale: 'en' | 'ru', hour: number, minute: number) {
-  const exact = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-  if (locale !== 'ru' || minute !== 0) {
-    return locale === 'ru' ? `в ${exact}` : `at ${exact}`
-  }
-
-  if (hour >= 5 && hour <= 11) return `в ${hour} утра`
-  if (hour >= 12 && hour <= 16) return hour === 12 ? 'в 12 дня' : `в ${hour} дня`
-  if (hour >= 17 && hour <= 23) return `в ${hour > 12 ? hour - 12 : hour} вечера`
-  return `в ${hour} ночи`
-}
-
-function formatNotificationWhen(
-  locale: 'en' | 'ru',
-  scheduledForIso: string,
-  timeZone: string
-): string {
-  const now = zonedDateTimeParts(new Date(), timeZone)
-  const target = zonedDateTimeParts(new Date(scheduledForIso), timeZone)
-  const nowKey = dateKey(now)
-  const sleepAwareBaseKey = now.hour <= 4 ? shiftDateKey(nowKey, -1) : nowKey
-  const targetKey = dateKey(target)
-  const timeText = formatNotificationTimeOfDay(locale, target.hour, target.minute)
-
-  if (targetKey === sleepAwareBaseKey) {
-    return locale === 'ru' ? `Сегодня ${timeText}` : `Today ${timeText}`
-  }
-  if (targetKey === shiftDateKey(sleepAwareBaseKey, 1)) {
-    return locale === 'ru' ? `Завтра ${timeText}` : `Tomorrow ${timeText}`
-  }
-  if (targetKey === shiftDateKey(sleepAwareBaseKey, 2)) {
-    return locale === 'ru' ? `Послезавтра ${timeText}` : `The day after tomorrow ${timeText}`
-  }
-
-  const dateText =
-    locale === 'ru'
-      ? `${String(target.day).padStart(2, '0')}.${String(target.month).padStart(2, '0')}.${target.year}`
-      : `${target.year}-${String(target.month).padStart(2, '0')}-${String(target.day).padStart(2, '0')}`
-
-  return `${dateText} ${timeText}`
-}
-
-function formatNotificationDelivery(
-  locale: 'en' | 'ru',
-  notification: MiniAppDashboard['notifications'][number]
-) {
-  if (notification.deliveryMode === 'topic') {
-    return locale === 'ru' ? 'В этот топик' : 'This topic'
-  }
-
-  if (notification.deliveryMode === 'dm_all') {
-    return locale === 'ru' ? 'Всем в личку' : 'DM to everyone'
-  }
-
-  return locale === 'ru'
-    ? notification.dmRecipientDisplayNames.length > 0
-      ? `В личку: ${notification.dmRecipientDisplayNames.join(', ')}`
-      : 'В выбранные лички'
-    : notification.dmRecipientDisplayNames.length > 0
-      ? `DM: ${notification.dmRecipientDisplayNames.join(', ')}`
-      : 'DM selected members'
-}
-
-function notificationInputValue(iso: string, timeZone: string) {
-  const target = zonedDateTimeParts(new Date(iso), timeZone)
-  return `${dateKey(target)}T${String(target.hour).padStart(2, '0')}:${String(target.minute).padStart(2, '0')}`
-}
-
-function activityKindLabel(
-  entry: MiniAppDashboard['ledger'][number],
-  copy: ReturnType<typeof useI18n>['copy']
-) {
-  if (entry.kind === 'payment') {
-    if (entry.paymentKind === 'rent') return copy().paymentLedgerRent
-    if (entry.paymentKind === 'utilities') return copy().paymentLedgerUtilities
-    return copy().paymentsTitle
-  }
-
-  if (entry.kind === 'utility') {
-    return copy().homeUtilitiesBillsTitle
-  }
-
-  return copy().purchasesTitle
-}
+type Currency = MiniAppDashboard['currency']
 
 export default function HomeRoute() {
   const navigate = useNavigate()
   const { readySession, initData, handleMiniAppRequestError } = useSession()
-  const { copy, locale } = useI18n()
   const {
     dashboard,
     loading,
-    currentMemberLine,
     setDashboard,
-    utilityLedger,
-    utilityTotalMajor,
+    effectiveIsAdmin,
+    effectiveBillingStage,
     effectivePeriod,
     effectiveTodayOverride,
-    refreshDashboardData,
-    testingOverridesActive,
-    testingTodayOverride
+    testingOverridesActive
   } = useDashboard()
-  const [showAllActivity, setShowAllActivity] = createSignal(false)
-  const [utilityAmounts, setUtilityAmounts] = createSignal<Record<string, string>>({})
-  const [submittingUtilities, setSubmittingUtilities] = createSignal(false)
-  const [copiedValue, setCopiedValue] = createSignal<string | null>(null)
-  const [quickPurchaseOpen, setQuickPurchaseOpen] = createSignal(false)
-  const [quickPurchaseDraft, setQuickPurchaseDraft] = createSignal<PurchaseDraft>(
+  const { copy, locale } = useI18n()
+
+  const [purchaseOpen, setPurchaseOpen] = createSignal(false)
+  const [purchaseDraft, setPurchaseDraft] = createSignal<PurchaseDraft>(
     buildEmptyPurchaseDraft(dashboard(), readySession()?.member.id)
   )
-  const [addingQuickPurchase, setAddingQuickPurchase] = createSignal(false)
-  const [quickPurchaseError, setQuickPurchaseError] = createSignal<string | null>(null)
-  const [quickPaymentOpen, setQuickPaymentOpen] = createSignal(false)
-  const [quickPaymentType, setQuickPaymentType] = createSignal<'rent' | 'utilities'>('rent')
-  const [quickPaymentContext, setQuickPaymentContext] = createSignal<'current' | 'overdue'>(
-    'current'
-  )
-  const [quickPaymentAmount, setQuickPaymentAmount] = createSignal('')
-  const [submittingPayment, setSubmittingPayment] = createSignal(false)
-  const [notificationEditorOpen, setNotificationEditorOpen] = createSignal(false)
-  const [editingNotificationId, setEditingNotificationId] = createSignal<string | null>(null)
-  const [notificationScheduleDraft, setNotificationScheduleDraft] = createSignal('')
-  const [notificationDeliveryModeDraft, setNotificationDeliveryModeDraft] = createSignal<
-    'topic' | 'dm_all' | 'dm_selected'
-  >('topic')
-  const [notificationRecipientsDraft, setNotificationRecipientsDraft] = createSignal<string[]>([])
-  const [savingNotification, setSavingNotification] = createSignal(false)
-  const [cancellingNotificationId, setCancellingNotificationId] = createSignal<string | null>(null)
-  const [toastState, setToastState] = createSignal<{
-    visible: boolean
-    message: string
-    type: 'success' | 'info' | 'error'
-  }>({ visible: false, message: '', type: 'info' })
-
-  const selectedNotification = createMemo(
-    () =>
-      dashboard()?.notifications.find(
-        (notification) => notification.id === editingNotificationId()
-      ) ?? null
-  )
-
-  const activeHouseholdMembers = createMemo(() => dashboard()?.members ?? [])
-  const memberNamesById = createMemo(
-    () => new Map(activeHouseholdMembers().map((member) => [member.memberId, member.displayName]))
-  )
-  const utilityCategories = createMemo(() => dashboard()?.utilityCategories ?? [])
-  const utilityCategoryByName = createMemo(
-    () =>
-      new Map(utilityCategories().map((category) => [category.name.trim().toLowerCase(), category]))
-  )
-  const currentMemberId = createMemo(() =>
-    readySession()?.status === 'ready' ? readySession()!.member.id : null
-  )
-  const currentUtilityAssignments = createMemo(() =>
-    (dashboard()?.utilityBillingPlan?.categories ?? []).filter(
-      (category) => category.assignedMemberId === currentMemberId()
-    )
-  )
-  const currentUtilitySummary = createMemo(
-    () =>
-      (dashboard()?.utilityBillingPlan?.memberSummaries ?? []).find(
-        (summary) => summary.memberId === currentMemberId()
-      ) ?? null
-  )
-  const isUtilitiesFullyPaid = createMemo(() => {
-    const summary = currentUtilitySummary()
-    if (!summary) return false
-    return (
-      majorStringToMinor(summary.assignedThisCycleMajor) === 0n &&
-      majorStringToMinor(summary.vendorPaidMajor) > 0n
-    )
+  const [addingPurchase, setAddingPurchase] = createSignal(false)
+  const [purchaseError, setPurchaseError] = createSignal<string | null>(null)
+  const [adminConfirmOpen, setAdminConfirmOpen] = createSignal(false)
+  const [processingKey, setProcessingKey] = createSignal<string | null>(null)
+  const [toast, setToast] = createSignal({
+    visible: false,
+    message: '',
+    type: 'info' as 'success' | 'info' | 'error'
   })
-  const latestActivity = createMemo(() => {
-    const entries = [...(dashboard()?.ledger ?? [])]
-    return entries.sort((left, right) => {
-      if (left.occurredAt === right.occurredAt) {
-        return right.title.localeCompare(left.title)
-      }
-      return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
+
+  const currentMemberId = createMemo(() => readySession()?.member.id ?? null)
+  const model = createMemo(() => {
+    const data = dashboard()
+    if (!data) return null
+
+    return buildTodayViewModel({
+      dashboard: data,
+      currentMemberId: currentMemberId(),
+      effectivePeriod: effectivePeriod(),
+      effectiveStage: effectiveBillingStage(),
+      todayOverride: effectiveTodayOverride()
     })
   })
-  const currentPurchaseEntries = createMemo(() => {
-    const memberId = currentMemberId()
-    if (!memberId) return [] as MiniAppDashboard['ledger']
-
-    return [...latestActivity()]
-      .filter(
-        (entry) =>
-          entry.kind === 'purchase' &&
-          (entry.purchaseParticipants?.some(
-            (participant) => participant.memberId === memberId && participant.included
-          ) ??
-            false)
-      )
-      .sort((left, right) => {
-        const resolutionDelta = purchaseResolutionRank(left) - purchaseResolutionRank(right)
-        if (resolutionDelta !== 0) {
-          return resolutionDelta
-        }
-
-        const occurredAtDelta = entryOccurredAtSortValue(right).localeCompare(
-          entryOccurredAtSortValue(left)
-        )
-        if (occurredAtDelta !== 0) {
-          return occurredAtDelta
-        }
-
-        return left.title.localeCompare(right.title)
-      })
-  })
-  const otherPurchaseEntries = createMemo(() => {
-    const memberId = currentMemberId()
-    if (!memberId) return [] as MiniAppDashboard['ledger']
-
-    return [...latestActivity()]
-      .filter(
-        (entry) =>
-          entry.kind === 'purchase' &&
-          !(
-            entry.purchaseParticipants?.some(
-              (participant) => participant.memberId === memberId && participant.included
-            ) ?? false
-          )
-      )
-      .sort((left, right) => {
-        const resolutionDelta = purchaseResolutionRank(left) - purchaseResolutionRank(right)
-        if (resolutionDelta !== 0) {
-          return resolutionDelta
-        }
-
-        const occurredAtDelta = entryOccurredAtSortValue(right).localeCompare(
-          entryOccurredAtSortValue(left)
-        )
-        if (occurredAtDelta !== 0) {
-          return occurredAtDelta
-        }
-
-        return left.title.localeCompare(right.title)
-      })
-  })
+  const activeMembers = createMemo(() =>
+    (dashboard()?.members ?? [])
+      .filter((member) => member.status !== 'left')
+      .map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName,
+        remainingMajor: member.remainingMajor,
+        purchaseBalanceMajor: memberEffectivePurchaseBalanceMajor(member)
+      }))
+  )
+  const currentMemberCloseLine = createMemo(
+    () => model()?.memberLines.find((line) => line.memberId === currentMemberId()) ?? null
+  )
 
   createEffect(() => {
-    const categories = utilityCategories()
-    setUtilityAmounts(Object.fromEntries(categories.map((category) => [category.name, ''])))
+    dashboard()
+    setPurchaseDraft(buildEmptyPurchaseDraft(dashboard(), currentMemberId() ?? undefined))
   })
 
-  async function copyText(value: string): Promise<boolean> {
+  function resetPurchase() {
+    setPurchaseError(null)
+    setPurchaseDraft(buildEmptyPurchaseDraft(dashboard(), currentMemberId() ?? undefined))
+  }
+
+  function openPurchase() {
+    resetPurchase()
+    setPurchaseOpen(true)
+  }
+
+  function closePurchase() {
+    setPurchaseOpen(false)
+    resetPurchase()
+  }
+
+  async function handlePurchaseSubmit() {
+    const init = initData()
+    const draft = purchaseDraft()
+    if (!init || !draft.description.trim() || !draft.amountMajor.trim()) return
+
+    setAddingPurchase(true)
+    setPurchaseError(null)
     try {
-      await navigator.clipboard.writeText(value)
-      return true
-    } catch {
-      try {
-        const element = document.createElement('textarea')
-        element.value = value
-        element.setAttribute('readonly', 'true')
-        element.style.position = 'absolute'
-        element.style.left = '-9999px'
-        document.body.appendChild(element)
-        element.select()
-        document.execCommand('copy')
-        document.body.removeChild(element)
-        return true
-      } catch {}
-    }
-
-    return false
-  }
-
-  async function handleCopy(value: string) {
-    if (await copyText(value)) {
-      setCopiedValue(value)
-      setToastState({ visible: true, message: copy().copiedToast, type: 'success' })
-      setTimeout(() => {
-        if (copiedValue() === value) {
-          setCopiedValue(null)
-        }
-      }, 1400)
-    }
-  }
-
-  function paymentWindowStatus(input: {
-    period: string
-    timezone: string
-    reminderDay: number
-    dueDay: number
-    todayOverride?: CalendarDateParts | null
-  }): { active: boolean; daysUntilDue: number | null } {
-    if (!Number.isInteger(input.reminderDay) || !Number.isInteger(input.dueDay)) {
-      return { active: false, daysUntilDue: null }
-    }
-
-    const start = compareTodayToPeriodDay(
-      input.period,
-      input.reminderDay,
-      input.timezone,
-      input.todayOverride
-    )
-    const end = compareTodayToPeriodDay(
-      input.period,
-      input.dueDay,
-      input.timezone,
-      input.todayOverride
-    )
-    if (start === null || end === null) {
-      return { active: false, daysUntilDue: null }
-    }
-
-    const reminderPassed = start !== -1
-    const dueNotPassed = end !== 1
-    const daysUntilDue = daysUntilPeriodDay(
-      input.period,
-      input.dueDay,
-      input.timezone,
-      input.todayOverride
-    )
-
-    return {
-      active: reminderPassed && dueNotPassed,
-      daysUntilDue
-    }
-  }
-
-  const currentPaymentModes = createMemo(() => {
-    const data = dashboard()
-    const member = currentMemberLine()
-    if (!data || !member) return [] as ('rent' | 'utilities')[]
-    const period = effectivePeriod() ?? data.period
-    const today = effectiveTodayOverride()
-
-    const utilities = paymentWindowStatus({
-      period,
-      timezone: data.timezone,
-      reminderDay: data.utilitiesReminderDay,
-      dueDay: data.utilitiesDueDay,
-      todayOverride: today
-    })
-    const rent = paymentWindowStatus({
-      period,
-      timezone: data.timezone,
-      reminderDay: data.rentWarningDay,
-      dueDay: data.rentDueDay,
-      todayOverride: today
-    })
-    const utilitiesDueMinor = data.utilityBillingPlan
-      ? utilityPlanAssignedMinor(data, member.memberId)
-      : paymentRemainingMinor(data, member.memberId, 'utilities')
-    const rentDueMinor = paymentRemainingMinor(data, member.memberId, 'rent')
-    const utilitiesActive =
-      utilitiesDueMinor > 0n || (utilities.active && Boolean(data.utilityBillingPlan))
-    const rentActive = rent.active && rentDueMinor > 0n
-
-    const modes: ('rent' | 'utilities')[] = []
-    if (utilitiesActive) {
-      modes.push('utilities')
-    }
-    if (rentActive) {
-      modes.push('rent')
-    }
-
-    return modes
-  })
-
-  function overduePaymentFor(kind: 'rent' | 'utilities') {
-    return currentMemberLine()?.overduePayments.find((payment) => payment.kind === kind) ?? null
-  }
-
-  async function handleSubmitUtilities() {
-    const data = initData()
-    const current = dashboard()
-    const drafts = utilityAmounts()
-    if (!data || !current || submittingUtilities()) return
-    const entries = utilityCategories()
-      .map((category) => ({
-        billName: category.name,
-        amountMajor: drafts[category.name]?.trim() ?? ''
-      }))
-      .filter((entry) => entry.amountMajor.length > 0)
-
-    if (entries.length === 0) return
-
-    setSubmittingUtilities(true)
-    try {
-      for (const entry of entries) {
-        await submitMiniAppUtilityBill(data, {
-          billName: entry.billName,
-          amountMajor: entry.amountMajor,
-          currency: current.currency
-        })
-      }
-      setUtilityAmounts(
-        Object.fromEntries(utilityCategories().map((category) => [category.name, '']))
-      )
-      await refreshDashboardData()
-    } finally {
-      setSubmittingUtilities(false)
-    }
-  }
-
-  function resetQuickPurchase() {
-    setQuickPurchaseError(null)
-    setQuickPurchaseDraft(buildEmptyPurchaseDraft(dashboard(), currentMemberId() ?? undefined))
-  }
-
-  function openQuickPurchase() {
-    resetQuickPurchase()
-    setQuickPurchaseOpen(true)
-  }
-
-  function closeQuickPurchase() {
-    setQuickPurchaseOpen(false)
-    resetQuickPurchase()
-  }
-
-  async function handleQuickPurchaseSubmit() {
-    const data = initData()
-    const draft = quickPurchaseDraft()
-    if (!data || !draft.description.trim() || !draft.amountMajor.trim()) {
-      return
-    }
-
-    setAddingQuickPurchase(true)
-    setQuickPurchaseError(null)
-    try {
-      const refreshedDashboard = await addMiniAppPurchase(data, {
+      const refreshed = await addMiniAppPurchase(init, {
         description: draft.description.trim(),
         amountMajor: draft.amountMajor.trim(),
         currency: draft.currency,
@@ -599,1738 +124,216 @@ export default function HomeRoute() {
         ...(draft.payerMemberId ? { payerMemberId: draft.payerMemberId } : {}),
         split: buildPurchaseSplitPayload(draft)
       })
-      setDashboard(refreshedDashboard)
-      closeQuickPurchase()
-      setToastState({
-        visible: true,
-        message: copy().quickPurchaseSuccess,
-        type: 'success'
-      })
-      await refreshDashboardData()
+      setDashboard(refreshed)
+      closePurchase()
+      setToast({ visible: true, message: copy().quickPurchaseSuccess, type: 'success' })
     } catch (error) {
-      if (handleMiniAppRequestError(error)) {
-        return
-      }
-
-      setQuickPurchaseError(error instanceof Error ? error.message : copy().purchaseMutationFailed)
+      if (handleMiniAppRequestError(error)) return
+      setPurchaseError(error instanceof Error ? error.message : copy().purchaseMutationFailed)
     } finally {
-      setAddingQuickPurchase(false)
+      setAddingPurchase(false)
     }
   }
 
-  function openQuickPayment(
-    type: 'rent' | 'utilities',
-    context: 'current' | 'overdue' = 'current'
-  ) {
-    const data = dashboard()
-    if (!data || !currentMemberLine()) return
+  async function closeMembers(input: {
+    kind: TodayPaymentKind
+    period: string
+    memberIds?: readonly string[]
+    allMembers?: boolean
+    successMessage: string
+  }) {
+    const init = initData()
+    if (!init) return
 
-    const member = currentMemberLine()!
-    const amount =
-      context === 'overdue'
-        ? (overduePaymentFor(type)?.amountMajor ?? '0.00')
-        : minorToMajorString(
-            type === 'utilities' && data.utilityBillingPlan
-              ? utilityPlanAssignedMinor(data, member.memberId)
-              : paymentRemainingMinor(data, member.memberId, type)
-          )
-
-    setQuickPaymentType(type)
-    setQuickPaymentContext(context)
-    setQuickPaymentAmount(amount)
-    setQuickPaymentOpen(true)
-  }
-
-  async function handleQuickPaymentSubmit() {
-    const data = initData()
-    const amount = quickPaymentAmount()
-    const type = quickPaymentType()
-    const context = quickPaymentContext()
-    const currentMember = currentMemberLine()
-    const currentDashboard = dashboard()
-    const usePlannedUtilityResolution =
-      type === 'utilities' &&
-      context === 'current' &&
-      currentDashboard?.utilityBillingPlan !== undefined &&
-      currentDashboard?.utilityBillingPlan !== null &&
-      currentMember !== null &&
-      majorStringToMinor(currentUtilitySummary()?.assignedThisCycleMajor ?? '0.00') > 0n
-
-    if (!data || !amount.trim() || !currentMember) return
-
-    setSubmittingPayment(true)
+    const key = input.allMembers
+      ? `${input.kind}:all`
+      : `${input.kind}:${input.memberIds?.join(',')}`
+    setProcessingKey(key)
     try {
-      console.info('[miniapp] home quick payment start', {
-        memberId: currentMember.memberId,
-        kind: type,
-        context,
-        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
+      const result = await closeMiniAppPaymentPeriod(init, {
+        period: input.period,
+        kind: input.kind,
+        ...(input.memberIds ? { memberIds: input.memberIds } : {}),
+        ...(input.allMembers ? { allMembers: true } : {})
       })
-
-      if (usePlannedUtilityResolution) {
-        await resolveMiniAppUtilityPlan(data, {
-          memberId: currentMember.memberId,
-          ...(currentDashboard?.period ? { period: currentDashboard.period } : {})
-        })
-      } else {
-        await addMiniAppPayment(data, {
-          memberId: currentMember.memberId,
-          kind: type,
-          amountMajor: amount,
-          currency: (currentDashboard?.currency as 'USD' | 'GEL') ?? 'GEL'
-        })
-      }
-
-      setQuickPaymentOpen(false)
-      setToastState({
-        visible: true,
-        message: copy().quickPaymentSuccess,
-        type: 'success'
-      })
-      console.info('[miniapp] home quick payment completed', {
-        memberId: currentMember.memberId,
-        kind: type,
-        context,
-        mode: usePlannedUtilityResolution ? 'utility-plan-resolve' : 'payment-record'
-      })
-      await refreshDashboardData()
+      setDashboard(result.dashboard)
+      setAdminConfirmOpen(false)
+      setToast({ visible: true, message: input.successMessage, type: 'success' })
     } catch (error) {
-      if (handleMiniAppRequestError(error)) {
-        return
-      }
-      console.error('[miniapp] home quick payment failed', {
-        memberId: currentMember.memberId,
-        kind: type,
-        context,
-        error
-      })
-      setToastState({
+      if (handleMiniAppRequestError(error)) return
+      setToast({
         visible: true,
-        message: copy().quickPaymentFailed,
+        message: error instanceof Error ? error.message : copy().todayCloseFailed,
         type: 'error'
       })
     } finally {
-      setSubmittingPayment(false)
+      setProcessingKey(null)
     }
   }
 
-  function openNotificationEditor(notification: MiniAppDashboard['notifications'][number]) {
-    const data = dashboard()
-    if (!data) return
-
-    setEditingNotificationId(notification.id)
-    setNotificationScheduleDraft(notificationInputValue(notification.scheduledFor, data.timezone))
-    setNotificationDeliveryModeDraft(notification.deliveryMode)
-    setNotificationRecipientsDraft(
-      notification.deliveryMode === 'dm_selected' ? [...notification.dmRecipientMemberIds] : []
-    )
-    setNotificationEditorOpen(true)
-  }
-
-  function toggleNotificationRecipient(memberId: string) {
-    setNotificationRecipientsDraft((current) =>
-      current.includes(memberId)
-        ? current.filter((value) => value !== memberId)
-        : [...current, memberId]
-    )
-  }
-
-  async function handleNotificationSave() {
-    const data = initData()
-    const current = dashboard()
-    const notification = selectedNotification()
-    if (!data || !current || !notification || !notification.canEdit || savingNotification()) return
-
-    setSavingNotification(true)
-    try {
-      await updateMiniAppNotification(data, {
-        notificationId: notification.id,
-        scheduledLocal: notificationScheduleDraft(),
-        timezone: current.timezone,
-        deliveryMode: notificationDeliveryModeDraft(),
-        dmRecipientMemberIds:
-          notificationDeliveryModeDraft() === 'dm_selected' ? notificationRecipientsDraft() : []
-      })
-      setNotificationEditorOpen(false)
-      setToastState({
-        visible: true,
-        message: locale() === 'ru' ? 'Напоминание обновлено.' : 'Notification updated.',
-        type: 'success'
-      })
-      await refreshDashboardData()
-    } catch (error) {
-      if (handleMiniAppRequestError(error)) {
-        return
-      }
-      setToastState({
-        visible: true,
-        message:
-          locale() === 'ru'
-            ? 'Не получилось обновить напоминание.'
-            : 'Failed to update notification.',
-        type: 'error'
-      })
-    } finally {
-      setSavingNotification(false)
+  async function closeCurrentMember() {
+    const current = model()
+    const member = currentMemberCloseLine()
+    if (
+      !current ||
+      current.stage === 'idle' ||
+      !member ||
+      majorStringToMinor(member.amountMajor) <= 0n
+    ) {
+      return
     }
+
+    await closeMembers({
+      kind: current.stage,
+      period: current.period,
+      memberIds: [member.memberId],
+      successMessage: copy().todayCloseSuccess
+    })
   }
 
-  async function handleNotificationCancel(notificationId: string) {
-    const data = initData()
-    if (!data || cancellingNotificationId()) return
+  async function closeSelectedMember(line: TodayMemberCloseLine) {
+    const current = model()
+    if (!current || current.stage === 'idle' || line.settled) return
+    if (!effectiveIsAdmin() && line.memberId !== currentMemberId()) return
 
-    setCancellingNotificationId(notificationId)
-    try {
-      await cancelMiniAppNotification(data, notificationId)
-      if (editingNotificationId() === notificationId) {
-        setNotificationEditorOpen(false)
-      }
-      setToastState({
-        visible: true,
-        message: locale() === 'ru' ? 'Напоминание отменено.' : 'Notification cancelled.',
-        type: 'success'
-      })
-      await refreshDashboardData()
-    } catch (error) {
-      if (handleMiniAppRequestError(error)) {
-        return
-      }
-      setToastState({
-        visible: true,
-        message:
-          locale() === 'ru'
-            ? 'Не получилось отменить напоминание.'
-            : 'Failed to cancel notification.',
-        type: 'error'
-      })
-    } finally {
-      setCancellingNotificationId(null)
-    }
+    await closeMembers({
+      kind: current.stage,
+      period: current.period,
+      memberIds: [line.memberId],
+      successMessage: copy().todayCloseSuccess
+    })
+  }
+
+  async function closeAllMembers() {
+    const current = model()
+    if (!current || current.stage === 'idle') return
+
+    await closeMembers({
+      kind: current.stage,
+      period: current.period,
+      allMembers: true,
+      successMessage: copy().todayAdminCloseSuccess
+    })
   }
 
   return (
-    <div class="route route--home">
-      {/* ── Welcome hero ────────────────────────────── */}
-      <div class="home-hero">
-        <p class="home-hero__greeting">{copy().welcome},</p>
-        <h2 class="home-hero__name">{readySession()?.member.displayName}</h2>
-      </div>
-
-      {/* ── Dashboard stats ─────────────────────────── */}
+    <div class="route route--home today-route">
       <Switch>
         <Match when={loading()}>
-          <Card>
-            <div class="balance-card">
-              <div class="balance-card__header">
-                <Skeleton style={{ width: '140px', height: '20px' }} />
-              </div>
-              <div class="balance-card__amounts" style={{ 'margin-top': '16px' }}>
-                <Skeleton style={{ width: '100%', height: '48px' }} />
-                <div style={{ height: '12px' }} />
-                <Skeleton style={{ width: '80%', height: '24px' }} />
-                <div style={{ height: '8px' }} />
-                <Skeleton style={{ width: '60%', height: '24px' }} />
-              </div>
-            </div>
-          </Card>
-          <Card>
-            <div class="balance-card">
-              <div class="balance-card__header">
-                <Skeleton style={{ width: '120px', height: '20px' }} />
-              </div>
-              <div class="balance-card__amounts" style={{ 'margin-top': '16px' }}>
-                <Skeleton style={{ width: '70%', height: '24px' }} />
-                <div style={{ height: '8px' }} />
-                <Skeleton style={{ width: '50%', height: '24px' }} />
-              </div>
-            </div>
-          </Card>
+          <section class="today-command is-loading">
+            <Skeleton style={{ width: '44%', height: '18px' }} />
+            <Skeleton style={{ width: '72%', height: '76px' }} />
+            <Skeleton style={{ width: '100%', height: '150px' }} />
+          </section>
         </Match>
 
-        <Match when={!dashboard()}>
-          <Card>
-            <p class="empty-state">{copy().emptyDashboard}</p>
-          </Card>
-        </Match>
+        <Match when={dashboard() && model()}>
+          <>
+            <Show when={testingOverridesActive()}>
+              <p class="today-test-note">{copy().testingViewBadge}</p>
+            </Show>
 
-        <Match when={dashboard()}>
-          {(data) => (
-            <>
-              <Show when={currentMemberLine()}>
-                {(member) => {
-                  const policy = () => data().paymentBalanceAdjustmentPolicy
-                  const rentRemainingMinor = () =>
-                    paymentRemainingMinor(data(), member().memberId, 'rent')
-                  const utilitiesRemainingMinor = () => {
-                    const plan = data().utilityBillingPlan
-                    if (plan) {
-                      const summary = plan.memberSummaries.find(
-                        (s) => s.memberId === member().memberId
-                      )
-                      return summary ? majorStringToMinor(summary.assignedThisCycleMajor) : 0n
-                    }
-                    return paymentRemainingMinor(data(), member().memberId, 'utilities')
-                  }
+            <CurrentPeriodPanel
+              model={model()!}
+              currentMemberLine={currentMemberCloseLine()}
+              currency={dashboard()!.currency}
+              locale={locale()}
+              copy={copy}
+              canCloseMine={
+                majorStringToMinor(currentMemberCloseLine()?.amountMajor ?? '0.00') > 0n
+              }
+              closing={processingKey() !== null}
+              onCloseMine={() => void closeCurrentMember()}
+              onOpenPurchases={() => navigate('/purchases')}
+            />
 
-                  const modes = () => currentPaymentModes()
-                  const formatMajorAmount = (
-                    amountMajor: string,
-                    currencyCode: 'USD' | 'GEL' = data().currency
-                  ) => formatMoneyLabel(amountMajor, currencyCode, locale())
-                  const timezone = () => data().timezone
-                  const period = () => effectivePeriod() ?? data().period
-                  const today = () => effectiveTodayOverride()
+            <Show when={model()!.stage !== 'idle'}>
+              <HouseholdSummaryPanel
+                model={model()!}
+                currency={dashboard()!.currency}
+                locale={locale()}
+                copy={copy}
+              />
+            </Show>
 
-                  function upcomingDay(day: number): {
-                    dateLabel: string
-                    daysUntil: number | null
-                  } {
-                    const withinPeriodDays = daysUntilPeriodDay(period(), day, timezone(), today())
-                    if (withinPeriodDays === null) {
-                      return { dateLabel: '—', daysUntil: null }
-                    }
+            <Show when={effectiveIsAdmin() && model()!.stage !== 'idle'}>
+              <AdminClosePanel
+                model={model()!}
+                currency={dashboard()!.currency}
+                locale={locale()}
+                copy={copy}
+                loading={processingKey() !== null}
+                onOpenAdminClose={() => setAdminConfirmOpen(true)}
+              />
+            </Show>
 
-                    if (withinPeriodDays >= 0) {
-                      return {
-                        dateLabel: formatPeriodDay(period(), day, locale()),
-                        daysUntil: withinPeriodDays
-                      }
-                    }
+            <PurchaseStream
+              entries={model()!.purchaseEntries}
+              members={dashboard()!.members}
+              currentMemberId={currentMemberId()}
+              currency={dashboard()!.currency}
+              balanceMajor={model()!.purchaseBalanceMajor}
+              totalMajor={model()!.purchaseTotalMajor}
+              unresolvedCount={model()!.unresolvedPurchaseCount}
+              locale={locale()}
+              copy={copy}
+              onOpenPurchases={() => navigate('/purchases')}
+              onAddPurchase={openPurchase}
+            />
 
-                    const next = nextCyclePeriod(period())
-                    if (!next) {
-                      return {
-                        dateLabel: formatPeriodDay(period(), day, locale()),
-                        daysUntil: null
-                      }
-                    }
-
-                    return {
-                      dateLabel: formatPeriodDay(next, day, locale()),
-                      daysUntil: daysUntilPeriodDay(next, day, timezone(), today())
-                    }
-                  }
-
-                  const rentDueDate = () => formatPeriodDay(period(), data().rentDueDay, locale())
-                  const utilitiesDueDate = () =>
-                    formatPeriodDay(period(), data().utilitiesDueDay, locale())
-
-                  const rentDaysUntilDue = () =>
-                    daysUntilPeriodDay(period(), data().rentDueDay, timezone(), today())
-                  const utilitiesDaysUntilDue = () =>
-                    daysUntilPeriodDay(period(), data().utilitiesDueDay, timezone(), today())
-
-                  const rentUpcoming = () => upcomingDay(data().rentWarningDay)
-                  const utilitiesUpcoming = () => upcomingDay(data().utilitiesReminderDay)
-                  const rentDestinations = () =>
-                    data().rentBillingState.paymentDestinations ??
-                    data().rentPaymentDestinations ??
-                    []
-                  const idlePurchases = () => currentPurchaseEntries().slice(0, 3)
-                  const hasMoreIdlePurchases = () => currentPurchaseEntries().length > 3
-                  const coveredPurchases = () => otherPurchaseEntries().slice(0, 2)
-                  const purchaseBalanceMajor = () => memberEffectivePurchaseBalanceMajor(member())
-                  const purchaseBalanceTone = () => semanticMoneyTone(purchaseBalanceMajor())
-                  const purchaseBalanceSummary = () =>
-                    formatSemanticMoneyLabel(purchaseBalanceMajor(), data().currency, locale())
-                  const purchaseComparisonRows = () => {
-                    const rows = data().members.map((line) => ({
-                      memberId: line.memberId,
-                      displayName: line.displayName,
-                      balanceMinor: majorStringToMinor(memberEffectivePurchaseBalanceMajor(line)),
-                      balanceMajor: memberEffectivePurchaseBalanceMajor(line),
-                      isCurrent: line.memberId === member().memberId
-                    }))
-                    const maxBalanceMinor = rows.reduce((max, row) => {
-                      const absolute = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor
-                      return absolute > max ? absolute : max
-                    }, 0n)
-
-                    return rows
-                      .map((row) => ({
-                        ...row,
-                        width: normalizedRailWidth(
-                          row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor,
-                          maxBalanceMinor
-                        ),
-                        side:
-                          row.balanceMinor < 0n
-                            ? ('left' as const)
-                            : row.balanceMinor > 0n
-                              ? ('right' as const)
-                              : ('none' as const)
-                      }))
-                      .sort((left, right) => {
-                        if (left.isCurrent) return -1
-                        if (right.isCurrent) return 1
-
-                        const leftAbsolute =
-                          left.balanceMinor < 0n ? -left.balanceMinor : left.balanceMinor
-                        const rightAbsolute =
-                          right.balanceMinor < 0n ? -right.balanceMinor : right.balanceMinor
-
-                        return rightAbsolute === leftAbsolute
-                          ? left.displayName.localeCompare(right.displayName)
-                          : rightAbsolute > leftAbsolute
-                            ? 1
-                            : -1
-                      })
-                  }
-                  const latestClosedPeriod = () =>
-                    [...(data().paymentPeriods ?? [])]
-                      .filter((summary) => !summary.isCurrentPeriod && !summary.hasOverdueBalance)
-                      .sort((left, right) => right.period.localeCompare(left.period))[0] ?? null
-                  const latestClosedRent = () =>
-                    latestClosedPeriod()?.kinds.find((kind) => kind.kind === 'rent') ?? null
-                  const latestClosedUtilities = () =>
-                    latestClosedPeriod()?.kinds.find((kind) => kind.kind === 'utilities') ?? null
-
-                  const dueBadge = (days: number | null) => {
-                    if (days === null) return null
-                    if (days < 0) return <Badge variant="danger">{copy().overdueLabel}</Badge>
-                    if (days === 0) return <Badge variant="danger">{copy().dueTodayLabel}</Badge>
-                    return (
-                      <Badge variant="muted">
-                        {copy().daysLeftLabel.replace('{count}', String(days))}
-                      </Badge>
-                    )
-                  }
-
-                  return (
-                    <>
-                      <Show when={testingOverridesActive()}>
-                        <Card muted>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">
-                                {locale() === 'ru' ? 'Тестовая дата' : 'Test date'}
-                              </span>
-                              <Badge variant="accent">
-                                {locale() === 'ru' ? 'Переопределено' : 'Overridden'}
-                              </Badge>
-                            </div>
-                            <div class="balance-card__amounts">
-                              <div class="balance-card__row">
-                                <span>{locale() === 'ru' ? 'Период' : 'Period'}</span>
-                                <strong>{formatCyclePeriod(period(), locale())}</strong>
-                              </div>
-                              <Show when={testingTodayOverride()}>
-                                {(override) => (
-                                  <div class="balance-card__row">
-                                    <span>{locale() === 'ru' ? 'Сегодня' : 'Today'}</span>
-                                    <strong>{formatFriendlyDate(override(), locale())}</strong>
-                                  </div>
-                                )}
-                              </Show>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show when={overduePaymentFor('utilities')}>
-                        {(overdue) => (
-                          <Card accent>
-                            <div class="balance-card">
-                              <div class="balance-card__header">
-                                <span class="balance-card__label">
-                                  {copy().homeOverdueUtilitiesTitle}
-                                </span>
-                                <div
-                                  style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}
-                                >
-                                  <Badge variant="danger">{copy().overdueLabel}</Badge>
-                                  <Button
-                                    variant="primary"
-                                    size="sm"
-                                    onClick={() => openQuickPayment('utilities', 'overdue')}
-                                  >
-                                    <CreditCard size={14} />
-                                    {copy().quickPaymentSubmitAction}
-                                  </Button>
-                                </div>
-                              </div>
-                              <div class="balance-card__amounts">
-                                <div class="balance-card__row balance-card__row--subtotal">
-                                  <span>{copy().finalDue}</span>
-                                  <strong>{formatMajorAmount(overdue().amountMajor)}</strong>
-                                </div>
-                                <div class="balance-card__row">
-                                  <span>
-                                    {copy().homeOverduePeriodsLabel.replace(
-                                      '{periods}',
-                                      overdue()
-                                        .periods.map((period) =>
-                                          formatCyclePeriod(period, locale())
-                                        )
-                                        .join(', ')
-                                    )}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </Card>
-                        )}
-                      </Show>
-
-                      <Show when={overduePaymentFor('rent')}>
-                        {(overdue) => (
-                          <Card accent>
-                            <div class="balance-card">
-                              <div class="balance-card__header">
-                                <span class="balance-card__label">
-                                  {copy().homeOverdueRentTitle}
-                                </span>
-                                <div
-                                  style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}
-                                >
-                                  <Badge variant="danger">{copy().overdueLabel}</Badge>
-                                  <Button
-                                    variant="primary"
-                                    size="sm"
-                                    onClick={() => openQuickPayment('rent', 'overdue')}
-                                  >
-                                    <CreditCard size={14} />
-                                    {copy().quickPaymentSubmitAction}
-                                  </Button>
-                                </div>
-                              </div>
-                              <div class="balance-card__amounts">
-                                <div class="balance-card__row balance-card__row--subtotal">
-                                  <span>{copy().finalDue}</span>
-                                  <strong>{formatMajorAmount(overdue().amountMajor)}</strong>
-                                </div>
-                                <div class="balance-card__row">
-                                  <span>
-                                    {copy().homeOverduePeriodsLabel.replace(
-                                      '{periods}',
-                                      overdue()
-                                        .periods.map((period) =>
-                                          formatCyclePeriod(period, locale())
-                                        )
-                                        .join(', ')
-                                    )}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </Card>
-                        )}
-                      </Show>
-
-                      <Show when={modes().includes('utilities')}>
-                        <Card accent>
-                          <div class="home-payment-card home-payment-card--utilities">
-                            <div class="home-payment-card__rail">
-                              <div class="home-payment-card__title-group">
-                                <span class="home-payment-card__title">
-                                  {copy().homeUtilitiesTitle}
-                                </span>
-                                <span class="home-payment-card__deadline">
-                                  {copy().dueOnLabel.replace('{date}', utilitiesDueDate())}
-                                </span>
-                              </div>
-                              {isUtilitiesFullyPaid() ? (
-                                <Badge variant="muted">{copy().homeSettledTitle}</Badge>
-                              ) : (
-                                dueBadge(utilitiesDaysUntilDue())
-                              )}
-                            </div>
-
-                            <div class="home-payment-card__hero">
-                              <div class="home-payment-card__hero-copy">
-                                <strong class="home-payment-card__amount">
-                                  {isUtilitiesFullyPaid()
-                                    ? formatMajorAmount(currentUtilitySummary()!.vendorPaidMajor)
-                                    : formatMajorAmount(
-                                        minorToMajorString(utilitiesRemainingMinor())
-                                      )}
-                                </strong>
-                                <span class="home-payment-card__hero-note">
-                                  {isUtilitiesFullyPaid()
-                                    ? copy().homeUtilitiesPaidNote
-                                    : currentUtilityAssignments().length > 0
-                                      ? locale() === 'ru'
-                                        ? 'Ваши назначенные коммунальные платежи на этот цикл'
-                                        : 'Your assigned utility payments for this cycle'
-                                      : locale() === 'ru'
-                                        ? 'На этот цикл новых коммунальных оплат на вас не назначено'
-                                        : 'No new utility payments are assigned to you this cycle'}
-                                </span>
-                              </div>
-                              <Show when={utilitiesRemainingMinor() > 0n}>
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => openQuickPayment('utilities', 'current')}
-                                >
-                                  <CreditCard size={14} />
-                                  {copy().quickPaymentSubmitAction}
-                                </Button>
-                              </Show>
-                            </div>
-
-                            <Show when={!isUtilitiesFullyPaid()}>
-                              <Show
-                                when={currentUtilityAssignments().length > 0}
-                                fallback={
-                                  <div class="home-payment-card__empty">
-                                    {currentUtilitySummary()?.projectedDeltaAfterPlanMajor &&
-                                    majorStringToMinor(
-                                      currentUtilitySummary()!.projectedDeltaAfterPlanMajor
-                                    ) !== 0n
-                                      ? locale() === 'ru'
-                                        ? `Новых счетов на вас нет. Итоговое отклонение после текущего плана: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
-                                        : `No new bills are assigned to you. Projected delta after the current utility plan: ${formatMoneyLabel(currentUtilitySummary()!.projectedDeltaAfterPlanMajor, data().currency, locale())}.`
-                                      : locale() === 'ru'
-                                        ? 'На вас нет назначенных коммунальных платежей.'
-                                        : 'No utility bills are assigned to you right now.'}
-                                  </div>
-                                }
-                              >
-                                <div class="home-payment-card__body">
-                                  <For each={currentUtilityAssignments()}>
-                                    {(category) => {
-                                      const details = () =>
-                                        utilityCategoryByName().get(
-                                          category.billName.trim().toLowerCase()
-                                        )
-
-                                      return (
-                                        <div class="home-payment-card__item">
-                                          <div class="home-payment-card__item-head">
-                                            <div class="home-payment-card__item-copy">
-                                              <div class="home-payment-card__item-kicker">
-                                                <span
-                                                  class="home-payment-card__pill"
-                                                  classList={{
-                                                    'is-full': category.isFullAssignment,
-                                                    'is-split': !category.isFullAssignment
-                                                  }}
-                                                >
-                                                  {category.isFullAssignment
-                                                    ? copy().balancesAssignmentFullLabel
-                                                    : copy().balancesAssignmentSplitLabel}
-                                                </span>
-                                                <strong>{category.billName}</strong>
-                                              </div>
-                                              <span class="home-payment-card__item-subtle">
-                                                {details()?.providerName ??
-                                                  (locale() === 'ru'
-                                                    ? 'Провайдер не указан'
-                                                    : 'Provider not set')}
-                                              </span>
-                                            </div>
-                                            <div class="home-payment-card__item-value">
-                                              <strong>
-                                                {formatMoneyLabel(
-                                                  category.assignedAmountMajor,
-                                                  data().currency,
-                                                  locale()
-                                                )}
-                                              </strong>
-                                              <Show when={!category.isFullAssignment}>
-                                                <span class="home-payment-card__item-note">
-                                                  {locale() === 'ru'
-                                                    ? `Из счета ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`
-                                                    : `Of bill total ${formatMoneyLabel(category.billTotalMajor, data().currency, locale())}`}
-                                                </span>
-                                              </Show>
-                                            </div>
-                                          </div>
-
-                                          <div class="home-payment-card__details">
-                                            <Show when={details()?.customerNumber}>
-                                              {(value) => (
-                                                <div class="home-payment-card__detail-row">
-                                                  <span>
-                                                    {locale() === 'ru' ? 'Счёт' : 'Account'}
-                                                  </span>
-                                                  <strong>{value()}</strong>
-                                                </div>
-                                              )}
-                                            </Show>
-                                            <Show when={details()?.paymentLink}>
-                                              {(value) => (
-                                                <div class="home-payment-card__detail-row">
-                                                  <span>
-                                                    {locale() === 'ru' ? 'Ссылка' : 'Link'}
-                                                  </span>
-                                                  <strong>
-                                                    <a
-                                                      href={value()}
-                                                      target="_blank"
-                                                      rel="noreferrer"
-                                                    >
-                                                      {locale() === 'ru'
-                                                        ? 'Открыть оплату'
-                                                        : 'Open payment'}
-                                                    </a>
-                                                  </strong>
-                                                </div>
-                                              )}
-                                            </Show>
-                                            <Show when={details()?.note}>
-                                              {(value) => (
-                                                <div class="home-payment-card__detail-row">
-                                                  <span>
-                                                    {locale() === 'ru' ? 'Примечание' : 'Note'}
-                                                  </span>
-                                                  <strong>{value()}</strong>
-                                                </div>
-                                              )}
-                                            </Show>
-                                          </div>
-                                        </div>
-                                      )
-                                    }}
-                                  </For>
-                                </div>
-                              </Show>
-
-                              <div class="home-payment-card__meta">
-                                <div class="home-payment-card__meta-row">
-                                  <span>{copy().baseDue}</span>
-                                  <strong>{formatMajorAmount(member().utilityShareMajor)}</strong>
-                                </div>
-                                <Show when={policy() === 'utilities'}>
-                                  <div class="home-payment-card__meta-row">
-                                    <span>{copy().balanceAdjustmentLabel}</span>
-                                    <strong>{formatMajorAmount(purchaseBalanceMajor())}</strong>
-                                  </div>
-                                </Show>
-                              </div>
-
-                              <Show when={utilityLedger().length > 0}>
-                                <div class="home-payment-card__context">
-                                  <div class="home-payment-card__context-head">
-                                    <span>{copy().homeUtilitiesBillsTitle}</span>
-                                    <strong>{formatMajorAmount(utilityTotalMajor())}</strong>
-                                  </div>
-                                  <div class="home-payment-card__context-list">
-                                    <For each={utilityLedger()}>
-                                      {(entry) => (
-                                        <div class="home-payment-card__context-row">
-                                          <span>{entry.title}</span>
-                                          <strong>
-                                            {formatMoneyLabel(
-                                              entry.displayAmountMajor,
-                                              entry.displayCurrency,
-                                              locale()
-                                            )}
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </For>
-                                  </div>
-                                </div>
-                              </Show>
-                            </Show>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show when={modes().includes('rent')}>
-                        <Card accent>
-                          <div class="home-payment-card home-payment-card--rent">
-                            <div class="home-payment-card__rail">
-                              <div class="home-payment-card__title-group">
-                                <span class="home-payment-card__title">{copy().homeRentTitle}</span>
-                                <span class="home-payment-card__deadline">
-                                  {copy().dueOnLabel.replace('{date}', rentDueDate())}
-                                </span>
-                              </div>
-                              {dueBadge(rentDaysUntilDue())}
-                            </div>
-
-                            <div class="home-payment-card__hero">
-                              <div class="home-payment-card__hero-copy">
-                                <strong class="home-payment-card__amount">
-                                  {formatMajorAmount(minorToMajorString(rentRemainingMinor()))}
-                                </strong>
-                                <span class="home-payment-card__hero-note">
-                                  {rentDestinations().length > 0
-                                    ? locale() === 'ru'
-                                      ? 'Выберите удобные реквизиты и сохраните оплату'
-                                      : 'Use one of the saved payment destinations and record the payment'
-                                    : locale() === 'ru'
-                                      ? 'Реквизиты для оплаты аренды пока не добавлены'
-                                      : 'No rent payment destinations are saved yet'}
-                                </span>
-                              </div>
-                              <Show when={rentRemainingMinor() > 0n}>
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => openQuickPayment('rent', 'current')}
-                                >
-                                  <CreditCard size={14} />
-                                  {copy().quickPaymentSubmitAction}
-                                </Button>
-                              </Show>
-                            </div>
-
-                            <Show
-                              when={rentDestinations().length > 0}
-                              fallback={
-                                <div class="home-payment-card__empty">
-                                  {copy().rentPaymentDestinationsEmpty}
-                                </div>
-                              }
-                            >
-                              <div class="home-payment-card__body">
-                                <For each={rentDestinations()}>
-                                  {(destination) => (
-                                    <div class="home-payment-card__item">
-                                      <div class="home-payment-card__item-head">
-                                        <div class="home-payment-card__item-copy">
-                                          <div class="home-payment-card__item-kicker">
-                                            <strong>{destination.label}</strong>
-                                          </div>
-                                          <span class="home-payment-card__item-subtle">
-                                            {[destination.recipientName, destination.bankName]
-                                              .filter(Boolean)
-                                              .join(' · ') ||
-                                              (locale() === 'ru'
-                                                ? 'Реквизиты для перевода'
-                                                : 'Payment destination')}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <div class="home-payment-card__details">
-                                        <div class="home-payment-card__detail-row">
-                                          <span>{copy().rentPaymentDestinationAccount}</span>
-                                          <strong>
-                                            <button
-                                              class="copyable-detail"
-                                              classList={{
-                                                'is-copied': copiedValue() === destination.account
-                                              }}
-                                              type="button"
-                                              onClick={() => void handleCopy(destination.account)}
-                                            >
-                                              <span>{destination.account}</span>
-                                              {copiedValue() === destination.account ? (
-                                                <Check size={14} />
-                                              ) : (
-                                                <Copy size={14} />
-                                              )}
-                                            </button>
-                                          </strong>
-                                        </div>
-                                        <Show when={destination.note}>
-                                          {(value) => (
-                                            <div class="home-payment-card__detail-row">
-                                              <span>{copy().rentPaymentDestinationNote}</span>
-                                              <strong>
-                                                <button
-                                                  class="copyable-detail"
-                                                  classList={{
-                                                    'is-copied': copiedValue() === value()
-                                                  }}
-                                                  type="button"
-                                                  onClick={() => void handleCopy(value())}
-                                                >
-                                                  <span>{value()}</span>
-                                                  {copiedValue() === value() ? (
-                                                    <Check size={14} />
-                                                  ) : (
-                                                    <Copy size={14} />
-                                                  )}
-                                                </button>
-                                              </strong>
-                                            </div>
-                                          )}
-                                        </Show>
-                                        <Show when={destination.link}>
-                                          {(value) => (
-                                            <div class="home-payment-card__detail-row">
-                                              <span>{copy().rentPaymentDestinationLink}</span>
-                                              <strong>
-                                                <a href={value()} target="_blank" rel="noreferrer">
-                                                  {locale() === 'ru'
-                                                    ? 'Открыть реквизиты'
-                                                    : 'Open payment details'}
-                                                </a>
-                                              </strong>
-                                            </div>
-                                          )}
-                                        </Show>
-                                      </div>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-
-                            <div class="home-payment-card__meta">
-                              <div class="home-payment-card__meta-row">
-                                <span>{copy().baseDue}</span>
-                                <strong>{formatMajorAmount(member().rentShareMajor)}</strong>
-                              </div>
-                              <Show when={policy() === 'rent'}>
-                                <div class="home-payment-card__meta-row">
-                                  <span>{copy().balanceAdjustmentLabel}</span>
-                                  <strong>{formatMajorAmount(purchaseBalanceMajor())}</strong>
-                                </div>
-                              </Show>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show
-                        when={
-                          modes().length === 0 &&
-                          !overduePaymentFor('utilities') &&
-                          !overduePaymentFor('rent')
-                        }
-                      >
-                        <Card muted>
-                          <div class="home-overview-card">
-                            <div class="home-overview-card__rail">
-                              <div class="home-overview-card__title-group">
-                                <span class="home-overview-card__title">
-                                  {copy().homeIdleTitle}
-                                </span>
-                                <p class="home-overview-card__body">{copy().homeIdleBody}</p>
-                              </div>
-                              <Badge variant="accent">{copy().homeIdleBadge}</Badge>
-                            </div>
-
-                            <div class="home-overview-card__hero">
-                              <div class="home-overview-card__hero-copy">
-                                <span class="home-overview-card__hero-label">
-                                  {copy().homeIdlePurchaseBalanceLabel}
-                                </span>
-                                <strong
-                                  class="home-overview-card__amount"
-                                  classList={{
-                                    'is-credit': purchaseBalanceTone() === 'is-credit',
-                                    'is-debit': purchaseBalanceTone() === 'is-debit',
-                                    'is-neutral': purchaseBalanceTone() === 'is-neutral'
-                                  }}
-                                >
-                                  {formatAbsoluteMoneyLabel(
-                                    purchaseBalanceMajor(),
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
-                                <Show when={purchaseBalanceSummary()}>
-                                  {(summary) => (
-                                    <span class="home-overview-card__hero-note">{summary()}</span>
-                                  )}
-                                </Show>
-                              </div>
-                              <div class="home-overview-card__balance home-overview-card__balance--explain">
-                                <span>{copy().homeIdlePurchaseBalanceExplainLabel}</span>
-                                <strong>{copy().homeIdlePurchaseBalanceExplainValue}</strong>
-                                <small>{copy().homeIdlePurchaseBalanceExplainBody}</small>
-                              </div>
-                            </div>
-
-                            <div class="home-overview-card__comparison">
-                              <div class="home-overview-card__section-head">
-                                <div class="home-overview-card__section-title-group">
-                                  <span class="home-overview-card__section-title-text">
-                                    {copy().homePurchasePositionTitle}
-                                  </span>
-                                  <span class="home-overview-card__section-hint">
-                                    {copy().purchaseBalanceRailHint}
-                                  </span>
-                                </div>
-                              </div>
-                              <PurchaseBalanceRail
-                                variant="compact"
-                                rows={purchaseComparisonRows().map((row) => ({
-                                  memberId: row.memberId,
-                                  displayName: row.displayName,
-                                  balanceLabel:
-                                    formatSemanticMoneyLabel(
-                                      row.balanceMajor,
-                                      data().currency,
-                                      locale()
-                                    ) ??
-                                    formatAbsoluteMoneyLabel(
-                                      row.balanceMajor,
-                                      data().currency,
-                                      locale()
-                                    ),
-                                  width: row.width,
-                                  side: row.side,
-                                  isCurrent: row.isCurrent
-                                }))}
-                                currentLabel={copy().purchaseBalanceCurrentLabel}
-                              />
-                            </div>
-
-                            <div class="home-overview-card__timing">
-                              <div class="home-overview-card__section-head">
-                                <div class="home-overview-card__section-title">
-                                  <Clock size={14} />
-                                  <span>{copy().homeIdleNextTitle}</span>
-                                </div>
-                              </div>
-                              <div class="home-overview-card__timing-list">
-                                <div class="home-overview-card__timing-row">
-                                  <div class="home-overview-card__timing-copy">
-                                    <strong>{copy().homeUtilitiesTitle}</strong>
-                                    <span>
-                                      {copy().homeUtilitiesUpcomingLabel.replace(
-                                        '{date}',
-                                        utilitiesUpcoming().dateLabel
-                                      )}
-                                    </span>
-                                  </div>
-                                  <Badge variant="muted">
-                                    {utilitiesUpcoming().daysUntil !== null
-                                      ? copy().daysLeftLabel.replace(
-                                          '{count}',
-                                          String(utilitiesUpcoming().daysUntil)
-                                        )
-                                      : '—'}
-                                  </Badge>
-                                </div>
-                                <div class="home-overview-card__timing-row">
-                                  <div class="home-overview-card__timing-copy">
-                                    <strong>{copy().homeRentTitle}</strong>
-                                    <span>
-                                      {copy().homeRentUpcomingLabel.replace(
-                                        '{date}',
-                                        rentUpcoming().dateLabel
-                                      )}
-                                    </span>
-                                  </div>
-                                  <Badge variant="muted">
-                                    {rentUpcoming().daysUntil !== null
-                                      ? copy().daysLeftLabel.replace(
-                                          '{count}',
-                                          String(rentUpcoming().daysUntil)
-                                        )
-                                      : '—'}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div class="home-overview-card__purchases">
-                              <div class="home-overview-card__section-head">
-                                <span class="home-overview-card__section-title-text">
-                                  {copy().homeIdlePurchasesTitle}
-                                </span>
-                                <Show when={hasMoreIdlePurchases()}>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => navigate('/purchases')}
-                                  >
-                                    {copy().homeIdleViewPurchasesAction}
-                                  </Button>
-                                </Show>
-                              </div>
-                              <Show
-                                when={idlePurchases().length > 0}
-                                fallback={
-                                  <p class="home-overview-card__empty">
-                                    {copy().homeIdlePurchasesEmpty}
-                                  </p>
-                                }
-                              >
-                                <div class="home-overview-card__purchase-list">
-                                  <For each={idlePurchases()}>
-                                    {(entry) => {
-                                      const myShare = () =>
-                                        purchaseShareForMember(entry, member().memberId)
-
-                                      return (
-                                        <div class="home-overview-card__purchase-row">
-                                          <div class="home-overview-card__purchase-copy">
-                                            <div class="home-overview-card__purchase-head">
-                                              <strong>{entry.title}</strong>
-                                              <span
-                                                class="home-overview-card__purchase-status"
-                                                classList={{
-                                                  'is-open':
-                                                    entry.resolutionStatus === 'unresolved',
-                                                  'is-settled':
-                                                    entry.resolutionStatus === 'resolved'
-                                                }}
-                                              >
-                                                {entry.resolutionStatus === 'unresolved'
-                                                  ? copy().purchaseStatusOpen
-                                                  : copy().purchaseStatusSettled}
-                                              </span>
-                                            </div>
-                                            <span class="home-overview-card__purchase-meta">
-                                              {entry.occurredAt
-                                                ? formatFriendlyDate(entry.occurredAt, locale())
-                                                : formatCyclePeriod(
-                                                    entry.originPeriod ?? data().period,
-                                                    locale()
-                                                  )}
-                                            </span>
-                                          </div>
-                                          <div class="home-overview-card__purchase-values">
-                                            <span class="home-overview-card__purchase-value-label">
-                                              {copy().homeIdleYourShareLabel}
-                                            </span>
-                                            <strong class="home-overview-card__purchase-amount">
-                                              {myShare()
-                                                ? formatMoneyLabel(
-                                                    myShare()!,
-                                                    entry.displayCurrency,
-                                                    locale()
-                                                  )
-                                                : '—'}
-                                            </strong>
-                                            <span class="home-overview-card__purchase-total">
-                                              {copy().homeIdlePurchaseTotalLabel.replace(
-                                                '{amount}',
-                                                formatMoneyLabel(
-                                                  entry.displayAmountMajor,
-                                                  entry.displayCurrency,
-                                                  locale()
-                                                )
-                                              )}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      )
-                                    }}
-                                  </For>
-                                </div>
-                              </Show>
-                            </div>
-
-                            <Show when={coveredPurchases().length > 0}>
-                              <div class="home-overview-card__purchases">
-                                <div class="home-overview-card__section-head">
-                                  <span class="home-overview-card__section-title-text">
-                                    {copy().homeIdleOtherPurchasesTitle}
-                                  </span>
-                                </div>
-                                <div class="home-overview-card__purchase-list">
-                                  <For each={coveredPurchases()}>
-                                    {(entry) => (
-                                      <div class="home-overview-card__purchase-row is-muted">
-                                        <div class="home-overview-card__purchase-copy">
-                                          <div class="home-overview-card__purchase-head">
-                                            <strong>{entry.title}</strong>
-                                            <span class="home-overview-card__purchase-status is-covered">
-                                              {copy().homeIdleCoveredElsewhereLabel}
-                                            </span>
-                                          </div>
-                                          <span class="home-overview-card__purchase-meta">
-                                            {entry.occurredAt
-                                              ? formatFriendlyDate(entry.occurredAt, locale())
-                                              : formatCyclePeriod(
-                                                  entry.originPeriod ?? data().period,
-                                                  locale()
-                                                )}
-                                          </span>
-                                        </div>
-                                        <strong class="home-overview-card__purchase-amount">
-                                          {formatMoneyLabel(
-                                            entry.displayAmountMajor,
-                                            entry.displayCurrency,
-                                            locale()
-                                          )}
-                                        </strong>
-                                      </div>
-                                    )}
-                                  </For>
-                                </div>
-                              </div>
-                            </Show>
-
-                            <div class="home-overview-card__footer">
-                              <p class="home-overview-card__footer-note">
-                                {copy().homeIdlePurchaseBalanceFooter}
-                              </p>
-                              <div class="home-overview-card__meta-row">
-                                <span>{copy().homeIdlePurchaseBalanceHint}</span>
-                                <strong>
-                                  {formatSemanticMoneyLabel(
-                                    purchaseBalanceMajor(),
-                                    data().currency,
-                                    locale()
-                                  ) ?? (locale() === 'ru' ? 'Закрыто' : 'Settled')}
-                                </strong>
-                              </div>
-                              <div class="home-overview-card__meta-row">
-                                <span>{copy().homeIdleRentTariffLabel}</span>
-                                <strong>
-                                  {formatMoneyLabel(
-                                    data().rentSourceAmountMajor,
-                                    data().rentSourceCurrency,
-                                    locale()
-                                  )}{' '}
-                                  ·{' '}
-                                  {formatMoneyLabel(
-                                    data().rentDisplayAmountMajor,
-                                    data().currency,
-                                    locale()
-                                  )}
-                                </strong>
-                              </div>
-                              <Show when={latestClosedPeriod()}>
-                                {(periodSummary) => (
-                                  <div class="home-overview-card__meta-block">
-                                    <span class="home-overview-card__meta-block-title">
-                                      {copy().homeIdleLastPaidLabel.replace(
-                                        '{period}',
-                                        formatCyclePeriod(periodSummary().period, locale())
-                                      )}
-                                    </span>
-                                    <Show when={latestClosedUtilities()}>
-                                      {(utilities) => (
-                                        <div class="home-overview-card__meta-row">
-                                          <span>{copy().shareUtilities}</span>
-                                          <strong>
-                                            {formatMoneyLabel(
-                                              utilities().totalPaidMajor,
-                                              data().currency,
-                                              locale()
-                                            )}
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                    <Show when={latestClosedRent()}>
-                                      {(rent) => (
-                                        <div class="home-overview-card__meta-row">
-                                          <span>{copy().shareRent}</span>
-                                          <strong>
-                                            {formatMoneyLabel(
-                                              rent().totalPaidMajor,
-                                              data().currency,
-                                              locale()
-                                            )}
-                                          </strong>
-                                        </div>
-                                      )}
-                                    </Show>
-                                  </div>
-                                )}
-                              </Show>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Show when={modes().includes('utilities') && utilityLedger().length === 0}>
-                        <Card>
-                          <div class="balance-card">
-                            <div class="balance-card__header">
-                              <span class="balance-card__label">
-                                {copy().homeFillUtilitiesTitle}
-                              </span>
-                            </div>
-                            <p class="empty-state">{copy().homeFillUtilitiesBody}</p>
-                            <div class="editor-grid">
-                              <div class="inline-editor-list">
-                                <For each={utilityCategories()}>
-                                  {(category) => (
-                                    <div class="inline-editor-row">
-                                      <div class="inline-editor-row__label">
-                                        <strong>{category.name}</strong>
-                                        <span>{copy().utilityCategoryLabel}</span>
-                                      </div>
-                                      <Input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={utilityAmounts()[category.name] ?? ''}
-                                        onInput={(e) =>
-                                          setUtilityAmounts((prev) => ({
-                                            ...prev,
-                                            [category.name]: e.currentTarget.value
-                                          }))
-                                        }
-                                      />
-                                      <div class="inline-editor-row__value">
-                                        <span>{data().currency}</span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
-                              <div style={{ display: 'flex', gap: '10px', 'flex-wrap': 'wrap' }}>
-                                <Button
-                                  variant="primary"
-                                  loading={submittingUtilities()}
-                                  disabled={
-                                    !Object.values(utilityAmounts()).some((value) => value.trim())
-                                  }
-                                  onClick={() => void handleSubmitUtilities()}
-                                >
-                                  {submittingUtilities()
-                                    ? copy().homeFillUtilitiesSubmitting
-                                    : copy().homeFillUtilitiesSubmitAction}
-                                </Button>
-                                <Button variant="ghost" onClick={() => navigate('/bills')}>
-                                  {copy().bills}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </Card>
-                      </Show>
-
-                      <Card muted class="home-actions-card">
-                        <div class="home-actions-card__header">
-                          <div class="home-actions-card__copy">
-                            <span class="home-actions-card__eyebrow">
-                              {copy().homeQuickActionsTitle}
-                            </span>
-                            <strong>{copy().purchaseAddAction}</strong>
-                            <p>{copy().homeQuickActionsBody}</p>
-                          </div>
-                        </div>
-                        <div class="home-actions-card__buttons">
-                          <Button variant="secondary" size="sm" onClick={openQuickPurchase}>
-                            <Plus size={14} />
-                            {copy().purchaseAddAction}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => navigate('/purchases')}>
-                            {copy().homeIdleViewPurchasesAction}
-                          </Button>
-                        </div>
-                      </Card>
-                    </>
-                  )
-                }}
-              </Show>
-
-              <Show
-                when={
-                  currentMemberLine() &&
-                  data().rentSourceCurrency !== data().currency &&
-                  (currentPaymentModes().includes('rent') || Boolean(overduePaymentFor('rent')))
-                }
-              >
-                <Card muted>
-                  <div class="fx-card">
-                    <strong class="fx-card__title">{copy().rentFxTitle}</strong>
-                    <div class="fx-card__row">
-                      <span>{copy().sourceAmountLabel}</span>
-                      <strong>
-                        {formatMoneyLabel(
-                          data().rentSourceAmountMajor,
-                          data().rentSourceCurrency,
-                          locale()
-                        )}
-                      </strong>
-                    </div>
-                    <div class="fx-card__row">
-                      <span>{copy().settlementAmountLabel}</span>
-                      <strong>
-                        {formatMoneyLabel(data().rentDisplayAmountMajor, data().currency, locale())}
-                      </strong>
-                    </div>
-                    <Show when={data().rentFxEffectiveDate}>
-                      <div class="fx-card__row fx-card__row--muted">
-                        <span>{copy().fxEffectiveDateLabel}</span>
-                        <span>{data().rentFxEffectiveDate}</span>
-                      </div>
-                    </Show>
-                  </div>
-                </Card>
-              </Show>
-
-              <Card muted>
-                <div class="balance-card">
-                  <div class="balance-card__header">
-                    <span class="balance-card__label">
-                      {locale() === 'ru' ? 'Напоминания' : 'Notifications'}
-                    </span>
-                    <Badge variant="muted">{data().notifications.length}</Badge>
-                  </div>
-                  <Show
-                    when={data().notifications.length > 0}
-                    fallback={
-                      <p class="empty-state">
-                        {locale() === 'ru'
-                          ? 'Пока нет запланированных напоминаний.'
-                          : 'There are no scheduled notifications yet.'}
-                      </p>
-                    }
-                  >
-                    <div class="balance-card__amounts">
-                      <For each={data().notifications}>
-                        {(notification) => (
-                          <div
-                            class="balance-card__row"
-                            style={{
-                              'align-items': 'flex-start',
-                              'flex-direction': 'column',
-                              gap: '10px',
-                              padding: '12px 0'
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                width: '100%',
-                                'justify-content': 'space-between',
-                                gap: '12px',
-                                'align-items': 'flex-start'
-                              }}
-                            >
-                              <div style={{ display: 'grid', gap: '6px' }}>
-                                <strong>{notification.summaryText}</strong>
-                                <span>
-                                  {formatNotificationWhen(
-                                    locale(),
-                                    notification.scheduledFor,
-                                    data().timezone
-                                  )}
-                                </span>
-                                <span>{formatNotificationDelivery(locale(), notification)}</span>
-                                <Show when={notification.assigneeDisplayName}>
-                                  <span>
-                                    {(locale() === 'ru' ? 'Для: ' : 'For: ') +
-                                      notification.assigneeDisplayName}
-                                  </span>
-                                </Show>
-                                <span>
-                                  {(locale() === 'ru' ? 'Создал: ' : 'Created by: ') +
-                                    notification.creatorDisplayName}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  gap: '8px',
-                                  'flex-wrap': 'nowrap',
-                                  'justify-content': 'flex-end',
-                                  'align-items': 'center',
-                                  'flex-shrink': '0'
-                                }}
-                              >
-                                <Show when={notification.canEdit}>
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() => openNotificationEditor(notification)}
-                                  >
-                                    {locale() === 'ru' ? 'Управлять' : 'Manage'}
-                                  </Button>
-                                </Show>
-                                <Show when={notification.canCancel}>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    loading={cancellingNotificationId() === notification.id}
-                                    onClick={() => void handleNotificationCancel(notification.id)}
-                                  >
-                                    {locale() === 'ru' ? 'Отменить' : 'Cancel'}
-                                  </Button>
-                                </Show>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </div>
-              </Card>
-
-              {/* Latest activity */}
-              <Card muted>
-                <div class="activity-card">
-                  <div class="activity-card__header">
-                    <Clock size={16} />
-                    <span>{copy().latestActivityTitle}</span>
-                  </div>
-                  <Show
-                    when={latestActivity().length > 0}
-                    fallback={<p class="empty-state">{copy().latestActivityEmpty}</p>}
-                  >
-                    <div class="activity-card__list">
-                      <For
-                        each={showAllActivity() ? latestActivity() : latestActivity().slice(0, 5)}
-                      >
-                        {(entry) => {
-                          const actorLabel =
-                            entry.actorDisplayName ??
-                            (entry.memberId ? memberNamesById().get(entry.memberId) : null) ??
-                            copy().ledgerActorFallback
-                          const metaParts = [
-                            actorLabel,
-                            entry.occurredAt
-                              ? formatFriendlyDate(entry.occurredAt, locale())
-                              : null,
-                            entry.kind === 'payment' && entry.memberId
-                              ? memberNamesById().get(entry.memberId) !== actorLabel
-                                ? memberNamesById().get(entry.memberId)
-                                : null
-                              : null
-                          ].filter(Boolean)
-
-                          return (
-                            <div class="activity-card__item">
-                              <div class="activity-card__copy">
-                                <div class="activity-card__title-line">
-                                  <span class="activity-card__title">{entry.title}</span>
-                                  <Badge variant="muted">{activityKindLabel(entry, copy)}</Badge>
-                                </div>
-                                <span class="activity-card__meta">{metaParts.join(' · ')}</span>
-                              </div>
-                              <span class="activity-card__amount">
-                                {formatMoneyLabel(
-                                  entry.displayAmountMajor,
-                                  entry.displayCurrency,
-                                  locale()
-                                )}
-                              </span>
-                            </div>
-                          )
-                        }}
-                      </For>
-                    </div>
-                    <Show when={latestActivity().length > 5}>
-                      <button
-                        class="activity-card__show-more"
-                        onClick={() => setShowAllActivity(!showAllActivity())}
-                      >
-                        <Show
-                          when={showAllActivity()}
-                          fallback={
-                            <>
-                              <span>{copy().showMoreAction}</span>
-                              <ChevronDown size={14} />
-                            </>
-                          }
-                        >
-                          <span>{copy().showLessAction}</span>
-                          <ChevronUp size={14} />
-                        </Show>
-                      </button>
-                    </Show>
-                  </Show>
-                </div>
-              </Card>
-            </>
-          )}
+            <MemberCloseList
+              model={model()!}
+              currency={dashboard()!.currency}
+              locale={locale()}
+              copy={copy}
+              isAdmin={effectiveIsAdmin()}
+              currentMemberId={currentMemberId()}
+              onSelectMember={(line) => void closeSelectedMember(line)}
+            />
+          </>
         </Match>
       </Switch>
 
       <Modal
-        open={notificationEditorOpen()}
-        title={locale() === 'ru' ? 'Управление напоминанием' : 'Manage notification'}
-        {...(selectedNotification()
-          ? {
-              description: formatNotificationWhen(
-                locale(),
-                selectedNotification()!.scheduledFor,
-                dashboard()?.timezone ?? 'UTC'
-              )
-            }
-          : {})}
-        closeLabel={copy().showLessAction}
-        onClose={() => {
-          setNotificationEditorOpen(false)
-        }}
-        footer={
-          <>
-            <Show when={selectedNotification()?.canCancel}>
-              <Button
-                variant="ghost"
-                loading={cancellingNotificationId() === selectedNotification()?.id}
-                onClick={() =>
-                  selectedNotification() &&
-                  void handleNotificationCancel(selectedNotification()!.id)
-                }
-              >
-                {locale() === 'ru' ? 'Отменить напоминание' : 'Cancel notification'}
-              </Button>
-            </Show>
-            <Button variant="ghost" onClick={() => setNotificationEditorOpen(false)}>
-              {copy().showLessAction}
-            </Button>
-            <Button
-              variant="primary"
-              loading={savingNotification()}
-              disabled={
-                !notificationScheduleDraft().trim() ||
-                (notificationDeliveryModeDraft() === 'dm_selected' &&
-                  notificationRecipientsDraft().length === 0)
-              }
-              onClick={() => void handleNotificationSave()}
-            >
-              {locale() === 'ru' ? 'Сохранить' : 'Save'}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: '16px' }}>
-          <Field label={locale() === 'ru' ? 'Когда' : 'When'}>
-            <Input
-              type="datetime-local"
-              value={notificationScheduleDraft()}
-              onInput={(event) => setNotificationScheduleDraft(event.currentTarget.value)}
-            />
-          </Field>
-
-          <Field label={locale() === 'ru' ? 'Куда отправлять' : 'Delivery'}>
-            <div style={{ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }}>
-              <Button
-                variant={notificationDeliveryModeDraft() === 'topic' ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setNotificationDeliveryModeDraft('topic')}
-              >
-                {locale() === 'ru' ? 'В топик' : 'Topic'}
-              </Button>
-              <Button
-                variant={notificationDeliveryModeDraft() === 'dm_all' ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setNotificationDeliveryModeDraft('dm_all')}
-              >
-                {locale() === 'ru' ? 'Всем в личку' : 'DM all'}
-              </Button>
-              <Button
-                variant={
-                  notificationDeliveryModeDraft() === 'dm_selected' ? 'primary' : 'secondary'
-                }
-                size="sm"
-                onClick={() => setNotificationDeliveryModeDraft('dm_selected')}
-              >
-                {locale() === 'ru' ? 'Выбрать получателей' : 'Select recipients'}
-              </Button>
-            </div>
-          </Field>
-
-          <Show when={notificationDeliveryModeDraft() === 'dm_selected'}>
-            <Field
-              label={locale() === 'ru' ? 'Получатели' : 'Recipients'}
-              hint={
-                locale() === 'ru'
-                  ? 'Выберите, кому отправить в личку.'
-                  : 'Choose who should receive the DM.'
-              }
-            >
-              <div style={{ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }}>
-                <For each={activeHouseholdMembers()}>
-                  {(member) => (
-                    <Button
-                      variant={
-                        notificationRecipientsDraft().includes(member.memberId)
-                          ? 'primary'
-                          : 'secondary'
-                      }
-                      size="sm"
-                      onClick={() => toggleNotificationRecipient(member.memberId)}
-                    >
-                      {member.displayName}
-                    </Button>
-                  )}
-                </For>
-              </div>
-            </Field>
-          </Show>
-        </div>
-      </Modal>
-
-      <Modal
-        open={quickPurchaseOpen()}
+        open={purchaseOpen()}
         title={copy().quickPurchaseSheetTitle}
-        description={copy().quickPurchaseSheetBody}
+        description={copy().todayPurchaseSheetBody}
         closeLabel={copy().closeEditorAction}
-        onClose={closeQuickPurchase}
+        onClose={closePurchase}
       >
         <QuickPurchaseComposer
-          draft={quickPurchaseDraft}
-          setDraft={(updater) => {
-            setQuickPurchaseError(null)
-            setQuickPurchaseDraft((draft) => updater(draft))
-          }}
-          activeMembers={() =>
-            activeHouseholdMembers().map((member) => ({
-              memberId: member.memberId,
-              displayName: member.displayName,
-              remainingMajor: member.remainingMajor,
-              purchaseBalanceMajor: memberEffectivePurchaseBalanceMajor(member)
-            }))
-          }
+          draft={purchaseDraft}
+          setDraft={(updater) => setPurchaseDraft((draft) => updater(draft))}
+          activeMembers={activeMembers}
           currentMemberId={currentMemberId}
-          currency={() => dashboard()?.currency ?? 'GEL'}
+          currency={() => dashboard()?.currency ?? ('GEL' as Currency)}
           copy={copy}
           locale={locale}
-          error={quickPurchaseError}
-          submitting={addingQuickPurchase}
-          submitLabel={() =>
-            addingQuickPurchase() ? copy().savingPurchase : copy().purchaseSaveAction
-          }
-          onSubmit={() => void handleQuickPurchaseSubmit()}
-          onCancel={closeQuickPurchase}
+          error={purchaseError}
+          submitting={addingPurchase}
+          submitLabel={() => copy().purchaseSaveAction}
+          onSubmit={() => void handlePurchaseSubmit()}
+          onCancel={closePurchase}
           cancelLabel={copy().closeEditorAction}
-          onSecondaryAction={() => {
-            closeQuickPurchase()
-            navigate('/purchases')
-          }}
-          secondaryActionLabel={copy().quickPurchaseOpenLedgerAction}
-          resetKey={() => `${quickPurchaseOpen()}:${dashboard()?.period ?? 'none'}`}
-          datePickerPortal={false}
+          resetKey={() => `${purchaseOpen()}:${dashboard()?.ledger.length ?? 0}`}
+          datePickerPortal
         />
       </Modal>
 
-      {/* Quick Payment Modal */}
-      <Modal
-        open={quickPaymentOpen()}
-        title={copy().quickPaymentTitle}
-        description={(quickPaymentContext() === 'overdue'
-          ? copy().quickPaymentOverdueBody
-          : copy().quickPaymentCurrentBody
-        ).replace(
-          '{type}',
-          quickPaymentType() === 'rent' ? copy().shareRent : copy().shareUtilities
-        )}
-        closeLabel={copy().showLessAction}
-        onClose={() => setQuickPaymentOpen(false)}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setQuickPaymentOpen(false)}>
-              {copy().showLessAction}
-            </Button>
-            <Button
-              variant="primary"
-              loading={submittingPayment()}
-              disabled={!quickPaymentAmount().trim()}
-              onClick={() => void handleQuickPaymentSubmit()}
-            >
-              {submittingPayment()
-                ? copy().quickPaymentSubmitting
-                : copy().quickPaymentSubmitAction}
-            </Button>
-          </>
-        }
-      >
-        <div style={{ display: 'grid', gap: '12px' }}>
-          <Field label={copy().quickPaymentAmountLabel}>
-            <Input
-              type="number"
-              value={quickPaymentAmount()}
-              onInput={(e) => setQuickPaymentAmount(e.currentTarget.value)}
-              placeholder="0.00"
-            />
-          </Field>
-          <Field label={copy().quickPaymentCurrencyLabel}>
-            <CurrencyToggle
-              value={(dashboard()?.currency as 'USD' | 'GEL') ?? 'GEL'}
-              ariaLabel={copy().quickPaymentCurrencyLabel}
-              disabled
-            />
-          </Field>
-        </div>
-      </Modal>
+      <Show when={model() && dashboard()}>
+        <AdminCloseConfirmDialog
+          open={adminConfirmOpen()}
+          model={model()!}
+          currency={dashboard()!.currency}
+          locale={locale()}
+          copy={copy}
+          loading={processingKey() !== null}
+          onClose={() => setAdminConfirmOpen(false)}
+          onConfirm={() => void closeAllMembers()}
+        />
+      </Show>
 
-      {/* Toast Notifications */}
-      <Toast
-        state={toastState()}
-        onClose={() => setToastState({ ...toastState(), visible: false })}
-      />
+      <Toast state={toast()} onClose={() => setToast((state) => ({ ...state, visible: false }))} />
     </div>
   )
 }

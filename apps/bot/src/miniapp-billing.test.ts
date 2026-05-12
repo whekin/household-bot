@@ -16,6 +16,7 @@ import {
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
+  createMiniAppClosePaymentPeriodHandler,
   createMiniAppDeletePurchaseHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
@@ -347,6 +348,19 @@ function createFinanceServiceStub(): FinanceCommandService & {
       amount: Money.fromMinor(10000n, 'USD'),
       currency: 'USD',
       period: '2026-03'
+    }),
+    closePaymentPeriod: async (input) => ({
+      period: input.periodArg,
+      kind: input.kind,
+      closedMembers: [
+        {
+          memberId: input.memberIds?.[0] ?? 'member-123456',
+          displayName: 'Stan',
+          amount: Money.fromMinor(3000n, 'GEL')
+        }
+      ],
+      skippedMembers: [],
+      dashboard: createDashboardStub()
     }),
     addPurchase: async () => ({
       purchaseId: 'test-purchase',
@@ -1040,6 +1054,182 @@ describe('createMiniAppDeletePurchaseHandler', () => {
 })
 
 describe('utility billing action handlers', () => {
+  test('close payment period records a resident self close and returns refreshed dashboard', async () => {
+    const repository = onboardingRepository()
+    const calls: Parameters<FinanceCommandService['closePaymentPeriod']>[0][] = []
+    const financeService = {
+      ...createFinanceServiceStub(),
+      closePaymentPeriod: async (
+        input: Parameters<FinanceCommandService['closePaymentPeriod']>[0]
+      ) => {
+        calls.push(input)
+        return {
+          period: input.periodArg,
+          kind: input.kind,
+          closedMembers: [
+            {
+              memberId: 'member-123456',
+              displayName: 'Stan',
+              amount: Money.fromMinor(3000n, 'GEL')
+            }
+          ],
+          skippedMembers: [],
+          dashboard: createDashboardStub()
+        }
+      }
+    }
+    const handler = createMiniAppClosePaymentPeriodHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService,
+      adHocNotificationService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/periods/close', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          period: '2026-03',
+          kind: 'rent',
+          memberIds: ['member-123456']
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: {
+        period: '2026-03'
+      },
+      closeSummary: {
+        period: '2026-03',
+        kind: 'rent',
+        closedMembers: [
+          {
+            memberId: 'member-123456',
+            displayName: 'Stan',
+            amountMajor: '30.00',
+            currency: 'GEL'
+          }
+        ]
+      }
+    })
+    expect(calls).toEqual([
+      {
+        periodArg: '2026-03',
+        kind: 'rent',
+        actorMemberId: 'member-123456',
+        memberIds: ['member-123456']
+      }
+    ])
+  })
+
+  test('close payment period rejects resident attempts to close another member', async () => {
+    const repository = {
+      ...onboardingRepository(),
+      listHouseholdMembersByTelegramUserId: async () => [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active' as const,
+          preferredLocale: null,
+          householdDefaultLocale: 'ru' as const,
+          rentShareWeight: 1,
+          isAdmin: false
+        }
+      ]
+    }
+    const handler = createMiniAppClosePaymentPeriodHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => createFinanceServiceStub(),
+      adHocNotificationService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/periods/close', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          period: '2026-03',
+          kind: 'rent',
+          memberIds: ['member-other']
+        })
+      })
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ ok: false, error: 'Admin access required' })
+  })
+
+  test('close payment period supports admin all-members close', async () => {
+    const repository = onboardingRepository()
+    const calls: Parameters<FinanceCommandService['closePaymentPeriod']>[0][] = []
+    const financeService = {
+      ...createFinanceServiceStub(),
+      closePaymentPeriod: async (
+        input: Parameters<FinanceCommandService['closePaymentPeriod']>[0]
+      ) => {
+        calls.push(input)
+        return {
+          period: input.periodArg,
+          kind: input.kind,
+          closedMembers: [],
+          skippedMembers: [],
+          dashboard: createDashboardStub()
+        }
+      }
+    }
+    const handler = createMiniAppClosePaymentPeriodHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService,
+      adHocNotificationService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/periods/close', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          period: '2026-03',
+          kind: 'utilities',
+          allMembers: true
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(calls).toEqual([
+      {
+        periodArg: '2026-03',
+        kind: 'utilities',
+        actorMemberId: 'member-123456',
+        allMembers: true
+      }
+    ])
+  })
+
   test('resolve planned utility payment records the selected member action', async () => {
     const repository = onboardingRepository()
     const financeService = createFinanceServiceStub()

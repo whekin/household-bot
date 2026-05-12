@@ -714,6 +714,45 @@ async function readPaymentMutationPayload(request: Request): Promise<{
   }
 }
 
+async function readClosePaymentPeriodPayload(request: Request): Promise<{
+  initData: string
+  period: string
+  kind: 'rent' | 'utilities'
+  memberIds?: readonly string[]
+  allMembers?: boolean
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    period?: string
+    kind?: 'rent' | 'utilities'
+    memberIds?: string[]
+    allMembers?: boolean
+  }>(request)
+  const initData = parsed.initData?.trim()
+  const period = parsed.period?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  if (!period) {
+    throw new Error('Missing payment period')
+  }
+  if (parsed.kind !== 'rent' && parsed.kind !== 'utilities') {
+    throw new Error('Missing payment kind')
+  }
+
+  const memberIds = Array.isArray(parsed.memberIds)
+    ? [...new Set(parsed.memberIds.map((memberId) => memberId.trim()).filter(Boolean))]
+    : undefined
+
+  return {
+    initData,
+    period: BillingPeriod.fromString(period).toString(),
+    kind: parsed.kind,
+    ...(memberIds && memberIds.length > 0 ? { memberIds } : {}),
+    ...(parsed.allMembers ? { allMembers: true } : {})
+  }
+}
+
 async function readResolveUtilityPlanPayload(request: Request): Promise<{
   initData: string
   memberId?: string
@@ -1978,6 +2017,155 @@ export function createMiniAppAddPaymentHandler(options: {
         )
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppClosePaymentPeriodHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  adHocNotificationService: AdHocNotificationService
+  auditNotificationService?: HouseholdAuditNotificationService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readClosePaymentPeriodPayload(request)
+        const memberIds = payload.allMembers
+          ? []
+          : payload.memberIds && payload.memberIds.length > 0
+            ? payload.memberIds
+            : [auth.member.id]
+
+        if (
+          !auth.member.isAdmin &&
+          (payload.allMembers || memberIds.some((memberId) => memberId !== auth.member.id))
+        ) {
+          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+        }
+
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        options.logger?.info(
+          {
+            event: 'miniapp.payment_period.close_requested',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            kind: payload.kind,
+            period: payload.period,
+            allMembers: payload.allMembers === true,
+            memberIds
+          },
+          'Mini app payment period close requested'
+        )
+        const result = await service.closePaymentPeriod({
+          periodArg: payload.period,
+          kind: payload.kind,
+          actorMemberId: auth.member.id,
+          ...(payload.allMembers ? { allMembers: true } : { memberIds })
+        })
+
+        if (!result) {
+          return miniAppJsonResponse(
+            { ok: false, authorized: true, error: 'No open payment period is available' },
+            409,
+            origin
+          )
+        }
+
+        const dashboard = await loadMiniAppDashboardPayload({
+          householdId: auth.member.householdId,
+          viewerMemberId: auth.member.id,
+          financeService: service,
+          adHocNotificationService: options.adHocNotificationService,
+          ...(options.householdConfigurationRepository
+            ? {
+                householdConfigurationRepository: options.householdConfigurationRepository
+              }
+            : {}),
+          periodOverride: result.period
+        })
+
+        if (!dashboard) {
+          return miniAppJsonResponse(
+            { ok: false, authorized: true, error: 'No billing cycle available' },
+            404,
+            origin
+          )
+        }
+
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'payment_events',
+          eventType: 'payment_period.closed',
+          summaryText: `${auth.member.displayName} closed ${payload.kind} for ${result.period}`,
+          metadata: {
+            period: result.period,
+            kind: result.kind,
+            closedMembers: result.closedMembers.map((member) => ({
+              memberId: member.memberId,
+              amountMinor: member.amount.amountMinor.toString(),
+              currency: member.amount.currency
+            })),
+            skippedMembers: result.skippedMembers
+          }
+        })
+
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            dashboard,
+            closeSummary: {
+              period: result.period,
+              kind: result.kind,
+              closedMembers: result.closedMembers.map((member) => ({
+                memberId: member.memberId,
+                displayName: member.displayName,
+                amountMajor: member.amount.toMajorString(),
+                currency: member.amount.currency
+              })),
+              skippedMembers: result.skippedMembers
+            }
+          },
+          200,
+          origin
+        )
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }

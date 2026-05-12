@@ -2156,6 +2156,74 @@ describe('createFinanceCommandService', () => {
     )
   })
 
+  test('closePaymentPeriod records planned remaining rent for unresolved members', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 10000n,
+      currency: 'GEL'
+    }
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 5000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const result = await service.closePaymentPeriod({
+      periodArg: '2026-03',
+      kind: 'rent',
+      actorMemberId: 'alice',
+      allMembers: true
+    })
+
+    expect(result?.closedMembers).toEqual([
+      {
+        memberId: 'bob',
+        displayName: 'Bob',
+        amount: Money.fromMajor('50.00', 'GEL')
+      }
+    ])
+    expect(repository.addedPaymentRecords).toMatchObject([
+      {
+        cycleId: 'cycle-2026-03',
+        memberId: 'bob',
+        kind: 'rent',
+        amountMinor: 5000n,
+        currency: 'GEL'
+      }
+    ])
+  })
+
   test('generateDashboard applies purchase balance through utilities mode', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

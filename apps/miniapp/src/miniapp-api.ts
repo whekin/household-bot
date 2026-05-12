@@ -1391,6 +1391,75 @@ export async function addMiniAppPayment(
   }
 }
 
+export async function closeMiniAppPaymentPeriod(
+  initData: string,
+  input: {
+    period: string
+    kind: 'rent' | 'utilities'
+    memberIds?: readonly string[]
+    allMembers?: boolean
+  }
+): Promise<{
+  dashboard: MiniAppDashboard
+  closeSummary: {
+    period: string
+    kind: 'rent' | 'utilities'
+    closedMembers: readonly {
+      memberId: string
+      displayName: string
+      amountMajor: string
+      currency: 'USD' | 'GEL'
+    }[]
+    skippedMembers: readonly {
+      memberId: string
+      displayName: string
+      reason: 'already_settled' | 'not_found'
+    }[]
+  }
+}> {
+  const response = await fetch(`${apiBaseUrl()}/api/miniapp/billing/periods/close`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      initData,
+      ...input
+    })
+  })
+
+  const payload = (await response.json()) as {
+    ok: boolean
+    authorized?: boolean
+    dashboard?: MiniAppDashboard
+    closeSummary?: {
+      period: string
+      kind: 'rent' | 'utilities'
+      closedMembers: {
+        memberId: string
+        displayName: string
+        amountMajor: string
+        currency: 'USD' | 'GEL'
+      }[]
+      skippedMembers: {
+        memberId: string
+        displayName: string
+        reason: 'already_settled' | 'not_found'
+      }[]
+    }
+    error?: string
+  }
+
+  if (!response.ok || !payload.authorized || !payload.dashboard || !payload.closeSummary) {
+    throw miniAppApiError(response, payload, 'Failed to close payment period')
+  }
+
+  return {
+    dashboard: payload.dashboard,
+    closeSummary: payload.closeSummary
+  }
+}
+
 export async function resolveMiniAppUtilityPlan(
   initData: string,
   input: {

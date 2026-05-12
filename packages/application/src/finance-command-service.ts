@@ -174,6 +174,22 @@ export interface FinanceDashboardPaymentPeriodSummary {
   kinds: readonly FinanceDashboardPaymentKindSummary[]
 }
 
+export interface FinanceClosePaymentPeriodResult {
+  period: string
+  kind: FinancePaymentKind
+  closedMembers: readonly {
+    memberId: string
+    displayName: string
+    amount: Money
+  }[]
+  skippedMembers: readonly {
+    memberId: string
+    displayName: string
+    reason: 'already_settled' | 'not_found'
+  }[]
+  dashboard: FinanceDashboard
+}
+
 export interface FinanceDashboardLedgerEntry {
   id: string
   kind: 'purchase' | 'utility' | 'payment'
@@ -2948,6 +2964,13 @@ export interface FinanceCommandService {
     currency: CurrencyCode
     period: string
   } | null>
+  closePaymentPeriod(input: {
+    periodArg: string
+    kind: FinancePaymentKind
+    actorMemberId: string
+    memberIds?: readonly string[]
+    allMembers?: boolean
+  }): Promise<FinanceClosePaymentPeriodResult | null>
   updatePayment(
     paymentId: string,
     memberId: string,
@@ -3705,6 +3728,170 @@ export function createFinanceCommandService(
         amount,
         currency,
         period: firstPayment.cyclePeriod ?? currentCycle.period
+      }
+    },
+
+    async closePaymentPeriod(input) {
+      const dashboard = await buildFinanceDashboard(dependencies, input.periodArg)
+      if (!dashboard) {
+        return null
+      }
+
+      const cycle = await repository.getCycleByPeriod(dashboard.period)
+      if (!cycle) {
+        return null
+      }
+
+      const kindSummary = dashboard.paymentPeriods
+        ?.find((summary) => summary.period === dashboard.period)
+        ?.kinds.find((summary) => summary.kind === input.kind)
+      if (!kindSummary) {
+        return null
+      }
+
+      const requestedMemberIds = new Set(input.memberIds ?? [])
+      const requestedAll = input.allMembers === true
+      const candidateMembers = kindSummary.unresolvedMembers.filter((member) =>
+        requestedAll ? true : requestedMemberIds.has(member.memberId)
+      )
+      const memberNameById = new Map(
+        dashboard.members.map((member) => [member.memberId, member.displayName])
+      )
+      const skippedMembers = [...requestedMemberIds]
+        .filter(
+          (memberId) =>
+            !kindSummary.unresolvedMembers.some((member) => member.memberId === memberId)
+        )
+        .map((memberId) => ({
+          memberId,
+          displayName: memberNameById.get(memberId) ?? memberId,
+          reason: memberNameById.has(memberId)
+            ? ('already_settled' as const)
+            : ('not_found' as const)
+        }))
+
+      if (candidateMembers.length === 0) {
+        return {
+          period: dashboard.period,
+          kind: input.kind,
+          closedMembers: [],
+          skippedMembers,
+          dashboard
+        }
+      }
+
+      if (input.kind === 'utilities') {
+        const utilityPlan = dashboard.utilityBillingPlan
+        if (!utilityPlan) {
+          return null
+        }
+
+        const recordedAt = nowInstant()
+        const [existingVendorFacts, existingPaymentRecords] = await Promise.all([
+          repository.listUtilityVendorPaymentFactsForCycle(cycle.id),
+          repository.listPaymentRecordsForCycle(cycle.id)
+        ])
+        for (const member of candidateMembers) {
+          await resolvePlannedUtilitiesForMember({
+            cycle,
+            dashboard,
+            utilityPlan,
+            memberId: member.memberId,
+            actorMemberId: input.actorMemberId,
+            recordedAt,
+            existingVendorFacts,
+            existingPaymentRecords
+          })
+        }
+
+        const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+        const allCategoriesCovered = utilityPlan.categories.every((category) => {
+          const paidMinor = utilityMatchedPlanPaidMinor({
+            plan: utilityPlan,
+            vendorFacts,
+            utilityBillId: category.utilityBillId,
+            payerMemberId: category.assignedMemberId
+          })
+
+          return paidMinor >= category.assignedAmount.amountMinor
+        })
+        if (allCategoriesCovered) {
+          await repository.updateUtilityBillingPlanStatus(utilityPlan.id, 'settled')
+        }
+
+        const nextDashboard =
+          (await buildFinanceDashboard(dependencies, dashboard.period, {
+            skipPlanRebalance: true
+          })) ?? dashboard
+
+        return {
+          period: dashboard.period,
+          kind: input.kind,
+          closedMembers: candidateMembers.map((member) => ({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            amount: member.suggestedAmount
+          })),
+          skippedMembers,
+          dashboard: nextDashboard
+        }
+      }
+
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const recordedAt = nowInstant()
+      const closedMembers: {
+        memberId: string
+        displayName: string
+        amount: Money
+      }[] = []
+      for (const member of candidateMembers) {
+        if (member.suggestedAmount.amountMinor <= 0n) {
+          skippedMembers.push({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            reason: 'already_settled'
+          })
+          continue
+        }
+
+        const payment = await repository.addPaymentRecord({
+          cycleId: cycle.id,
+          memberId: member.memberId,
+          kind: input.kind,
+          amountMinor: member.suggestedAmount.amountMinor,
+          currency: dashboard.currency,
+          recordedAt
+        })
+        const allocationResult = await allocatePaymentPurchaseOverage({
+          dependencies,
+          cyclePeriod: dashboard.period,
+          memberId: member.memberId,
+          kind: input.kind,
+          paymentAmount: member.suggestedAmount,
+          settings
+        })
+        await repository.replacePaymentPurchaseAllocations({
+          paymentRecordId: payment.id,
+          cycleId: cycle.id,
+          resolutionMethod: allocationResult.resolutionMethod,
+          resolutionPlanId: allocationResult.resolutionPlanId,
+          allocations: allocationResult.allocations
+        })
+        closedMembers.push({
+          memberId: member.memberId,
+          displayName: member.displayName,
+          amount: member.suggestedAmount
+        })
+      }
+
+      return {
+        period: dashboard.period,
+        kind: input.kind,
+        closedMembers,
+        skippedMembers,
+        dashboard: (await buildFinanceDashboard(dependencies, dashboard.period)) ?? dashboard
       }
     },
 

@@ -371,6 +371,7 @@ function createFinanceService(): FinanceCommandService {
       currency: (currencyArg ?? 'GEL') as 'GEL' | 'USD',
       period: '2026-03'
     }),
+    closePaymentPeriod: async () => null,
     addPurchase: async () => ({
       purchaseId: 'test-purchase',
       amount: Money.fromMinor(0n, 'GEL'),

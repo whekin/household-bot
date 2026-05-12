@@ -588,29 +588,23 @@ export default function PurchasesRoute() {
                     <strong>{copy().purchasesTitle}</strong>
                     <p>{copy().purchasesPageBody}</p>
                   </div>
-                  <Show when={effectiveIsAdmin() && !composerOpen()}>
-                    <Button variant="primary" size="sm" onClick={openComposer}>
-                      <Plus size={14} />
-                      {copy().purchaseAddAction}
+                  <Show when={effectiveIsAdmin()}>
+                    <Button
+                      variant={composerOpen() ? 'secondary' : 'primary'}
+                      size="sm"
+                      onClick={() => (composerOpen() ? closeComposer() : openComposer())}
+                    >
+                      <Show when={!composerOpen()}>
+                        <Plus size={14} />
+                      </Show>
+                      {composerOpen() ? copy().closeEditorAction : copy().purchaseAddAction}
                     </Button>
                   </Show>
                 </div>
 
                 <Show when={effectiveIsAdmin()}>
                   <div class={`purchase-composer ${composerOpen() ? 'is-open' : ''}`}>
-                    <Show
-                      when={composerOpen()}
-                      fallback={
-                        <button
-                          class="purchase-composer__trigger"
-                          type="button"
-                          onClick={openComposer}
-                        >
-                          <span>{copy().purchaseAddAction}</span>
-                          <small>{copy().purchaseComposerBody}</small>
-                        </button>
-                      }
-                    >
+                    <Show when={composerOpen()}>
                       <div class="purchase-inline-editor">
                         <QuickPurchaseComposer
                           draft={newPurchase}

@@ -177,6 +177,18 @@ export default function SettingsRoute() {
   const activeUtilityCategories = createMemo(() =>
     sortedCategories().filter((category) => category.isActive)
   )
+  const inactiveUtilityCategories = createMemo(() =>
+    sortedCategories().filter((category) => !category.isActive)
+  )
+  const connectedTopicsCount = createMemo(
+    () => adminSettings()?.topics.filter((topic) => Boolean(topic.telegramThreadId)).length ?? 0
+  )
+  const connectedTopics = createMemo(
+    () => adminSettings()?.topics.filter((topic) => Boolean(topic.telegramThreadId)) ?? []
+  )
+  const unboundTopics = createMemo(
+    () => adminSettings()?.topics.filter((topic) => !topic.telegramThreadId) ?? []
+  )
   const awayMembersCount = createMemo(
     () => settingsMembers().filter((member) => member.status === 'away').length
   )
@@ -582,22 +594,58 @@ export default function SettingsRoute() {
   }
 
   return (
-    <div class="route route--settings">
-      <div class="settings-header">
-        <Show when={location.pathname !== '/household'}>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="ui-button--very-left"
-            onClick={() => navigate(-1)}
-          >
-            <ArrowLeft size={16} />
-            {copy().closeEditorAction}
-          </Button>
+    <div class="route route--settings" data-locale={locale()}>
+      <header class="settings-command" data-locale={locale()}>
+        <div class="settings-command__top">
+          <Show when={location.pathname !== '/household'}>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="ui-button--very-left"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft size={16} />
+              {copy().closeEditorAction}
+            </Button>
+          </Show>
+          <span class="settings-command__mode">
+            {effectiveIsAdmin()
+              ? locale() === 'ru'
+                ? 'Управление'
+                : 'Control'
+              : locale() === 'ru'
+                ? 'Профиль'
+                : 'Profile'}
+          </span>
+        </div>
+
+        <div class="settings-command__title">
+          <span>{locale() === 'ru' ? 'Дом' : 'Household'}</span>
+          <h2>{effectiveIsAdmin() ? copy().householdSettingsTitle : copy().residentHouseTitle}</h2>
+          <p>{effectiveIsAdmin() ? copy().householdSettingsBody : copy().residentHouseBody}</p>
+        </div>
+
+        <Show when={effectiveIsAdmin() && adminSettings()}>
+          <div class="settings-command__stats">
+            <div>
+              <span>{copy().currentCycleLabel}</span>
+              <strong>
+                {cycleState()?.cycle
+                  ? formatCyclePeriod(cycleState()!.cycle!.period, locale())
+                  : '—'}
+              </strong>
+            </div>
+            <div>
+              <span>{copy().membersCount}</span>
+              <strong>{settingsMembers().length}</strong>
+            </div>
+            <div>
+              <span>{copy().utilityCategoriesTitle}</span>
+              <strong>{sortedCategories().length}</strong>
+            </div>
+          </div>
         </Show>
-        <h2>{effectiveIsAdmin() ? copy().householdSettingsTitle : copy().residentHouseTitle}</h2>
-        <p>{effectiveIsAdmin() ? copy().householdSettingsBody : copy().residentHouseBody}</p>
-      </div>
+      </header>
 
       <Card class="settings-hub-card settings-hub-card--personal">
         <div class="settings-hub-card__header">
@@ -785,48 +833,68 @@ export default function SettingsRoute() {
                     <div class="settings-hub-card__header">
                       <div class="settings-hub-card__copy">
                         <span class="settings-card-eyebrow">{copy().houseSectionUtilities}</span>
-                        <strong>{copy().utilityCategoriesBody}</strong>
+                        <strong>{copy().utilityCategoriesTitle}</strong>
+                        <p>
+                          {locale() === 'ru'
+                            ? `${sortedCategories().length} категорий · ${activeUtilityCategories().length} активны`
+                            : `${sortedCategories().length} categories · ${activeUtilityCategories().length} active`}
+                        </p>
                       </div>
                       <Button variant="secondary" size="sm" onClick={openUtilitiesEditor}>
                         {copy().manageUtilitiesAction}
                       </Button>
                     </div>
 
-                    <div class="settings-hub-stats">
-                      <div class="settings-hub-stat">
-                        <span>{copy().utilityCategoriesTitle}</span>
-                        <strong>{sortedCategories().length}</strong>
-                      </div>
-                      <div class="settings-hub-stat">
-                        <span>{copy().onLabel}</span>
-                        <strong>{activeUtilityCategories().length}</strong>
-                      </div>
-                    </div>
-
                     <Show
                       when={sortedCategories().length > 0}
                       fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
                     >
-                      <div class="settings-utility-preview-list">
-                        <For each={sortedCategories().slice(0, 4)}>
-                          {(category) => (
-                            <div class="settings-utility-preview">
-                              <div class="settings-utility-preview__copy">
+                      <div class="settings-inline-summary">
+                        <span>{copy().utilityCategoriesTitle}</span>
+                        <strong>{sortedCategories().length}</strong>
+                        <span>{copy().onLabel}</span>
+                        <strong>{activeUtilityCategories().length}</strong>
+                      </div>
+                      <div class="settings-compact-group">
+                        <span class="settings-compact-group__label">{copy().onLabel}</span>
+                        <div class="settings-chip-cluster">
+                          <For each={activeUtilityCategories()}>
+                            {(category) => (
+                              <button
+                                class="settings-chip-card is-active"
+                                type="button"
+                                onClick={openUtilitiesEditor}
+                              >
                                 <strong>{category.name}</strong>
                                 <span>
-                                  {category.providerName ||
-                                    category.customerNumber ||
-                                    category.note ||
-                                    '—'}
+                                  {category.providerName || category.customerNumber || '—'}
                                 </span>
-                              </div>
-                              <Badge variant={category.isActive ? 'accent' : 'muted'}>
-                                {category.isActive ? copy().onLabel : copy().offLabel}
-                              </Badge>
-                            </div>
-                          )}
-                        </For>
+                              </button>
+                            )}
+                          </For>
+                        </div>
                       </div>
+                      <Show when={inactiveUtilityCategories().length > 0}>
+                        <div class="settings-compact-group">
+                          <span class="settings-compact-group__label">{copy().offLabel}</span>
+                          <div class="settings-chip-cluster settings-chip-cluster--muted">
+                            <For each={inactiveUtilityCategories()}>
+                              {(category) => (
+                                <button
+                                  class="settings-chip-card"
+                                  type="button"
+                                  onClick={openUtilitiesEditor}
+                                >
+                                  <strong>{category.name}</strong>
+                                  <span>
+                                    {category.providerName || category.customerNumber || '—'}
+                                  </span>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
                     </Show>
                   </Card>
                 </div>
@@ -917,24 +985,47 @@ export default function SettingsRoute() {
                     <div class="settings-hub-card__header">
                       <div class="settings-hub-card__copy">
                         <span class="settings-card-eyebrow">{copy().houseSectionTopics}</span>
-                        <strong>{copy().topicBindingsBody}</strong>
+                        <strong>{copy().topicBindingsTitle}</strong>
+                        <p>
+                          {locale() === 'ru'
+                            ? `${connectedTopicsCount()} из ${settings().topics.length} подключены`
+                            : `${connectedTopicsCount()} of ${settings().topics.length} connected`}
+                        </p>
                       </div>
+                      <Badge variant="muted">{connectedTopicsCount()}</Badge>
                     </div>
 
-                    <div class="settings-topic-list">
-                      <For each={settings().topics}>
-                        {(topic) => (
-                          <div class="settings-topic-row">
-                            <div class="settings-topic-row__copy">
-                              <strong>{topicRoleLabel(topic.role)}</strong>
-                              <span>{topic.topicName || copy().topicUnbound}</span>
-                            </div>
-                            <Badge variant={topic.telegramThreadId ? 'accent' : 'muted'}>
-                              {topic.telegramThreadId ? copy().topicBound : copy().topicUnbound}
-                            </Badge>
+                    <div class="settings-topic-list settings-topic-list--compact">
+                      <Show when={connectedTopics().length > 0}>
+                        <div class="settings-compact-group">
+                          <span class="settings-compact-group__label">{copy().topicBound}</span>
+                          <div class="settings-chip-cluster">
+                            <For each={connectedTopics()}>
+                              {(topic) => (
+                                <div class="settings-chip-card is-active">
+                                  <strong>{topicRoleLabel(topic.role)}</strong>
+                                  <span>{topic.topicName || copy().topicBound}</span>
+                                </div>
+                              )}
+                            </For>
                           </div>
-                        )}
-                      </For>
+                        </div>
+                      </Show>
+                      <Show when={unboundTopics().length > 0}>
+                        <div class="settings-compact-group">
+                          <span class="settings-compact-group__label">{copy().topicUnbound}</span>
+                          <div class="settings-chip-cluster settings-chip-cluster--muted">
+                            <For each={unboundTopics()}>
+                              {(topic) => (
+                                <div class="settings-chip-card">
+                                  <strong>{topicRoleLabel(topic.role)}</strong>
+                                  <span>{copy().topicUnbound}</span>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   </Card>
                 </div>
@@ -1437,6 +1528,7 @@ export default function SettingsRoute() {
 
       <Modal
         open={utilitiesEditorOpen()}
+        class="utilities-manager-modal"
         title={
           editingCategorySlug()
             ? editingCategorySlug() === NEW_CATEGORY_SLUG
@@ -1496,31 +1588,69 @@ export default function SettingsRoute() {
                   when={sortedCategories().length > 0}
                   fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
                 >
-                  <div class="settings-manager-list">
-                    <For each={sortedCategories()}>
-                      {(category) => (
-                        <button
-                          class="settings-manager-row"
-                          onClick={() => openEditCategory(category)}
-                        >
-                          <div class="settings-manager-row__copy">
-                            <strong>{category.name}</strong>
-                            <span>
-                              {category.providerName ||
-                                category.customerNumber ||
-                                category.note ||
-                                '—'}
-                            </span>
-                          </div>
-                          <div class="settings-manager-row__meta">
-                            <Badge variant={category.isActive ? 'accent' : 'muted'}>
-                              {category.isActive ? copy().onLabel : copy().offLabel}
-                            </Badge>
-                            <span>{copy().editCategoryAction}</span>
-                          </div>
-                        </button>
-                      )}
-                    </For>
+                  <div class="settings-inline-summary settings-inline-summary--utilities">
+                    <span>{copy().utilityCategoriesTitle}</span>
+                    <strong>{sortedCategories().length}</strong>
+                    <span>{copy().onLabel}</span>
+                    <strong>{activeUtilityCategories().length}</strong>
+                  </div>
+                  <div class="settings-manager-stack">
+                    <Show when={activeUtilityCategories().length > 0}>
+                      <div class="settings-compact-group">
+                        <span class="settings-compact-group__label">{copy().onLabel}</span>
+                        <div class="settings-manager-list settings-manager-list--tight">
+                          <For each={activeUtilityCategories()}>
+                            {(category) => (
+                              <button
+                                class="settings-manager-row settings-manager-row--dense"
+                                onClick={() => openEditCategory(category)}
+                              >
+                                <div class="settings-manager-row__copy">
+                                  <strong>{category.name}</strong>
+                                  <span>
+                                    {category.providerName ||
+                                      category.customerNumber ||
+                                      category.note ||
+                                      '—'}
+                                  </span>
+                                </div>
+                                <span class="settings-manager-row__action">
+                                  {copy().editCategoryAction}
+                                </span>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={inactiveUtilityCategories().length > 0}>
+                      <div class="settings-compact-group">
+                        <span class="settings-compact-group__label">{copy().offLabel}</span>
+                        <div class="settings-manager-list settings-manager-list--tight">
+                          <For each={inactiveUtilityCategories()}>
+                            {(category) => (
+                              <button
+                                class="settings-manager-row settings-manager-row--dense is-muted"
+                                onClick={() => openEditCategory(category)}
+                              >
+                                <div class="settings-manager-row__copy">
+                                  <strong>{category.name}</strong>
+                                  <span>
+                                    {category.providerName ||
+                                      category.customerNumber ||
+                                      category.note ||
+                                      '—'}
+                                  </span>
+                                </div>
+                                <span class="settings-manager-row__action">
+                                  {copy().editCategoryAction}
+                                </span>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
                   </div>
                 </Show>
               </div>

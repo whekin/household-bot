@@ -1,6 +1,7 @@
 import * as Dialog from '@kobalte/core/dialog'
 import { Show, type JSX, type ParentProps } from 'solid-js'
 
+import { cn } from '../../lib/cn'
 import { XIcon } from './icons'
 
 export function Modal(
@@ -11,6 +12,7 @@ export function Modal(
     closeLabel: string
     footer?: JSX.Element
     onClose: () => void
+    class?: string
   }>
 ) {
   return (
@@ -18,7 +20,7 @@ export function Modal(
       <Dialog.Portal>
         <Dialog.Overlay class="modal-backdrop" />
         <div class="modal-backdrop">
-          <Dialog.Content class="modal-sheet" aria-label={props.title}>
+          <Dialog.Content class={cn('modal-sheet', props.class)} aria-label={props.title}>
             <header class="modal-sheet__header">
               <div>
                 <Dialog.Title>{props.title}</Dialog.Title>

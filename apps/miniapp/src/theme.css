@@ -5,39 +5,39 @@
 
 :root {
   /* ── Backgrounds ────────────────────────────────────── */
-  --bg-root: #121317;
-  --bg-surface: #191b20;
-  --bg-elevated: #22252c;
-  --bg-surface-glass: rgba(25, 27, 32, 0.8);
-  --bg-elevated-glass: rgba(34, 37, 44, 0.74);
-  --bg-overlay: rgba(8, 9, 12, 0.82);
-  --bg-input: rgba(255, 248, 238, 0.05);
-  --bg-input-hover: rgba(255, 248, 238, 0.09);
+  --bg-root: #111513;
+  --bg-surface: #171c19;
+  --bg-elevated: #202622;
+  --bg-surface-glass: rgba(23, 28, 25, 0.84);
+  --bg-elevated-glass: rgba(32, 38, 34, 0.78);
+  --bg-overlay: rgba(10, 13, 12, 0.84);
+  --bg-input: rgba(243, 238, 229, 0.05);
+  --bg-input-hover: rgba(243, 238, 229, 0.09);
 
   /* ── Accent ─────────────────────────────────────────── */
-  --accent: #e3a86b;
-  --accent-hover: #f0b97f;
-  --accent-soft: rgba(227, 168, 107, 0.18);
-  --accent-softer: rgba(227, 168, 107, 0.08);
-  --accent-border: rgba(227, 168, 107, 0.38);
-  --accent-contrast: #24170b;
+  --accent: #c9834e;
+  --accent-hover: #d49363;
+  --accent-soft: rgba(201, 131, 78, 0.18);
+  --accent-softer: rgba(201, 131, 78, 0.08);
+  --accent-border: rgba(201, 131, 78, 0.3);
+  --accent-contrast: #24160f;
 
   /* ── Danger ─────────────────────────────────────────── */
-  --danger: #f47972;
-  --danger-soft: rgba(244, 121, 114, 0.14);
-  --danger-border: rgba(244, 121, 114, 0.34);
+  --danger: #d37f5e;
+  --danger-soft: rgba(211, 127, 94, 0.14);
+  --danger-border: rgba(211, 127, 94, 0.32);
 
   /* ── Text ───────────────────────────────────────────── */
-  --text-primary: #f4ede3;
-  --text-secondary: #d3c7b8;
-  --text-muted: #988f83;
-  --text-accent: #f2c790;
-  --text-danger: #ffd4cf;
+  --text-primary: #f3eee5;
+  --text-secondary: #cbc1b4;
+  --text-muted: #93887a;
+  --text-accent: #c8d49a;
+  --text-danger: #ffd7cf;
 
   /* ── Borders ────────────────────────────────────────── */
-  --border: rgba(246, 232, 212, 0.09);
-  --border-hover: rgba(246, 232, 212, 0.16);
-  --border-focus: rgba(227, 168, 107, 0.42);
+  --border: rgba(203, 193, 180, 0.13);
+  --border-hover: rgba(203, 193, 180, 0.22);
+  --border-focus: rgba(201, 131, 78, 0.34);
 
   /* ── Radii ──────────────────────────────────────────── */
   --radius-sm: 6px;
@@ -80,19 +80,19 @@
   --transition-slow: 280ms ease;
 
   /* ── Chart palette ──────────────────────────────────── */
-  --chart-1: #e3a86b;
-  --chart-2: #7cb7a3;
-  --chart-3: #f17f72;
-  --chart-4: #6d8fd6;
-  --chart-5: #c186d7;
-  --chart-6: #f4d484;
+  --chart-1: #c9834e;
+  --chart-2: #8f9b65;
+  --chart-3: #7a877a;
+  --chart-4: #d7a262;
+  --chart-5: #495a4a;
+  --chart-6: #b88d7d;
 
   /* ── Status colors ──────────────────────────────────── */
-  --status-credit: #8fc8ad;
-  --status-settled: #d3c7b8;
-  --status-due: #f1ba7d;
-  --status-overdue: #f47972;
-  --status-danger: #f47972;
+  --status-credit: #8f9b65;
+  --status-settled: #c0b6aa;
+  --status-due: #c9834e;
+  --status-overdue: #d7a262;
+  --status-danger: #d37f5e;
 
   /* ── Z-index scale ─────────────────────────────────── */
   --z-toast: 9999;

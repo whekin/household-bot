@@ -194,6 +194,7 @@ function createFinanceService(): FinanceCommandService {
     updatePurchase: async () => null,
     deletePurchase: async () => false,
     addPayment: async () => null,
+    closePaymentPeriod: async () => null,
     addPurchase: async () => ({
       purchaseId: 'test-purchase',
       amount: Money.fromMinor(0n, 'GEL'),
