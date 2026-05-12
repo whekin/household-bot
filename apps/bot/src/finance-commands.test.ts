@@ -271,6 +271,25 @@ function createRepository(): HouseholdConfigurationRepository {
   }
 }
 
+function createEnglishRepository(): HouseholdConfigurationRepository {
+  return {
+    ...createRepository(),
+    listHouseholdMembersByTelegramUserId: async () => [
+      {
+        id: 'member-1',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: 'en',
+        householdDefaultLocale: 'en',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+  }
+}
+
 function createPromptRepository(): TelegramPendingActionRepository & {
   current: () => TelegramPendingActionRecord | null
 } {
@@ -1342,10 +1361,71 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/balance', 'ru') as never)
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    const lines = text.split('\n')
+    const stasIndex = lines.indexOf('👤 Стас')
+    const dimaIndex = lines.indexOf('👤 Дима')
     expect(text).toContain('🛒 Покупки · май 2026')
-    expect(text).toContain('👤 Стас · по покупкам к доплате: 15.00 ₾')
-    expect(text).toContain('👤 Дима · по покупкам в плюсе: 15.00 ₾')
+    expect(stasIndex).toBeGreaterThanOrEqual(0)
+    expect(lines[stasIndex + 1]).toBe('Покупки: остаток 15.00 ₾')
+    expect(dimaIndex).toBeGreaterThanOrEqual(0)
+    expect(lines[dimaIndex + 1]).toBe('Покупки: в плюсе 15.00 ₾')
+    expect(text).not.toContain('👤 Стас ·')
+    expect(text).not.toContain('👤 Дима ·')
+    expect(text).not.toContain('По покупкам к доплате')
+    expect(text).not.toContain('По покупкам в плюсе')
     expect(text).toContain('  • Корм: -30.00 ₾ 👥')
+  })
+
+  test('renders English purchase balance wording through a command path', async () => {
+    const repository = createEnglishRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => createDashboard()
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(privateHouseholdStatusUpdate('/balance', 'en') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).toContain('Purchases: credit 10.00 ₾')
+    expect(text).toContain('Purchases: remaining 10.00 ₾')
+    expect(text).not.toContain('Purchase credit:')
+    expect(text).not.toContain('Purchase due:')
   })
 
   test('renders the utility bill plan and quick action button for assigned members', async () => {
@@ -1513,9 +1593,11 @@ describe('createFinanceCommandsService', () => {
         }
       | undefined
     expect(payload?.text).toContain('💸 Мой счёт')
-    expect(payload?.text).toContain('К оплате: 110.00 ₾')
+    expect(payload?.text).toContain('Остаток: 110.00 ₾')
+    expect(payload?.text).not.toContain('К оплате: 110.00 ₾')
     expect(payload?.text).toContain('Начислено: 210.00 ₾')
-    expect(payload?.text).toContain('По покупкам в плюсе: 10.00 ₾')
+    expect(payload?.text).toContain('Покупки: в плюсе 10.00 ₾')
+    expect(payload?.text).toContain('\nАренда: 200.00 ₾\nКоммуналка: 20.00 ₾')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
         {
@@ -1538,6 +1620,65 @@ describe('createFinanceCommandsService', () => {
         }
       ]
     ])
+  })
+
+  test('renders plain /my_bill in English with neutral summary wording', async () => {
+    const repository = createEnglishRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => createDashboard()
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository: createPromptRepository()
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(privateHouseholdStatusUpdate('/my_bill', 'en') as never)
+
+    const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
+      | {
+          text?: string
+        }
+      | undefined
+    expect(payload?.text).toContain('💸 My bill')
+    expect(payload?.text).toContain('Remaining: 110.00 ₾')
+    expect(payload?.text).not.toContain('To pay: 110.00 ₾')
+    expect(payload?.text).toContain('Total due: 210.00 ₾')
+    expect(payload?.text).toContain('Purchases: credit 10.00 ₾')
+    expect(payload?.text).toContain('\nRent: 200.00 ₾\nUtilities: 20.00 ₾')
   })
 
   test('falls back to a reply when editing the home my bill result fails', async () => {
@@ -1935,7 +2076,7 @@ describe('createFinanceCommandsService', () => {
     expect(text).toContain('доля 103.40 ₾')
     expect(text).toContain('👤 Дима')
     expect(text).toContain('К оплате: 77.17 ₾')
-    expect(text).toContain('По покупкам в плюсе: 1.00 ₾')
+    expect(text).toContain('Покупки: в плюсе 1.00 ₾')
     expect(text).not.toContain('Electricity: 56.86 ₾')
     expect(text).not.toContain('Gas (Water): 20.31 ₾')
     expect(text).toContain('👤 Стас')

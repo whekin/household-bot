@@ -1105,7 +1105,7 @@ describe('registerDmAssistant', () => {
     expect(renderedBill).toBeDefined()
     expect(renderedBill).toContain('💰 Bills: 80.00 ₾')
     expect(renderedBill).toContain('share 80.00 ₾')
-    expect(renderedBill).toContain('📊 Share: 80.00 ₾ · Purchase credit: 15.00 ₾ · Plan: 65.00 ₾')
+    expect(renderedBill).toContain('📊 Share: 80.00 ₾ · Purchases: credit 15.00 ₾ · Plan: 65.00 ₾')
     expect(renderedBill).toContain('Purchases: Groceries -15.00 ₾')
     expect(renderedBill).toContain('- Gas — 65.00 ₾')
     expect(await promptRepository.getPendingAction('123456', '123456')).not.toMatchObject({

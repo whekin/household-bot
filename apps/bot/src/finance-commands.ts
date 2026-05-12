@@ -236,13 +236,13 @@ function formatPurchaseBalanceLine(input: {
   const amountText = formatAbsoluteMoney(input.amount, input.currency)
   if (input.amount.amountMinor < 0n) {
     return input.locale === 'ru'
-      ? `По покупкам в плюсе: ${amountText}`
-      : `Purchase credit: ${amountText}`
+      ? `Покупки: в плюсе ${amountText}`
+      : `Purchases: credit ${amountText}`
   }
 
   return input.locale === 'ru'
-    ? `По покупкам к доплате: ${amountText}`
-    : `Purchase due: ${amountText}`
+    ? `Покупки: остаток ${amountText}`
+    : `Purchases: remaining ${amountText}`
 }
 
 function formatRemainingCreditLine(input: {
@@ -935,7 +935,8 @@ export function createFinanceCommandsService(options: {
         }
 
         return [
-          `👤 ${member.displayName}${balanceLine ? ` · ${balanceLine.toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US')}` : ''}`,
+          `👤 ${member.displayName}`,
+          ...(balanceLine ? [balanceLine] : []),
           ...purchaseLines
         ].join('\n')
       })
@@ -1629,10 +1630,10 @@ export function createFinanceCommandsService(options: {
 
     const remainingLine =
       member.remaining.amountMinor > 0n
-        ? `${input.locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.dashboard.currency)}`
+        ? `${input.locale === 'ru' ? 'Остаток' : 'Remaining'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.dashboard.currency)}`
         : input.locale === 'ru'
-          ? 'К оплате: всё закрыто'
-          : 'To pay: settled'
+          ? 'Остаток: всё закрыто'
+          : 'Remaining: settled'
     const purchaseLine = formatPurchaseBalanceLine({
       locale: input.locale,
       amount: member.purchaseOffset,
@@ -1650,7 +1651,8 @@ export function createFinanceCommandsService(options: {
       `${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(member.paid.toMajorString(), input.dashboard.currency)}`,
       ...(purchaseLine ? [`🛒 ${purchaseLine}`] : []),
       '',
-      `${input.locale === 'ru' ? 'Аренда' : 'Rent'}: ${formatUserFacingMoney(member.rentShare.toMajorString(), input.dashboard.currency)} · ${input.locale === 'ru' ? 'коммуналка' : 'utilities'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), input.dashboard.currency)}`
+      `${input.locale === 'ru' ? 'Аренда' : 'Rent'}: ${formatUserFacingMoney(member.rentShare.toMajorString(), input.dashboard.currency)}`,
+      `${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), input.dashboard.currency)}`
     ].join('\n')
   }
 
