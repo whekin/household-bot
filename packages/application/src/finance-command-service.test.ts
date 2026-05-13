@@ -1034,6 +1034,96 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.period).toBe('2026-03')
   })
 
+  test('generateDashboard marks current-cycle purchases separately from unresolved carryover', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '200',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.purchases = [
+      {
+        id: 'purchase-current',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        description: 'Current filters',
+        occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        id: 'purchase-prior-open',
+        cycleId: 'cycle-2026-02',
+        cyclePeriod: '2026-02',
+        payerMemberId: 'alice',
+        amountMinor: 3000n,
+        currency: 'GEL',
+        description: 'Prior gas refill',
+        occurredAt: instantFromIso('2026-02-12T11:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        id: 'purchase-prior-resolved',
+        cycleId: 'cycle-2026-02',
+        cyclePeriod: '2026-02',
+        payerMemberId: 'alice',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        description: 'Prior closed supplies',
+        occurredAt: instantFromIso('2026-02-10T11:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+    repository.paymentPurchaseAllocations = [
+      {
+        id: 'allocation-prior-resolved',
+        paymentRecordId: 'payment-1',
+        purchaseId: 'purchase-prior-resolved',
+        memberId: 'bob',
+        amountMinor: 500n,
+        resolutionCycleId: 'cycle-2026-03',
+        resolutionMethod: 'manual',
+        resolutionPlanId: null,
+        recordedAt: instantFromIso('2026-03-08T10:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-03')
+    const purchaseRows = new Map(
+      dashboard?.ledger
+        .filter((entry) => entry.kind === 'purchase')
+        .map((entry) => [entry.id, entry]) ?? []
+    )
+
+    expect(purchaseRows.get('purchase-current')?.isCurrentCyclePurchase).toBe(true)
+    expect(purchaseRows.get('purchase-current')?.resolutionStatus).toBe('unresolved')
+    expect(purchaseRows.get('purchase-prior-open')?.isCurrentCyclePurchase).toBe(false)
+    expect(purchaseRows.get('purchase-prior-open')?.resolutionStatus).toBe('unresolved')
+    expect(purchaseRows.get('purchase-prior-resolved')?.isCurrentCyclePurchase).toBe(false)
+    expect(purchaseRows.get('purchase-prior-resolved')?.resolutionStatus).toBe('resolved')
+  })
+
   test('generateDashboard defaults utility days by status and prefers saved presence-day overrides', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

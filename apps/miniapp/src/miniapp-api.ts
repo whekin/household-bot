@@ -233,6 +233,7 @@ export interface MiniAppDashboard {
     occurredAt: string | null
     purchaseSplitMode?: 'equal' | 'custom_amounts'
     originPeriod?: string | null
+    isCurrentCyclePurchase?: boolean
     resolutionStatus?: 'unresolved' | 'resolved'
     resolvedAt?: string | null
     outstandingByMember?: readonly {

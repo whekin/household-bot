@@ -329,6 +329,95 @@ describe('today view model', () => {
     })
   })
 
+  test('separates current-cycle purchase volume from active carryover purchases', () => {
+    const data = dashboard(periodSummary())
+    data.ledger = [
+      {
+        id: 'purchase-prior-unresolved',
+        kind: 'purchase',
+        title: 'Prior gas refill',
+        memberId: 'member-a',
+        paymentKind: null,
+        amountMajor: '54.00',
+        currency: 'GEL',
+        displayAmountMajor: '54.00',
+        displayCurrency: 'GEL',
+        fxRateMicros: null,
+        fxEffectiveDate: null,
+        actorDisplayName: 'Ada',
+        occurredAt: '2026-02-17T20:15:00.000Z',
+        originPeriod: '2026-02',
+        isCurrentCyclePurchase: false,
+        resolutionStatus: 'unresolved',
+        resolvedAt: null,
+        outstandingByMember: [],
+        payerMemberId: 'member-a',
+        purchaseSplitMode: 'equal',
+        purchaseParticipants: []
+      },
+      {
+        id: 'purchase-current-unresolved',
+        kind: 'purchase',
+        title: 'Current filters',
+        memberId: 'member-a',
+        paymentKind: null,
+        amountMajor: '96.00',
+        currency: 'GEL',
+        displayAmountMajor: '96.00',
+        displayCurrency: 'GEL',
+        fxRateMicros: null,
+        fxEffectiveDate: null,
+        actorDisplayName: 'Ada',
+        occurredAt: '2026-03-03T19:00:00.000Z',
+        originPeriod: '2026-03',
+        isCurrentCyclePurchase: true,
+        resolutionStatus: 'unresolved',
+        resolvedAt: null,
+        outstandingByMember: [],
+        payerMemberId: 'member-a',
+        purchaseSplitMode: 'equal',
+        purchaseParticipants: []
+      },
+      {
+        id: 'purchase-current-resolved',
+        kind: 'purchase',
+        title: 'Current closed supplies',
+        memberId: 'member-a',
+        paymentKind: null,
+        amountMajor: '72.00',
+        currency: 'GEL',
+        displayAmountMajor: '72.00',
+        displayCurrency: 'GEL',
+        fxRateMicros: null,
+        fxEffectiveDate: null,
+        actorDisplayName: 'Ada',
+        occurredAt: '2026-03-04T09:00:00.000Z',
+        originPeriod: '2026-03',
+        isCurrentCyclePurchase: true,
+        resolutionStatus: 'resolved',
+        resolvedAt: '2026-03-05T09:00:00.000Z',
+        outstandingByMember: [],
+        payerMemberId: 'member-a',
+        purchaseSplitMode: 'equal',
+        purchaseParticipants: []
+      }
+    ]
+
+    const model = buildTodayViewModel({
+      dashboard: data,
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'idle'
+    })
+
+    expect(model.purchaseTotalMajor).toBe('168.00')
+    expect(model.unresolvedPurchaseCount).toBe(2)
+    expect(model.purchaseEntries.map((entry) => entry.id)).toEqual([
+      'purchase-current-unresolved',
+      'purchase-prior-unresolved'
+    ])
+  })
+
   test('tracks the current timeline segment separately from an extended utilities stage', () => {
     const model = buildTodayViewModel({
       dashboard: {

@@ -231,6 +231,7 @@ function baseLedger(): MiniAppDashboard['ledger'] {
       actorDisplayName: 'Stas',
       occurredAt: '2026-01-28T18:30:00.000Z',
       originPeriod: '2026-01',
+      isCurrentCyclePurchase: false,
       resolutionStatus: 'resolved',
       resolvedAt: '2026-02-04T09:10:00.000Z',
       outstandingByMember: [],
@@ -257,6 +258,7 @@ function baseLedger(): MiniAppDashboard['ledger'] {
       actorDisplayName: 'Chorbanaut',
       occurredAt: '2026-02-17T20:15:00.000Z',
       originPeriod: '2026-02',
+      isCurrentCyclePurchase: false,
       resolutionStatus: 'unresolved',
       resolvedAt: null,
       outstandingByMember: [
@@ -286,6 +288,7 @@ function baseLedger(): MiniAppDashboard['ledger'] {
       actorDisplayName: 'Stas',
       occurredAt: '2026-03-03T19:00:00.000Z',
       originPeriod: '2026-03',
+      isCurrentCyclePurchase: true,
       resolutionStatus: 'unresolved',
       resolvedAt: null,
       outstandingByMember: [
@@ -961,7 +964,7 @@ function applyOverridesToDemoState(
   next.dashboard.ledger = next.dashboard.ledger.map((entry) => ({
     ...entry,
     occurredAt: entry.occurredAt ? remapDateIntoPeriod(entry.occurredAt, periodOverride) : null,
-    ...(entry.originPeriod ? { originPeriod: periodOverride } : {})
+    ...(entry.originPeriod ? { originPeriod: periodOverride, isCurrentCyclePurchase: true } : {})
   }))
   next.dashboard.notifications = next.dashboard.notifications.map((notification) => ({
     ...notification,

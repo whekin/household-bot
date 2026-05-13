@@ -308,17 +308,15 @@ export default function PurchasesRoute() {
     dashboard,
     effectiveIsAdmin,
     loading,
-    purchaseLedger,
+    activePurchaseLedger,
+    currentCyclePurchaseLedger,
+    purchaseTotalMajor,
     refreshDashboardData,
+    resolvedPurchaseLedger,
     setDashboard
   } = useDashboard()
 
-  const unresolvedPurchaseLedger = createMemo(() =>
-    purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
-  )
-  const resolvedPurchaseLedger = createMemo(() =>
-    purchaseLedger().filter((entry) => entry.resolutionStatus === 'resolved')
-  )
+  const unresolvedPurchaseLedger = activePurchaseLedger
   const memberNames = createMemo(
     () =>
       new Map((dashboard()?.members ?? []).map((member) => [member.memberId, member.displayName]))
@@ -582,9 +580,10 @@ export default function PurchasesRoute() {
         <Match when={dashboard()}>
           {(_data) => (
             <>
-              <Card class="ui-card--overflow-visible">
-                <div class="statement-section-heading">
-                  <div>
+              <Card class="ui-card--overflow-visible purchase-page-command">
+                <div class="purchase-page-command__head">
+                  <div class="purchase-page-command__copy">
+                    <span>{copy().ledger}</span>
                     <strong>{copy().purchasesTitle}</strong>
                     <p>{copy().purchasesPageBody}</p>
                   </div>
@@ -592,6 +591,7 @@ export default function PurchasesRoute() {
                     <Button
                       variant={composerOpen() ? 'secondary' : 'primary'}
                       size="sm"
+                      class="purchase-page-command__action"
                       onClick={() => (composerOpen() ? closeComposer() : openComposer())}
                     >
                       <Show when={!composerOpen()}>
@@ -600,6 +600,26 @@ export default function PurchasesRoute() {
                       {composerOpen() ? copy().closeEditorAction : copy().purchaseAddAction}
                     </Button>
                   </Show>
+                </div>
+                <div class="purchase-page-command__stats">
+                  <div>
+                    <span>{copy().todayOpenPurchasesLabel}</span>
+                    <strong>{unresolvedPurchaseLedger().length}</strong>
+                  </div>
+                  <div>
+                    <span>{copy().todayPurchaseVolumeLabel}</span>
+                    <strong>
+                      {formatMoneyLabel(
+                        purchaseTotalMajor(),
+                        dashboard()?.currency ?? 'GEL',
+                        locale()
+                      )}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{copy().todayCurrentPeriod}</span>
+                    <strong>{currentCyclePurchaseLedger().length}</strong>
+                  </div>
                 </div>
 
                 <Show when={effectiveIsAdmin()}>
@@ -849,25 +869,78 @@ export default function PurchasesRoute() {
                 </Show>
               </Card>
 
-              <Card class="ui-card--overflow-visible">
-                <div class="statement-section-heading">
-                  <div>
+              <details class="purchase-history-panel">
+                <summary>
+                  <span>
                     <strong>{copy().resolvedPurchasesTitle}</strong>
-                    <p>{copy().homeSettledTitle}</p>
-                  </div>
-                </div>
-                <Show
-                  when={resolvedPurchaseLedger().length > 0}
-                  fallback={<p class="empty-state">{copy().resolvedPurchasesEmpty}</p>}
-                >
-                  <div class="purchase-list purchase-list--settled">
-                    <For each={resolvedPurchaseLedger()}>
-                      {(entry) => (
-                        <article class="purchase-entry purchase-entry--settled">
-                          <Show
-                            when={effectiveIsAdmin()}
-                            fallback={
-                              <div class="purchase-entry__surface purchase-entry__surface--static">
+                    <small>{copy().homeSettledTitle}</small>
+                  </span>
+                  <em>{resolvedPurchaseLedger().length}</em>
+                </summary>
+                <div class="purchase-history-panel__body">
+                  <Show
+                    when={resolvedPurchaseLedger().length > 0}
+                    fallback={<p class="empty-state">{copy().resolvedPurchasesEmpty}</p>}
+                  >
+                    <div class="purchase-list purchase-list--settled">
+                      <For each={resolvedPurchaseLedger()}>
+                        {(entry) => (
+                          <article class="purchase-entry purchase-entry--settled">
+                            <Show
+                              when={effectiveIsAdmin()}
+                              fallback={
+                                <div class="purchase-entry__surface purchase-entry__surface--static">
+                                  <div class="purchase-entry__copy">
+                                    <div class="purchase-entry__title-line">
+                                      <strong>{entry.title}</strong>
+                                      <span class="purchase-entry__status purchase-entry__status--settled">
+                                        {copy().purchaseStatusSettled}
+                                      </span>
+                                    </div>
+                                    <p class="purchase-entry__meta">{metaSummary(entry)}</p>
+                                    <div class="purchase-entry__chips">
+                                      <For each={participantNames(entry).slice(0, 4)}>
+                                        {(name) => (
+                                          <span class="purchase-entry__chip" title={name}>
+                                            {initialsForName(name)}
+                                          </span>
+                                        )}
+                                      </For>
+                                    </div>
+                                    <div class="purchase-entry__footer">
+                                      <span class="purchase-entry__summary">
+                                        {splitSummary(entry)}
+                                      </span>
+                                      <Show when={entry.resolvedAt}>
+                                        {(resolvedAt) => (
+                                          <span class="purchase-entry__summary">
+                                            {copy().purchaseSettledOnLabel}{' '}
+                                            {formatFriendlyDate(resolvedAt(), locale())}
+                                          </span>
+                                        )}
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <div class="purchase-entry__amounts">
+                                    <strong>
+                                      {formatMoneyLabel(
+                                        entry.displayAmountMajor,
+                                        entry.displayCurrency,
+                                        locale()
+                                      )}
+                                    </strong>
+                                    <Show when={ledgerSecondaryAmount(entry)}>
+                                      {(secondary) => <span>{secondary()}</span>}
+                                    </Show>
+                                  </div>
+                                </div>
+                              }
+                            >
+                              <button
+                                class="purchase-entry__surface"
+                                type="button"
+                                onClick={() => togglePurchaseEditor(entry)}
+                              >
                                 <div class="purchase-entry__copy">
                                   <div class="purchase-entry__title-line">
                                     <strong>{entry.title}</strong>
@@ -911,141 +984,93 @@ export default function PurchasesRoute() {
                                     {(secondary) => <span>{secondary()}</span>}
                                   </Show>
                                 </div>
-                              </div>
-                            }
-                          >
-                            <button
-                              class="purchase-entry__surface"
-                              type="button"
-                              onClick={() => togglePurchaseEditor(entry)}
-                            >
-                              <div class="purchase-entry__copy">
-                                <div class="purchase-entry__title-line">
-                                  <strong>{entry.title}</strong>
-                                  <span class="purchase-entry__status purchase-entry__status--settled">
-                                    {copy().purchaseStatusSettled}
-                                  </span>
-                                </div>
-                                <p class="purchase-entry__meta">{metaSummary(entry)}</p>
-                                <div class="purchase-entry__chips">
-                                  <For each={participantNames(entry).slice(0, 4)}>
-                                    {(name) => (
-                                      <span class="purchase-entry__chip" title={name}>
-                                        {initialsForName(name)}
-                                      </span>
-                                    )}
-                                  </For>
-                                </div>
-                                <div class="purchase-entry__footer">
-                                  <span class="purchase-entry__summary">{splitSummary(entry)}</span>
-                                  <Show when={entry.resolvedAt}>
-                                    {(resolvedAt) => (
-                                      <span class="purchase-entry__summary">
-                                        {copy().purchaseSettledOnLabel}{' '}
-                                        {formatFriendlyDate(resolvedAt(), locale())}
-                                      </span>
+                              </button>
+                            </Show>
+
+                            <Show when={editingPurchase()?.id === entry.id && purchaseDraft()}>
+                              {(draft) => (
+                                <div class="purchase-inline-editor purchase-inline-editor--row">
+                                  <div class="purchase-inline-editor__copy">
+                                    <strong>{copy().editEntryAction}</strong>
+                                    <p>{copy().purchaseInlineEditorBody}</p>
+                                  </div>
+                                  <PurchaseDraftFields
+                                    draft={draft()}
+                                    setDraft={(updater) =>
+                                      setPurchaseDraft((current) =>
+                                        current ? updater(current) : current
+                                      )
+                                    }
+                                    splitModeOptions={splitModeOptions()}
+                                    memberOptions={memberOptions()}
+                                    copy={copy}
+                                    locale={locale}
+                                  />
+                                  <Show when={purchaseMutationError()}>
+                                    {(error) => (
+                                      <p class="purchase-split-editor__error" role="alert">
+                                        {error()}
+                                      </p>
                                     )}
                                   </Show>
-                                </div>
-                              </div>
-                              <div class="purchase-entry__amounts">
-                                <strong>
-                                  {formatMoneyLabel(
-                                    entry.displayAmountMajor,
-                                    entry.displayCurrency,
-                                    locale()
-                                  )}
-                                </strong>
-                                <Show when={ledgerSecondaryAmount(entry)}>
-                                  {(secondary) => <span>{secondary()}</span>}
-                                </Show>
-                              </div>
-                            </button>
-                          </Show>
-
-                          <Show when={editingPurchase()?.id === entry.id && purchaseDraft()}>
-                            {(draft) => (
-                              <div class="purchase-inline-editor purchase-inline-editor--row">
-                                <div class="purchase-inline-editor__copy">
-                                  <strong>{copy().editEntryAction}</strong>
-                                  <p>{copy().purchaseInlineEditorBody}</p>
-                                </div>
-                                <PurchaseDraftFields
-                                  draft={draft()}
-                                  setDraft={(updater) =>
-                                    setPurchaseDraft((current) =>
-                                      current ? updater(current) : current
-                                    )
-                                  }
-                                  splitModeOptions={splitModeOptions()}
-                                  memberOptions={memberOptions()}
-                                  copy={copy}
-                                  locale={locale}
-                                />
-                                <Show when={purchaseMutationError()}>
-                                  {(error) => (
-                                    <p class="purchase-split-editor__error" role="alert">
-                                      {error()}
-                                    </p>
-                                  )}
-                                </Show>
-                                <div class="purchase-inline-editor__actions">
-                                  <Button
-                                    variant="danger"
-                                    loading={deletingPurchase()}
-                                    onClick={() => void handleDeletePurchase()}
-                                  >
-                                    {deletingPurchase()
-                                      ? copy().deletingPurchase
-                                      : copy().purchaseDeleteAction}
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setEditingPurchase(null)
-                                      setPurchaseDraft(null)
-                                    }}
-                                  >
-                                    {copy().closeEditorAction}
-                                  </Button>
-                                  <Button
-                                    variant="primary"
-                                    loading={savingPurchase()}
-                                    disabled={
-                                      !draft().description.trim() || !draft().amountMajor.trim()
-                                    }
-                                    onClick={() => {
-                                      const currentDraft = draft()
-                                      if (
-                                        currentDraft.splitInputMode !== 'equal' &&
-                                        !validatePurchaseDraft(currentDraft).valid
-                                      ) {
-                                        const rebalanced = rebalancePurchaseSplit(
-                                          currentDraft,
-                                          null,
-                                          null
-                                        )
-                                        setPurchaseDraft(rebalanced)
-                                        if (validatePurchaseDraft(rebalanced).valid) {
+                                  <div class="purchase-inline-editor__actions">
+                                    <Button
+                                      variant="danger"
+                                      loading={deletingPurchase()}
+                                      onClick={() => void handleDeletePurchase()}
+                                    >
+                                      {deletingPurchase()
+                                        ? copy().deletingPurchase
+                                        : copy().purchaseDeleteAction}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      onClick={() => {
+                                        setEditingPurchase(null)
+                                        setPurchaseDraft(null)
+                                      }}
+                                    >
+                                      {copy().closeEditorAction}
+                                    </Button>
+                                    <Button
+                                      variant="primary"
+                                      loading={savingPurchase()}
+                                      disabled={
+                                        !draft().description.trim() || !draft().amountMajor.trim()
+                                      }
+                                      onClick={() => {
+                                        const currentDraft = draft()
+                                        if (
+                                          currentDraft.splitInputMode !== 'equal' &&
+                                          !validatePurchaseDraft(currentDraft).valid
+                                        ) {
+                                          const rebalanced = rebalancePurchaseSplit(
+                                            currentDraft,
+                                            null,
+                                            null
+                                          )
+                                          setPurchaseDraft(rebalanced)
+                                          if (validatePurchaseDraft(rebalanced).valid) {
+                                            void handleSavePurchase()
+                                          }
+                                        } else {
                                           void handleSavePurchase()
                                         }
-                                      } else {
-                                        void handleSavePurchase()
-                                      }
-                                    }}
-                                  >
-                                    {editPurchaseButtonText()}
-                                  </Button>
+                                      }}
+                                    >
+                                      {editPurchaseButtonText()}
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </Show>
-                        </article>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </Card>
+                              )}
+                            </Show>
+                          </article>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </details>
             </>
           )}
         </Match>

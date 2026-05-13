@@ -197,7 +197,12 @@ export function CurrentPeriodPanel(props: {
         <Show
           when={props.model.stage !== 'idle'}
           fallback={
-            <Button variant="primary" size="lg" onClick={props.onOpenPurchases}>
+            <Button
+              variant="secondary"
+              size="sm"
+              class="today-command__idle-link"
+              onClick={props.onOpenPurchases}
+            >
               <ExternalLink size={16} />
               {copy().todayOpenPurchases}
             </Button>
@@ -312,7 +317,6 @@ export function PurchaseStream(props: {
   unresolvedCount: number
   locale: Locale
   copy: Copy
-  onOpenPurchases: () => void
   onAddPurchase: () => void
 }) {
   const positions = createMemo(() =>
@@ -360,10 +364,7 @@ export function PurchaseStream(props: {
         </div>
 
         <div class="today-section__actions">
-          <Button variant="secondary" size="sm" onClick={props.onOpenPurchases}>
-            {props.copy().todayOpenPurchases}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={props.onAddPurchase}>
+          <Button variant="primary" size="sm" onClick={props.onAddPurchase}>
             <Plus size={15} />
             {props.copy().todayAddPurchase}
           </Button>

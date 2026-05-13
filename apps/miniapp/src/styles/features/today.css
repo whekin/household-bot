@@ -303,6 +303,13 @@
   flex: 1 1 auto;
 }
 
+.today-command__idle-link.ui-button {
+  justify-self: start;
+  width: auto;
+  min-height: 38px;
+  padding: 8px 16px;
+}
+
 .today-command__subactions {
   flex: 0 0 auto;
 }
@@ -400,6 +407,18 @@
 .today-section__actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.today-section--purchases .today-section__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.today-section--purchases .today-section__actions .ui-button {
+  width: auto;
+  max-width: 100%;
+  min-width: 148px;
+  justify-self: start;
 }
 
 .today-house-grid {
@@ -646,6 +665,14 @@
   .today-command__subactions .ui-button,
   .today-section__actions .ui-button {
     width: 100%;
+  }
+
+  .today-command__idle-link.ui-button {
+    width: auto;
+  }
+
+  .today-section--purchases .today-section__actions .ui-button {
+    width: auto;
   }
 
   .today-balance-chart__row {

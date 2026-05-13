@@ -327,18 +327,18 @@ export function buildTodayViewModel(input: {
   const totalMinor = majorStringToMinor(kindSummary?.totalDueMajor ?? '0.00')
   const remainingMinor = majorStringToMinor(kindSummary?.totalRemainingMajor ?? '0.00')
   const paidMinor = totalMinor - remainingMinor
-  const purchaseEntries = input.dashboard.ledger
-    .filter((entry) => entry.kind === 'purchase')
+  const allPurchaseEntries = input.dashboard.ledger.filter((entry) => entry.kind === 'purchase')
+  const purchaseEntries = allPurchaseEntries
+    .filter((entry) => entry.resolutionStatus !== 'resolved')
     .sort((left, right) => {
       const leftRank = left.resolutionStatus === 'unresolved' ? 0 : 1
       const rightRank = right.resolutionStatus === 'unresolved' ? 0 : 1
       if (leftRank !== rightRank) return leftRank - rightRank
       return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
     })
-  const purchaseTotalMinor = purchaseEntries.reduce(
-    (sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor),
-    0n
-  )
+  const purchaseTotalMinor = allPurchaseEntries
+    .filter((entry) => entry.isCurrentCyclePurchase === true)
+    .reduce((sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor), 0n)
   const currentMember = input.dashboard.members.find(
     (member) => member.memberId === input.currentMemberId
   )
@@ -430,8 +430,6 @@ export function buildTodayViewModel(input: {
       : '0.00',
     purchaseEntries,
     purchaseTotalMajor: minorToMajorString(purchaseTotalMinor),
-    unresolvedPurchaseCount: purchaseEntries.filter(
-      (entry) => entry.resolutionStatus === 'unresolved'
-    ).length
+    unresolvedPurchaseCount: purchaseEntries.length
   }
 }

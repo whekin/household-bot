@@ -277,7 +277,6 @@ export default function HomeRoute() {
               unresolvedCount={model()!.unresolvedPurchaseCount}
               locale={locale()}
               copy={copy}
-              onOpenPurchases={() => navigate('/purchases')}
               onAddPurchase={openPurchase}
             />
 

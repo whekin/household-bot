@@ -100,6 +100,9 @@ type DashboardContextValue = {
   effectiveIsAdmin: () => boolean
   currentMemberLine: () => MiniAppDashboard['members'][number] | null
   purchaseLedger: () => MiniAppDashboard['ledger'][number][]
+  currentCyclePurchaseLedger: () => MiniAppDashboard['ledger'][number][]
+  activePurchaseLedger: () => MiniAppDashboard['ledger'][number][]
+  resolvedPurchaseLedger: () => MiniAppDashboard['ledger'][number][]
   utilityLedger: () => MiniAppDashboard['ledger'][number][]
   paymentLedger: () => MiniAppDashboard['ledger'][number][]
   utilityTotalMajor: () => string
@@ -438,6 +441,15 @@ export function DashboardProvider(props: ParentProps) {
   const purchaseLedger = createMemo(() =>
     (dashboard()?.ledger ?? []).filter((e) => e.kind === 'purchase')
   )
+  const currentCyclePurchaseLedger = createMemo(() =>
+    purchaseLedger().filter((entry) => entry.isCurrentCyclePurchase === true)
+  )
+  const activePurchaseLedger = createMemo(() =>
+    purchaseLedger().filter((entry) => entry.resolutionStatus !== 'resolved')
+  )
+  const resolvedPurchaseLedger = createMemo(() =>
+    purchaseLedger().filter((entry) => entry.resolutionStatus === 'resolved')
+  )
   const utilityLedger = createMemo(() =>
     (dashboard()?.ledger ?? []).filter((e) => e.kind === 'utility')
   )
@@ -452,14 +464,21 @@ export function DashboardProvider(props: ParentProps) {
   )
   const purchaseTotalMajor = createMemo(() =>
     minorToMajorString(
-      purchaseLedger().reduce((sum, e) => sum + majorStringToMinor(e.displayAmountMajor), 0n)
+      currentCyclePurchaseLedger().reduce(
+        (sum, e) => sum + majorStringToMinor(e.displayAmountMajor),
+        0n
+      )
     )
   )
 
   const memberBalanceVisuals = createMemo(() => computeMemberBalanceVisuals(dashboard(), copy))
 
   const purchaseInvestmentChart = createMemo(() =>
-    computePurchaseInvestmentChart(dashboard(), purchaseLedger(), copy().ledgerActorFallback)
+    computePurchaseInvestmentChart(
+      dashboard(),
+      currentCyclePurchaseLedger(),
+      copy().ledgerActorFallback
+    )
   )
 
   const memberPurchaseBalanceVisuals = createMemo(() =>
@@ -644,6 +663,9 @@ export function DashboardProvider(props: ParentProps) {
         effectiveIsAdmin,
         currentMemberLine,
         purchaseLedger,
+        currentCyclePurchaseLedger,
+        activePurchaseLedger,
+        resolvedPurchaseLedger,
         utilityLedger,
         paymentLedger,
         utilityTotalMajor,

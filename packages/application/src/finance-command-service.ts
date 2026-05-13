@@ -212,6 +212,7 @@ export interface FinanceDashboardLedgerEntry {
   }[]
   payerMemberId?: string
   originPeriod?: string | null
+  isCurrentCyclePurchase?: boolean
   resolutionStatus?: 'unresolved' | 'resolved'
   resolvedAt?: string | null
   outstandingByMember?: readonly {
@@ -2618,6 +2619,7 @@ async function buildFinanceDashboard(
         paymentKind: null,
         purchaseSplitMode: purchase.splitMode ?? 'equal',
         originPeriod: purchaseOriginPeriod(purchase),
+        isCurrentCyclePurchase: currentCyclePurchaseIds.has(purchase.id),
         resolutionStatus: outstandingByMemberId.size === 0 ? 'resolved' : 'unresolved',
         resolvedAt,
         outstandingByMember: [...outstandingByMemberId.entries()].map(([memberId, amount]) => ({
