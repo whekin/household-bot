@@ -1,6 +1,6 @@
 import { Show, For, Index, createEffect, createMemo, createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
-import { ArrowLeft, Globe, Plus, User } from 'lucide-solid'
+import { ArrowLeft, Globe, Plus, Receipt, User } from 'lucide-solid'
 import { useLocation, useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
@@ -617,6 +617,17 @@ export default function SettingsRoute() {
                 ? 'Профиль'
                 : 'Profile'}
           </span>
+          <Show when={effectiveIsAdmin() && adminSettings()}>
+            <Button
+              variant="primary"
+              size="sm"
+              class="settings-command__primary-action"
+              onClick={openBillingEditor}
+            >
+              <Receipt size={15} />
+              {copy().manageBillingAction}
+            </Button>
+          </Show>
         </div>
 
         <div class="settings-command__title">
@@ -659,7 +670,7 @@ export default function SettingsRoute() {
         </div>
 
         <div class="settings-profile-grid">
-          <div class="settings-profile-chip">
+          <div class="settings-profile-chip settings-profile-chip--language">
             <div class="settings-detail-row__icon">
               <User size={16} />
             </div>
@@ -849,11 +860,15 @@ export default function SettingsRoute() {
                       when={sortedCategories().length > 0}
                       fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
                     >
-                      <div class="settings-inline-summary">
-                        <span>{copy().utilityCategoriesTitle}</span>
-                        <strong>{sortedCategories().length}</strong>
-                        <span>{copy().onLabel}</span>
-                        <strong>{activeUtilityCategories().length}</strong>
+                      <div class="settings-inline-summary-list">
+                        <div class="settings-inline-summary-item">
+                          <span>{copy().utilityCategoriesTitle}</span>
+                          <strong>{sortedCategories().length}</strong>
+                        </div>
+                        <div class="settings-inline-summary-item">
+                          <span>{copy().onLabel}</span>
+                          <strong>{activeUtilityCategories().length}</strong>
+                        </div>
                       </div>
                       <div class="settings-compact-group">
                         <span class="settings-compact-group__label">{copy().onLabel}</span>
@@ -1141,7 +1156,7 @@ export default function SettingsRoute() {
             <div class="settings-sheet-section__header">
               <strong>{copy().homeRentTitle}</strong>
             </div>
-            <div class="settings-form-grid settings-form-grid--compact">
+            <div class="settings-form-grid settings-form-grid--compact settings-form-grid--billing">
               <Field label={copy().defaultRentAmount}>
                 <Input
                   type="number"
@@ -1588,11 +1603,15 @@ export default function SettingsRoute() {
                   when={sortedCategories().length > 0}
                   fallback={<p class="empty-state">{copy().utilityCategoriesBody}</p>}
                 >
-                  <div class="settings-inline-summary settings-inline-summary--utilities">
-                    <span>{copy().utilityCategoriesTitle}</span>
-                    <strong>{sortedCategories().length}</strong>
-                    <span>{copy().onLabel}</span>
-                    <strong>{activeUtilityCategories().length}</strong>
+                  <div class="settings-inline-summary-list settings-inline-summary-list--utilities">
+                    <div class="settings-inline-summary-item">
+                      <span>{copy().utilityCategoriesTitle}</span>
+                      <strong>{sortedCategories().length}</strong>
+                    </div>
+                    <div class="settings-inline-summary-item">
+                      <span>{copy().onLabel}</span>
+                      <strong>{activeUtilityCategories().length}</strong>
+                    </div>
                   </div>
                   <div class="settings-manager-stack">
                     <Show when={activeUtilityCategories().length > 0}>

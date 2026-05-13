@@ -100,6 +100,7 @@
 .today-stage-rail {
   display: flex;
   gap: 10px;
+  min-width: 0;
 }
 
 .today-stage-rail > div {
@@ -296,7 +297,6 @@
 
 .today-command__actions {
   align-items: stretch;
-  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .today-command__actions > .ui-button {
@@ -660,30 +660,56 @@
 
 @media (max-width: 520px) {
   .today-command {
-    border-radius: 32px;
+    gap: 16px;
+    padding: 18px;
+    border-radius: 24px;
   }
 
   .today-stage-rail {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .today-stage-rail > div {
-    min-width: calc(50% - 5px);
+    min-width: 0;
+    gap: 4px;
   }
 
   .today-stage-rail > div > strong,
   .today-stage-rail > div > em {
-    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .today-stage-rail > div > strong {
+    font-size: 0.68rem;
+  }
+
+  .today-stage-rail > div > em {
+    font-size: 0.64rem;
   }
 
   .today-command__meta,
-  .today-command__subactions,
   .today-section__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-command__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .today-command__subactions {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
 
   .today-admin-ribbon {
     grid-template-columns: minmax(0, 1fr);
+    padding: 14px 16px;
   }
 
   .today-admin-ribbon strong {

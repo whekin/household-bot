@@ -112,7 +112,12 @@ export function AppShell(props: ParentProps) {
               </button>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/purchases')}>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="topbar__purchases-shortcut"
+            onClick={() => navigate('/purchases')}
+          >
             {copy().homeIdleViewPurchasesAction}
           </Button>
         </div>

@@ -217,12 +217,14 @@ export function CurrentPeriodPanel(props: {
           </Button>
         </Show>
 
-        <div class="today-command__subactions">
-          <Button variant="secondary" onClick={props.onOpenPurchases}>
-            <ExternalLink size={15} />
-            {copy().todayOpenPurchases}
-          </Button>
-        </div>
+        <Show when={props.model.stage !== 'idle'}>
+          <div class="today-command__subactions">
+            <Button variant="secondary" onClick={props.onOpenPurchases}>
+              <ExternalLink size={15} />
+              {copy().todayOpenPurchases}
+            </Button>
+          </div>
+        </Show>
       </div>
     </section>
   )
