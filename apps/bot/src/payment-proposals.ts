@@ -5,7 +5,11 @@ import {
   type MemberPaymentGuidance
 } from '@household/application'
 import { Money } from '@household/domain'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import type {
+  FinanceMemberRecord,
+  FinancePaymentKind,
+  HouseholdConfigurationRepository
+} from '@household/ports'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 
@@ -28,12 +32,19 @@ const BALANCE_QUESTION_KEYWORDS = [
   /баланс/i,
   /остат/i
 ]
+const CYRILLIC_NAME_ALIASES: ReadonlyMap<string, readonly string[]> = new Map([
+  ['alisa', ['алиса', 'алису']],
+  ['alice', ['алиса', 'алису']],
+  ['dima', ['дима', 'диму']],
+  ['stas', ['стас']]
+])
 
 export interface PaymentProposalPayload {
   proposalId: string
   householdId: string
   memberId: string
   kind: 'rent' | 'utilities'
+  period?: string
   amountMinor: string
   currency: 'GEL' | 'USD'
   reporterTelegramUserId?: string
@@ -50,6 +61,24 @@ export interface PaymentProposalBreakdown {
 export interface PaymentBalanceReply {
   kind: 'rent' | 'utilities'
   guidance: MemberPaymentGuidance
+}
+
+export interface MultiMemberPaymentProposalMember {
+  memberId: string
+  telegramUserId: string
+  displayName: string
+  paymentStatus: 'paid' | 'unpaid'
+  amountMinor: string
+  currency: 'GEL' | 'USD'
+  selected: boolean
+}
+
+export interface MultiMemberPaymentProposal {
+  proposalId: string
+  householdId: string
+  kind: FinancePaymentKind
+  period: string
+  members: readonly MultiMemberPaymentProposalMember[]
 }
 
 export function parsePaymentProposalPayload(
@@ -75,6 +104,7 @@ export function parsePaymentProposalPayload(
     householdId: payload.householdId,
     memberId: payload.memberId,
     kind: payload.kind,
+    ...(typeof payload.period === 'string' ? { period: payload.period } : {}),
     amountMinor: payload.amountMinor,
     currency: payload.currency,
     ...(typeof payload.reporterTelegramUserId === 'string'
@@ -127,6 +157,171 @@ function detectBalanceQuestionKind(rawText: string): 'rent' | 'utilities' | null
 
 function looksLikeReceiptPaidCaption(rawText: string): boolean {
   return /(?:^|[^\p{L}])оплачен[аоы]?(?=$|[^\p{L}])/iu.test(rawText)
+}
+
+function normalizeNameToken(value: string): string {
+  return value
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+}
+
+function memberAliases(member: FinanceMemberRecord): readonly string[] {
+  const normalized = normalizeNameToken(member.displayName)
+  if (!normalized) {
+    return []
+  }
+
+  const first = normalized.split(' ')[0] ?? normalized
+  const aliases = new Set([normalized, first])
+  for (const value of [normalized, first]) {
+    for (const alias of CYRILLIC_NAME_ALIASES.get(value) ?? []) {
+      aliases.add(alias)
+    }
+    if (/[а-я]$/u.test(value)) {
+      if (value.endsWith('а')) aliases.add(`${value.slice(0, -1)}у`)
+      if (value.endsWith('я')) aliases.add(`${value.slice(0, -1)}ю`)
+    }
+  }
+
+  return [...aliases].filter((alias) => alias.length > 1)
+}
+
+function textHasToken(normalizedText: string, token: string): boolean {
+  return new RegExp(`(?:^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`, 'iu').test(
+    normalizedText
+  )
+}
+
+function resolveMentionedMembers(input: {
+  rawText: string
+  members: readonly FinanceMemberRecord[]
+  senderMemberId: string
+}): readonly FinanceMemberRecord[] | null {
+  const normalized = normalizeNameToken(input.rawText)
+  const matched = new Map<string, FinanceMemberRecord>()
+  const ambiguousAliases = new Set<string>()
+  const selfPattern = /(?:^|\s)(себя|сам|сама|меня|me|myself)(?:\s|$)/iu
+
+  if (selfPattern.test(normalized)) {
+    const sender = input.members.find((member) => member.id === input.senderMemberId)
+    if (sender) {
+      matched.set(sender.id, sender)
+    }
+  }
+
+  const aliasOwners = new Map<string, FinanceMemberRecord[]>()
+  for (const member of input.members) {
+    for (const alias of memberAliases(member)) {
+      aliasOwners.set(alias, [...(aliasOwners.get(alias) ?? []), member])
+    }
+  }
+
+  for (const [alias, owners] of aliasOwners.entries()) {
+    if (!textHasToken(normalized, alias)) {
+      continue
+    }
+    if (owners.length !== 1) {
+      ambiguousAliases.add(alias)
+      continue
+    }
+    matched.set(owners[0]!.id, owners[0]!)
+  }
+
+  if (ambiguousAliases.size > 0 || matched.size < 2) {
+    return null
+  }
+
+  return [...matched.values()]
+}
+
+function hasPerPersonAmount(rawText: string): boolean {
+  return /(?:^|[^\p{L}])(?:по|each|per\s+person)(?=$|[^\p{L}])/iu.test(rawText)
+}
+
+function shortProposalId(): string {
+  return crypto.randomUUID().replaceAll('-', '').slice(0, 16)
+}
+
+function inferActivePaymentKind(input: {
+  dashboard: Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
+  memberIds: readonly string[]
+  settings: Parameters<typeof buildMemberPaymentGuidance>[0]['settings']
+}): FinancePaymentKind | null {
+  const dashboard = input.dashboard
+  if (!dashboard) {
+    return null
+  }
+
+  const memberIds = new Set(input.memberIds)
+  const currentPeriod = dashboard.paymentPeriods?.find(
+    (period) => period.isCurrentPeriod || period.period === dashboard.period
+  )
+  const unresolvedKinds =
+    currentPeriod?.kinds
+      .filter(
+        (kindSummary) =>
+          kindSummary.totalRemaining.amountMinor > 0n &&
+          kindSummary.unresolvedMembers.some((member) => memberIds.has(member.memberId))
+      )
+      .map((kindSummary) => kindSummary.kind) ?? []
+
+  if (unresolvedKinds.length === 1) {
+    return unresolvedKinds[0]!
+  }
+
+  if (dashboard.billingStage === 'rent' || dashboard.billingStage === 'utilities') {
+    return dashboard.billingStage
+  }
+
+  const payableKinds: FinancePaymentKind[] = []
+  for (const kind of ['rent', 'utilities'] as const) {
+    const hasPayableMember = dashboard.members
+      .filter((member) => memberIds.has(member.memberId))
+      .some(
+        (memberLine) =>
+          buildMemberPaymentGuidance({
+            kind,
+            period: dashboard.period,
+            memberLine,
+            settings: input.settings
+          }).proposalAmount.amountMinor > 0n
+      )
+    if (hasPayableMember) {
+      payableKinds.push(kind)
+    }
+  }
+
+  return payableKinds.length === 1 ? payableKinds[0]! : null
+}
+
+function findPaymentPeriodKindSummary(input: {
+  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  period: string
+  kind: FinancePaymentKind
+}) {
+  const periodSummary = input.dashboard.paymentPeriods?.find(
+    (period) => period.period === input.period
+  )
+
+  return periodSummary?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
+}
+
+function isMemberUnpaidForKind(input: {
+  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  period: string
+  kind: FinancePaymentKind
+  memberId: string
+  fallbackAmount: Money
+}): boolean {
+  const kindSummary = findPaymentPeriodKindSummary(input)
+  if (kindSummary) {
+    return kindSummary.unresolvedMembers.some((member) => member.memberId === input.memberId)
+  }
+
+  return input.fallbackAmount.amountMinor > 0n
 }
 
 function inferSinglePayableKind(input: {
@@ -338,6 +533,10 @@ export async function maybeCreatePaymentProposal(input: {
       kind: 'rent' | 'utilities'
     }
   | {
+      status: 'multi_member_proposal'
+      proposal: MultiMemberPaymentProposal
+    }
+  | {
       status: 'proposal'
       payload: PaymentProposalPayload
       breakdown: PaymentProposalBreakdown
@@ -365,6 +564,98 @@ export async function maybeCreatePaymentProposal(input: {
   if (!memberLine) {
     return {
       status: 'clarification'
+    }
+  }
+
+  const members = await input.financeService.listMembers()
+  const mentionedMembers = resolveMentionedMembers({
+    rawText: input.rawText,
+    members,
+    senderMemberId: input.memberId
+  })
+
+  if (mentionedMembers) {
+    if (parsed.explicitAmount && !hasPerPersonAmount(parsed.normalizedText)) {
+      return {
+        status: 'clarification'
+      }
+    }
+
+    const inferredKind = parsed.kind
+      ? parsed.kind
+      : inferActivePaymentKind({
+          dashboard,
+          memberIds: mentionedMembers.map((member) => member.id),
+          settings
+        })
+
+    if (!inferredKind) {
+      return {
+        status: 'clarification'
+      }
+    }
+
+    if (parsed.explicitAmount && parsed.explicitAmount.currency !== dashboard.currency) {
+      return {
+        status: 'unsupported_currency'
+      }
+    }
+
+    const proposalMembers = mentionedMembers
+      .map((member): MultiMemberPaymentProposalMember | null => {
+        const line = dashboard.members.find((candidate) => candidate.memberId === member.id)
+        if (!line) {
+          return null
+        }
+        const guidance = buildMemberPaymentGuidance({
+          kind: inferredKind,
+          period: dashboard.period,
+          memberLine: line,
+          settings
+        })
+        const amount = parsed.explicitAmount ?? guidance.proposalAmount
+        const unpaid = isMemberUnpaidForKind({
+          dashboard,
+          period: dashboard.period,
+          kind: inferredKind,
+          memberId: member.id,
+          fallbackAmount: guidance.proposalAmount
+        })
+
+        return {
+          memberId: member.id,
+          telegramUserId: member.telegramUserId,
+          displayName: member.displayName,
+          paymentStatus: unpaid ? 'unpaid' : 'paid',
+          amountMinor: unpaid ? amount.amountMinor.toString() : '0',
+          currency: unpaid ? amount.currency : dashboard.currency,
+          selected: unpaid
+        }
+      })
+      .filter((member): member is MultiMemberPaymentProposalMember => member !== null)
+
+    if (proposalMembers.length < 2) {
+      return {
+        status: 'clarification'
+      }
+    }
+
+    if (!proposalMembers.some((member) => member.paymentStatus === 'unpaid')) {
+      return {
+        status: 'already_settled',
+        kind: inferredKind
+      }
+    }
+
+    return {
+      status: 'multi_member_proposal',
+      proposal: {
+        proposalId: shortProposalId(),
+        householdId: input.householdId,
+        kind: inferredKind,
+        period: dashboard.period,
+        members: proposalMembers
+      }
     }
   }
 
@@ -404,6 +695,20 @@ export async function maybeCreatePaymentProposal(input: {
     memberLine,
     settings
   })
+  if (
+    !isMemberUnpaidForKind({
+      dashboard,
+      period: dashboard.period,
+      kind,
+      memberId: input.memberId,
+      fallbackAmount: guidance.proposalAmount
+    })
+  ) {
+    return {
+      status: 'already_settled',
+      kind
+    }
+  }
   const amount = parsed.explicitAmount ?? guidance.proposalAmount
 
   if (amount.amountMinor <= 0n) {
@@ -420,6 +725,7 @@ export async function maybeCreatePaymentProposal(input: {
       householdId: input.householdId,
       memberId: input.memberId,
       kind,
+      period: dashboard.period,
       amountMinor: amount.amountMinor.toString(),
       currency: amount.currency
     },

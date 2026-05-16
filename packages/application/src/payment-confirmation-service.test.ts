@@ -177,6 +177,76 @@ describe('createPaymentConfirmationService', () => {
       amount: Money.fromMajor('473.00', 'GEL')
     })
     expect(repository.saved[0]?.status).toBe('recorded')
+    expect(repository.saved[0]?.sourceKey).toBe('10')
+  })
+
+  test('persists explicit source keys for multi-member proposal records', async () => {
+    const repository = createRepositoryStub()
+    const service = createPaymentConfirmationService({
+      householdId: 'household-1',
+      financeService: {
+        getMemberByTelegramUserId: async () => null,
+        generateDashboard: async () => ({
+          period: '2026-03',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentWarningDay: 17,
+          rentDueDay: 20,
+          utilitiesReminderDay: 3,
+          preferredUtilityPayerMemberId: null,
+          utilitiesDueDay: 4,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentPaymentDestinations: null,
+          totalDue: Money.fromMajor('945', 'GEL'),
+          totalPaid: Money.zero('GEL'),
+          totalRemaining: Money.fromMajor('945', 'GEL'),
+          billingStage: 'rent',
+          rentSourceAmount: Money.fromMajor('700', 'USD'),
+          rentDisplayAmount: Money.fromMajor('1890', 'GEL'),
+          rentFxRateMicros: 2_700_000n,
+          rentFxEffectiveDate: '2026-03-17',
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-03-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
+          members: [
+            {
+              memberId: 'member-2',
+              displayName: 'Dima',
+              rentShare: Money.fromMajor('472.50', 'GEL'),
+              utilityShare: Money.zero('GEL'),
+              purchaseOffset: Money.zero('GEL'),
+              netDue: Money.fromMajor('472.50', 'GEL'),
+              paid: Money.zero('GEL'),
+              remaining: Money.fromMajor('472.50', 'GEL'),
+              overduePayments: [],
+              explanations: []
+            }
+          ],
+          ledger: []
+        })
+      },
+      repository,
+      householdConfigurationRepository: settingsRepository,
+      exchangeRateProvider
+    })
+
+    await service.submit({
+      senderTelegramUserId: '123',
+      memberId: 'member-2',
+      sourceKey: '10:proposal-1:member-2',
+      rawText: 'paid rent 472.50 GEL',
+      telegramChatId: '-1001',
+      telegramMessageId: '10',
+      telegramThreadId: '4',
+      telegramUpdateId: '200',
+      attachmentCount: 0,
+      messageSentAt: instantFromIso('2026-03-20T09:00:00.000Z')
+    })
+
+    expect(repository.saved[0]?.sourceKey).toBe('10:proposal-1:member-2')
   })
 
   test('converts explicit rent amounts into cycle currency', async () => {

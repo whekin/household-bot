@@ -402,7 +402,23 @@ export const enBotTranslations: BotTranslationCatalog = {
     timingDueNow: (kind, dueDate) =>
       `${kind === 'rent' ? 'Rent' : 'Utilities'} are due now. Due date: ${dueDate}.`,
     confirmButton: 'Confirm payment',
+    confirmSelectedButton: 'Confirm selected',
     cancelButton: 'Cancel',
+    multiProposal: (kind, period) =>
+      `I can record ${kind === 'rent' ? 'rent' : 'utilities'} payments for ${period}:`,
+    multiMemberLine: (displayName, paymentStatus, selected) =>
+      paymentStatus === 'paid'
+        ? `✓ ${displayName} — already paid`
+        : `${selected ? '✅' : '⬜'} ${displayName} — unpaid`,
+    multiRecorded: (kind, names) =>
+      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payments for ${names}.`,
+    multiAlreadyPaid: (kind, names) =>
+      `Already marked ${kind === 'rent' ? 'rent' : 'utilities'} as paid for ${names}.`,
+    multiPartiallyRecorded: (kind, recordedNames, failedNames) =>
+      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payments for ${recordedNames}. Could not record: ${failedNames}.`,
+    fullyPaid: (kind, period) =>
+      `${kind === 'rent' ? 'Rent' : 'Utilities'} for ${period} is fully paid.`,
+    noMembersSelected: 'Select at least one person first.',
     recorded: (kind, amount, currency) =>
       `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}`,
     recordedReported: (displayName, kind, amount, currency) =>
@@ -411,6 +427,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     proposalUnavailable: 'This payment proposal is no longer available.',
     notYourProposal:
       'Only the original sender or the named payer can confirm or cancel this payment.',
+    multiNotYourProposal: 'Only the original sender can manage this payment proposal.',
     savedForReview: 'Saved this payment confirmation for review.',
     duplicate: 'This payment confirmation was already processed.'
   }

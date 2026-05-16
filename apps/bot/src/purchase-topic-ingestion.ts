@@ -5,7 +5,7 @@ import {
   nowInstant,
   type Instant
 } from '@household/domain'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type { HouseholdAuditNotificationService } from '@household/application'
@@ -1245,7 +1245,11 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       }
     }
 
-    if (existing.processingStatus !== 'pending_confirmation') {
+    const canMutateFromStatus =
+      existing.processingStatus === 'pending_confirmation' ||
+      (targetStatus === 'cancelled' && existing.processingStatus === 'clarification_needed')
+
+    if (!canMutateFromStatus) {
       return {
         status: 'not_pending',
         householdId: existing.householdId
@@ -1265,7 +1269,12 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       .where(
         and(
           eq(schema.purchaseMessages.id, purchaseMessageId),
-          eq(schema.purchaseMessages.processingStatus, 'pending_confirmation')
+          targetStatus === 'cancelled'
+            ? inArray(schema.purchaseMessages.processingStatus, [
+                'pending_confirmation',
+                'clarification_needed'
+              ])
+            : eq(schema.purchaseMessages.processingStatus, 'pending_confirmation')
         )
       )
       .returning({
@@ -2337,7 +2346,9 @@ async function handlePurchaseMessageResult(
           result.payerCandidates &&
           result.payerCandidates.length > 0
         ? purchaseClarificationReplyMarkup(locale, result.purchaseMessageId, result.payerCandidates)
-        : undefined,
+        : result.status === 'clarification_needed'
+          ? purchaseCancelOnlyReplyMarkup(locale, result.purchaseMessageId)
+          : undefined,
     historyRepository
       ? {
           repository: historyRepository,
@@ -2350,6 +2361,21 @@ async function handlePurchaseMessageResult(
 function emptyInlineKeyboard() {
   return {
     inline_keyboard: []
+  }
+}
+
+function purchaseCancelOnlyReplyMarkup(locale: BotLocale, purchaseMessageId: string) {
+  const t = getBotTranslations(locale).purchase
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: t.cancelButton,
+          callback_data: `${PURCHASE_CANCEL_CALLBACK_PREFIX}${purchaseMessageId}`
+        }
+      ]
+    ]
   }
 }
 
@@ -2702,7 +2728,7 @@ function registerPurchaseProposalCallbacks(
 
     if (ctx.msg) {
       await ctx.editMessageText(t.calculatedFixAmountPrompt, {
-        reply_markup: emptyInlineKeyboard()
+        reply_markup: purchaseCancelOnlyReplyMarkup(locale, purchaseMessageId)
       })
     }
 

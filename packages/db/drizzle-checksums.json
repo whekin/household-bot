@@ -36,6 +36,7 @@
     "0032_stable_utility_plan_identity.sql": "4f913bedab7e6a2dec76cc823b137ac854374c69db57918aa442ed934e5c6c08",
     "0033_member_balance_ledger.sql": "7b2c53eb6cf08f0eac0eb6e181491353a1035ba218c1d0991f06787631e51a2c",
     "0034_household_audit_notifications.sql": "41081b4f5cf20ce4c3c3243fa4c25a1c9ca65ed18dac4958ec3d3e7e6e3c4b3f",
-    "0035_purchase_topic_messages.sql": "0a25fd8e62bc4eb4bd6e81f6b2cf1f5fb4bd1a0ba61f898b5afe27a1c4e7ccc7"
+    "0035_purchase_topic_messages.sql": "0a25fd8e62bc4eb4bd6e81f6b2cf1f5fb4bd1a0ba61f898b5afe27a1c4e7ccc7",
+    "0036_payment_confirmation_source_key.sql": "51a941f9625bfca7d2dce4bcb4c10f2ec71eed84760055e338364886a6104236"
   }
 }

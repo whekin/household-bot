@@ -1983,6 +1983,7 @@ export function createDbFinanceRepository(
             status: input.status,
             reviewReason: input.status === 'needs_review' ? input.reviewReason : null,
             attachmentCount: input.attachmentCount,
+            sourceKey: input.sourceKey?.trim() || input.telegramMessageId,
             telegramChatId: input.telegramChatId,
             telegramMessageId: input.telegramMessageId,
             telegramThreadId: input.telegramThreadId,
@@ -1993,7 +1994,7 @@ export function createDbFinanceRepository(
             target: [
               schema.paymentConfirmations.householdId,
               schema.paymentConfirmations.telegramChatId,
-              schema.paymentConfirmations.telegramMessageId
+              schema.paymentConfirmations.sourceKey
             ]
           })
           .returning({

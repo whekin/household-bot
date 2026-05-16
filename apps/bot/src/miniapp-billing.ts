@@ -1397,6 +1397,7 @@ export function createMiniAppSubmitPaymentHandler(options: {
             metadata: {
               paymentId: payment.paymentId,
               memberId: auth.member.id,
+              memberDisplayName: auth.member.displayName,
               kind: payload.kind,
               amountMinor: payment.amount.amountMinor.toString(),
               currency: payment.currency,
@@ -1973,6 +1974,8 @@ export function createMiniAppAddPaymentHandler(options: {
           },
           'Mini app payment record requested'
         )
+        const members = await service.listMembers()
+        const targetMember = members.find((member) => member.id === payload.memberId)
         const payment = await service.addPayment(
           payload.memberId,
           payload.kind,
@@ -1995,6 +1998,7 @@ export function createMiniAppAddPaymentHandler(options: {
           metadata: {
             paymentId: payment.paymentId,
             memberId: payload.memberId,
+            memberDisplayName: targetMember?.displayName ?? payload.memberId,
             kind: payload.kind,
             amountMinor: payment.amount.amountMinor.toString(),
             currency: payment.currency,
@@ -2139,6 +2143,7 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
             kind: result.kind,
             closedMembers: result.closedMembers.map((member) => ({
               memberId: member.memberId,
+              displayName: member.displayName,
               amountMinor: member.amount.amountMinor.toString(),
               currency: member.amount.currency
             })),

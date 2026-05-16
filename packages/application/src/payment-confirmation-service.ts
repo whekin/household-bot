@@ -104,7 +104,9 @@ async function convertIntoCycleCurrency(
 export interface PaymentConfirmationMessageInput {
   senderTelegramUserId: string
   memberId?: string | null
+  sourceKey?: string | null
   rawText: string
+  parseText?: string | null
   telegramChatId: string
   telegramMessageId: string
   telegramThreadId: string
@@ -161,6 +163,7 @@ export function createPaymentConfirmationService(input: {
 }): PaymentConfirmationService {
   return {
     async submit(message) {
+      const sourceKey = message.sourceKey?.trim() || message.telegramMessageId
       const reporter = message.memberId
         ? null
         : await input.financeService.getMemberByTelegramUserId(message.senderTelegramUserId)
@@ -169,6 +172,7 @@ export function createPaymentConfirmationService(input: {
       if (!targetMemberId) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
+          sourceKey,
           normalizedText: message.rawText.trim().replaceAll(/\s+/g, ' '),
           status: 'needs_review',
           cycleId: null,
@@ -199,6 +203,7 @@ export function createPaymentConfirmationService(input: {
       if (!cycle) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
+          sourceKey,
           normalizedText: message.rawText.trim().replaceAll(/\s+/g, ' '),
           status: 'needs_review',
           cycleId: null,
@@ -219,11 +224,13 @@ export function createPaymentConfirmationService(input: {
             }
       }
 
-      const parsed = parsePaymentConfirmationMessage(message.rawText, settings.settlementCurrency)
+      const parsingText = message.parseText?.trim() ? message.parseText : message.rawText
+      const parsed = parsePaymentConfirmationMessage(parsingText, settings.settlementCurrency)
 
       if (!parsed.kind || parsed.reviewReason) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
+          sourceKey,
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
@@ -248,6 +255,7 @@ export function createPaymentConfirmationService(input: {
       if (!dashboard) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
+          sourceKey,
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
@@ -272,6 +280,7 @@ export function createPaymentConfirmationService(input: {
       if (!memberLine) {
         const saveResult = await input.repository.savePaymentConfirmation({
           ...message,
+          sourceKey,
           normalizedText: parsed.normalizedText,
           status: 'needs_review',
           cycleId: cycle.id,
@@ -333,6 +342,7 @@ export function createPaymentConfirmationService(input: {
 
       const saveResult = await input.repository.savePaymentConfirmation({
         ...message,
+        sourceKey,
         normalizedText: parsed.normalizedText,
         status: 'recorded',
         cycleId: cycle.id,

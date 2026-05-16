@@ -303,6 +303,7 @@ async function seed(): Promise<void> {
     attachmentCount: 1,
     telegramChatId: '-1003000000001',
     telegramMessageId: '601',
+    sourceKey: '601',
     telegramThreadId: '1004',
     telegramUpdateId: '9001'
   })

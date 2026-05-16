@@ -357,10 +357,27 @@ export interface BotTranslationCatalog {
     ) => string
     timingDueNow: (kind: 'rent' | 'utilities', dueDate: string) => string
     confirmButton: string
+    confirmSelectedButton: string
     cancelButton: string
+    multiProposal: (kind: 'rent' | 'utilities', period: string) => string
+    multiMemberLine: (
+      displayName: string,
+      paymentStatus: 'paid' | 'unpaid',
+      selected: boolean
+    ) => string
+    multiRecorded: (kind: 'rent' | 'utilities', names: string) => string
+    multiAlreadyPaid: (kind: 'rent' | 'utilities', names: string) => string
+    multiPartiallyRecorded: (
+      kind: 'rent' | 'utilities',
+      recordedNames: string,
+      failedNames: string
+    ) => string
+    fullyPaid: (kind: 'rent' | 'utilities', period: string) => string
+    noMembersSelected: string
     cancelled: string
     proposalUnavailable: string
     notYourProposal: string
+    multiNotYourProposal: string
     savedForReview: string
     duplicate: string
   }

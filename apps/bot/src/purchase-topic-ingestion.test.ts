@@ -3529,7 +3529,14 @@ Participants:
       payload: {
         text: 'Reply with the corrected total and currency in this topic, and I will re-check the purchase.',
         reply_markup: {
-          inline_keyboard: []
+          inline_keyboard: [
+            [
+              {
+                text: 'Cancel',
+                callback_data: 'purchase:cancel:proposal-1'
+              }
+            ]
+          ]
         }
       }
     })

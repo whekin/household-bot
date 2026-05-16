@@ -235,6 +235,7 @@ export interface FinancePaymentConfirmationMessage {
   senderTelegramUserId: string
   rawText: string
   normalizedText: string
+  sourceKey?: string
   telegramChatId: string
   telegramMessageId: string
   telegramThreadId: string

@@ -406,7 +406,23 @@ export const ruBotTranslations: BotTranslationCatalog = {
     timingDueNow: (kind, dueDate) =>
       `${kind === 'rent' ? 'Аренду' : 'Коммуналку'} уже пора оплачивать. Срок оплаты: ${dueDate}.`,
     confirmButton: 'Подтвердить оплату',
+    confirmSelectedButton: 'Подтвердить выбранных',
     cancelButton: 'Отменить',
+    multiProposal: (kind, period) =>
+      `Я могу записать оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'} за ${period}:`,
+    multiMemberLine: (displayName, paymentStatus, selected) =>
+      paymentStatus === 'paid'
+        ? `✓ ${displayName} — уже оплачено`
+        : `${selected ? '✅' : '⬜'} ${displayName} — не оплачено`,
+    multiRecorded: (kind, names) =>
+      `Записал оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'} для: ${names}.`,
+    multiAlreadyPaid: (kind, names) =>
+      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже оплачена для: ${names}.`,
+    multiPartiallyRecorded: (kind, recordedNames, failedNames) =>
+      `Записал оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'} для: ${recordedNames}. Не удалось записать: ${failedNames}.`,
+    fullyPaid: (kind, period) =>
+      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${period} полностью закрыта.`,
+    noMembersSelected: 'Сначала выберите хотя бы одного человека.',
     recorded: (kind, amount, currency) =>
       `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
     recordedReported: (displayName, kind, amount, currency) =>
@@ -415,6 +431,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     proposalUnavailable: 'Это предложение оплаты уже недоступно.',
     notYourProposal:
       'Подтвердить или отменить эту оплату может только отправитель сообщения или указанный плательщик.',
+    multiNotYourProposal: 'Управлять этим предложением оплаты может только отправитель сообщения.',
     savedForReview: 'Это подтверждение оплаты сохранено на проверку.',
     duplicate: 'Это подтверждение оплаты уже было обработано.'
   }

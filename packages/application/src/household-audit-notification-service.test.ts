@@ -228,6 +228,58 @@ describe('renderAuditNotification', () => {
     expect(rendered.details?.expandedText).toContain('Участники: Стас 20.00 ₾')
     expect(rendered.details?.expandedText).toContain('Исключены: Дима')
   })
+
+  test('localizes closed payment periods with month labels and member details', () => {
+    const rendered = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Стас',
+      eventType: 'payment_period.closed',
+      fallbackSummaryText: 'Stas closed rent for 2026-05',
+      metadata: {
+        period: '2026-05',
+        kind: 'rent',
+        closedMembers: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            amountMinor: '46900',
+            currency: 'GEL'
+          },
+          {
+            memberId: 'member-2',
+            displayName: 'Дима',
+            amountMinor: '46900',
+            currency: 'GEL'
+          }
+        ]
+      }
+    })
+
+    expect(rendered.compactText).toBe('Стас закрыл аренду за май 2026 г.')
+    expect(rendered.compactText).not.toContain('2026-05')
+    expect(rendered.details?.expandedText).toContain('Период: май 2026 г.')
+    expect(rendered.details?.expandedText).toContain('Закрыто для: Стас 469.00 ₾, Дима 469.00 ₾')
+  })
+
+  test('renders recorded payment target member details', () => {
+    const rendered = renderAuditNotification({
+      locale: 'en',
+      actorDisplayName: 'Stas',
+      eventType: 'payment.recorded',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        kind: 'rent',
+        memberDisplayName: 'Dima',
+        amountMinor: '46900',
+        currency: 'GEL',
+        period: '2026-05'
+      }
+    })
+
+    expect(rendered.compactText).toBe('Stas recorded payment: rent 469.00 ₾ (May 2026)')
+    expect(rendered.details?.expandedText).toContain('Member: Dima')
+    expect(rendered.details?.expandedText).toContain('Period: May 2026')
+  })
 })
 
 describe('createHouseholdAuditNotificationService', () => {

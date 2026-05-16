@@ -63,6 +63,29 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+function formatPeriodLabel(locale: SupportedLocale, value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const match = /^(\d{4})-(\d{2})$/.exec(value)
+  if (!match) {
+    return value
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
 function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | null {
   const value = metadata[key]
   return typeof value === 'boolean' ? value : null
@@ -115,6 +138,14 @@ function localizedKind(locale: SupportedLocale, value: string | null): string | 
   return value
 }
 
+function localizedClosedPaymentKind(locale: SupportedLocale, value: string | null): string | null {
+  if (locale === 'ru') {
+    if (value === 'rent') return 'аренду'
+    if (value === 'utilities') return 'коммуналку'
+  }
+  return localizedKind(locale, value)
+}
+
 function actionText(locale: SupportedLocale, eventType: string): string | null {
   const en: Record<string, string> = {
     'cycle.opened': 'opened period',
@@ -130,6 +161,7 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.recorded': 'recorded payment:',
     'payment.updated': 'updated payment:',
     'payment.deleted': 'deleted payment',
+    'payment_period.closed': 'closed',
     'utility_plan.resolved': 'resolved utility plan for',
     'utility_plan.settled': 'marked utility plan settled for',
     'utility_vendor_payment.recorded': 'recorded utility bill payment'
@@ -148,6 +180,7 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.recorded': 'записал платёж:',
     'payment.updated': 'обновил платёж:',
     'payment.deleted': 'удалил платёж',
+    'payment_period.closed': 'закрыл',
     'utility_plan.resolved': 'отметил коммунальный план за',
     'utility_plan.settled': 'закрыл коммунальный план за',
     'utility_vendor_payment.recorded': 'записал оплату коммуналки'
@@ -208,6 +241,45 @@ function splitModeLabel(locale: SupportedLocale, splitMode: string | null): stri
   return splitMode
 }
 
+function paymentMemberDetails(
+  metadata: Record<string, unknown>,
+  key: 'closedMembers' | 'skippedMembers'
+): Array<{
+  displayName: string
+  amountText: string | null
+  reason: string | null
+}> {
+  const raw = metadata[key]
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null
+      }
+      const record = entry as Record<string, unknown>
+      const memberId = typeof record.memberId === 'string' ? record.memberId : null
+      const displayName =
+        typeof record.displayName === 'string' && record.displayName.trim().length > 0
+          ? record.displayName.trim()
+          : memberId
+            ? `#${memberId}`
+            : null
+      if (!displayName) {
+        return null
+      }
+
+      return {
+        displayName,
+        amountText: formatMoneyFromMetadata(record),
+        reason: typeof record.reason === 'string' ? record.reason : null
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+}
+
 function buildExpandedText(input: {
   locale: SupportedLocale
   compactText: string
@@ -216,7 +288,7 @@ function buildExpandedText(input: {
   const lines: string[] = [input.compactText]
   let hasMeaningfulDetail = false
   const amountText = formatMoneyFromMetadata(input.metadata)
-  const period = metadataString(input.metadata, 'period')
+  const period = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
   const payer = metadataString(input.metadata, 'payerDisplayName')
   const member = metadataString(input.metadata, 'memberDisplayName')
   const kind = localizedKind(input.locale, metadataString(input.metadata, 'kind'))
@@ -224,6 +296,8 @@ function buildExpandedText(input: {
   const participants = participantDetails(input.metadata)
   const included = participants.filter((participant) => participant.included)
   const excluded = participants.filter((participant) => !participant.included)
+  const closedMembers = paymentMemberDetails(input.metadata, 'closedMembers')
+  const skippedMembers = paymentMemberDetails(input.metadata, 'skippedMembers')
 
   if (amountText) {
     lines.push(`${input.locale === 'ru' ? 'Сумма' : 'Amount'}: ${amountText}`)
@@ -231,6 +305,7 @@ function buildExpandedText(input: {
   }
   if (period) {
     lines.push(`${input.locale === 'ru' ? 'Период' : 'Period'}: ${period}`)
+    hasMeaningfulDetail = true
   }
   if (kind) {
     lines.push(`${input.locale === 'ru' ? 'Тип' : 'Kind'}: ${kind}`)
@@ -272,6 +347,26 @@ function buildExpandedText(input: {
     lines.push(input.locale === 'ru' ? 'Для всех участников' : 'For all members')
     hasMeaningfulDetail = true
   }
+  if (closedMembers.length > 0) {
+    lines.push(
+      `${input.locale === 'ru' ? 'Закрыто для' : 'Closed for'}: ${closedMembers
+        .map((member) =>
+          member.amountText ? `${member.displayName} ${member.amountText}` : member.displayName
+        )
+        .join(', ')}`
+    )
+    hasMeaningfulDetail = true
+  }
+  if (skippedMembers.length > 0) {
+    lines.push(
+      `${input.locale === 'ru' ? 'Пропущены' : 'Skipped'}: ${skippedMembers
+        .map((member) =>
+          member.reason ? `${member.displayName} (${member.reason})` : member.displayName
+        )
+        .join(', ')}`
+    )
+    hasMeaningfulDetail = true
+  }
 
   return hasMeaningfulDetail ? lines.join('\n') : null
 }
@@ -296,31 +391,44 @@ export function renderAuditNotification(input: {
         ? 'общая покупка'
         : 'shared purchase'
       : null)
-  const period = metadataString(input.metadata, 'period')
+  const period = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
   const amount = formatMoneyFromMetadata(input.metadata)
-  const kind = localizedKind(input.locale, metadataString(input.metadata, 'kind'))
+  const kind =
+    input.eventType === 'payment_period.closed'
+      ? localizedClosedPaymentKind(input.locale, metadataString(input.metadata, 'kind'))
+      : localizedKind(input.locale, metadataString(input.metadata, 'kind'))
 
-  const compactText = action
-    ? cleanSummaryText(
-        [
-          actor,
-          action,
-          description,
-          input.eventType.startsWith('payment.') ? kind : null,
-          amount,
-          input.eventType === 'utility_plan.resolved' ||
-          input.eventType === 'utility_plan.settled' ||
-          input.eventType === 'cycle.opened' ||
-          input.eventType === 'cycle.closed'
-            ? period
-            : period
-              ? `(${period})`
-              : null
-        ]
-          .filter((part): part is string => Boolean(part))
-          .join(' ')
-      )
-    : cleanSummaryText(input.fallbackSummaryText)
+  const compactText =
+    action && input.eventType === 'payment_period.closed'
+      ? cleanSummaryText(
+          [actor, action, kind, period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null]
+            .filter((part): part is string => Boolean(part))
+            .join(' ')
+        )
+      : action
+        ? cleanSummaryText(
+            [
+              actor,
+              action,
+              description,
+              input.eventType.startsWith('payment.') || input.eventType === 'payment_period.closed'
+                ? kind
+                : null,
+              amount,
+              input.eventType === 'utility_plan.resolved' ||
+              input.eventType === 'utility_plan.settled' ||
+              input.eventType === 'cycle.opened' ||
+              input.eventType === 'cycle.closed' ||
+              input.eventType === 'payment_period.closed'
+                ? period
+                : period
+                  ? `(${period})`
+                  : null
+            ]
+              .filter((part): part is string => Boolean(part))
+              .join(' ')
+          )
+        : cleanSummaryText(input.fallbackSummaryText)
   const expandedText = buildExpandedText({
     locale: input.locale,
     compactText,

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import { instantFromDatabaseValue, instantToDate, nowInstant, Temporal } from '@household/domain'
@@ -152,6 +152,57 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
             and(
               eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
               eq(schema.telegramPendingActions.telegramUserId, telegramUserId)
+            )
+          )
+
+        return null
+      }
+
+      return {
+        telegramUserId: row.telegramUserId,
+        telegramChatId: row.telegramChatId,
+        action: parsePendingActionType(row.action),
+        payload:
+          row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+            ? (row.payload as Record<string, unknown>)
+            : {},
+        expiresAt
+      }
+    },
+
+    async findPendingActionByPayloadValue(telegramChatId, action, key, value) {
+      const now = nowInstant()
+      const rows = await db
+        .select({
+          telegramUserId: schema.telegramPendingActions.telegramUserId,
+          telegramChatId: schema.telegramPendingActions.telegramChatId,
+          action: schema.telegramPendingActions.action,
+          payload: schema.telegramPendingActions.payload,
+          expiresAt: schema.telegramPendingActions.expiresAt
+        })
+        .from(schema.telegramPendingActions)
+        .where(
+          and(
+            eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
+            eq(schema.telegramPendingActions.action, action),
+            sql`${schema.telegramPendingActions.payload}->>${key} = ${value}`
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      const expiresAt = instantFromDatabaseValue(row.expiresAt)
+      if (expiresAt && Temporal.Instant.compare(expiresAt, now) <= 0) {
+        await db
+          .delete(schema.telegramPendingActions)
+          .where(
+            and(
+              eq(schema.telegramPendingActions.telegramChatId, row.telegramChatId),
+              eq(schema.telegramPendingActions.telegramUserId, row.telegramUserId)
             )
           )
 

@@ -685,6 +685,7 @@ export const paymentConfirmations = pgTable(
     status: text('status').notNull(),
     reviewReason: text('review_reason'),
     attachmentCount: integer('attachment_count').default(0).notNull(),
+    sourceKey: text('source_key').notNull(),
     telegramChatId: text('telegram_chat_id').notNull(),
     telegramMessageId: text('telegram_message_id').notNull(),
     telegramThreadId: text('telegram_thread_id').notNull(),
@@ -693,12 +694,12 @@ export const paymentConfirmations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
-    householdMessageUnique: uniqueIndex('payment_confirmations_household_tg_message_unique').on(
+    householdSourceKeyUnique: uniqueIndex('payment_confirmations_household_source_key_unique').on(
       table.householdId,
       table.telegramChatId,
-      table.telegramMessageId
+      table.sourceKey
     ),
-    householdUpdateUnique: uniqueIndex('payment_confirmations_household_tg_update_unique').on(
+    householdUpdateIdx: index('payment_confirmations_household_tg_update_idx').on(
       table.householdId,
       table.telegramUpdateId
     ),

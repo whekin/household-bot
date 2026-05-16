@@ -1,8 +1,10 @@
 import {
+  buildMemberPaymentGuidance,
   parsePaymentConfirmationMessage,
   type FinanceCommandService,
   type HouseholdAuditNotificationService,
-  type PaymentConfirmationService
+  type PaymentConfirmationService,
+  type PaymentConfirmationSubmitResult
 } from '@household/application'
 import { instantFromEpochSeconds, Money, nowInstant, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
@@ -21,6 +23,7 @@ import { conversationMemoryKey } from './assistant-state'
 import {
   formatPaymentBalanceReplyText,
   formatPaymentProposalText,
+  type MultiMemberPaymentProposal,
   maybeCreatePaymentBalanceReply,
   maybeCreatePaymentProposal,
   parsePaymentProposalPayload,
@@ -37,6 +40,10 @@ import { stripExplicitBotMention } from './telegram-mentions'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
+const PAYMENT_TOPIC_MULTI_CONFIRM_CALLBACK_PREFIX = 'pt:mc:'
+const PAYMENT_TOPIC_MULTI_TOGGLE_CALLBACK_PREFIX = 'pt:mt:'
+const PAYMENT_TOPIC_MULTI_CANCEL_CALLBACK_PREFIX = 'pt:cancel:'
+const PAYMENT_TOPIC_CLARIFICATION_CANCEL_CALLBACK_PREFIX = 'pt:cc:'
 const PAYMENT_TOPIC_CLARIFICATION_ACTION = 'payment_topic_clarification' as const
 const PAYMENT_TOPIC_CONFIRMATION_ACTION = 'payment_topic_confirmation' as const
 const PAYMENT_TOPIC_ACTION_TTL_MS = 30 * 60_000
@@ -57,6 +64,7 @@ export interface PaymentTopicRecord extends PaymentTopicCandidate {
 }
 
 interface PaymentTopicClarificationPayload {
+  householdId?: string
   threadId: string
   rawText: string
 }
@@ -66,6 +74,7 @@ interface PaymentTopicConfirmationPayload {
   householdId: string
   memberId: string
   kind: 'rent' | 'utilities'
+  period?: string
   amountMinor: string
   currency: 'GEL' | 'USD'
   rawText: string
@@ -79,6 +88,29 @@ interface PaymentTopicConfirmationPayload {
   telegramUpdateId: string
   attachmentCount: number
   messageSentAt: Instant | null
+}
+
+interface PaymentTopicMultiConfirmationPayload {
+  proposalId: string
+  householdId: string
+  kind: 'rent' | 'utilities'
+  period: string
+  ownerTelegramUserId: string
+  rawText: string
+  telegramChatId: string
+  telegramMessageId: string
+  telegramThreadId: string
+  telegramUpdateId: string
+  attachmentCount: number
+  members: Array<{
+    memberId: string
+    telegramUserId: string
+    displayName: string
+    paymentStatus: 'paid' | 'unpaid'
+    amountMinor: string
+    currency: 'GEL' | 'USD'
+    selected: boolean
+  }>
 }
 
 function readMessageText(ctx: Context): string | null {
@@ -279,6 +311,25 @@ function buildWrongTopicPurchaseReply(locale: BotLocale): string {
   return getBotTranslations(locale).payments.purchaseRedirect
 }
 
+function formatPeriodLabel(locale: BotLocale, period: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  if (!match) {
+    return period
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return period
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
 function hasClearPaymentTopicIntent(rawText: string, defaultCurrency: 'GEL' | 'USD'): boolean {
   const parsed = parsePaymentConfirmationMessage(rawText, defaultCurrency)
   return parsed.kind !== null || parsed.reviewReason === 'kind_ambiguous'
@@ -338,16 +389,22 @@ async function replyWithTopicPaymentProposal(input: {
       telegramChatId: input.record.chatId,
       action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
       payload: {
+        householdId: input.record.householdId,
         threadId: input.record.threadId,
         rawText: input.combinedText
       },
       expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
     })
 
-    await replyToPaymentMessage(input.ctx, t.clarification, undefined, {
-      repository: input.historyRepository,
-      record: input.record
-    })
+    await replyToPaymentMessage(
+      input.ctx,
+      t.clarification,
+      clarificationCancelReplyMarkup(input.locale, input.record.senderTelegramUserId),
+      {
+        repository: input.historyRepository,
+        record: input.record
+      }
+    )
     appendConversation(input.memoryStore, input.record, input.record.rawText, t.clarification)
     return true
   }
@@ -373,6 +430,34 @@ async function replyWithTopicPaymentProposal(input: {
       record: input.record
     })
     appendConversation(input.memoryStore, input.record, input.record.rawText, alreadySettledText)
+    return true
+  }
+
+  if (proposal.status === 'multi_member_proposal') {
+    const payload = buildMultiConfirmationPayload(
+      input.record,
+      input.combinedText,
+      proposal.proposal
+    )
+    await input.promptRepository.upsertPendingAction({
+      telegramUserId: input.record.senderTelegramUserId,
+      telegramChatId: input.record.chatId,
+      action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+      payload: { ...payload },
+      expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+    })
+
+    const proposalText = formatMultiPaymentProposalText(input.locale, payload)
+    await replyToPaymentMessage(
+      input.ctx,
+      proposalText,
+      multiPaymentProposalReplyMarkup(input.locale, payload),
+      {
+        repository: input.historyRepository,
+        record: input.record
+      }
+    )
+    appendConversation(input.memoryStore, input.record, input.record.rawText, proposalText)
     return true
   }
 
@@ -477,6 +562,98 @@ function parsePaymentTopicConfirmationPayload(
   }
 }
 
+function parsePaymentTopicMultiConfirmationPayload(
+  payload: Record<string, unknown>
+): PaymentTopicMultiConfirmationPayload | null {
+  if (
+    typeof payload.proposalId !== 'string' ||
+    typeof payload.householdId !== 'string' ||
+    (payload.kind !== 'rent' && payload.kind !== 'utilities') ||
+    typeof payload.period !== 'string' ||
+    typeof payload.ownerTelegramUserId !== 'string' ||
+    typeof payload.rawText !== 'string' ||
+    typeof payload.telegramChatId !== 'string' ||
+    typeof payload.telegramMessageId !== 'string' ||
+    typeof payload.telegramThreadId !== 'string' ||
+    typeof payload.telegramUpdateId !== 'string' ||
+    typeof payload.attachmentCount !== 'number' ||
+    !Array.isArray(payload.members)
+  ) {
+    return null
+  }
+
+  const members = payload.members
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null
+      }
+      const record = entry as Record<string, unknown>
+      if (
+        typeof record.memberId !== 'string' ||
+        typeof record.telegramUserId !== 'string' ||
+        typeof record.displayName !== 'string' ||
+        (record.paymentStatus !== 'paid' && record.paymentStatus !== 'unpaid') ||
+        typeof record.amountMinor !== 'string' ||
+        (record.currency !== 'GEL' && record.currency !== 'USD') ||
+        typeof record.selected !== 'boolean'
+      ) {
+        return null
+      }
+      return {
+        memberId: record.memberId,
+        telegramUserId: record.telegramUserId,
+        displayName: record.displayName,
+        paymentStatus: record.paymentStatus,
+        amountMinor: record.amountMinor,
+        currency: record.currency,
+        selected: record.selected
+      }
+    })
+    .filter(
+      (entry): entry is PaymentTopicMultiConfirmationPayload['members'][number] => entry !== null
+    )
+
+  if (members.length === 0) {
+    return null
+  }
+
+  return {
+    proposalId: payload.proposalId,
+    householdId: payload.householdId,
+    kind: payload.kind,
+    period: payload.period,
+    ownerTelegramUserId: payload.ownerTelegramUserId,
+    rawText: payload.rawText,
+    telegramChatId: payload.telegramChatId,
+    telegramMessageId: payload.telegramMessageId,
+    telegramThreadId: payload.telegramThreadId,
+    telegramUpdateId: payload.telegramUpdateId,
+    attachmentCount: payload.attachmentCount,
+    members
+  }
+}
+
+function buildMultiConfirmationPayload(
+  record: PaymentTopicRecord,
+  rawText: string,
+  proposal: MultiMemberPaymentProposal
+): PaymentTopicMultiConfirmationPayload {
+  return {
+    proposalId: proposal.proposalId,
+    householdId: proposal.householdId,
+    kind: proposal.kind,
+    period: proposal.period,
+    ownerTelegramUserId: record.senderTelegramUserId,
+    rawText,
+    telegramChatId: record.chatId,
+    telegramMessageId: record.messageId,
+    telegramThreadId: record.threadId,
+    telegramUpdateId: String(record.updateId),
+    attachmentCount: record.attachmentCount,
+    members: proposal.members.map((member) => ({ ...member }))
+  }
+}
+
 function actorCanManagePaymentProposal(
   actorTelegramUserId: string,
   payload: PaymentTopicConfirmationPayload
@@ -547,6 +724,100 @@ function formatRecordedPaymentText(
     : t.recorded(payload.kind, amount.toMajorString(), amount.currency)
 }
 
+function formatMultiPaymentProposalText(
+  locale: BotLocale,
+  payload: PaymentTopicMultiConfirmationPayload
+): string {
+  const t = getBotTranslations(locale).payments
+  const lines = [
+    t.multiProposal(payload.kind, formatPeriodLabel(locale, payload.period)),
+    ...payload.members.map((member) =>
+      t.multiMemberLine(member.displayName, member.paymentStatus, member.selected)
+    )
+  ]
+
+  return lines.join('\n')
+}
+
+function formatMultiRecordedText(
+  locale: BotLocale,
+  payload: PaymentTopicMultiConfirmationPayload,
+  fullyPaid: boolean,
+  handledMemberIds?: ReadonlySet<string>,
+  alreadyPaidMemberIds?: ReadonlySet<string>
+): string {
+  const t = getBotTranslations(locale).payments
+  if (fullyPaid) {
+    return t.fullyPaid(payload.kind, formatPeriodLabel(locale, payload.period))
+  }
+
+  const recordedNames = payload.members
+    .filter((member) => member.selected && handledMemberIds?.has(member.memberId) !== false)
+    .map((member) => member.displayName)
+    .join(', ')
+  const alreadyPaidNames =
+    alreadyPaidMemberIds && alreadyPaidMemberIds.size > 0
+      ? payload.members
+          .filter((member) => alreadyPaidMemberIds.has(member.memberId))
+          .map((member) => member.displayName)
+          .join(', ')
+      : ''
+  const lines = [
+    recordedNames ? t.multiRecorded(payload.kind, recordedNames) : null,
+    alreadyPaidNames ? t.multiAlreadyPaid(payload.kind, alreadyPaidNames) : null
+  ].filter((line): line is string => Boolean(line))
+
+  return lines.length > 0
+    ? lines.join('\n')
+    : t.multiAlreadyPaid(
+        payload.kind,
+        payload.members
+          .filter((member) => member.selected || member.paymentStatus === 'paid')
+          .map((member) => member.displayName)
+          .join(', ')
+      )
+}
+
+function formatMultiPartialRecordedText(
+  locale: BotLocale,
+  payload: PaymentTopicMultiConfirmationPayload,
+  recordedMemberIds: ReadonlySet<string>,
+  alreadyPaidMemberIds: ReadonlySet<string> = new Set()
+): string {
+  const t = getBotTranslations(locale).payments
+  const selectedMembers = payload.members.filter((member) => member.selected)
+  const recordedNames = selectedMembers
+    .filter((member) => recordedMemberIds.has(member.memberId))
+    .map((member) => member.displayName)
+    .join(', ')
+  const alreadyPaidNames = selectedMembers
+    .filter((member) => alreadyPaidMemberIds.has(member.memberId))
+    .map((member) => member.displayName)
+    .join(', ')
+  const failedNames = selectedMembers
+    .filter(
+      (member) =>
+        !recordedMemberIds.has(member.memberId) && !alreadyPaidMemberIds.has(member.memberId)
+    )
+    .map((member) => member.displayName)
+    .join(', ')
+
+  const lines = [
+    t.multiPartiallyRecorded(payload.kind, recordedNames || 'none', failedNames || 'none'),
+    alreadyPaidNames ? t.multiAlreadyPaid(payload.kind, alreadyPaidNames) : null
+  ].filter((line): line is string => Boolean(line))
+
+  return lines.join('\n')
+}
+
+function isHandledPaymentSubmitResult(result: PaymentConfirmationSubmitResult): boolean {
+  return (
+    result.status === 'recorded' ||
+    result.status === 'duplicate' ||
+    result.status === 'already_settled'
+  )
+}
+
 function isLikelyUtilityTemplate(rawText: string): boolean {
   const lines = rawText
     .split('\n')
@@ -581,6 +852,138 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
       ]
     ]
   }
+}
+
+function multiPaymentProposalReplyMarkup(
+  locale: BotLocale,
+  payload: PaymentTopicMultiConfirmationPayload
+) {
+  const t = getBotTranslations(locale).payments
+
+  return {
+    inline_keyboard: [
+      ...payload.members
+        .filter((member) => member.paymentStatus === 'unpaid')
+        .map((member) => [
+          {
+            text: member.selected ? `✅ ${member.displayName}` : `⬜ ${member.displayName}`,
+            callback_data: `${PAYMENT_TOPIC_MULTI_TOGGLE_CALLBACK_PREFIX}${payload.proposalId}:${member.memberId}`
+          }
+        ]),
+      [
+        {
+          text: t.confirmSelectedButton,
+          callback_data: `${PAYMENT_TOPIC_MULTI_CONFIRM_CALLBACK_PREFIX}${payload.proposalId}`
+        },
+        {
+          text: t.cancelButton,
+          callback_data: `${PAYMENT_TOPIC_MULTI_CANCEL_CALLBACK_PREFIX}${payload.proposalId}`
+        }
+      ]
+    ]
+  }
+}
+
+async function getMultiPaymentPendingAction(input: {
+  promptRepository: TelegramPendingActionRepository
+  telegramChatId: string
+  actorTelegramUserId: string
+  proposalId: string
+}): Promise<PaymentTopicMultiConfirmationPayload | null> {
+  const actorPending = await input.promptRepository.getPendingAction(
+    input.telegramChatId,
+    input.actorTelegramUserId
+  )
+  const actorPayload =
+    actorPending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
+      ? parsePaymentTopicMultiConfirmationPayload(actorPending.payload)
+      : null
+  if (actorPayload?.proposalId === input.proposalId) {
+    return actorPayload
+  }
+
+  const proposalPending = await input.promptRepository.findPendingActionByPayloadValue?.(
+    input.telegramChatId,
+    PAYMENT_TOPIC_CONFIRMATION_ACTION,
+    'proposalId',
+    input.proposalId
+  )
+
+  return proposalPending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
+    ? parsePaymentTopicMultiConfirmationPayload(proposalPending.payload)
+    : null
+}
+
+function clarificationCancelReplyMarkup(locale: BotLocale, ownerTelegramUserId: string) {
+  const t = getBotTranslations(locale).payments
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: t.cancelButton,
+          callback_data: `${PAYMENT_TOPIC_CLARIFICATION_CANCEL_CALLBACK_PREFIX}${ownerTelegramUserId}`
+        }
+      ]
+    ]
+  }
+}
+
+async function isPaymentKindFullyPaid(input: {
+  financeService: FinanceCommandService
+  kind: 'rent' | 'utilities'
+  period: string
+}): Promise<boolean> {
+  const dashboard = await input.financeService.generateDashboard(input.period)
+  const period = dashboard?.paymentPeriods?.find((candidate) => candidate.period === input.period)
+  const kindSummary = period?.kinds.find((candidate) => candidate.kind === input.kind)
+  return Boolean(kindSummary && kindSummary.totalRemaining.amountMinor <= 0n)
+}
+
+async function resolveCurrentPayableMultiMemberAmounts(input: {
+  financeService: FinanceCommandService
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  householdId: string
+  kind: 'rent' | 'utilities'
+  period: string
+  members: readonly PaymentTopicMultiConfirmationPayload['members'][number][]
+}): Promise<Map<string, Money>> {
+  const [dashboard, settings] = await Promise.all([
+    input.financeService.generateDashboard(input.period),
+    input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId)
+  ])
+  const amounts = new Map<string, Money>()
+  if (!dashboard) {
+    return amounts
+  }
+  const kindSummary =
+    dashboard.paymentPeriods
+      ?.find((period) => period.period === input.period)
+      ?.kinds.find((candidate) => candidate.kind === input.kind) ?? null
+  const unresolvedMemberIds = new Set(
+    kindSummary?.unresolvedMembers.map((member) => member.memberId) ?? []
+  )
+
+  for (const member of input.members) {
+    if (kindSummary && !unresolvedMemberIds.has(member.memberId)) {
+      continue
+    }
+    const memberLine = dashboard.members.find((line) => line.memberId === member.memberId)
+    if (!memberLine) {
+      continue
+    }
+    const guidance = buildMemberPaymentGuidance({
+      kind: input.kind,
+      period: input.period,
+      memberLine,
+      settings
+    })
+    if (guidance.proposalAmount.amountMinor > 0n) {
+      amounts.set(member.memberId, guidance.proposalAmount)
+    }
+  }
+
+  return amounts
 }
 
 async function replyToPaymentMessage(
@@ -640,6 +1043,317 @@ export function registerConfiguredPaymentTopicIngestion(
   } = {}
 ): void {
   bot.callbackQuery(
+    new RegExp(`^${PAYMENT_TOPIC_CLARIFICATION_CANCEL_CALLBACK_PREFIX}([^:]+)$`),
+    async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      const ownerTelegramUserId = ctx.match[1]
+      if (!actorTelegramUserId || !ownerTelegramUserId) {
+        return
+      }
+
+      const pending = await promptRepository.getPendingAction(
+        ctx.chat.id.toString(),
+        actorTelegramUserId
+      )
+      const payload =
+        pending?.action === PAYMENT_TOPIC_CLARIFICATION_ACTION
+          ? (pending.payload as unknown as PaymentTopicClarificationPayload)
+          : null
+      const locale =
+        typeof payload?.householdId === 'string'
+          ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+          : await resolveTopicLocale(ctx, householdConfigurationRepository)
+      const t = getBotTranslations(locale).payments
+
+      if (actorTelegramUserId !== ownerTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: t.multiNotYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      await promptRepository.clearPendingAction(ctx.chat.id.toString(), actorTelegramUserId)
+      await ctx.answerCallbackQuery({
+        text: t.cancelled
+      })
+
+      if (ctx.msg) {
+        await ctx.editMessageText(t.cancelled, {
+          reply_markup: {
+            inline_keyboard: []
+          }
+        })
+      }
+    }
+  )
+
+  bot.callbackQuery(
+    new RegExp(`^${PAYMENT_TOPIC_MULTI_TOGGLE_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
+    async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      const proposalId = ctx.match[1]
+      const memberId = ctx.match[2]
+
+      if (!actorTelegramUserId || !proposalId || !memberId) {
+        return
+      }
+
+      const payload = await getMultiPaymentPendingAction({
+        promptRepository,
+        telegramChatId: ctx.chat.id.toString(),
+        actorTelegramUserId,
+        proposalId
+      })
+      const locale = payload
+        ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+        : await resolveTopicLocale(ctx, householdConfigurationRepository)
+      const t = getBotTranslations(locale).payments
+
+      if (payload && actorTelegramUserId !== payload.ownerTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: t.multiNotYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      const memberIndex = payload?.members.findIndex((member) => member.memberId === memberId) ?? -1
+      if (!payload || payload.proposalId !== proposalId || memberIndex < 0) {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+      if (payload.members[memberIndex]?.paymentStatus === 'paid') {
+        await ctx.answerCallbackQuery({
+          text: t.alreadySettled(payload.kind, payload.members[memberIndex]?.displayName),
+          show_alert: true
+        })
+        return
+      }
+
+      const nextPayload: PaymentTopicMultiConfirmationPayload = {
+        ...payload,
+        members: payload.members.map((member, index) =>
+          index === memberIndex ? { ...member, selected: !member.selected } : member
+        )
+      }
+
+      await promptRepository.upsertPendingAction({
+        telegramUserId: actorTelegramUserId,
+        telegramChatId: payload.telegramChatId,
+        action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+        payload: { ...nextPayload },
+        expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+      })
+
+      await ctx.answerCallbackQuery()
+      if (ctx.msg) {
+        await ctx.editMessageText(formatMultiPaymentProposalText(locale, nextPayload), {
+          reply_markup: multiPaymentProposalReplyMarkup(locale, nextPayload)
+        })
+      }
+    }
+  )
+
+  bot.callbackQuery(
+    new RegExp(`^${PAYMENT_TOPIC_MULTI_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
+    async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      const proposalId = ctx.match[1]
+
+      if (!actorTelegramUserId || !proposalId) {
+        return
+      }
+
+      const payload = await getMultiPaymentPendingAction({
+        promptRepository,
+        telegramChatId: ctx.chat.id.toString(),
+        actorTelegramUserId,
+        proposalId
+      })
+      const locale = payload
+        ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+        : await resolveTopicLocale(ctx, householdConfigurationRepository)
+      const t = getBotTranslations(locale).payments
+
+      if (payload && actorTelegramUserId !== payload.ownerTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: t.multiNotYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      if (!payload || payload.proposalId !== proposalId) {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      const selectedMembers = payload.members.filter(
+        (member) => member.selected && member.paymentStatus === 'unpaid'
+      )
+      if (selectedMembers.length === 0) {
+        await ctx.answerCallbackQuery({
+          text: t.noMembersSelected,
+          show_alert: true
+        })
+        return
+      }
+
+      const paymentService = paymentServiceForHousehold(payload.householdId)
+      const financeService = financeServiceForHousehold(payload.householdId)
+      const payableAmounts = await resolveCurrentPayableMultiMemberAmounts({
+        financeService,
+        householdConfigurationRepository,
+        householdId: payload.householdId,
+        kind: payload.kind,
+        period: payload.period,
+        members: selectedMembers
+      })
+      const handledMemberIds = new Set<string>()
+      const alreadyPaidMemberIds = new Set(
+        payload.members
+          .filter((member) => member.paymentStatus === 'paid')
+          .map((member) => member.memberId)
+      )
+      const alreadyPaidSelectedMemberIds = new Set<string>()
+      for (const member of selectedMembers) {
+        const currentAmount = payableAmounts.get(member.memberId)
+        if (!currentAmount) {
+          alreadyPaidMemberIds.add(member.memberId)
+          alreadyPaidSelectedMemberIds.add(member.memberId)
+          continue
+        }
+
+        const result = await paymentService.submit({
+          senderTelegramUserId: payload.ownerTelegramUserId,
+          memberId: member.memberId,
+          sourceKey: `${payload.telegramMessageId}:${payload.proposalId}:${member.memberId}`,
+          rawText: payload.rawText,
+          parseText: `paid ${payload.kind} ${currentAmount.toMajorString()} ${currentAmount.currency}`,
+          telegramChatId: payload.telegramChatId,
+          telegramMessageId: payload.telegramMessageId,
+          telegramThreadId: payload.telegramThreadId,
+          telegramUpdateId: payload.telegramUpdateId,
+          attachmentCount: payload.attachmentCount,
+          messageSentAt: null
+        })
+        if (result.status === 'already_settled') {
+          alreadyPaidMemberIds.add(member.memberId)
+          alreadyPaidSelectedMemberIds.add(member.memberId)
+        } else if (isHandledPaymentSubmitResult(result)) {
+          handledMemberIds.add(member.memberId)
+        }
+      }
+
+      await promptRepository.clearPendingAction(payload.telegramChatId, actorTelegramUserId)
+      const fullyHandled =
+        handledMemberIds.size + alreadyPaidSelectedMemberIds.size === selectedMembers.length
+      const fullyPaid = fullyHandled
+        ? await isPaymentKindFullyPaid({
+            financeService,
+            kind: payload.kind,
+            period: payload.period
+          })
+        : false
+      const recordedText = fullyHandled
+        ? formatMultiRecordedText(
+            locale,
+            payload,
+            fullyPaid,
+            handledMemberIds,
+            alreadyPaidMemberIds
+          )
+        : formatMultiPartialRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
+
+      await ctx.answerCallbackQuery({
+        text: recordedText
+      })
+      if (ctx.msg) {
+        await ctx.editMessageText(recordedText, {
+          reply_markup: {
+            inline_keyboard: []
+          }
+        })
+      }
+    }
+  )
+
+  bot.callbackQuery(
+    new RegExp(`^${PAYMENT_TOPIC_MULTI_CANCEL_CALLBACK_PREFIX}([^:]+)$`),
+    async (ctx) => {
+      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+        return
+      }
+
+      const actorTelegramUserId = ctx.from?.id?.toString()
+      const proposalId = ctx.match[1]
+
+      if (!actorTelegramUserId || !proposalId) {
+        return
+      }
+
+      const payload = await getMultiPaymentPendingAction({
+        promptRepository,
+        telegramChatId: ctx.chat.id.toString(),
+        actorTelegramUserId,
+        proposalId
+      })
+      const locale = payload
+        ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+        : await resolveTopicLocale(ctx, householdConfigurationRepository)
+      const t = getBotTranslations(locale).payments
+
+      if (payload && actorTelegramUserId !== payload.ownerTelegramUserId) {
+        await ctx.answerCallbackQuery({
+          text: t.multiNotYourProposal,
+          show_alert: true
+        })
+        return
+      }
+
+      if (!payload || payload.proposalId !== proposalId) {
+        await ctx.answerCallbackQuery({
+          text: t.proposalUnavailable,
+          show_alert: true
+        })
+        return
+      }
+
+      await promptRepository.clearPendingAction(payload.telegramChatId, actorTelegramUserId)
+      await ctx.answerCallbackQuery({
+        text: t.cancelled
+      })
+
+      if (ctx.msg) {
+        await ctx.editMessageText(t.cancelled, {
+          reply_markup: {
+            inline_keyboard: []
+          }
+        })
+      }
+    }
+  )
+
+  bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
       if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
@@ -652,9 +1366,6 @@ export function registerConfiguredPaymentTopicIngestion(
         return
       }
 
-      const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
-      const t = getBotTranslations(locale).payments
-
       const pending = await promptRepository.getPendingAction(
         ctx.chat.id.toString(),
         actorTelegramUserId
@@ -663,6 +1374,10 @@ export function registerConfiguredPaymentTopicIngestion(
         pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
           ? parsePaymentTopicConfirmationPayload(pending.payload)
           : null
+      const locale = payload
+        ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+        : await resolveTopicLocale(ctx, householdConfigurationRepository)
+      const t = getBotTranslations(locale).payments
 
       if (!payload || payload.proposalId !== proposalId) {
         await ctx.answerCallbackQuery({
@@ -683,7 +1398,8 @@ export function registerConfiguredPaymentTopicIngestion(
       const paymentService = paymentServiceForHousehold(payload.householdId)
       const result = await paymentService.submit({
         ...payload,
-        rawText: synthesizePaymentConfirmationText(payload)
+        rawText: payload.rawText,
+        parseText: synthesizePaymentConfirmationText(payload)
       })
 
       await clearPaymentProposalPendingActions(promptRepository, payload)
@@ -711,7 +1427,20 @@ export function registerConfiguredPaymentTopicIngestion(
         return
       }
 
-      const recordedText = formatRecordedPaymentText(locale, payload, result.amount)
+      const fullyPaid =
+        payload.period === undefined
+          ? false
+          : await isPaymentKindFullyPaid({
+              financeService: financeServiceForHousehold(payload.householdId),
+              kind: payload.kind,
+              period: payload.period
+            })
+      const recordedText = fullyPaid
+        ? getBotTranslations(locale).payments.fullyPaid(
+            payload.kind,
+            formatPeriodLabel(locale, payload.period!)
+          )
+        : formatRecordedPaymentText(locale, payload, result.amount)
       await ctx.answerCallbackQuery({
         text: recordedText
       })
@@ -754,9 +1483,6 @@ export function registerConfiguredPaymentTopicIngestion(
       return
     }
 
-    const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
-    const t = getBotTranslations(locale).payments
-
     const pending = await promptRepository.getPendingAction(
       ctx.chat.id.toString(),
       actorTelegramUserId
@@ -765,6 +1491,10 @@ export function registerConfiguredPaymentTopicIngestion(
       pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
         ? parsePaymentTopicConfirmationPayload(pending.payload)
         : null
+    const locale = payload
+      ? await resolveHouseholdLocale(householdConfigurationRepository, payload.householdId)
+      : await resolveTopicLocale(ctx, householdConfigurationRepository)
+    const t = getBotTranslations(locale).payments
 
     if (!payload || payload.proposalId !== proposalId) {
       await ctx.answerCallbackQuery({
@@ -1138,16 +1868,22 @@ export function registerConfiguredPaymentTopicIngestion(
               telegramChatId: record.chatId,
               action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
               payload: {
+                householdId: record.householdId,
                 threadId: record.threadId,
                 rawText: combinedText
               },
               expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
             })
 
-            await replyToPaymentMessage(ctx, processorResult.clarificationQuestion, undefined, {
-              repository: options.historyRepository,
-              record
-            })
+            await replyToPaymentMessage(
+              ctx,
+              processorResult.clarificationQuestion,
+              clarificationCancelReplyMarkup(locale, record.senderTelegramUserId),
+              {
+                repository: options.historyRepository,
+                record
+              }
+            )
             appendConversation(
               options.memoryStore,
               record,
@@ -1169,6 +1905,66 @@ export function registerConfiguredPaymentTopicIngestion(
               return
             }
 
+            const rawProposal = await maybeCreatePaymentProposal({
+              rawText: combinedText,
+              householdId: record.householdId,
+              memberId: senderMember.id,
+              financeService,
+              householdConfigurationRepository
+            })
+            if (rawProposal.status === 'clarification') {
+              await promptRepository.upsertPendingAction({
+                telegramUserId: record.senderTelegramUserId,
+                telegramChatId: record.chatId,
+                action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
+                payload: {
+                  householdId: record.householdId,
+                  threadId: record.threadId,
+                  rawText: combinedText
+                },
+                expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+              })
+
+              await replyToPaymentMessage(
+                ctx,
+                t.clarification,
+                clarificationCancelReplyMarkup(locale, record.senderTelegramUserId),
+                {
+                  repository: options.historyRepository,
+                  record
+                }
+              )
+              appendConversation(options.memoryStore, record, record.rawText, t.clarification)
+              return
+            }
+            if (rawProposal.status === 'multi_member_proposal') {
+              const payload = buildMultiConfirmationPayload(
+                record,
+                combinedText,
+                rawProposal.proposal
+              )
+              await promptRepository.upsertPendingAction({
+                telegramUserId: record.senderTelegramUserId,
+                telegramChatId: record.chatId,
+                action: PAYMENT_TOPIC_CONFIRMATION_ACTION,
+                payload: { ...payload },
+                expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
+              })
+
+              const proposalText = formatMultiPaymentProposalText(locale, payload)
+              await replyToPaymentMessage(
+                ctx,
+                proposalText,
+                multiPaymentProposalReplyMarkup(locale, payload),
+                {
+                  repository: options.historyRepository,
+                  record
+                }
+              )
+              appendConversation(options.memoryStore, record, record.rawText, proposalText)
+              return
+            }
+
             let payerMember = senderMember
             let isThirdParty = false
             if (processorResult.payerDisplayName) {
@@ -1186,16 +1982,22 @@ export function registerConfiguredPaymentTopicIngestion(
                   telegramChatId: record.chatId,
                   action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
                   payload: {
+                    householdId: record.householdId,
                     threadId: record.threadId,
                     rawText: combinedText
                   },
                   expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
                 })
 
-                await replyToPaymentMessage(ctx, t.clarification, undefined, {
-                  repository: options.historyRepository,
-                  record
-                })
+                await replyToPaymentMessage(
+                  ctx,
+                  t.clarification,
+                  clarificationCancelReplyMarkup(locale, record.senderTelegramUserId),
+                  {
+                    repository: options.historyRepository,
+                    record
+                  }
+                )
                 appendConversation(options.memoryStore, record, record.rawText, t.clarification)
                 return
               }
@@ -1232,16 +2034,22 @@ export function registerConfiguredPaymentTopicIngestion(
                 telegramChatId: record.chatId,
                 action: PAYMENT_TOPIC_CLARIFICATION_ACTION,
                 payload: {
+                  householdId: record.householdId,
                   threadId: record.threadId,
                   rawText: combinedText
                 },
                 expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
               })
 
-              await replyToPaymentMessage(ctx, t.clarification, undefined, {
-                repository: options.historyRepository,
-                record
-              })
+              await replyToPaymentMessage(
+                ctx,
+                t.clarification,
+                clarificationCancelReplyMarkup(locale, record.senderTelegramUserId),
+                {
+                  repository: options.historyRepository,
+                  record
+                }
+              )
               appendConversation(options.memoryStore, record, record.rawText, t.clarification)
               return
             }
@@ -1373,6 +2181,16 @@ async function resolveTopicLocale(
   const householdChat = await householdConfigurationRepository.getHouseholdChatByHouseholdId(
     binding.householdId
   )
+
+  return householdChat?.defaultLocale ?? 'en'
+}
+
+async function resolveHouseholdLocale(
+  householdConfigurationRepository: HouseholdConfigurationRepository,
+  householdId: string
+): Promise<BotLocale> {
+  const householdChat =
+    await householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
 
   return householdChat?.defaultLocale ?? 'en'
 }

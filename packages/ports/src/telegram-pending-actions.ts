@@ -30,6 +30,12 @@ export interface TelegramPendingActionRepository {
     telegramChatId: string,
     telegramUserId: string
   ): Promise<TelegramPendingActionRecord | null>
+  findPendingActionByPayloadValue?(
+    telegramChatId: string,
+    action: TelegramPendingActionType,
+    key: string,
+    value: string
+  ): Promise<TelegramPendingActionRecord | null>
   clearPendingAction(telegramChatId: string, telegramUserId: string): Promise<void>
   clearPendingActionsForChat(
     telegramChatId: string,
