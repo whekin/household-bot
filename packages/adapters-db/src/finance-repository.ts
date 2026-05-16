@@ -1080,6 +1080,49 @@ export function createDbFinanceRepository(
       }
     },
 
+    async addPaymentRecordIfNew(input) {
+      const rows = await db
+        .insert(schema.paymentRecords)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          memberId: input.memberId,
+          kind: input.kind,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          idempotencyKey: input.idempotencyKey,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .onConflictDoNothing({
+          target: schema.paymentRecords.idempotencyKey
+        })
+        .returning({
+          id: schema.paymentRecords.id,
+          cycleId: schema.paymentRecords.cycleId,
+          memberId: schema.paymentRecords.memberId,
+          kind: schema.paymentRecords.kind,
+          amountMinor: schema.paymentRecords.amountMinor,
+          currency: schema.paymentRecords.currency,
+          recordedAt: schema.paymentRecords.recordedAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        id: row.id,
+        cycleId: row.cycleId,
+        cyclePeriod: null,
+        memberId: row.memberId,
+        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!
+      }
+    },
+
     async getPaymentRecord(paymentId) {
       const rows = await db
         .select({
@@ -1656,6 +1699,59 @@ export function createDbFinanceRepository(
       const row = rows[0]
       if (!row) {
         throw new Error('Utility vendor payment fact insert did not return a row')
+      }
+
+      return {
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
+    },
+
+    async addUtilityVendorPaymentFactIfNew(input) {
+      const rows = await db
+        .insert(schema.utilityVendorPaymentFacts)
+        .values({
+          householdId,
+          cycleId: input.cycleId,
+          planId: input.planId ?? null,
+          utilityBillId: input.utilityBillId ?? null,
+          billName: input.billName,
+          payerMemberId: input.payerMemberId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          plannedForMemberId: input.plannedForMemberId ?? null,
+          planVersion: input.planVersion ?? null,
+          matchedPlan: input.matchedPlan ? 1 : 0,
+          recordedByMemberId: input.recordedByMemberId ?? null,
+          idempotencyKey: input.idempotencyKey,
+          recordedAt: instantToDate(input.recordedAt)
+        })
+        .onConflictDoNothing({
+          target: schema.utilityVendorPaymentFacts.idempotencyKey
+        })
+        .returning({
+          id: schema.utilityVendorPaymentFacts.id,
+          cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          planId: schema.utilityVendorPaymentFacts.planId,
+          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+          billName: schema.utilityVendorPaymentFacts.billName,
+          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+          currency: schema.utilityVendorPaymentFacts.currency,
+          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+          planVersion: schema.utilityVendorPaymentFacts.planVersion,
+          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+          createdAt: schema.utilityVendorPaymentFacts.createdAt
+        })
+
+      const row = rows[0]
+      if (!row) {
+        return null
       }
 
       return {

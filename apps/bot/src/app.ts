@@ -94,6 +94,7 @@ import {
 } from './purchase-topic-ingestion'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
+import { registerPaymentReminderActions } from './payment-reminder-actions'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
@@ -259,6 +260,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               ...(input.replyMarkup
                 ? {
                     reply_markup: input.replyMarkup as never
+                  }
+                : {}),
+              ...(input.parseMode
+                ? {
+                    parse_mode: input.parseMode
                   }
                 : {})
             })
@@ -579,6 +585,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           sendDirectMessage: async (input) => {
             await bot.api.sendMessage(input.telegramUserId, input.text)
           },
+          financeServiceForHousehold,
           ...(auditNotificationService
             ? {
                 auditNotificationService
@@ -708,6 +715,15 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       promptRepository: telegramPendingActionRepositoryClient.repository,
       financeServiceForHousehold,
       logger: getLogger('reminder-utilities')
+    })
+    registerPaymentReminderActions({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      financeServiceForHousehold,
+      ...(auditNotificationService ? { auditNotificationService } : {}),
+      ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
+      ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
+      logger: getLogger('payment-reminders')
     })
   }
 

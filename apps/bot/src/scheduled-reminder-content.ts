@@ -1,12 +1,18 @@
 import type { ReminderType } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
+import type { FinanceDashboard } from '@household/application'
 
 import { getBotTranslations } from './i18n'
 import type { BotLocale } from './i18n'
+import {
+  buildPaymentReminderMessageContent,
+  type PaymentReminderDispatchKind
+} from './payment-reminder-content'
 import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
 
 export interface ScheduledReminderMessageContent {
   text: string
+  parseMode?: 'HTML'
   replyMarkup?: InlineKeyboardMarkup
 }
 
@@ -14,9 +20,29 @@ export function buildScheduledReminderMessageContent(input: {
   locale: BotLocale
   reminderType: ReminderType
   period: string
+  dashboard?: FinanceDashboard
   miniAppUrl?: string
   botUsername?: string
 }): ScheduledReminderMessageContent {
+  if (input.dashboard) {
+    const dispatchKind: PaymentReminderDispatchKind =
+      input.reminderType === 'utilities'
+        ? 'utilities'
+        : input.reminderType === 'rent-warning'
+          ? 'rent_warning'
+          : 'rent_due'
+    return buildPaymentReminderMessageContent({
+      locale: input.locale,
+      kind: input.reminderType === 'utilities' ? 'utilities' : 'rent',
+      dispatchKind,
+      period: input.period,
+      dashboard: input.dashboard,
+      viewMode: 'compact',
+      ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
+      ...(input.botUsername ? { botUsername: input.botUsername } : {})
+    })
+  }
+
   const t = getBotTranslations(input.locale).reminders
   const dashboardReplyMarkup = input.botUsername
     ? ({

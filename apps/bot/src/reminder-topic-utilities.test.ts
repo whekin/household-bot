@@ -132,6 +132,12 @@ function createHouseholdRepository() {
       title: 'Kojori House',
       defaultLocale: 'ru' as const
     }),
+    getHouseholdTopicBinding: async () => ({
+      householdId: 'household-1',
+      role: 'reminders' as const,
+      telegramThreadId: '555',
+      topicName: 'Напоминания'
+    }),
     findHouseholdTopicByTelegramContext: async () => ({
       householdId: 'household-1',
       role: 'reminders' as const,

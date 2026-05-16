@@ -418,6 +418,119 @@ describe('createHouseholdAuditNotificationService', () => {
     expect(sentThreadIds).toEqual(['401'])
   })
 
+  test('preserves rich reminder HTML and sends it to reminders topic', async () => {
+    const repository = new AuditNotificationRepositoryStub()
+    const sentMessages: {
+      threadId: string | null
+      text: string
+      parseMode?: 'HTML'
+      replyMarkup?: unknown
+    }[] = []
+    const replyMarkup = {
+      inline_keyboard: [[{ text: 'I paid', callback_data: 'pr:p:rent:2026-05' }]]
+    }
+    const service = createHouseholdAuditNotificationService({
+      repository,
+      householdConfigurationRepository: householdRepository({
+        notificationThreadId: '501',
+        reminderThreadId: '401'
+      }),
+      sendTopicMessage: async (message) => {
+        sentMessages.push({
+          threadId: message.threadId,
+          text: message.text,
+          ...(message.parseMode ? { parseMode: message.parseMode } : {}),
+          ...(message.replyMarkup ? { replyMarkup: message.replyMarkup } : {})
+        })
+        return { telegramMessageId: '9001' }
+      }
+    })
+
+    const richText = [
+      '🏠 <b>Rent due</b>',
+      '📅 May 2026 · due May 15',
+      '',
+      '💰 <b>Remaining:</b> 469.00 ₾',
+      '<b>Status</b>',
+      '🔴 Stas — 469.00 ₾'
+    ].join('\n')
+
+    const event = await service.recordEvent({
+      householdId: 'household-1',
+      actorDisplayName: 'System',
+      eventType: 'period.rent_due',
+      category: 'period_events',
+      summaryText: richText,
+      metadata: {
+        period: '2026-05',
+        kind: 'rent'
+      },
+      parseMode: 'HTML',
+      replyMarkup,
+      preserveSummaryText: true,
+      deliveryTopicRole: 'reminders'
+    })
+
+    expect(sentMessages).toEqual([
+      {
+        threadId: '401',
+        text: richText,
+        parseMode: 'HTML',
+        replyMarkup
+      }
+    ])
+    expect(repository.events.get(event.id)?.summaryText).toBe(richText)
+    expect(repository.events.get(event.id)?.summaryText).toContain('\n\n')
+  })
+
+  test('sends rich reminder HTML to the household chat when reminders topic is absent', async () => {
+    const repository = new AuditNotificationRepositoryStub()
+    const sentMessages: {
+      threadId: string | null
+      text: string
+      parseMode?: 'HTML'
+    }[] = []
+    const service = createHouseholdAuditNotificationService({
+      repository,
+      householdConfigurationRepository: householdRepository({
+        notificationThreadId: '501'
+      }),
+      sendTopicMessage: async (message) => {
+        sentMessages.push({
+          threadId: message.threadId,
+          text: message.text,
+          ...(message.parseMode ? { parseMode: message.parseMode } : {})
+        })
+        return { telegramMessageId: '9002' }
+      }
+    })
+
+    const richText = '🏠 <b>Rent due</b>\n\n💰 <b>Remaining:</b> 469.00 ₾'
+    const event = await service.recordEvent({
+      householdId: 'household-1',
+      actorDisplayName: 'System',
+      eventType: 'period.rent_due',
+      category: 'period_events',
+      summaryText: richText,
+      parseMode: 'HTML',
+      preserveSummaryText: true,
+      deliveryTopicRole: 'reminders'
+    })
+
+    expect(sentMessages).toEqual([
+      {
+        threadId: null,
+        text: richText,
+        parseMode: 'HTML'
+      }
+    ])
+    expect(repository.events.get(event.id)).toMatchObject({
+      deliveryStatus: 'sent',
+      deliveredTelegramThreadId: null,
+      deliveredTelegramMessageId: '9002'
+    })
+  })
+
   test('persists audit and skips delivery when category is disabled', async () => {
     const repository = new AuditNotificationRepositoryStub()
     repository.settings = {

@@ -20,7 +20,10 @@ export interface HouseholdAuditNotificationService {
     category: HouseholdAuditNotificationCategory
     summaryText: string
     metadata?: Record<string, unknown>
+    parseMode?: 'HTML'
     replyMarkup?: unknown
+    preserveSummaryText?: boolean
+    deliveryTopicRole?: 'notifications' | 'reminders'
   }): Promise<HouseholdAuditEventRecord>
 }
 
@@ -525,6 +528,7 @@ export function createHouseholdAuditNotificationService(input: {
     chatId: string
     threadId: string | null
     text: string
+    parseMode?: 'HTML'
     replyMarkup?: unknown
   }) => Promise<HouseholdAuditNotificationSendResult | void>
   logger?: HouseholdAuditNotificationLogger
@@ -544,13 +548,18 @@ export function createHouseholdAuditNotificationService(input: {
         .catch(() => null)
       const locale = chatForLocale?.defaultLocale ?? 'en'
       const baseMetadata = eventInput.metadata ?? {}
-      const rendered = renderAuditNotification({
-        locale,
-        actorDisplayName: eventInput.actorDisplayName,
-        eventType: eventInput.eventType,
-        metadata: baseMetadata,
-        fallbackSummaryText: eventInput.summaryText
-      })
+      const rendered = eventInput.preserveSummaryText
+        ? {
+            compactText: eventInput.summaryText,
+            details: null
+          }
+        : renderAuditNotification({
+            locale,
+            actorDisplayName: eventInput.actorDisplayName,
+            eventType: eventInput.eventType,
+            metadata: baseMetadata,
+            fallbackSummaryText: eventInput.summaryText
+          })
       const metadata = rendered.details
         ? {
             ...baseMetadata,
@@ -591,9 +600,12 @@ export function createHouseholdAuditNotificationService(input: {
           )
         ])
         const chat = resolvedChat
-        const topic = notificationTopic ?? reminderTopic
+        const topic =
+          eventInput.deliveryTopicRole === 'reminders'
+            ? (reminderTopic ?? null)
+            : (notificationTopic ?? reminderTopic)
 
-        if (!chat || !topic) {
+        if (!chat || (!topic && eventInput.deliveryTopicRole !== 'reminders')) {
           await markSkipped(event.id, 'notification_topic_unavailable')
           return event
         }
@@ -601,8 +613,9 @@ export function createHouseholdAuditNotificationService(input: {
         const sent = await input.sendTopicMessage({
           householdId: event.householdId,
           chatId: chat.telegramChatId,
-          threadId: topic.telegramThreadId,
+          threadId: topic?.telegramThreadId ?? null,
           text: event.summaryText,
+          ...(eventInput.parseMode ? { parseMode: eventInput.parseMode } : {}),
           ...(eventInput.replyMarkup !== undefined || rendered.details
             ? {
                 replyMarkup:
@@ -620,7 +633,7 @@ export function createHouseholdAuditNotificationService(input: {
           eventId: event.id,
           deliveryStatus: 'sent',
           deliveredTelegramChatId: chat.telegramChatId,
-          deliveredTelegramThreadId: topic.telegramThreadId,
+          deliveredTelegramThreadId: topic?.telegramThreadId ?? null,
           deliveredTelegramMessageId: sent?.telegramMessageId ?? null,
           deliveryError: null
         })

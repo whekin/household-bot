@@ -17,7 +17,10 @@ export {
 export {
   createFinanceCommandService,
   type FinanceBillingAuditExport,
-  type FinanceCommandService
+  type FinanceClosePaymentPeriodResult,
+  type FinanceCommandService,
+  type FinanceDashboard,
+  type FinanceDashboardPaymentKindSummary
 } from './finance-command-service'
 export {
   computeUtilityBillingPlan,

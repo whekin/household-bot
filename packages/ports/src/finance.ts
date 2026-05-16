@@ -392,6 +392,15 @@ export interface FinanceRepository {
     currency: CurrencyCode
     recordedAt: Instant
   }): Promise<FinancePaymentRecord>
+  addPaymentRecordIfNew(input: {
+    cycleId: string
+    memberId: string
+    kind: FinancePaymentKind
+    amountMinor: bigint
+    currency: CurrencyCode
+    recordedAt: Instant
+    idempotencyKey: string
+  }): Promise<FinancePaymentRecord | null>
   getPaymentRecord(paymentId: string): Promise<FinancePaymentRecord | null>
   replacePaymentPurchaseAllocations(input: {
     paymentRecordId: string
@@ -475,6 +484,21 @@ export interface FinanceRepository {
     recordedByMemberId?: string | null
     recordedAt: Instant
   }): Promise<FinanceUtilityVendorPaymentFactRecord>
+  addUtilityVendorPaymentFactIfNew(input: {
+    cycleId: string
+    planId?: string | null
+    utilityBillId?: string | null
+    billName: string
+    payerMemberId: string
+    amountMinor: bigint
+    currency: CurrencyCode
+    plannedForMemberId?: string | null
+    planVersion?: number | null
+    matchedPlan: boolean
+    recordedByMemberId?: string | null
+    recordedAt: Instant
+    idempotencyKey: string
+  }): Promise<FinanceUtilityVendorPaymentFactRecord | null>
   listUtilityReimbursementFactsForCycle(
     cycleId: string
   ): Promise<readonly FinanceUtilityReimbursementFactRecord[]>

@@ -10,7 +10,12 @@ function localeFromMember(member: HouseholdMemberRecord, fallback: BotLocale): B
 
 export async function resolveReplyLocale(options: {
   ctx: Pick<Context, 'chat' | 'from'>
-  repository: HouseholdConfigurationRepository | undefined
+  repository:
+    | Pick<
+        HouseholdConfigurationRepository,
+        'getTelegramHouseholdChat' | 'getHouseholdMember' | 'listHouseholdMembersByTelegramUserId'
+      >
+    | undefined
   householdId?: string
 }): Promise<BotLocale> {
   const fallback = resolveBotLocale(options.ctx.from?.language_code)

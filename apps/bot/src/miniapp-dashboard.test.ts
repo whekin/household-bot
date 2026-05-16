@@ -118,6 +118,16 @@ function repository(
       currency: input.currency,
       recordedAt: input.recordedAt
     }),
+    addPaymentRecordIfNew: async (input) => ({
+      id: 'payment-new',
+      cycleId: input.cycleId,
+      cyclePeriod: null,
+      memberId: input.memberId,
+      kind: input.kind,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      recordedAt: input.recordedAt
+    }),
     updatePaymentRecord: async () => null,
     getPaymentRecord: async () => null,
     replacePaymentPurchaseAllocations: async () => {},
@@ -243,6 +253,22 @@ function repository(
       createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
     }),
     addUtilityVendorPaymentFact: async (input) => ({
+      id: 'utility-vendor-payment-1',
+      cycleId: input.cycleId,
+      planId: input.planId ?? null,
+      utilityBillId: input.utilityBillId ?? null,
+      billName: input.billName,
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedForMemberId: input.plannedForMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+    }),
+    addUtilityVendorPaymentFactIfNew: async (input) => ({
       id: 'utility-vendor-payment-1',
       cycleId: input.cycleId,
       planId: input.planId ?? null,

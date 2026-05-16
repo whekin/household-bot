@@ -276,6 +276,21 @@ export interface BotTranslationCatalog {
     saved: (count: number, period: string) => string
     proposalUnavailable: string
     onlyOriginalSender: string
+    detailsButton: string
+    hideDetailsButton: string
+    paidButton: string
+    paidUtilitiesButton: string
+    closeUnpaidButton: string
+    confirmCloseButton: string
+    fullyPaid: (kind: 'rent' | 'utilities', month: string) => string
+    alreadyPaid: string
+    notMember: string
+    adminOnly: string
+    paymentRecordedToast: string
+    reminderUnavailable: string
+    noRentDestinations: string
+    everyonePaid: string
+    noUtilityPlan: string
   }
   purchase: {
     sharedPurchaseFallback: string

@@ -51,3 +51,4 @@ Reminder jobs must not require:
 - daily scheduler cadence in infrastructure defaults
 - localized reminder copy using persisted household/member locale
 - scheduler fan-out observability metrics
+- richer payment reminder content and actions are covered by [HOUSEBOT-082](./HOUSEBOT-082-rich-payment-reminders.md)

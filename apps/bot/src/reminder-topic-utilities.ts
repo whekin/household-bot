@@ -11,6 +11,7 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import { buildBotStartDeepLink } from './telegram-deep-links'
+import { resolveReminderTopicActorContext } from './reminder-topic-context'
 
 export const REMINDER_UTILITY_GUIDED_CALLBACK = 'reminder_util:guided'
 export const REMINDER_UTILITY_TEMPLATE_CALLBACK = 'reminder_util:template'
@@ -331,51 +332,27 @@ async function resolveReminderContext(
   currency: 'GEL' | 'USD'
   period: string
 } | null> {
-  const threadId =
-    ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
-      ? ctx.msg.message_thread_id.toString()
-      : null
-
-  if (!ctx.chat || !threadId) {
-    return null
-  }
-
-  const binding = await householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-    telegramChatId: ctx.chat.id.toString(),
-    telegramThreadId: threadId
+  const actorContext = await resolveReminderTopicActorContext({
+    ctx,
+    householdConfigurationRepository,
+    financeServiceForHousehold
   })
-
-  if (!binding || binding.role !== 'reminders') {
+  if (!actorContext || !actorContext.telegramThreadId) {
     return null
   }
 
-  const telegramUserId = ctx.from?.id?.toString()
-  if (!telegramUserId) {
-    return null
-  }
-
-  const financeService = financeServiceForHousehold(binding.householdId)
-  const [locale, member, settings, categories, cycle] = await Promise.all([
-    resolveReplyLocale({
-      ctx,
-      repository: householdConfigurationRepository,
-      householdId: binding.householdId
-    }),
-    financeService.getMemberByTelegramUserId(telegramUserId),
-    householdConfigurationRepository.getHouseholdBillingSettings(binding.householdId),
-    householdConfigurationRepository.listHouseholdUtilityCategories(binding.householdId),
+  const financeService = financeServiceForHousehold(actorContext.householdId)
+  const [settings, categories, cycle] = await Promise.all([
+    householdConfigurationRepository.getHouseholdBillingSettings(actorContext.householdId),
+    householdConfigurationRepository.listHouseholdUtilityCategories(actorContext.householdId),
     financeService.ensureExpectedCycle()
   ])
 
-  if (!member) {
-    return null
-  }
-
   return {
-    locale,
-    householdId: binding.householdId,
-    threadId,
-    memberId: member.id,
+    locale: actorContext.locale,
+    householdId: actorContext.householdId,
+    threadId: actorContext.telegramThreadId,
+    memberId: actorContext.member.id,
     categories: categories
       .filter((category) => category.isActive)
       .sort((left, right) => left.sortOrder - right.sortOrder)

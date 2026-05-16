@@ -304,7 +304,23 @@ export const enBotTranslations: BotTranslationCatalog = {
     saved: (count, period) =>
       `Saved ${count} utility ${count === 1 ? 'charge' : 'charges'} for ${period}.`,
     proposalUnavailable: 'This utility submission is no longer available.',
-    onlyOriginalSender: 'Only the person who started this utility submission can confirm it.'
+    onlyOriginalSender: 'Only the person who started this utility submission can confirm it.',
+    detailsButton: 'Details',
+    hideDetailsButton: 'Hide details',
+    paidButton: 'I paid',
+    paidUtilitiesButton: 'I paid providers',
+    closeUnpaidButton: 'Close unpaid',
+    confirmCloseButton: 'Confirm close',
+    fullyPaid: (kind, month) =>
+      `${kind === 'rent' ? 'Rent' : 'Utilities'} for ${month} is fully paid.`,
+    alreadyPaid: 'Already marked as paid.',
+    notMember: 'I could not match you to a household member.',
+    adminOnly: 'Only household admins can do that.',
+    paymentRecordedToast: 'Payment marked as paid.',
+    reminderUnavailable: 'This reminder is no longer available.',
+    noRentDestinations: 'No rent requisites are configured yet.',
+    everyonePaid: 'Everyone is paid',
+    noUtilityPlan: 'No utility plan is ready yet.'
   },
   purchase: {
     sharedPurchaseFallback: 'shared purchase',

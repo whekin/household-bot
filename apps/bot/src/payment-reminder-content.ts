@@ -1,0 +1,313 @@
+import type { FinanceDashboard, FinanceDashboardPaymentKindSummary } from '@household/application'
+import type { Money } from '@household/domain'
+import type { FinancePaymentKind } from '@household/ports'
+import type { InlineKeyboardMarkup } from 'grammy/types'
+
+import { escapeHtml } from './html'
+import { getBotTranslations, type BotLocale } from './i18n'
+import { formatUserFacingMoney } from './i18n/money'
+import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
+import { buildBotStartDeepLink } from './telegram-deep-links'
+
+export type PaymentReminderKind = FinancePaymentKind
+export type PaymentReminderViewMode = 'compact' | 'details' | 'confirm-close'
+export type PaymentReminderDispatchKind = 'utilities' | 'rent_warning' | 'rent_due'
+
+export const PAYMENT_REMINDER_PAID_CALLBACK_PREFIX = 'pr:p:'
+export const PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX = 'pr:d:'
+export const PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX = 'pr:c:'
+export const PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX = 'pr:cc:'
+
+export interface PaymentReminderMessageContent {
+  text: string
+  parseMode: 'HTML'
+  replyMarkup?: InlineKeyboardMarkup
+}
+
+export interface PaymentReminderContentInput {
+  locale: BotLocale
+  kind: PaymentReminderKind
+  dispatchKind: PaymentReminderDispatchKind
+  period: string
+  dashboard: FinanceDashboard
+  viewMode: PaymentReminderViewMode
+  botUsername?: string
+  miniAppUrl?: string
+}
+
+function moneyText(amount: Money): string {
+  return formatUserFacingMoney(amount.toMajorString(), amount.currency)
+}
+
+export function formatBillingMonth(locale: BotLocale, period: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  if (!match) {
+    return period
+  }
+
+  const year = Number(match[1])
+  const monthIndex = Number(match[2]) - 1
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    monthIndex < 0 ||
+    monthIndex > 11
+  ) {
+    return period
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, monthIndex, 1)))
+}
+
+function formatDueDate(locale: BotLocale, dueDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate)
+  if (!match) {
+    return dueDate
+  }
+
+  const year = Number(match[1])
+  const monthIndex = Number(match[2]) - 1
+  const day = Number(match[3])
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day) ||
+    monthIndex < 0 ||
+    monthIndex > 11 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return dueDate
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, monthIndex, day)))
+}
+
+function paymentKindSummary(
+  dashboard: FinanceDashboard,
+  period: string,
+  kind: PaymentReminderKind
+): FinanceDashboardPaymentKindSummary | null {
+  return (
+    dashboard.paymentPeriods
+      ?.find((summary) => summary.period === period)
+      ?.kinds.find((summary) => summary.kind === kind) ?? null
+  )
+}
+
+function statusLines(input: {
+  dashboard: FinanceDashboard
+  locale: BotLocale
+  period: string
+  kind: PaymentReminderKind
+  details: boolean
+}): string[] {
+  const t = getBotTranslations(input.locale).reminders
+  const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
+  const unresolved = new Set(summary?.unresolvedMembers.map((member) => member.memberId) ?? [])
+  const unresolvedLines =
+    summary?.unresolvedMembers.map(
+      (member) =>
+        `🔴 ${escapeHtml(member.displayName)} — ${escapeHtml(moneyText(member.suggestedAmount))}`
+    ) ?? []
+  if (!input.details) {
+    return unresolvedLines.length > 0 ? unresolvedLines : ['✅ ' + escapeHtml(t.everyonePaid)]
+  }
+
+  const settledLines = input.dashboard.members
+    .filter((member) => !unresolved.has(member.memberId))
+    .map((member) => `✅ ${escapeHtml(member.displayName)}`)
+
+  return unresolvedLines.length > 0
+    ? [...unresolvedLines, ...settledLines]
+    : ['✅ ' + escapeHtml(t.everyonePaid)]
+}
+
+function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): string[] {
+  const destinations =
+    dashboard.rentBillingState.paymentDestinations ?? dashboard.rentPaymentDestinations ?? []
+  if (destinations.length === 0) {
+    return [`• ${escapeHtml(getBotTranslations(locale).reminders.noRentDestinations)}`]
+  }
+
+  return destinations.flatMap((destination) => [
+    `• <b>${escapeHtml(destination.label)}</b>`,
+    `  ${escapeHtml(destination.recipientName ?? destination.bankName ?? 'Account')}: <code>${escapeHtml(destination.account)}</code>`,
+    ...(destination.note ? [`  ${escapeHtml(destination.note)}`] : []),
+    ...(destination.link ? [`  ${escapeHtml(destination.link)}`] : [])
+  ])
+}
+
+function utilityAssignmentLines(
+  dashboard: FinanceDashboard,
+  locale: BotLocale,
+  details: boolean
+): string[] {
+  const categories = dashboard.utilityBillingPlan?.categories ?? []
+  if (categories.length === 0) {
+    return ['• ' + escapeHtml(getBotTranslations(locale).reminders.noUtilityPlan)]
+  }
+
+  const visible = details ? categories : categories.slice(0, 4)
+  const lines = visible.map((category) => {
+    const paid =
+      category.paidAmount.amountMinor >= category.assignedAmount.amountMinor ? '✅' : '🔴'
+    return `${paid} ${escapeHtml(category.billName)} → ${escapeHtml(category.assignedDisplayName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
+  })
+
+  if (!details && categories.length > visible.length) {
+    lines.push(`• +${categories.length - visible.length} more`)
+  }
+
+  return lines
+}
+
+function totalRemainingText(summary: FinanceDashboardPaymentKindSummary | null): string {
+  return summary ? moneyText(summary.totalRemaining) : '0.00'
+}
+
+function buildKeyboard(input: PaymentReminderContentInput): InlineKeyboardMarkup {
+  const t = getBotTranslations(input.locale).reminders
+  const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
+  const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
+  const dashboardUrl = buildBotStartDeepLink(input.botUsername, 'dashboard')
+  const detailMode = input.viewMode === 'details' ? 'compact' : 'details'
+  const rows: InlineKeyboardMarkup['inline_keyboard'] = []
+
+  if (!fullyPaid && input.viewMode !== 'confirm-close') {
+    rows.push([
+      {
+        text: input.kind === 'utilities' ? t.paidUtilitiesButton : t.paidButton,
+        callback_data: `${PAYMENT_REMINDER_PAID_CALLBACK_PREFIX}${input.kind}:${input.period}`
+      }
+    ])
+  }
+
+  if (input.viewMode === 'confirm-close') {
+    rows.push([
+      {
+        text: t.confirmCloseButton,
+        callback_data: `${PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
+      },
+      {
+        text: t.cancelButton,
+        callback_data: `${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}${input.kind}:${input.period}:compact`
+      }
+    ])
+  } else {
+    rows.push([
+      {
+        text: input.viewMode === 'details' ? t.hideDetailsButton : t.detailsButton,
+        callback_data: `${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}${input.kind}:${input.period}:${detailMode}`
+      },
+      ...(!fullyPaid
+        ? [
+            {
+              text: t.closeUnpaidButton,
+              callback_data: `${PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
+            }
+          ]
+        : [])
+    ])
+  }
+
+  if (input.kind === 'utilities' && input.viewMode !== 'confirm-close') {
+    rows.push(
+      ...buildUtilitiesReminderReplyMarkup(input.locale, {
+        ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
+        ...(input.botUsername ? { botUsername: input.botUsername } : {})
+      }).inline_keyboard.slice(0, 1)
+    )
+  }
+
+  if (dashboardUrl) {
+    rows.push([{ text: t.openDashboardButton, url: dashboardUrl }])
+  }
+
+  return { inline_keyboard: rows }
+}
+
+export function buildPaymentReminderMessageContent(
+  input: PaymentReminderContentInput
+): PaymentReminderMessageContent {
+  const t = getBotTranslations(input.locale).reminders
+  const month = formatBillingMonth(input.locale, input.period)
+  const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
+  const details = input.viewMode === 'details' || input.viewMode === 'confirm-close'
+  const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
+  const title =
+    input.kind === 'rent'
+      ? input.dispatchKind === 'rent_warning'
+        ? `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Скоро аренда' : 'Rent coming up')}</b>`
+        : `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Аренда к оплате' : 'Rent due')}</b>`
+      : `💡 <b>${escapeHtml(input.locale === 'ru' ? 'Коммуналка к оплате' : 'Utilities due')}</b>`
+  const dueDate =
+    input.kind === 'rent'
+      ? formatDueDate(input.locale, input.dashboard.rentBillingState.dueDate)
+      : input.dashboard.utilityBillingPlan
+        ? formatDueDate(input.locale, input.dashboard.utilityBillingPlan.dueDate)
+        : month
+  const lines = [
+    title,
+    `📅 ${escapeHtml(month)} · ${escapeHtml(input.locale === 'ru' ? 'срок' : 'due')} ${escapeHtml(dueDate)}`
+  ]
+
+  if (fullyPaid) {
+    lines.push('', `✅ <b>${escapeHtml(t.fullyPaid(input.kind, month))}</b>`)
+  } else {
+    lines.push(
+      '',
+      `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`,
+      '',
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Статус' : 'Status')}</b>`,
+      ...statusLines({
+        dashboard: input.dashboard,
+        locale: input.locale,
+        period: input.period,
+        kind: input.kind,
+        details
+      })
+    )
+  }
+
+  if (input.kind === 'rent') {
+    lines.push(
+      '',
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Куда платить' : 'Where to pay')}</b>`,
+      ...rentDestinationLines(input.dashboard, input.locale)
+    )
+  } else {
+    lines.push(
+      '',
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Кто платит провайдерам' : 'Provider assignments')}</b>`,
+      ...utilityAssignmentLines(input.dashboard, input.locale, details)
+    )
+  }
+
+  if (input.viewMode === 'confirm-close') {
+    const unresolvedCount = summary?.unresolvedMembers.length ?? 0
+    lines.push(
+      '',
+      `⚠️ <b>${escapeHtml(input.locale === 'ru' ? 'Подтвердите закрытие' : 'Confirm close')}</b>`,
+      escapeHtml(
+        input.locale === 'ru'
+          ? `${month}, ${input.kind === 'rent' ? 'аренда' : 'коммуналка'}: неоплаченных ${unresolvedCount}.`
+          : `${month}, ${input.kind}: ${unresolvedCount} unpaid.`
+      )
+    )
+  }
+
+  return {
+    text: lines.join('\n'),
+    parseMode: 'HTML',
+    replyMarkup: buildKeyboard(input)
+  }
+}

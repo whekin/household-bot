@@ -111,7 +111,9 @@ class FinanceRepositoryStub implements FinanceRepository {
   lastReplacedPaymentPurchaseAllocations:
     | Parameters<FinanceRepository['replacePaymentPurchaseAllocations']>[0]
     | null = null
-  addedPaymentRecords: Parameters<FinanceRepository['addPaymentRecord']>[0][] = []
+  addedPaymentRecords: Array<
+    Parameters<FinanceRepository['addPaymentRecord']>[0] & { idempotencyKey?: string }
+  > = []
   paymentPurchaseAllocations: readonly FinancePaymentPurchaseAllocationRecord[] = []
 
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
@@ -317,6 +319,31 @@ class FinanceRepositoryStub implements FinanceRepository {
     currency: 'USD' | 'GEL'
     recordedAt: Instant
   }) {
+    this.addedPaymentRecords.push(input)
+
+    return {
+      id: `payment-record-${this.addedPaymentRecords.length}`,
+      cycleId: input.cycleId,
+      cyclePeriod:
+        this.cycles.find((cycle) => cycle.id === input.cycleId)?.period ??
+        this.openCycleRecord?.period ??
+        null,
+      memberId: input.memberId,
+      kind: input.kind,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      recordedAt: input.recordedAt
+    }
+  }
+
+  async addPaymentRecordIfNew(input: Parameters<FinanceRepository['addPaymentRecordIfNew']>[0]) {
+    const existing = this.addedPaymentRecords.find(
+      (record) => 'idempotencyKey' in record && record.idempotencyKey === input.idempotencyKey
+    )
+    if (existing) {
+      return null
+    }
+
     this.addedPaymentRecords.push(input)
 
     return {
@@ -588,6 +615,37 @@ class FinanceRepositoryStub implements FinanceRepository {
       recordedByMemberId: input.recordedByMemberId ?? null,
       recordedAt: input.recordedAt,
       createdAt: input.recordedAt
+    }
+    this.utilityVendorPaymentFacts = [...this.utilityVendorPaymentFacts, fact]
+    return fact
+  }
+
+  async addUtilityVendorPaymentFactIfNew(
+    input: Parameters<FinanceRepository['addUtilityVendorPaymentFactIfNew']>[0]
+  ) {
+    const existing = this.utilityVendorPaymentFacts.find(
+      (fact) => 'idempotencyKey' in fact && fact.idempotencyKey === input.idempotencyKey
+    )
+    if (existing) {
+      return null
+    }
+
+    const fact = {
+      id: `utility-vendor-${this.utilityVendorPaymentFacts.length + 1}`,
+      cycleId: input.cycleId,
+      planId: input.planId ?? null,
+      utilityBillId: input.utilityBillId ?? null,
+      billName: input.billName,
+      payerMemberId: input.payerMemberId,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      plannedForMemberId: input.plannedForMemberId ?? null,
+      planVersion: input.planVersion ?? null,
+      matchedPlan: input.matchedPlan,
+      recordedByMemberId: input.recordedByMemberId ?? null,
+      recordedAt: input.recordedAt,
+      createdAt: input.recordedAt,
+      idempotencyKey: input.idempotencyKey
     }
     this.utilityVendorPaymentFacts = [...this.utilityVendorPaymentFacts, fact]
     return fact
@@ -2312,6 +2370,114 @@ describe('createFinanceCommandService', () => {
         currency: 'GEL'
       }
     ])
+  })
+
+  test('closePaymentPeriod is idempotent for repeated rent closes before payment records refresh', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 10000n,
+      currency: 'GEL'
+    }
+
+    const service = createService(repository)
+    const first = await service.closePaymentPeriod({
+      periodArg: '2026-03',
+      kind: 'rent',
+      actorMemberId: 'alice',
+      memberIds: ['alice']
+    })
+    const second = await service.closePaymentPeriod({
+      periodArg: '2026-03',
+      kind: 'rent',
+      actorMemberId: 'alice',
+      memberIds: ['alice']
+    })
+
+    expect(first?.closedMembers).toHaveLength(1)
+    expect(second?.closedMembers).toEqual([])
+    expect(second?.skippedMembers).toEqual([
+      {
+        memberId: 'alice',
+        displayName: 'Alice',
+        reason: 'already_settled'
+      }
+    ])
+    expect(repository.addedPaymentRecords).toHaveLength(1)
+    expect(repository.addedPaymentRecords[0]?.idempotencyKey).toBe(
+      'close-payment-period:household-1:cycle-2026-03:rent:alice'
+    )
+  })
+
+  test('closePaymentPeriod is idempotent for repeated utilities closes before records refresh', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 10000n, currency: 'GEL' }
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-04',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const first = await service.closePaymentPeriod({
+      periodArg: '2026-04',
+      kind: 'utilities',
+      actorMemberId: 'alice',
+      memberIds: ['alice']
+    })
+    const second = await service.closePaymentPeriod({
+      periodArg: '2026-04',
+      kind: 'utilities',
+      actorMemberId: 'alice',
+      memberIds: ['alice']
+    })
+
+    expect(first?.closedMembers).toHaveLength(1)
+    expect(second?.closedMembers).toEqual([])
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(1)
+    expect(repository.addedPaymentRecords).toHaveLength(1)
+    expect(repository.utilityVendorPaymentFacts[0]).toMatchObject({
+      utilityBillId: 'bill-gas',
+      payerMemberId: 'alice',
+      matchedPlan: true
+    })
   })
 
   test('generateDashboard applies purchase balance through utilities mode', async () => {

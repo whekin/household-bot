@@ -308,7 +308,23 @@ export const ruBotTranslations: BotTranslationCatalog = {
     saved: (count, period) =>
       `Сохранено ${count} ${count === 1 ? 'начисление коммуналки' : 'начислений коммуналки'} за ${period}.`,
     proposalUnavailable: 'Это предложение по коммуналке уже недоступно.',
-    onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.'
+    onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
+    detailsButton: 'Детали',
+    hideDetailsButton: 'Скрыть детали',
+    paidButton: 'Я оплатил',
+    paidUtilitiesButton: 'Я оплатил провайдеров',
+    closeUnpaidButton: 'Закрыть неоплаченных',
+    confirmCloseButton: 'Подтвердить закрытие',
+    fullyPaid: (kind, month) =>
+      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${month} полностью оплачена.`,
+    alreadyPaid: 'Уже отмечено как оплачено.',
+    notMember: 'Не удалось сопоставить вас с участником дома.',
+    adminOnly: 'Это действие доступно только админам дома.',
+    paymentRecordedToast: 'Оплата отмечена.',
+    reminderUnavailable: 'Это напоминание уже недоступно.',
+    noRentDestinations: 'Реквизиты для аренды пока не настроены.',
+    everyonePaid: 'Все оплатили',
+    noUtilityPlan: 'План коммуналки пока не готов.'
   },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',

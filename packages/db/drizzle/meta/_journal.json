@@ -260,6 +260,13 @@
       "when": 1778312400000,
       "tag": "0036_payment_confirmation_source_key",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1778316000000,
+      "tag": "0037_close_payment_idempotency",
+      "breakpoints": true
     }
   ]
 }

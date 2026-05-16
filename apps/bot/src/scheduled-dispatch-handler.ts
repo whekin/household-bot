@@ -1,4 +1,5 @@
 import type {
+  FinanceCommandService,
   HouseholdAuditNotificationService,
   ScheduledDispatchService
 } from '@household/application'
@@ -74,6 +75,7 @@ export function createScheduledDispatchHandler(options: {
     replyMarkup?: InlineKeyboardMarkup
   }) => Promise<void>
   sendDirectMessage: (input: { telegramUserId: string; text: string }) => Promise<void>
+  financeServiceForHousehold?: (householdId: string) => FinanceCommandService
   auditNotificationService?: HouseholdAuditNotificationService
   miniAppUrl?: string
   botUsername?: string
@@ -212,14 +214,33 @@ export function createScheduledDispatchHandler(options: {
         return { outcome: 'noop' as const }
       }
 
+      const period =
+        dispatch.period ??
+        BillingPeriod.fromInstant(
+          dispatch.dueAt.toZonedDateTimeISO(dispatch.timezone).toInstant()
+        ).toString()
+      const dashboard = options.financeServiceForHousehold
+        ? await options.financeServiceForHousehold(dispatch.householdId).generateDashboard(period)
+        : null
+
+      if (!dashboard && options.financeServiceForHousehold) {
+        options.logger?.warn(
+          {
+            event: 'reminder.rich_content_fallback',
+            householdId: dispatch.householdId,
+            dispatchId: dispatch.id,
+            kind: dispatch.kind,
+            period
+          },
+          'Falling back to minimal scheduled reminder content because dashboard is unavailable.'
+        )
+      }
+
       const content = buildScheduledReminderMessageContent({
         locale: chat.defaultLocale,
         reminderType: builtInReminderType(dispatch.kind),
-        period:
-          dispatch.period ??
-          BillingPeriod.fromInstant(
-            dispatch.dueAt.toZonedDateTimeISO(dispatch.timezone).toInstant()
-          ).toString(),
+        period,
+        ...(dashboard ? { dashboard } : {}),
         ...(options.miniAppUrl
           ? {
               miniAppUrl: options.miniAppUrl
@@ -245,6 +266,13 @@ export function createScheduledDispatchHandler(options: {
             kind: dispatch.kind,
             period: dispatch.period ?? null
           },
+          ...(content.parseMode ? { parseMode: content.parseMode } : {}),
+          ...(content.parseMode
+            ? {
+                preserveSummaryText: true as const,
+                deliveryTopicRole: 'reminders' as const
+              }
+            : {}),
           ...(content.replyMarkup
             ? {
                 replyMarkup: content.replyMarkup
@@ -257,6 +285,7 @@ export function createScheduledDispatchHandler(options: {
           chatId: chat.telegramChatId,
           threadId: reminderTopic?.telegramThreadId ?? null,
           text: content.text,
+          ...(content.parseMode ? { parseMode: content.parseMode } : {}),
           ...(content.replyMarkup
             ? {
                 replyMarkup: content.replyMarkup

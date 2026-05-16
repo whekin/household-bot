@@ -733,13 +733,15 @@ export const paymentRecords = pgTable(
     confirmationId: uuid('confirmation_id').references(() => paymentConfirmations.id, {
       onDelete: 'set null'
     }),
+    idempotencyKey: text('idempotency_key'),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
     cycleMemberIdx: index('payment_records_cycle_member_idx').on(table.cycleId, table.memberId),
     cycleKindIdx: index('payment_records_cycle_kind_idx').on(table.cycleId, table.kind),
-    confirmationUnique: uniqueIndex('payment_records_confirmation_unique').on(table.confirmationId)
+    confirmationUnique: uniqueIndex('payment_records_confirmation_unique').on(table.confirmationId),
+    idempotencyUnique: uniqueIndex('payment_records_idempotency_unique').on(table.idempotencyKey)
   })
 )
 
@@ -811,6 +813,7 @@ export const utilityVendorPaymentFacts = pgTable(
     recordedByMemberId: uuid('recorded_by_member_id').references(() => members.id, {
       onDelete: 'set null'
     }),
+    idempotencyKey: text('idempotency_key'),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -818,7 +821,10 @@ export const utilityVendorPaymentFacts = pgTable(
     cycleIdx: index('utility_vendor_payment_facts_cycle_idx').on(table.cycleId),
     planIdx: index('utility_vendor_payment_facts_plan_idx').on(table.planId),
     billIdx: index('utility_vendor_payment_facts_bill_idx').on(table.utilityBillId),
-    payerIdx: index('utility_vendor_payment_facts_payer_idx').on(table.payerMemberId)
+    payerIdx: index('utility_vendor_payment_facts_payer_idx').on(table.payerMemberId),
+    idempotencyUnique: uniqueIndex('utility_vendor_payment_facts_idempotency_unique').on(
+      table.idempotencyKey
+    )
   })
 )
 

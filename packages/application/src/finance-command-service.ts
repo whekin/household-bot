@@ -3083,7 +3083,7 @@ export function createFinanceCommandService(
       ReturnType<FinanceRepository['listUtilityVendorPaymentFactsForCycle']>
     >
     existingPaymentRecords: Awaited<ReturnType<FinanceRepository['listPaymentRecordsForCycle']>>
-  }): Promise<readonly string[]> {
+  }): Promise<{ resolvedBillIds: readonly string[]; paymentRecorded: boolean }> {
     const plannedSummary = input.utilityPlan.memberSummaries.find(
       (summary) => summary.memberId === input.memberId
     )
@@ -3121,17 +3121,10 @@ export function createFinanceCommandService(
     const existingUtilityPaymentMinor = input.existingPaymentRecords
       .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
       .reduce((sum, payment) => sum + payment.amountMinor, 0n)
-    const newMatchedPlanPaidMinor = categoriesToRecord.reduce(
-      (sum, item) => sum + item.remainingMinor,
-      0n
-    )
-    const paymentAmountMinor =
-      existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor > existingUtilityPaymentMinor
-        ? existingMatchedPlanPaidMinor + newMatchedPlanPaidMinor - existingUtilityPaymentMinor
-        : 0n
-
+    let insertedMatchedPlanPaidMinor = 0n
+    const insertedBillIds: string[] = []
     for (const { category, remainingMinor } of categoriesToRecord) {
-      await repository.addUtilityVendorPaymentFact({
+      const fact = await repository.addUtilityVendorPaymentFactIfNew({
         cycleId: input.cycle.id,
         planId: input.utilityPlan.id,
         utilityBillId: category.utilityBillId,
@@ -3143,8 +3136,13 @@ export function createFinanceCommandService(
         planVersion: input.utilityPlan.version,
         matchedPlan: true,
         recordedByMemberId: input.actorMemberId ?? input.memberId,
-        recordedAt: input.recordedAt
+        recordedAt: input.recordedAt,
+        idempotencyKey: `close-payment-period:${dependencies.householdId}:${input.cycle.id}:utility-vendor:${input.utilityPlan.id}:${category.utilityBillId}:${input.memberId}`
       })
+      if (fact) {
+        insertedMatchedPlanPaidMinor += fact.amountMinor
+        insertedBillIds.push(category.utilityBillId)
+      }
     }
 
     const existingPaymentRecord = input.existingPaymentRecords
@@ -3155,34 +3153,41 @@ export function createFinanceCommandService(
     const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
       dependencies.householdId
     )
+    const effectivePaymentAmountMinor =
+      existingMatchedPlanPaidMinor + insertedMatchedPlanPaidMinor > existingUtilityPaymentMinor
+        ? existingMatchedPlanPaidMinor + insertedMatchedPlanPaidMinor - existingUtilityPaymentMinor
+        : 0n
     const allocationResult = await allocatePaymentPurchaseOverage({
       dependencies,
       cyclePeriod: input.dashboard.period,
       memberId: input.memberId,
       kind: 'utilities',
       paymentAmount:
-        plannedSummary?.fairShare ?? Money.fromMinor(paymentAmountMinor, input.dashboard.currency),
+        plannedSummary?.fairShare ??
+        Money.fromMinor(effectivePaymentAmountMinor, input.dashboard.currency),
       settings
     })
     const payment =
-      paymentAmountMinor > 0n
-        ? await repository.addPaymentRecord({
+      effectivePaymentAmountMinor > 0n
+        ? await repository.addPaymentRecordIfNew({
             cycleId: input.cycle.id,
             memberId: input.memberId,
             kind: 'utilities',
-            amountMinor: paymentAmountMinor,
+            amountMinor: effectivePaymentAmountMinor,
             currency: input.dashboard.currency,
-            recordedAt: input.recordedAt
+            recordedAt: input.recordedAt,
+            idempotencyKey: `close-payment-period:${dependencies.householdId}:${input.cycle.id}:utilities:${input.utilityPlan.id}:${input.memberId}`
           })
         : (existingPaymentRecord ??
           (allocationResult.allocations.length > 0
-            ? await repository.addPaymentRecord({
+            ? await repository.addPaymentRecordIfNew({
                 cycleId: input.cycle.id,
                 memberId: input.memberId,
                 kind: 'utilities',
                 amountMinor: 0n,
                 currency: input.dashboard.currency,
-                recordedAt: input.recordedAt
+                recordedAt: input.recordedAt,
+                idempotencyKey: `close-payment-period:${dependencies.householdId}:${input.cycle.id}:utilities:${input.utilityPlan.id}:${input.memberId}`
               })
             : undefined))
 
@@ -3234,7 +3239,10 @@ export function createFinanceCommandService(
       })
     }
 
-    return [...new Set(categories.map((category) => category.utilityBillId))]
+    return {
+      resolvedBillIds: [...new Set(insertedBillIds)],
+      paymentRecorded: Boolean(payment && !existingPaymentRecord)
+    }
   }
 
   return {
@@ -3793,8 +3801,13 @@ export function createFinanceCommandService(
           repository.listUtilityVendorPaymentFactsForCycle(cycle.id),
           repository.listPaymentRecordsForCycle(cycle.id)
         ])
+        const closedMembers: {
+          memberId: string
+          displayName: string
+          amount: Money
+        }[] = []
         for (const member of candidateMembers) {
-          await resolvePlannedUtilitiesForMember({
+          const result = await resolvePlannedUtilitiesForMember({
             cycle,
             dashboard,
             utilityPlan,
@@ -3804,6 +3817,19 @@ export function createFinanceCommandService(
             existingVendorFacts,
             existingPaymentRecords
           })
+          if (result.resolvedBillIds.length > 0 || result.paymentRecorded) {
+            closedMembers.push({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              amount: member.suggestedAmount
+            })
+          } else {
+            skippedMembers.push({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              reason: 'already_settled'
+            })
+          }
         }
 
         const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
@@ -3829,11 +3855,7 @@ export function createFinanceCommandService(
         return {
           period: dashboard.period,
           kind: input.kind,
-          closedMembers: candidateMembers.map((member) => ({
-            memberId: member.memberId,
-            displayName: member.displayName,
-            amount: member.suggestedAmount
-          })),
+          closedMembers,
           skippedMembers,
           dashboard: nextDashboard
         }
@@ -3858,14 +3880,23 @@ export function createFinanceCommandService(
           continue
         }
 
-        const payment = await repository.addPaymentRecord({
+        const payment = await repository.addPaymentRecordIfNew({
           cycleId: cycle.id,
           memberId: member.memberId,
           kind: input.kind,
           amountMinor: member.suggestedAmount.amountMinor,
           currency: dashboard.currency,
-          recordedAt
+          recordedAt,
+          idempotencyKey: `close-payment-period:${dependencies.householdId}:${cycle.id}:${input.kind}:${member.memberId}`
         })
+        if (!payment) {
+          skippedMembers.push({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            reason: 'already_settled'
+          })
+          continue
+        }
         const allocationResult = await allocatePaymentPurchaseOverage({
           dependencies,
           cyclePeriod: dashboard.period,
@@ -4032,7 +4063,7 @@ export function createFinanceCommandService(
 
       const resolvedBillIds: string[] = []
       for (const memberId of memberIds) {
-        const memberResolvedBillIds = await resolvePlannedUtilitiesForMember({
+        const result = await resolvePlannedUtilitiesForMember({
           cycle,
           dashboard,
           utilityPlan,
@@ -4042,7 +4073,7 @@ export function createFinanceCommandService(
           existingVendorFacts,
           existingPaymentRecords
         })
-        resolvedBillIds.push(...memberResolvedBillIds)
+        resolvedBillIds.push(...result.resolvedBillIds)
       }
 
       // Check if all plan categories are now covered by vendor facts → settle the plan
