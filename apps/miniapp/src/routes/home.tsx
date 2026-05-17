@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
+import { Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
@@ -55,11 +55,13 @@ export default function HomeRoute() {
   const [purchaseError, setPurchaseError] = createSignal<string | null>(null)
   const [adminConfirmOpen, setAdminConfirmOpen] = createSignal(false)
   const [processingKey, setProcessingKey] = createSignal<string | null>(null)
+  const [copiedRentPaymentKey, setCopiedRentPaymentKey] = createSignal<string | null>(null)
   const [toast, setToast] = createSignal({
     visible: false,
     message: '',
     type: 'info' as 'success' | 'info' | 'error'
   })
+  let copiedRentPaymentTimer: ReturnType<typeof setTimeout> | undefined
 
   const currentMemberId = createMemo(() => readySession()?.member.id ?? null)
   const model = createMemo(() => {
@@ -91,6 +93,10 @@ export default function HomeRoute() {
   createEffect(() => {
     dashboard()
     setPurchaseDraft(buildEmptyPurchaseDraft(dashboard(), currentMemberId() ?? undefined))
+  })
+
+  onCleanup(() => {
+    if (copiedRentPaymentTimer) clearTimeout(copiedRentPaymentTimer)
   })
 
   function resetPurchase() {
@@ -216,6 +222,22 @@ export default function HomeRoute() {
     })
   }
 
+  async function copyRentPaymentText(input: { key: string; text: string; successMessage: string }) {
+    try {
+      const writeText = globalThis.navigator?.clipboard?.writeText
+      if (!writeText) throw new Error('Clipboard unavailable')
+
+      await writeText.call(globalThis.navigator.clipboard, input.text)
+      setCopiedRentPaymentKey(input.key)
+      setToast({ visible: true, message: input.successMessage, type: 'success' })
+
+      if (copiedRentPaymentTimer) clearTimeout(copiedRentPaymentTimer)
+      copiedRentPaymentTimer = setTimeout(() => setCopiedRentPaymentKey(null), 1600)
+    } catch {
+      setToast({ visible: true, message: copy().rentPaymentCopyFailed, type: 'error' })
+    }
+  }
+
   return (
     <div class="route route--home today-route">
       <Switch>
@@ -243,8 +265,10 @@ export default function HomeRoute() {
                 majorStringToMinor(currentMemberCloseLine()?.amountMajor ?? '0.00') > 0n
               }
               closing={processingKey() !== null}
+              copiedRentPaymentKey={copiedRentPaymentKey()}
               onCloseMine={() => void closeCurrentMember()}
               onOpenPurchases={() => navigate('/purchases')}
+              onCopyRentPaymentText={(input) => void copyRentPaymentText(input)}
             />
 
             <Show when={model()!.stage !== 'idle'}>

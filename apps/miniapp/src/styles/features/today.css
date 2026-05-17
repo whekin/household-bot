@@ -281,6 +281,208 @@
   color: var(--text-muted);
 }
 
+.rent-payment-dock {
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(231, 196, 142, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 239, 203, 0.13), rgba(255, 239, 203, 0.035) 48%),
+    radial-gradient(circle at 12% 16%, rgba(227, 168, 107, 0.18), transparent 34%),
+    rgba(243, 238, 229, 0.045);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 226, 0.08),
+    0 14px 34px rgba(0, 0, 0, 0.18);
+}
+
+.rent-payment-dock__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.rent-payment-dock__summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rent-payment-dock__summary-copy span {
+  color: color-mix(in srgb, #f4d6a1 72%, white 16%);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.rent-payment-dock__summary-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rent-payment-dock__summary-copy em {
+  color: color-mix(in srgb, var(--text-secondary) 80%, #f4d6a1 20%);
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.rent-payment-dock__summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rent-payment-dock__copy,
+.rent-payment-dock__link,
+.rent-payment-dock__toggle,
+.rent-payment-dock__copy-all {
+  min-height: 44px;
+  border: 1px solid rgba(231, 196, 142, 0.24);
+  color: var(--text-primary);
+  background: rgba(36, 32, 29, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 226, 0.06);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.rent-payment-dock__copy,
+.rent-payment-dock__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  border-radius: 999px;
+}
+
+.rent-payment-dock__copy:hover,
+.rent-payment-dock__link:hover,
+.rent-payment-dock__toggle:hover,
+.rent-payment-dock__copy-all:hover {
+  border-color: rgba(244, 214, 161, 0.48);
+  background: rgba(243, 238, 229, 0.09);
+  transform: translateY(-1px);
+}
+
+.rent-payment-dock__copy:focus-visible,
+.rent-payment-dock__link:focus-visible,
+.rent-payment-dock__toggle:focus-visible,
+.rent-payment-dock__copy-all:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 80%, white);
+  outline-offset: 3px;
+}
+
+.rent-payment-dock__copy.is-copied,
+.rent-payment-dock__copy-all.is-copied {
+  border-color: color-mix(in srgb, var(--status-credit) 52%, transparent);
+  color: var(--status-credit);
+  background: color-mix(in srgb, var(--status-credit) 16%, transparent);
+}
+
+.rent-payment-dock__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.rent-payment-dock__toggle svg {
+  transition: transform var(--transition-fast);
+}
+
+.rent-payment-dock__toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.rent-payment-dock__details {
+  display: grid;
+  gap: 10px;
+  padding: 0 10px 10px;
+}
+
+.rent-payment-dock__card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(231, 196, 142, 0.18);
+  border-radius: 18px;
+  background:
+    linear-gradient(115deg, rgba(255, 244, 226, 0.07), transparent 58%), rgba(16, 14, 13, 0.2);
+}
+
+.rent-payment-dock__card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.rent-payment-dock__card-head div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rent-payment-dock__card-head strong {
+  color: var(--text-primary);
+  font-size: 0.94rem;
+}
+
+.rent-payment-dock__card-head span,
+.rent-payment-dock__card p {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.rent-payment-dock__account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border: 1px dashed rgba(231, 196, 142, 0.28);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.rent-payment-dock__account code {
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--text-primary) 86%, #f4d6a1 14%);
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rent-payment-dock__copy-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .today-meter {
   height: 12px;
   overflow: hidden;
@@ -747,6 +949,21 @@
   .today-member-line,
   .today-personal-line {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rent-payment-dock__summary,
+  .rent-payment-dock__card-head,
+  .rent-payment-dock__account {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rent-payment-dock__summary-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .rent-payment-dock__toggle {
+    width: 100%;
   }
 
   .today-purchase-line__amounts,

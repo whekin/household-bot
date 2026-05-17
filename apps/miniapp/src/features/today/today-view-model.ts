@@ -3,6 +3,7 @@ import { majorStringToMinor, minorToMajorString } from '../../lib/money'
 import { memberEffectivePurchaseBalanceMajor } from '../../lib/ledger-helpers'
 import type { CalendarDateParts } from '../../lib/dates'
 import { parsePeriod } from '../../lib/dates'
+import type { RentPaymentDestination } from './rent-payment-destination'
 
 export type TodayPaymentKind = 'rent' | 'utilities'
 export type TodayStage = TodayPaymentKind | 'idle'
@@ -43,6 +44,7 @@ export type TodayViewModel = {
     billName: string
     amountMajor: string
   }[]
+  rentPaymentDestinations: readonly RentPaymentDestination[]
   currentMemberRentDueDate: string | null
   nextWindow: {
     kind: TodayPaymentKind
@@ -415,6 +417,10 @@ export function buildTodayViewModel(input: {
             Number(majorStringToMinor(right.amountMajor) - majorStringToMinor(left.amountMajor))
           )
       : [],
+    rentPaymentDestinations:
+      input.dashboard.rentBillingState.paymentDestinations !== null
+        ? input.dashboard.rentBillingState.paymentDestinations
+        : (input.dashboard.rentPaymentDestinations ?? []),
     currentMemberRentDueDate: input.dashboard.rentBillingState.dueDate ?? null,
     nextWindow:
       stage === 'idle'

@@ -307,6 +307,91 @@ describe('today view model', () => {
     ])
   })
 
+  test('uses rent billing-state payment destinations when present', () => {
+    const householdDestination = {
+      label: 'Household card',
+      recipientName: 'Nana',
+      bankName: 'TBC',
+      account: '1111 2222 3333 4444',
+      note: null,
+      link: null
+    }
+    const billingStateDestination = {
+      label: 'March transfer',
+      recipientName: 'Nana',
+      bankName: 'Bank of Georgia',
+      account: 'GE29BG0000000123456789',
+      note: 'March rent',
+      link: 'https://bank.example/rent'
+    }
+
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ rentRemaining: '300.00' })),
+        rentPaymentDestinations: [householdDestination],
+        rentBillingState: {
+          ...dashboard(periodSummary({ rentRemaining: '300.00' })).rentBillingState,
+          paymentDestinations: [billingStateDestination]
+        }
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'rent'
+    })
+
+    expect(model.rentPaymentDestinations).toEqual([billingStateDestination])
+  })
+
+  test('falls back to household rent payment destinations when billing state has none', () => {
+    const householdDestination = {
+      label: 'Household card',
+      recipientName: 'Nana',
+      bankName: 'TBC',
+      account: '1111 2222 3333 4444',
+      note: null,
+      link: null
+    }
+
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ rentRemaining: '300.00' })),
+        rentPaymentDestinations: [householdDestination]
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'rent'
+    })
+
+    expect(model.rentPaymentDestinations).toEqual([householdDestination])
+  })
+
+  test('preserves an empty billing-state payment destination list', () => {
+    const householdDestination = {
+      label: 'Household card',
+      recipientName: 'Nana',
+      bankName: 'TBC',
+      account: '1111 2222 3333 4444',
+      note: null,
+      link: null
+    }
+
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ rentRemaining: '300.00' })),
+        rentPaymentDestinations: [householdDestination],
+        rentBillingState: {
+          ...dashboard(periodSummary({ rentRemaining: '300.00' })).rentBillingState,
+          paymentDestinations: []
+        }
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'rent'
+    })
+
+    expect(model.rentPaymentDestinations).toEqual([])
+  })
+
   test('computes next payment window for idle state', () => {
     const model = buildTodayViewModel({
       dashboard: {

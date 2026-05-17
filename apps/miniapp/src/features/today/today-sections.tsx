@@ -1,5 +1,14 @@
-import { For, Show, createMemo } from 'solid-js'
-import { Check, CircleDollarSign, ExternalLink, Plus, ReceiptText, Sparkles } from 'lucide-solid'
+import { For, Show, createMemo, createSignal, createUniqueId } from 'solid-js'
+import {
+  Check,
+  ChevronDown,
+  CircleDollarSign,
+  Copy,
+  ExternalLink,
+  Plus,
+  ReceiptText,
+  Sparkles
+} from 'lucide-solid'
 
 import { Button } from '../../components/ui/button'
 import { Modal } from '../../components/ui/dialog'
@@ -19,6 +28,12 @@ import {
   type TodayMemberCloseLine,
   type TodayViewModel
 } from './today-view-model'
+import {
+  rentPaymentAccountTail,
+  rentPaymentDestinationCopyText,
+  rentPaymentDestinationMeta,
+  type RentPaymentDestination
+} from './rent-payment-destination'
 
 type Copy = ReturnType<typeof useI18n>['copy']
 
@@ -54,6 +69,155 @@ function purchasePositionLabel(amountMajor: string, copy: ReturnType<Copy>): str
   return copy.todayPurchasePositionEven
 }
 
+function CopyIconButton(props: {
+  label: string
+  copied: boolean
+  compact?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      class="rent-payment-dock__copy"
+      classList={{
+        'rent-payment-dock__copy--compact': props.compact === true,
+        'is-copied': props.copied
+      }}
+      aria-label={props.label}
+      onClick={props.onClick}
+    >
+      <Show when={props.copied} fallback={<Copy size={15} />}>
+        <Check size={15} />
+      </Show>
+    </button>
+  )
+}
+
+function RentPaymentDock(props: {
+  destinations: readonly RentPaymentDestination[]
+  copiedKey: string | null
+  copy: Copy
+  onCopy: (input: { key: string; text: string; successMessage: string }) => void
+}) {
+  const [expanded, setExpanded] = createSignal(false)
+  const detailsId = createUniqueId()
+  const primary = () => props.destinations[0] ?? null
+
+  const copyAccount = (destination: RentPaymentDestination, index: number) => {
+    props.onCopy({
+      key: `rent:${index}:account`,
+      text: destination.account,
+      successMessage: props.copy().rentPaymentAccountCopied
+    })
+  }
+
+  const copyDetails = (destination: RentPaymentDestination, index: number) => {
+    props.onCopy({
+      key: `rent:${index}:details`,
+      text: rentPaymentDestinationCopyText(destination),
+      successMessage: props.copy().rentPaymentDetailsCopied
+    })
+  }
+
+  return (
+    <aside class="rent-payment-dock" aria-label={props.copy().rentPaymentDetailsTitle}>
+      <Show when={primary()}>
+        {(destination) => (
+          <div class="rent-payment-dock__summary">
+            <div class="rent-payment-dock__summary-copy">
+              <span>{props.copy().rentPaymentDetailsTitle}</span>
+              <strong>{destination().label}</strong>
+              <em>{rentPaymentAccountTail(destination().account)}</em>
+            </div>
+
+            <div class="rent-payment-dock__summary-actions">
+              <CopyIconButton
+                compact
+                label={props.copy().rentPaymentCopyAccount}
+                copied={props.copiedKey === 'rent:0:account'}
+                onClick={() => copyAccount(destination(), 0)}
+              />
+              <button
+                type="button"
+                class="rent-payment-dock__toggle"
+                aria-expanded={expanded()}
+                aria-controls={detailsId}
+                onClick={() => setExpanded((value) => !value)}
+              >
+                <span>
+                  {expanded()
+                    ? props.copy().rentPaymentHideDetails
+                    : props.copy().rentPaymentShowDetails}
+                </span>
+                <ChevronDown size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
+      </Show>
+
+      <Show when={expanded()}>
+        <div id={detailsId} class="rent-payment-dock__details">
+          <For each={props.destinations}>
+            {(destination, index) => {
+              const meta = () => rentPaymentDestinationMeta(destination)
+              const accountKey = () => `rent:${index()}:account`
+              const detailsKey = () => `rent:${index()}:details`
+
+              return (
+                <article class="rent-payment-dock__card">
+                  <div class="rent-payment-dock__card-head">
+                    <div>
+                      <strong>{destination.label}</strong>
+                      <Show when={meta()}>{(value) => <span>{value()}</span>}</Show>
+                    </div>
+                    <Show when={destination.link}>
+                      {(link) => (
+                        <a
+                          class="rent-payment-dock__link"
+                          href={link()}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={props.copy().rentPaymentOpenLink}
+                        >
+                          <ExternalLink size={15} />
+                        </a>
+                      )}
+                    </Show>
+                  </div>
+
+                  <div class="rent-payment-dock__account">
+                    <code>{destination.account}</code>
+                    <CopyIconButton
+                      label={props.copy().rentPaymentCopyAccount}
+                      copied={props.copiedKey === accountKey()}
+                      onClick={() => copyAccount(destination, index())}
+                    />
+                  </div>
+
+                  <Show when={destination.note}>{(note) => <p>{note()}</p>}</Show>
+
+                  <button
+                    type="button"
+                    class="rent-payment-dock__copy-all"
+                    classList={{ 'is-copied': props.copiedKey === detailsKey() }}
+                    onClick={() => copyDetails(destination, index())}
+                  >
+                    <Show when={props.copiedKey === detailsKey()} fallback={<Copy size={14} />}>
+                      <Check size={14} />
+                    </Show>
+                    {props.copy().rentPaymentCopyDetails}
+                  </button>
+                </article>
+              )
+            }}
+          </For>
+        </div>
+      </Show>
+    </aside>
+  )
+}
+
 export function CurrentPeriodPanel(props: {
   model: TodayViewModel
   currentMemberLine: TodayMemberCloseLine | null
@@ -62,8 +226,10 @@ export function CurrentPeriodPanel(props: {
   copy: Copy
   canCloseMine: boolean
   closing: boolean
+  copiedRentPaymentKey: string | null
   onCloseMine: () => void
   onOpenPurchases: () => void
+  onCopyRentPaymentText: (input: { key: string; text: string; successMessage: string }) => void
 }) {
   const copy = () => props.copy()
   const myRemainingMinor = createMemo(() =>
@@ -178,6 +344,15 @@ export function CurrentPeriodPanel(props: {
               </Show>
             </div>
           </div>
+        </Show>
+
+        <Show when={props.model.stage === 'rent' && props.model.rentPaymentDestinations.length > 0}>
+          <RentPaymentDock
+            destinations={props.model.rentPaymentDestinations}
+            copiedKey={props.copiedRentPaymentKey}
+            copy={props.copy}
+            onCopy={props.onCopyRentPaymentText}
+          />
         </Show>
 
         <Show when={props.model.stage === 'idle' && props.model.nextWindow && nextWindowTitle()}>
