@@ -9,7 +9,8 @@ import {
 } from 'solid-js'
 
 import type { CalendarDateParts } from '../lib/dates'
-import { compareTodayToPeriodDay, normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
+import { normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
+import { computeEffectiveBillingStage } from '../lib/billing-stage'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   fetchDashboardQuery,
@@ -268,56 +269,6 @@ function computePurchaseInvestmentChart(
   }
 }
 
-function computeEffectiveBillingStage(input: {
-  dashboard: MiniAppDashboard | null
-  period: string | null
-  todayOverride: CalendarDateParts | null
-}): 'utilities' | 'rent' | 'idle' {
-  const data = input.dashboard
-  const period = input.period
-  if (!data || !period) {
-    return 'idle'
-  }
-
-  const utilitiesReminder = compareTodayToPeriodDay(
-    period,
-    data.utilitiesReminderDay,
-    data.timezone,
-    input.todayOverride
-  )
-  const rentReminder = compareTodayToPeriodDay(
-    period,
-    data.rentWarningDay,
-    data.timezone,
-    input.todayOverride
-  )
-  const utilityPlan = data.utilityBillingPlan
-
-  const utilitiesOpen =
-    utilityPlan !== null &&
-    utilityPlan !== undefined &&
-    utilityPlan.status !== 'settled' &&
-    utilityPlan.memberSummaries.some(
-      (member) => majorStringToMinor(member.assignedThisCycleMajor) > 0n
-    ) &&
-    utilitiesReminder !== null &&
-    rentReminder !== null &&
-    (utilitiesReminder >= 0 || rentReminder >= 0)
-
-  if (utilitiesOpen) {
-    return 'utilities'
-  }
-
-  const rentOpen =
-    data.rentBillingState.memberSummaries.some(
-      (member) => majorStringToMinor(member.remainingMajor) > 0n
-    ) &&
-    rentReminder !== null &&
-    rentReminder >= 0
-
-  return rentOpen ? 'rent' : 'idle'
-}
-
 interface MemberBalanceItem {
   member: MiniAppDashboard['members'][number]
   amountMajor: string
@@ -416,7 +367,8 @@ export function DashboardProvider(props: ParentProps) {
     computeEffectiveBillingStage({
       dashboard: dashboard(),
       period: effectivePeriod(),
-      todayOverride: effectiveTodayOverride()
+      todayOverride: effectiveTodayOverride(),
+      preferTimelineWindow: testingTodayOverride() !== null
     })
   )
   const testingOverridesActive = createMemo(() =>
