@@ -81,6 +81,17 @@ export interface MultiMemberPaymentProposal {
   members: readonly MultiMemberPaymentProposalMember[]
 }
 
+export interface SemanticPaymentCandidate {
+  assertion: 'completed_payment'
+  kind: FinancePaymentKind | null
+  payerMemberId?: string | null
+  payerDisplayName?: string | null
+  amountMinor?: string | null
+  currency?: 'GEL' | 'USD' | null
+  confidence: number
+  evidence: 'explicit_text' | 'reply_context' | 'active_workflow'
+}
+
 export function parsePaymentProposalPayload(
   payload: Record<string, unknown>
 ): PaymentProposalPayload | null {
@@ -243,6 +254,15 @@ function hasPerPersonAmount(rawText: string): boolean {
 
 function shortProposalId(): string {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 16)
+}
+
+function explicitAmountFromCandidate(candidate: SemanticPaymentCandidate): Money | null {
+  if (!candidate.amountMinor || !candidate.currency || !/^[0-9]+$/.test(candidate.amountMinor)) {
+    return null
+  }
+
+  const amountMinor = BigInt(candidate.amountMinor)
+  return amountMinor > 0n ? Money.fromMinor(amountMinor, candidate.currency) : null
 }
 
 function inferActivePaymentKind(input: {
@@ -732,6 +752,218 @@ export async function maybeCreatePaymentProposal(input: {
     breakdown: {
       guidance,
       explicitAmount: parsed.explicitAmount
+    }
+  }
+}
+
+export async function maybeCreatePaymentProposalFromCandidate(input: {
+  rawText: string
+  householdId: string
+  memberId: string
+  candidate: SemanticPaymentCandidate
+  financeService: FinanceCommandService
+  householdConfigurationRepository: HouseholdConfigurationRepository
+}): Promise<
+  | {
+      status: 'no_action'
+    }
+  | {
+      status: 'unsupported_currency'
+    }
+  | {
+      status: 'already_settled'
+      kind: 'rent' | 'utilities'
+    }
+  | {
+      status: 'multi_member_proposal'
+      proposal: MultiMemberPaymentProposal
+    }
+  | {
+      status: 'proposal'
+      payload: PaymentProposalPayload
+      breakdown: PaymentProposalBreakdown
+    }
+> {
+  const [settings, dashboard] = await Promise.all([
+    input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
+    input.financeService.generateDashboard()
+  ])
+
+  if (!dashboard) {
+    return {
+      status: 'no_action'
+    }
+  }
+
+  const memberLine = dashboard.members.find((line) => line.memberId === input.memberId)
+  if (!memberLine) {
+    return {
+      status: 'no_action'
+    }
+  }
+
+  const explicitAmount = explicitAmountFromCandidate(input.candidate)
+  if (explicitAmount && explicitAmount.currency !== dashboard.currency) {
+    return {
+      status: 'unsupported_currency'
+    }
+  }
+
+  const members = await input.financeService.listMembers()
+  const mentionedMembers = resolveMentionedMembers({
+    rawText: input.rawText,
+    members,
+    senderMemberId: input.memberId
+  })
+
+  if (mentionedMembers) {
+    if (
+      (explicitAmount || /\d+(?:[.,]\d{1,2})?/.test(input.rawText)) &&
+      !hasPerPersonAmount(input.rawText)
+    ) {
+      return {
+        status: 'no_action'
+      }
+    }
+
+    const inferredKind =
+      input.candidate.kind ??
+      inferActivePaymentKind({
+        dashboard,
+        memberIds: mentionedMembers.map((member) => member.id),
+        settings
+      })
+
+    if (!inferredKind) {
+      return {
+        status: 'no_action'
+      }
+    }
+
+    const proposalMembers = mentionedMembers
+      .map((member): MultiMemberPaymentProposalMember | null => {
+        const line = dashboard.members.find((candidate) => candidate.memberId === member.id)
+        if (!line) {
+          return null
+        }
+
+        const guidance = buildMemberPaymentGuidance({
+          kind: inferredKind,
+          period: dashboard.period,
+          memberLine: line,
+          settings
+        })
+        const amount = explicitAmount ?? guidance.proposalAmount
+        const unpaid = isMemberUnpaidForKind({
+          dashboard,
+          period: dashboard.period,
+          kind: inferredKind,
+          memberId: member.id,
+          fallbackAmount: guidance.proposalAmount
+        })
+
+        return {
+          memberId: member.id,
+          telegramUserId: member.telegramUserId,
+          displayName: member.displayName,
+          paymentStatus: unpaid ? 'unpaid' : 'paid',
+          amountMinor: unpaid ? amount.amountMinor.toString() : '0',
+          currency: unpaid ? amount.currency : dashboard.currency,
+          selected: unpaid
+        }
+      })
+      .filter((member): member is MultiMemberPaymentProposalMember => member !== null)
+
+    if (proposalMembers.length < 2) {
+      return {
+        status: 'no_action'
+      }
+    }
+
+    if (!proposalMembers.some((member) => member.paymentStatus === 'unpaid')) {
+      return {
+        status: 'already_settled',
+        kind: inferredKind
+      }
+    }
+
+    return {
+      status: 'multi_member_proposal',
+      proposal: {
+        proposalId: shortProposalId(),
+        householdId: input.householdId,
+        kind: inferredKind,
+        period: dashboard.period,
+        members: proposalMembers
+      }
+    }
+  }
+
+  const kind =
+    input.candidate.kind ??
+    inferActivePaymentKind({
+      dashboard,
+      memberIds: [input.memberId],
+      settings
+    })
+
+  if (!kind) {
+    return {
+      status: 'no_action'
+    }
+  }
+
+  if (memberLine.remaining.amountMinor <= 0n) {
+    return {
+      status: 'already_settled',
+      kind
+    }
+  }
+
+  const guidance = buildMemberPaymentGuidance({
+    kind,
+    period: dashboard.period,
+    memberLine,
+    settings
+  })
+
+  if (
+    !isMemberUnpaidForKind({
+      dashboard,
+      period: dashboard.period,
+      kind,
+      memberId: input.memberId,
+      fallbackAmount: guidance.proposalAmount
+    })
+  ) {
+    return {
+      status: 'already_settled',
+      kind
+    }
+  }
+
+  const amount = explicitAmount ?? guidance.proposalAmount
+  if (amount.amountMinor <= 0n) {
+    return {
+      status: 'already_settled',
+      kind
+    }
+  }
+
+  return {
+    status: 'proposal',
+    payload: {
+      proposalId: crypto.randomUUID(),
+      householdId: input.householdId,
+      memberId: input.memberId,
+      kind,
+      period: dashboard.period,
+      amountMinor: amount.amountMinor.toString(),
+      currency: amount.currency
+    },
+    breakdown: {
+      guidance,
+      explicitAmount
     }
   }
 }

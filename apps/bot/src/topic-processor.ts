@@ -27,10 +27,11 @@ export interface TopicProcessorPurchaseResult {
 
 export interface TopicProcessorPaymentResult {
   route: 'payment'
-  kind: 'rent' | 'utilities'
+  kind: 'rent' | 'utilities' | null
   amountMinor: string | null
   currency: 'GEL' | 'USD' | null
   payerDisplayName: string | null
+  evidence?: 'explicit_text' | 'reply_context' | 'active_workflow'
   confidence: number
   reason: string
 }
@@ -173,6 +174,7 @@ interface OpenAiStructuredResult {
   participantMemberIds?: string[] | null
   kind?: 'rent' | 'utilities' | null
   payerDisplayName?: string | null
+  evidence?: 'explicit_text' | 'reply_context' | 'active_workflow' | null
   confidence?: number
   reason?: string | null
 }
@@ -328,11 +330,19 @@ When classifying as "purchase":
 CRITICAL: Payment detection ONLY applies when topicRole=payments. In generic topics, do NOT classify messages as "payment" even if they mention payments.
 
 This topic is a workflow topic, not a casual assistant thread.
-If the message reports a completed rent or utility payment (payment verb + rent/utilities), classify as "payment".
-- Payment verbs: оплатил, оплачено, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
+If the message reports a completed rent or utility payment, classify as "payment".
+- Payment route requires a completed/past/perfective payment fact or receipt-like proof.
+- Completed payment verbs: оплатил, оплачено, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
+- Future intent, ability constraints, requests for someone else to pay, offers to help, and planning discussion are NOT payment facts and must be silent unless the user explicitly addresses the bot for chat.
+  Examples that are silent: "могу закинуть", "надо закинуть", "завтра закину", "если надо, закину", "кто может закинуть?", "мне чтоб закинуть надо в город гнать", "на карте 0".
+- Generic acknowledgements like "готово" / "done" are payment facts ONLY when anchored by reply context or active workflow. Free-standing acknowledgements are silent.
 - Realistic amount for rent/utilities if explicitly stated in the message
 - CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.
 - THIRD-PERSON PAYMENTS: If the message says someone else paid (e.g., "Dima paid utilities", "Дима оплатил коммуналку"), extract their display name in payerDisplayName. If the message is first-person ("I paid", "оплатил"), set payerDisplayName=null (the sender is the payer).
+- Set evidence:
+  - "explicit_text" when the latest message itself clearly asserts the completed payment
+  - "reply_context" when a short acknowledgement is clear only because it replies to a bot payment prompt/reminder
+  - "active_workflow" when it is clear only because the user is answering an active payment workflow
 - If the message is a payment-related balance/status question, use topic_helper.
 - If the user explicitly addresses the bot with non-payment banter, use chat_reply with one short sentence.
 - Otherwise ordinary discussion in this topic stays silent.
@@ -421,6 +431,15 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
                   payerDisplayName: {
                     anyOf: [{ type: 'string' }, { type: 'null' }]
                   },
+                  evidence: {
+                    anyOf: [
+                      {
+                        type: 'string',
+                        enum: ['explicit_text', 'reply_context', 'active_workflow']
+                      },
+                      { type: 'null' }
+                    ]
+                  },
                   confidence: {
                     type: 'number',
                     minimum: 0,
@@ -442,6 +461,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
                   'participantMemberIds',
                   'kind',
                   'payerDisplayName',
+                  'evidence',
                   'confidence',
                   'reason'
                 ]
@@ -575,24 +595,10 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
             typeof parsed.payerDisplayName === 'string' && parsed.payerDisplayName.trim().length > 0
               ? parsed.payerDisplayName.trim()
               : null
-
-          if (!kind) {
-            logger?.warn(
-              {
-                event: 'topic_processor.missing_payment_fields',
-                amountMinor: parsed.amountMinor,
-                currency: parsed.currency,
-                kind: parsed.kind
-              },
-              'Topic processor missing payment fields'
-            )
-            const t = getBotTranslations(input.locale).assistant
-            return {
-              route: 'payment_clarification',
-              clarificationQuestion: t.paymentClarification,
-              reason: 'missing_required_fields'
-            }
-          }
+          const evidence =
+            parsed.evidence === 'reply_context' || parsed.evidence === 'active_workflow'
+              ? parsed.evidence
+              : 'explicit_text'
 
           return {
             route,
@@ -600,6 +606,7 @@ If user dismisses ("не, забей", "cancel"), use dismiss_workflow.`
             amountMinor: amountMinor?.toString() ?? null,
             currency,
             payerDisplayName,
+            evidence,
             confidence,
             reason
           }

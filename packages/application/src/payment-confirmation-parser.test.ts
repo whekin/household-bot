@@ -48,4 +48,11 @@ describe('parsePaymentConfirmationMessage', () => {
     expect(result.kind).toBeNull()
     expect(result.reviewReason).toBe('kind_ambiguous')
   })
+
+  test('does not treat future закину wording as completed payment intent', () => {
+    const result = parsePaymentConfirmationMessage('завтра закину', 'GEL')
+
+    expect(result.kind).toBeNull()
+    expect(result.reviewReason).toBe('intent_missing')
+  })
 })
