@@ -1,13 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 
 import { createHouseholdOnboardingService } from '@household/application'
+import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
   HouseholdMemberRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
 
-import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
+import {
+  createMiniAppAuthHandler,
+  createMiniAppJoinHandler,
+  miniAppErrorResponse
+} from './miniapp-auth'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 function onboardingRepository(): HouseholdConfigurationRepository {
@@ -356,5 +361,57 @@ describe('createMiniAppAuthHandler', () => {
       ok: false,
       error: 'Invalid JSON body'
     })
+  })
+
+  test('logs sanitized nested error metadata for request failures', async () => {
+    const logEntries: { payload: unknown; message: string }[] = []
+    const logger = {
+      error: (payload: unknown, message: string) => {
+        logEntries.push({ payload, message })
+      }
+    } as Logger
+    const databaseCause = Object.assign(new Error('column "idempotency_key" does not exist'), {
+      code: '42703',
+      table: 'payment_records',
+      column: 'idempotency_key',
+      constraint: 'payment_records_idempotency_unique'
+    })
+    const error = new Error(
+      'Failed query for postgres://user:secret@db.example/app initData=query_id=abc&hash=secret',
+      {
+        cause: databaseCause
+      }
+    )
+
+    const response = miniAppErrorResponse(error, 'http://localhost:5173', logger, {
+      route: 'miniapp.billing.payment_period.close'
+    })
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Internal Server Error'
+    })
+    expect(logEntries).toHaveLength(1)
+    expect(logEntries[0]?.message).toBe('Mini app request failed')
+    expect(logEntries[0]?.payload).toMatchObject({
+      event: 'miniapp.request_failed',
+      route: 'miniapp.billing.payment_period.close',
+      errorDetails: {
+        name: 'Error',
+        cause: {
+          name: 'Error',
+          message: 'column "idempotency_key" does not exist',
+          code: '42703',
+          table: 'payment_records',
+          column: 'idempotency_key',
+          constraint: 'payment_records_idempotency_unique'
+        }
+      }
+    })
+    const serializedPayload = JSON.stringify(logEntries[0]?.payload)
+    expect(serializedPayload).not.toContain('secret')
+    expect(serializedPayload).not.toContain('user:secret')
+    expect(serializedPayload).not.toContain('hash=')
   })
 })

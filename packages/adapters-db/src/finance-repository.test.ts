@@ -128,4 +128,70 @@ describe('createDbFinanceRepository', () => {
     },
     10000
   )
+
+  testIfDatabase('addPaymentRecordIfNew is idempotent by key', async () => {
+    const { db, queryClient } = createDbClient(databaseUrl!, {
+      max: 1,
+      prepare: false
+    })
+    const householdId = randomUUID()
+    const cycleId = randomUUID()
+    const memberId = randomUUID()
+    const idempotencyKey = `close-payment-period:${householdId}:${cycleId}:rent:${memberId}`
+
+    createdHouseholdIds.push(householdId)
+
+    await db.insert(schema.households).values({
+      id: householdId,
+      name: `Idempotent Payment Household ${randomUUID()}`
+    })
+    await db.insert(schema.members).values({
+      id: memberId,
+      householdId,
+      telegramUserId: '30003',
+      displayName: 'Ion'
+    })
+    await db.insert(schema.billingCycles).values({
+      id: cycleId,
+      householdId,
+      period: '2026-05',
+      currency: 'GEL'
+    })
+
+    const financeClient = createDbFinanceRepository(databaseUrl!, householdId)
+    const input = {
+      cycleId,
+      memberId,
+      kind: 'rent' as const,
+      amountMinor: 46900n,
+      currency: 'GEL' as const,
+      idempotencyKey,
+      recordedAt: instantFromIso('2026-05-18T16:33:08.848Z')
+    }
+
+    const first = await financeClient.repository.addPaymentRecordIfNew(input)
+    const duplicate = await financeClient.repository.addPaymentRecordIfNew(input)
+
+    expect(first).toMatchObject({
+      cycleId,
+      memberId,
+      kind: 'rent',
+      amountMinor: 46900n,
+      currency: 'GEL'
+    })
+    expect(duplicate).toBeNull()
+
+    const rows = await db
+      .select({
+        id: schema.paymentRecords.id,
+        idempotencyKey: schema.paymentRecords.idempotencyKey
+      })
+      .from(schema.paymentRecords)
+      .where(eq(schema.paymentRecords.idempotencyKey, idempotencyKey))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).toBe(first?.id)
+
+    await financeClient.close()
+    await queryClient.end({ timeout: 5 })
+  })
 })

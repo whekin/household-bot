@@ -98,8 +98,111 @@ export async function readMiniAppRequestPayload(request: {
   }
 }
 
-export function miniAppErrorResponse(error: unknown, origin?: string, logger?: Logger): Response {
-  const message = error instanceof Error ? error.message : 'Unknown mini app error'
+type MiniAppErrorLogContext = Record<string, string | number | boolean | null>
+
+interface SerializedMiniAppError {
+  name?: string
+  message: string
+  code?: string
+  detail?: string
+  hint?: string
+  constraint?: string
+  table?: string
+  column?: string
+  schema?: string
+  severity?: string
+  routine?: string
+  cause?: SerializedMiniAppError
+}
+
+const miniAppErrorMetadataFields = [
+  'code',
+  'detail',
+  'hint',
+  'constraint',
+  'table',
+  'column',
+  'schema',
+  'severity',
+  'routine'
+] as const
+
+const databaseUrlCredentialsPattern = /\b(postgres(?:ql)?:\/\/)([^:@\s/]+):([^@\s/]+)@/gi
+const telegramBotTokenPattern = /\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g
+const bearerTokenPattern = /\b(authorization:\s*bearer\s+)[^\s,]+/gi
+const telegramInitDataPattern = /\b(initData=)[^\s]+/gi
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(databaseUrlCredentialsPattern, '$1[redacted]:[redacted]@')
+    .replace(telegramBotTokenPattern, '[redacted-bot-token]')
+    .replace(bearerTokenPattern, '$1[redacted]')
+    .replace(telegramInitDataPattern, '$1[redacted]')
+}
+
+function errorObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function errorTextField(value: Record<string, unknown>, key: string): string | undefined {
+  const raw = value[key]
+  if (typeof raw === 'string') {
+    return redactSensitiveText(raw)
+  }
+
+  if (typeof raw === 'number' || typeof raw === 'bigint') {
+    return raw.toString()
+  }
+
+  return undefined
+}
+
+function serializeMiniAppError(error: unknown, depth = 0): SerializedMiniAppError {
+  const object = errorObject(error)
+  const serialized: SerializedMiniAppError = {
+    message:
+      error instanceof Error
+        ? redactSensitiveText(error.message)
+        : object
+          ? (errorTextField(object, 'message') ?? 'Unknown mini app error')
+          : 'Unknown mini app error'
+  }
+
+  if (error instanceof Error && error.name.trim().length > 0) {
+    serialized.name = redactSensitiveText(error.name)
+  } else if (object) {
+    const name = errorTextField(object, 'name')
+    if (name) {
+      serialized.name = name
+    }
+  }
+
+  if (object) {
+    for (const key of miniAppErrorMetadataFields) {
+      const text = errorTextField(object, key)
+      if (text) {
+        serialized[key] = text
+      }
+    }
+
+    if (depth < 2 && 'cause' in object && object.cause !== undefined) {
+      serialized.cause = serializeMiniAppError(object.cause, depth + 1)
+    }
+  }
+
+  return serialized
+}
+
+export function miniAppErrorResponse(
+  error: unknown,
+  origin?: string,
+  logger?: Logger,
+  context: MiniAppErrorLogContext = {}
+): Response {
+  const errorDetails = serializeMiniAppError(error)
+  const message = errorDetails.message
 
   if (message === 'Invalid JSON body') {
     return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
@@ -108,7 +211,9 @@ export function miniAppErrorResponse(error: unknown, origin?: string, logger?: L
   logger?.error(
     {
       event: 'miniapp.request_failed',
-      error: message
+      ...context,
+      error: message,
+      errorDetails
     },
     'Mini app request failed'
   )

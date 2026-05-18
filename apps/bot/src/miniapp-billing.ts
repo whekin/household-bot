@@ -2172,7 +2172,9 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
           origin
         )
       } catch (error) {
-        return miniAppErrorResponse(error, origin, options.logger)
+        return miniAppErrorResponse(error, origin, options.logger, {
+          route: 'miniapp.billing.payment_period.close'
+        })
       }
     }
   }
