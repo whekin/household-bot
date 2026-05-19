@@ -5,22 +5,22 @@ pre-commit:
   commands:
     db-migration-manifest:
       glob: 'packages/db/drizzle/*.sql'
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run db:migrations:manifest && git add packages/db/drizzle-checksums.json
+      run: bun run db:migrations:manifest && git add packages/db/drizzle-checksums.json
     format:
       glob: '*.{ts,tsx,js,jsx,json,md}'
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run format:check
+      run: bun run format:check
     lint:
       glob: '*.{ts,tsx,js,jsx}'
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run lint
+      run: bun run lint
 
 pre-push:
   parallel: true
   commands:
     db-migrations:
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run db:migrations:check
+      run: bun run db:migrations:check
     typecheck:
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run typecheck
+      run: bun run typecheck
     test:
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run test
+      run: bun run test
     build:
-      run: PATH="$HOME/.bun/bin:/opt/homebrew/opt/node/bin:$PATH" bun run build
+      run: bun run build

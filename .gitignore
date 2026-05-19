@@ -52,6 +52,7 @@ infra/pulumi/aws/.pulumi
 
 # Codex local runtime config
 .codex
+.mcp.json
 
 # kiro specs and config
 .kiro
