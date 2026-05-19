@@ -15,12 +15,13 @@ function auditEvent(input: Partial<HouseholdAuditEventRecord> = {}): HouseholdAu
     actorDisplayName: input.actorDisplayName ?? 'Стас',
     eventType: input.eventType ?? 'purchase.added',
     category: input.category ?? 'purchase_events',
-    summaryText: input.summaryText ?? 'Стас добавил покупку: Pizza 30.00 ₾',
+    summaryText: input.summaryText ?? 'Стас: добавление покупки Pizza 30.00 ₾',
     metadata: input.metadata ?? {
       notificationDetails: {
         locale: 'ru',
-        compactText: 'Стас добавил покупку: Pizza 30.00 ₾',
-        expandedText: 'Стас добавил покупку: Pizza 30.00 ₾\nПлательщик: Стас\nУчастники: Стас, Дима'
+        compactText: 'Стас: добавление покупки Pizza 30.00 ₾',
+        expandedText:
+          'Стас: добавление покупки Pizza 30.00 ₾\nПлательщик: Стас\nУчастники: Стас, Дима'
       }
     },
     deliveryStatus: input.deliveryStatus ?? 'sent',
@@ -124,7 +125,7 @@ describe('registerAuditNotificationCallbacks', () => {
     expect(calls[2]).toMatchObject({
       method: 'editMessageText',
       payload: {
-        text: 'Стас добавил покупку: Pizza 30.00 ₾'
+        text: 'Стас: добавление покупки Pizza 30.00 ₾'
       }
     })
     expect(JSON.stringify(calls[2]?.payload)).toContain('Детали')

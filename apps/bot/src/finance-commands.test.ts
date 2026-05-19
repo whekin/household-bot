@@ -1524,7 +1524,7 @@ describe('createFinanceCommandsService', () => {
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
         {
-          text: 'Оплатил по плану',
+          text: 'Оплачено по плану',
           callback_data: 'bill:resolve:current'
         }
       ],

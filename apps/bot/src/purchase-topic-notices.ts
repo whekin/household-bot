@@ -105,7 +105,7 @@ export function renderPurchaseTopicNotice(input: {
     input.locale === 'ru'
       ? [
           `Покупка: ${summary}`,
-          `Оплатил: ${payer}`,
+          `Плательщик: ${payer}`,
           `Разделение: ${splitLabel(input.locale, input.purchase.splitMode)}`,
           participants
         ]

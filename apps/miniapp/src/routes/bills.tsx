@@ -521,7 +521,7 @@ export default function BillsRoute() {
                                 currentMemberId() && void handleResolvePlanned(currentMemberId()!)
                               }
                             >
-                              {locale() === 'ru' ? 'Оплатил по плану' : 'Resolve my plan'}
+                              {locale() === 'ru' ? 'Оплачено по плану' : 'Resolve my plan'}
                             </Button>
                           </div>
                         </Show>
@@ -748,7 +748,7 @@ export default function BillsRoute() {
                                     >
                                       {summary.isCurrent
                                         ? locale() === 'ru'
-                                          ? 'Оплатил по плану'
+                                          ? 'Оплачено по плану'
                                           : 'Resolve mine'
                                         : locale() === 'ru'
                                           ? `Записать за ${summary.displayName}`
@@ -808,7 +808,7 @@ export default function BillsRoute() {
                                                   }
                                                 >
                                                   {locale() === 'ru'
-                                                    ? 'Я оплатил вместо этого'
+                                                    ? 'Оплатить вместо назначенного'
                                                     : 'I paid this instead'}
                                                 </Button>
                                               </Show>

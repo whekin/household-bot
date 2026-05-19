@@ -36,6 +36,17 @@ const members: HouseholdMemberRecord[] = [
     householdDefaultLocale: 'ru',
     rentShareWeight: 1,
     isAdmin: false
+  },
+  {
+    id: 'member-3',
+    householdId: 'household-1',
+    telegramUserId: '1003',
+    displayName: 'Алиса',
+    status: 'active',
+    preferredLocale: null,
+    householdDefaultLocale: 'ru',
+    rentShareWeight: 1,
+    isAdmin: false
   }
 ]
 
@@ -161,8 +172,16 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
     expect(ru.text).toContain('Покупка: Pizza 30.00 ₾')
-    expect(ru.text).toContain('Оплатил: Стас')
+    expect(ru.text).toContain('Плательщик: Стас')
     expect(ru.text).toContain('- Дима (не участвует)')
+
+    const ruWithFemininePayer = renderPurchaseTopicNotice({
+      locale: 'ru',
+      purchase: purchase({ payerMemberId: 'member-3' }),
+      members
+    })
+    expect(ruWithFemininePayer.text).toContain('Плательщик: Алиса')
+    expect(ruWithFemininePayer.text).not.toContain('Оплатил: Алиса')
   })
 
   test('omits participant buttons for custom amount purchases', () => {

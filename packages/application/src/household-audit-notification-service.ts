@@ -143,8 +143,8 @@ function localizedKind(locale: SupportedLocale, value: string | null): string | 
 
 function localizedClosedPaymentKind(locale: SupportedLocale, value: string | null): string | null {
   if (locale === 'ru') {
-    if (value === 'rent') return 'аренду'
-    if (value === 'utilities') return 'коммуналку'
+    if (value === 'rent') return 'аренды'
+    if (value === 'utilities') return 'коммуналки'
   }
   return localizedKind(locale, value)
 }
@@ -170,23 +170,23 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'utility_vendor_payment.recorded': 'recorded utility bill payment'
   }
   const ru: Record<string, string> = {
-    'cycle.opened': 'открыл период',
-    'cycle.closed': 'закрыл период',
-    'rent.updated': 'обновил аренду:',
-    'utility_bill.added': 'добавил коммунальный счёт:',
-    'utility_bill.updated': 'обновил коммунальный счёт:',
-    'utility_bill.deleted': 'удалил коммунальный счёт',
-    'purchase.added': 'добавил покупку:',
-    'purchase.updated': 'обновил покупку:',
-    'purchase.confirmed': 'подтвердил покупку:',
-    'purchase.deleted': 'удалил покупку',
-    'payment.recorded': 'записал платёж:',
-    'payment.updated': 'обновил платёж:',
-    'payment.deleted': 'удалил платёж',
-    'payment_period.closed': 'закрыл',
-    'utility_plan.resolved': 'отметил коммунальный план за',
-    'utility_plan.settled': 'закрыл коммунальный план за',
-    'utility_vendor_payment.recorded': 'записал оплату коммуналки'
+    'cycle.opened': 'открытие периода',
+    'cycle.closed': 'закрытие периода',
+    'rent.updated': 'обновление аренды',
+    'utility_bill.added': 'добавление коммунального счёта',
+    'utility_bill.updated': 'обновление коммунального счёта',
+    'utility_bill.deleted': 'удаление коммунального счёта',
+    'purchase.added': 'добавление покупки',
+    'purchase.updated': 'обновление покупки',
+    'purchase.confirmed': 'подтверждение покупки',
+    'purchase.deleted': 'удаление покупки',
+    'payment.recorded': 'запись платежа',
+    'payment.updated': 'обновление платежа',
+    'payment.deleted': 'удаление платежа',
+    'payment_period.closed': 'закрытие',
+    'utility_plan.resolved': 'отметка коммунального плана за',
+    'utility_plan.settled': 'закрытие коммунального плана за',
+    'utility_vendor_payment.recorded': 'запись оплаты коммуналки'
   }
   return (locale === 'ru' ? ru : en)[eventType] ?? null
 }
@@ -385,6 +385,7 @@ export function renderAuditNotification(input: {
   details: HouseholdAuditNotificationDetails | null
 } {
   const actor = input.actorDisplayName.trim() || (input.locale === 'ru' ? 'Кто-то' : 'Someone')
+  const actorPrefix = input.locale === 'ru' ? `${actor}:` : actor
   const action = actionText(input.locale, input.eventType)
   const description =
     metadataString(input.metadata, 'description') ??
@@ -404,14 +405,19 @@ export function renderAuditNotification(input: {
   const compactText =
     action && input.eventType === 'payment_period.closed'
       ? cleanSummaryText(
-          [actor, action, kind, period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null]
+          [
+            actorPrefix,
+            action,
+            kind,
+            period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null
+          ]
             .filter((part): part is string => Boolean(part))
             .join(' ')
         )
       : action
         ? cleanSummaryText(
             [
-              actor,
+              actorPrefix,
               action,
               description,
               input.eventType.startsWith('payment.') || input.eventType === 'payment_period.closed'

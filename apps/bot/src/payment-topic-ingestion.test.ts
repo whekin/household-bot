@@ -2118,7 +2118,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     await bot.handleUpdate(paymentUpdate('Ион оплатил аренду') as never)
 
     expect(calls[0]?.payload).toMatchObject({
-      text: expect.stringContaining('Похоже, Ion оплатил аренду: 473.00 ₾.')
+      text: expect.stringContaining('Похоже, это оплата аренды от Ion: 473.00 ₾.')
     })
     const reporterPending = await promptRepository.getPendingAction('-10012345', '10002')
     const reportedPending = await promptRepository.getPendingAction('-10012345', '20002')
@@ -2138,7 +2138,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(calls.at(-2)).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Ion оплатил аренду: 472.50 ₾'
+        text: 'Оплата аренды от Ion: 472.50 ₾'
       }
     })
     expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()

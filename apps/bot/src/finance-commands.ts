@@ -419,7 +419,7 @@ function formatHouseholdMemberStatusLabel(
     return locale === 'ru' ? 'в отъезде' : 'away'
   }
 
-  return locale === 'ru' ? 'вышел' : 'left'
+  return locale === 'ru' ? 'не живёт' : 'left'
 }
 
 function formatHouseholdStatusMemberLines(
@@ -1774,7 +1774,7 @@ export function createFinanceCommandsService(options: {
       })
       keyboard.push([
         {
-          text: locale === 'ru' ? 'Оплатил по плану' : 'Resolve my planned bills',
+          text: locale === 'ru' ? 'Оплачено по плану' : 'Resolve my planned bills',
           callback_data: `${BILL_RESOLVE_CALLBACK_PREFIX}current`
         }
       ])

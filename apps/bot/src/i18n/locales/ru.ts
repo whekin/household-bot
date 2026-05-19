@@ -90,7 +90,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     invalidJoinLink: 'Некорректная ссылка-приглашение в дом.',
     joinLinkInvalidOrExpired: 'Эта ссылка-приглашение в дом недействительна или устарела.',
     alreadyActiveMember: (displayName) =>
-      `Вы уже активный участник. Откройте мини-приложение, чтобы увидеть профиль ${displayName}.`,
+      `Вы уже в составе дома. Откройте мини-приложение, чтобы увидеть профиль ${displayName}.`,
     joinRequestSent: (householdName) =>
       `Заявка на вступление в ${householdName} отправлена. Дождитесь подтверждения от админа дома.`,
     setupSummary: ({ householdName, created }) =>
@@ -159,10 +159,10 @@ export const ruBotTranslations: BotTranslationCatalog = {
     approveMemberUsage: 'Использование: /approve_member <telegram_user_id>',
     onlyInviteAdmins: 'Приглашать участников могут только админы Telegram-группы или админы дома.',
     approvedMember: (displayName, householdName) =>
-      `Участник ${displayName} подтверждён как активный участник ${householdName}.`,
+      `Для ${displayName} открыт доступ к дому ${householdName}.`,
     useButtonInGroup: 'Используйте эту кнопку в группе дома.',
     unableToIdentifySelectedMember: 'Не удалось определить выбранного участника.',
-    approvedMemberToast: (displayName) => `${displayName} подтверждён.`,
+    approvedMemberToast: (displayName) => `Доступ открыт: ${displayName}.`,
     useJoinLinkInGroup: 'Используйте /join_link внутри группы дома.',
     joinLinkUnavailable: 'Не удалось сгенерировать ссылку для вступления.',
     joinLinkReady: (link, householdName) =>
@@ -311,8 +311,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
     detailsButton: 'Детали',
     hideDetailsButton: 'Скрыть детали',
-    paidButton: 'Я оплатил',
-    paidUtilitiesButton: 'Я оплатил провайдеров',
+    paidButton: 'Отметить оплату',
+    paidUtilitiesButton: 'Отметить оплату провайдеров',
     closeUnpaidButton: 'Закрыть неоплаченных',
     confirmCloseButton: 'Подтвердить закрытие',
     fullyPaid: (kind, month) =>
@@ -323,7 +323,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     paymentRecordedToast: 'Оплата отмечена.',
     reminderUnavailable: 'Это напоминание уже недоступно.',
     noRentDestinations: 'Реквизиты для аренды пока не настроены.',
-    everyonePaid: 'Все оплатили',
+    everyonePaid: 'Все оплаты закрыты',
     noUtilityPlan: 'План коммуналки пока не готов.'
   },
   purchase: {
@@ -354,12 +354,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     participantExcluded: (displayName) => `- ${displayName} (не участвует)`,
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
-    payerHeading: 'Кто оплатил:',
-    payerSelected: (displayName) => `Оплатил: ${displayName}`,
+    payerHeading: 'Плательщик:',
+    payerSelected: (displayName) => `Плательщик: ${displayName}`,
     payerQuestion: 'Кто именно это купил?',
     payerFallbackQuestion: 'Не понял, кто именно это купил. Выберите человека ниже.',
-    payerButton: (displayName) => `Оплатил ${displayName}`,
-    payerSelectedToast: (displayName) => `Записал покупателя: ${displayName}.`,
+    payerButton: (displayName) => `Плательщик: ${displayName}`,
+    payerSelectedToast: (displayName) => `Плательщик: ${displayName}.`,
     confirmButton: 'Подтвердить',
     calculatedConfirmButton: 'Верно',
     calculatedFixAmountButton: 'Исправить сумму',
@@ -389,7 +389,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     proposal: (kind, amount, currency) =>
       `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
     proposalReported: (displayName, kind, amount, currency) =>
-      `Похоже, ${displayName} оплатил${kind === 'rent' ? ' аренду' : ' коммуналку'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
+      `Похоже, это оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} от ${displayName}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
     clarification:
       'Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
     unsupportedCurrency:
@@ -397,7 +397,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     noBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
     alreadySettled: (kind, displayName) =>
       displayName
-        ? `${displayName} уже закрыл${kind === 'rent' ? ' аренду' : ' коммуналку'}.`
+        ? `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта для ${displayName}.`
         : `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта.`,
     purchaseRedirect:
       'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
@@ -442,7 +442,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     recorded: (kind, amount, currency) =>
       `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
     recordedReported: (displayName, kind, amount, currency) =>
-      `${displayName} оплатил${kind === 'rent' ? ' аренду' : ' коммуналку'}: ${formatUserFacingMoney(amount, currency)}`,
+      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} от ${displayName}: ${formatUserFacingMoney(amount, currency)}`,
     cancelled: 'Предложение оплаты отменено.',
     proposalUnavailable: 'Это предложение оплаты уже недоступно.',
     notYourProposal:

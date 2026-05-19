@@ -162,9 +162,9 @@ function formatStatus(locale: BotLocale, status: HouseholdMemberLifecycleStatus)
       case 'away':
         return 'в отъезде'
       case 'left':
-        return 'выехал'
+        return 'не живёт'
       default:
-        return 'активен'
+        return 'в доме'
     }
   }
 

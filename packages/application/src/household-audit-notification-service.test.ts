@@ -192,7 +192,7 @@ describe('renderAuditNotification', () => {
           currency: 'GEL'
         }
       }).compactText
-    ).toBe('Стас добавил покупку: Mr. Proper 12.00 ₾')
+    ).toBe('Стас: добавление покупки Mr. Proper 12.00 ₾')
   })
 
   test('renders expanded purchase details with participants', () => {
@@ -255,7 +255,7 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe('Стас закрыл аренду за май 2026 г.')
+    expect(rendered.compactText).toBe('Стас: закрытие аренды за май 2026 г.')
     expect(rendered.compactText).not.toContain('2026-05')
     expect(rendered.details?.expandedText).toContain('Период: май 2026 г.')
     expect(rendered.details?.expandedText).toContain('Закрыто для: Стас 469.00 ₾, Дима 469.00 ₾')
@@ -381,7 +381,7 @@ describe('createHouseholdAuditNotificationService', () => {
 
     expect(sentMessages).toEqual([
       {
-        text: 'Стас добавил покупку: Pizza 30.00 ₾',
+        text: 'Стас: добавление покупки Pizza 30.00 ₾',
         replyMarkup: buildAuditNotificationViewReplyMarkup({
           eventId: event.id,
           locale: 'ru',
@@ -390,7 +390,7 @@ describe('createHouseholdAuditNotificationService', () => {
       }
     ])
     const stored = repository.events.get(event.id)
-    expect(stored?.summaryText).toBe('Стас добавил покупку: Pizza 30.00 ₾')
+    expect(stored?.summaryText).toBe('Стас: добавление покупки Pizza 30.00 ₾')
     expect(stored ? getAuditNotificationDetails(stored)?.expandedText : null).toContain(
       'Участники: Стас, Дима'
     )

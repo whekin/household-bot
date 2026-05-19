@@ -397,10 +397,10 @@ export function PaymentsManager() {
                               >
                                 {group.kind === 'rent'
                                   ? locale() === 'ru'
-                                    ? 'Оплатил аренду'
+                                    ? 'Закрыть аренду'
                                     : 'Paid rent'
                                   : locale() === 'ru'
-                                    ? 'Оплатил коммуналку'
+                                    ? 'Закрыть коммуналку'
                                     : 'Paid utilities'}
                               </Button>
                               <Button

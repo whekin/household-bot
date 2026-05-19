@@ -217,7 +217,7 @@ describe('payment reminder content', () => {
       viewMode: 'details'
     })
 
-    expect(content.text).toContain('Все оплатили')
+    expect(content.text).toContain('Все оплаты закрыты')
     expect(content.text).toContain('План коммуналки пока не готов.')
     expect(content.text).not.toContain('Everyone is paid')
     expect(content.text).not.toContain('No utility plan is ready yet.')
