@@ -30,6 +30,10 @@ services:
       ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS: ${ASSISTANT_RATE_LIMIT_BURST_WINDOW_MS:-60000}
       ASSISTANT_RATE_LIMIT_ROLLING: ${ASSISTANT_RATE_LIMIT_ROLLING:-50}
       ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS: ${ASSISTANT_RATE_LIMIT_ROLLING_WINDOW_MS:-86400000}
+    command:
+      - /bin/sh
+      - -lc
+      - bun packages/db/dist/migrate.js && exec bun apps/bot/dist/index.js
     expose:
       - '8080'
     restart: unless-stopped

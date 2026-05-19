@@ -44,4 +44,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:' + (process.env.PORT ?? '8080') + '/healthz').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["bun", "apps/bot/dist/index.js"]
+CMD ["/bin/sh", "-lc", "set -e; if [ -n \"$DATABASE_URL\" ]; then bun packages/db/dist/migrate.js; fi; exec bun apps/bot/dist/index.js"]
