@@ -347,18 +347,6 @@ export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
   return Array.from(rawText.matchAll(STANDALONE_NUMBER_PATTERN)).length === 1
 }
 
-function hasPurchaseSignal(rawText: string): boolean {
-  if (PLANNING_PURCHASE_PATTERN.test(rawText)) {
-    return false
-  }
-
-  return (
-    LIKELY_PURCHASE_VERB_PATTERN.test(rawText) ||
-    MONEY_SIGNAL_PATTERN.test(rawText) ||
-    EXPLICIT_PARTICIPANT_SUBSET_PATTERN.test(rawText)
-  )
-}
-
 function normalizeInterpretation(
   interpretation: PurchaseInterpretation | null,
   parserError: string | null
@@ -3153,11 +3141,7 @@ export function registerConfiguredPurchaseTopicIngestion(
         // Handle different routes
         switch (processorResult.route) {
           case 'silent': {
-            if (
-              options.interpreter &&
-              (looksLikeLikelyCompletedPurchase(record.rawText) ||
-                activeWorkflow === 'purchase_clarification')
-            ) {
+            if (options.interpreter && activeWorkflow === 'purchase_clarification') {
               options.logger?.info(
                 {
                   event: 'purchase.topic_processor_fallback',
@@ -3257,70 +3241,6 @@ export function registerConfiguredPurchaseTopicIngestion(
           }
 
           case 'purchase_clarification': {
-            if (options.interpreter && looksLikeLikelyCompletedPurchase(record.rawText)) {
-              options.logger?.info(
-                {
-                  event: 'purchase.topic_processor_clarification_fallback',
-                  reason: processorResult.reason,
-                  messageText: record.rawText
-                },
-                'Falling back to purchase interpreter after topic processor requested clarification for a likely purchase'
-              )
-
-              typingIndicator = startTypingIndicator(ctx)
-              const result = await repository.save(
-                record,
-                options.interpreter,
-                householdContext.defaultCurrency,
-                {
-                  householdContext: householdContext.householdContext,
-                  assistantTone: householdContext.assistantTone
-                }
-              )
-
-              if (result.status === 'ignored_not_purchase') {
-                await next()
-                return
-              }
-
-              await handlePurchaseMessageResult(
-                ctx,
-                record,
-                result,
-                householdContext.locale,
-                options.logger,
-                options.historyRepository
-              )
-              rememberAssistantTurn(
-                options.memoryStore,
-                record,
-                buildPurchaseAcknowledgement(result, householdContext.locale)
-              )
-              return
-            }
-
-            if (activeWorkflow === null && !hasPurchaseSignal(record.rawText)) {
-              options.logger?.info(
-                {
-                  event: 'purchase.topic_processor_clarification_ignored',
-                  reason: processorResult.reason,
-                  messageText: record.rawText
-                },
-                'Ignoring purchase clarification for non-purchase chatter in the purchase topic'
-              )
-              cacheTopicMessageRoute(ctx, 'purchase', {
-                route: 'silent',
-                replyText: null,
-                helperKind: null,
-                shouldStartTyping: false,
-                shouldClearWorkflow: false,
-                confidence: 80,
-                reason: processorResult.reason
-              })
-              await next()
-              return
-            }
-
             typingIndicator = startTypingIndicator(ctx)
             const interpretation = toPurchaseClarificationInterpretation(processorResult)
             const result = await repository.saveWithInterpretation(record, interpretation)

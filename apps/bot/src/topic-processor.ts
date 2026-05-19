@@ -335,6 +335,8 @@ If the message reports a completed rent or utility payment, classify as "payment
 - Completed payment verbs: оплатил, оплачено, paid, заплатил, перевёл, кинул, отправил, закинул, забросил, скинул
 - Future intent, ability constraints, requests for someone else to pay, offers to help, and planning discussion are NOT payment facts and must be silent unless the user explicitly addresses the bot for chat.
   Examples that are silent: "могу закинуть", "надо закинуть", "завтра закину", "если надо, закину", "кто может закинуть?", "мне чтоб закинуть надо в город гнать", "на карте 0".
+- Purchase coordination in the payments topic is ordinary chat, not a bot action. Requests/plans like "кто идет в магазин?", "возьми шоколад за 3 лари", "куплю позже" must be silent unless the bot is explicitly addressed.
+- If the bot is explicitly addressed about a wrong-topic purchase, use chat_reply only when you are confident the latest message reports a completed shared purchase. Do not redirect requests, plans, price chatter, or shopping coordination.
 - Generic acknowledgements like "готово" / "done" are payment facts ONLY when anchored by reply context or active workflow. Free-standing acknowledgements are silent.
 - Realistic amount for rent/utilities if explicitly stated in the message
 - CRITICAL: Set amountMinor ONLY if the user explicitly stated a numeric amount in their current message. Do NOT infer or copy amounts from conversation history, bill summaries, or other members' figures. If the user's message contains no explicit amount, return amountMinor=null.

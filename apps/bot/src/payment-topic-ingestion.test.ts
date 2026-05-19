@@ -2739,7 +2739,7 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
   })
 
-  test('playfully redirects purchase-like messages sent in the payments topic', async () => {
+  test('stays silent for unaddressed purchase-like messages sent in the payments topic', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
     const promptRepository = createPromptRepository()
@@ -2789,13 +2789,129 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       paymentUpdate('Купила жигу большую и 2 ножика маленьких 10 лар') as never
     )
 
+    expect(calls).toHaveLength(0)
+    expect(paymentConfirmationService.submitted).toHaveLength(0)
+  })
+
+  test('uses the topic processor reply for addressed wrong-topic purchases', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+    const replyText =
+      'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.'
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: (payload as { text?: string }).text ?? 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService,
+      {
+        topicProcessor: async (input) => {
+          expect(input.topicRole).toBe('payments')
+          expect(input.isExplicitMention).toBe(true)
+          expect(input.messageText).toBe('купила жигу большую и 2 ножика маленьких 10 лар')
+
+          return {
+            route: 'chat_reply',
+            replyText,
+            reason: 'llm_wrong_topic_purchase'
+          }
+        }
+      }
+    )
+
+    await bot.handleUpdate(
+      paymentUpdate('@household_test_bot купила жигу большую и 2 ножика маленьких 10 лар') as never
+    )
+
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: 'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.'
+        text: replyText
       }
     })
+  })
+
+  test('stays silent for shopping requests with prices in the payments topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor('silent') }
+    )
+
+    await bot.handleUpdate(
+      paymentUpdate(
+        'можешь залететь в спар - там милка по скидке за 3 лари\nвозьми с миндалем, плиз'
+      ) as never
+    )
+
+    expect(calls).toHaveLength(0)
+    expect(paymentConfirmationService.submitted).toHaveLength(0)
   })
 
   test('replies when explicitly mentioned even if the topic processor stays silent', async () => {
