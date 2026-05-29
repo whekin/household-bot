@@ -4,7 +4,9 @@ import { formatUserFacingMoney } from '../money'
 export const enBotTranslations: BotTranslationCatalog = {
   localeName: 'English',
   commands: {
+    start: 'Open the household start menu',
     help: 'Show task-based guidance',
+    settings: 'Open household settings and shortcuts',
     home: 'Open the household control center',
     bill: 'Show the household bill view',
     bill_full: 'Show the household bill with all purchase impact',
@@ -25,15 +27,19 @@ export const enBotTranslations: BotTranslationCatalog = {
     approve_member: 'Approve a pending household member',
     app: 'Open the Kojori mini app',
     dashboard: 'Open the household dashboard',
-    keyboard: 'Toggle persistent dashboard button'
+    keyboard: 'Show a persistent dashboard button'
   },
   help: {
     intro:
       '🏡 /home opens the main menu. Use it first; the command list below is for quick access.',
+    introWithoutHome:
+      '🏡 I can guide household finance tasks here. The command list below shows what is available right now.',
     tasksHeading: 'Common tasks:',
     checkMyBill: '• 💸 Check what you owe: /home → My bill',
     checkHouseholdStatus: '• 🏠 See household status: /home → Status',
     checkBalances: '• 🛒 Review purchase balances: /home → Balances',
+    recordPurchase: '• 🧾 Record a shared purchase: send the receipt text in the purchases topic',
+    recordPayment: '• ✅ Confirm a payment: send the payment note in the payments topic',
     openDashboard: '• 📱 Open the dashboard: /home → Mini app',
     setupHousehold: '• 🧰 Set up or maintain a household: /home → Setup/Admin',
     manageMembers: '• 👥 Invite and approve members: /home → Setup/Admin',

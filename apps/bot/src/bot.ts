@@ -9,9 +9,11 @@ import { tryEditMessageText } from './telegram-message-edit'
 import { formatTelegramHelpText, type TelegramHelpOptions } from './telegram-commands'
 
 export interface TelegramBotFeatureCapabilities {
+  homeMenuAvailable?: boolean
   miniAppAvailable?: boolean
   anonymousFeedbackAvailable?: boolean
   financeCommandsAvailable?: boolean
+  setupCommandsAvailable?: boolean
 }
 
 async function shouldShowAdminCommands(options: {
@@ -42,8 +44,12 @@ async function shouldShowAdminCommands(options: {
     return false
   }
 
-  const membership = await options.ctx.api.getChatMember(chatId, userId)
-  return membership.status === 'administrator' || membership.status === 'creator'
+  try {
+    const membership = await options.ctx.api.getChatMember(chatId, userId)
+    return membership.status === 'administrator' || membership.status === 'creator'
+  } catch {
+    return false
+  }
 }
 
 export function createTelegramBot(
@@ -54,12 +60,19 @@ export function createTelegramBot(
 ): Bot {
   const bot = new Bot(token)
   const helpCapabilities = {
+    homeMenuAvailable: capabilities.homeMenuAvailable ?? true,
     miniAppAvailable: capabilities.miniAppAvailable ?? false,
     anonymousFeedbackAvailable: capabilities.anonymousFeedbackAvailable ?? false,
-    financeCommandsAvailable: capabilities.financeCommandsAvailable ?? true
+    financeCommandsAvailable: capabilities.financeCommandsAvailable ?? true,
+    setupCommandsAvailable:
+      capabilities.setupCommandsAvailable ?? capabilities.homeMenuAvailable ?? true
   } satisfies Pick<
     TelegramHelpOptions,
-    'miniAppAvailable' | 'anonymousFeedbackAvailable' | 'financeCommandsAvailable'
+    | 'homeMenuAvailable'
+    | 'miniAppAvailable'
+    | 'anonymousFeedbackAvailable'
+    | 'financeCommandsAvailable'
+    | 'setupCommandsAvailable'
   >
 
   bot.command('help', async (ctx) => {

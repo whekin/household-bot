@@ -24,6 +24,7 @@ import {
   TELEGRAM_HOME_HELP_CALLBACK,
   TELEGRAM_HOME_MENU_CALLBACK,
   TELEGRAM_HOME_MY_BILL_CALLBACK,
+  TELEGRAM_HOME_MY_BILL_FULL_CALLBACK,
   TELEGRAM_HOME_SETUP_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
 } from './home-menu'
@@ -462,6 +463,10 @@ function telegramHomeReply(input: {
       {
         text: t.balancesButton,
         callback_data: TELEGRAM_HOME_BALANCES_CALLBACK
+      },
+      {
+        text: t.fullBillButton,
+        callback_data: TELEGRAM_HOME_MY_BILL_FULL_CALLBACK
       }
     ]
   ]
@@ -1391,7 +1396,7 @@ export function registerHouseholdSetupCommands(options: {
     )
   })
 
-  options.bot.command('home', async (ctx) => {
+  options.bot.command(['home', 'settings'], async (ctx) => {
     const locale = await resolveReplyLocale({
       ctx,
       repository: options.householdConfigurationRepository

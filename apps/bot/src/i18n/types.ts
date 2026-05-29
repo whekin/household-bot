@@ -1,7 +1,9 @@
 export type BotLocale = 'en' | 'ru'
 
 export type TelegramCommandName =
+  | 'start'
   | 'help'
+  | 'settings'
   | 'home'
   | 'bill'
   | 'bill_full'
@@ -25,7 +27,9 @@ export type TelegramCommandName =
   | 'keyboard'
 
 export interface BotCommandDescriptions {
+  start: string
   help: string
+  settings: string
   home: string
   bill: string
   bill_full: string
@@ -60,10 +64,13 @@ export interface BotTranslationCatalog {
   commands: BotCommandDescriptions
   help: {
     intro: string
+    introWithoutHome: string
     tasksHeading: string
     checkMyBill: string
     checkHouseholdStatus: string
     checkBalances: string
+    recordPurchase: string
+    recordPayment: string
     openDashboard: string
     setupHousehold: string
     manageMembers: string

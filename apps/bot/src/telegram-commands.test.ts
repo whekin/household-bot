@@ -59,7 +59,7 @@ describe('telegram command catalog', () => {
       isAdmin: false
     }).map((entry) => entry.command)
 
-    expect(commands).toEqual(['help', 'home', 'cancel'])
+    expect(commands).toEqual(['start', 'help', 'settings', 'home', 'cancel'])
   })
 
   test('includes home in default private and group command scopes', () => {
@@ -85,11 +85,21 @@ describe('telegram command catalog', () => {
       .find((scope) => scope.scope === 'all_chat_administrators')!
       .commands.map((command) => command.command)
 
-    expect(defaultCommands).toEqual(['help', 'home'])
-    expect(privateCommands).toEqual(['help', 'home', 'anon', 'cancel', 'app', 'keyboard'])
-    expect(groupCommands).toEqual(['help', 'home', 'payment_add', 'utilities'])
+    expect(defaultCommands).toEqual(['help', 'settings', 'home'])
+    expect(privateCommands).toEqual([
+      'start',
+      'help',
+      'settings',
+      'home',
+      'anon',
+      'cancel',
+      'app',
+      'keyboard'
+    ])
+    expect(groupCommands).toEqual(['help', 'settings', 'home', 'payment_add', 'utilities'])
     expect(adminCommands).toEqual([
       'help',
+      'settings',
       'home',
       'payment_add',
       'utilities',
@@ -106,6 +116,30 @@ describe('telegram command catalog', () => {
       expect(commands).not.toContain('balance')
       expect(commands).not.toContain('approve_member')
     }
+  })
+
+  test('publishes feature-aware command scopes for reduced runtimes', () => {
+    const scopes = getTelegramCommandScopes('en', {
+      homeMenuAvailable: false,
+      setupCommandsAvailable: false,
+      financeCommandsAvailable: false,
+      anonymousFeedbackAvailable: false,
+      miniAppAvailable: false
+    })
+
+    expect(
+      scopes.find((scope) => scope.scope === 'default')!.commands.map((command) => command.command)
+    ).toEqual(['help'])
+    expect(
+      scopes
+        .find((scope) => scope.scope === 'all_private_chats')!
+        .commands.map((command) => command.command)
+    ).toEqual(['help', 'cancel'])
+    expect(
+      scopes
+        .find((scope) => scope.scope === 'all_group_chats')!
+        .commands.map((command) => command.command)
+    ).toEqual(['help'])
   })
 
   test('formats only read-only assistant-executable commands for assistant context', () => {

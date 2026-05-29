@@ -654,7 +654,8 @@ describe('registerHouseholdSetupCommands', () => {
       { text: '🏠 Status', callback_data: 'home:status' }
     ])
     expect(payload?.reply_markup?.inline_keyboard?.[1]).toEqual([
-      { text: '🛒 Balances', callback_data: 'home:balances' }
+      { text: '🛒 Balances', callback_data: 'home:balances' },
+      { text: '🔎 Full bill', callback_data: 'home:my_bill_full' }
     ])
     expect(payload?.reply_markup?.inline_keyboard?.[2]?.[0]).toEqual({
       text: '📱 Mini app',
@@ -720,6 +721,54 @@ describe('registerHouseholdSetupCommands', () => {
       { text: '🕶 Anonymous note', callback_data: 'home:feedback' }
     ])
     expect(JSON.stringify(payload?.reply_markup)).not.toContain('Mini app')
+  })
+
+  test('opens the same task menu from /settings', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: 123456,
+            type: 'private'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createRejectedHouseholdSetupService(),
+      householdOnboardingService: createUnusedHouseholdOnboardingService(),
+      householdAdminService: createHouseholdAdminService(),
+      anonymousFeedbackAvailable: true
+    })
+
+    await bot.handleUpdate(startUpdate('/settings') as never)
+
+    const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(payload?.text).toContain('Household control center')
   })
 
   test('renders group home with setup action for Telegram admins', async () => {

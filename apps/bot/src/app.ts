@@ -125,9 +125,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     getLogger('telegram'),
     householdConfigurationRepositoryClient?.repository,
     {
+      homeMenuAvailable: Boolean(householdConfigurationRepositoryClient),
       miniAppAvailable: Boolean(runtime.miniAppUrl),
       anonymousFeedbackAvailable: runtime.anonymousFeedbackEnabled,
-      financeCommandsAvailable: runtime.financeCommandsEnabled
+      financeCommandsAvailable: runtime.financeCommandsEnabled,
+      setupCommandsAvailable: Boolean(householdConfigurationRepositoryClient)
     }
   )
   bot.botInfo = await bot.api.getMe()

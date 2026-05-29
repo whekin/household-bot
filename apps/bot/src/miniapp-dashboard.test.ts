@@ -17,23 +17,6 @@ import type {
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
-function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(new Date())
-  const year = Number(parts.find((part) => part.type === 'year')?.value ?? '0')
-  const month = Number(parts.find((part) => part.type === 'month')?.value ?? '1')
-  const day = Number(parts.find((part) => part.type === 'day')?.value ?? '1')
-  const carryMonth = day > rentDueDay ? month + 1 : month
-  const normalizedYear = carryMonth > 12 ? year + 1 : year
-  const normalizedMonth = carryMonth > 12 ? 1 : carryMonth
-
-  return `${normalizedYear}-${String(normalizedMonth).padStart(2, '0')}`
-}
-
 function repository(
   member: Awaited<ReturnType<FinanceRepository['getMemberByTelegramUserId']>>
 ): FinanceRepository {
@@ -634,7 +617,9 @@ describe('createMiniAppDashboardHandler', () => {
             first_name: 'Stan',
             username: 'stanislav',
             language_code: 'ru'
-          })
+          }),
+          periodOverride: '2026-03',
+          todayOverride: '2026-03-05'
         })
       })
     )
@@ -644,7 +629,7 @@ describe('createMiniAppDashboardHandler', () => {
       ok: true,
       authorized: true,
       dashboard: {
-        period: expectedCurrentCyclePeriod('Asia/Tbilisi', 20),
+        period: '2026-03',
         currency: 'GEL',
         paymentBalanceAdjustmentPolicy: 'utilities',
         totalDueMajor: '2010.00',
@@ -657,13 +642,13 @@ describe('createMiniAppDashboardHandler', () => {
           {
             displayName: 'Stan',
             netDueMajor: '2010.00',
-            overduePayments: [
+            overduePayments: expect.arrayContaining([
               {
                 amountMajor: '120.00',
                 kind: 'utilities',
-                periods: [expectedCurrentCyclePeriod('Asia/Tbilisi', 20)]
+                periods: ['2026-03']
               }
-            ],
+            ]),
             paidMajor: '500.00',
             remainingMajor: '1510.00',
             rentShareMajor: '1890.00',

@@ -4,7 +4,9 @@ import { formatUserFacingMoney } from '../money'
 export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
   commands: {
+    start: 'Открыть стартовое меню дома',
     help: 'Показать подсказки по задачам',
+    settings: 'Открыть настройки и быстрые действия дома',
     home: 'Открыть центр управления домом',
     bill: 'Показать общий счёт по дому',
     bill_full: 'Показать общий счёт со всеми покупками',
@@ -25,15 +27,19 @@ export const ruBotTranslations: BotTranslationCatalog = {
     approve_member: 'Подтвердить участника дома',
     app: 'Открыть мини-приложение Kojori',
     dashboard: 'Открыть дашборд дома',
-    keyboard: 'Вкл/выкл кнопку дашборда'
+    keyboard: 'Показать постоянную кнопку дашборда'
   },
   help: {
     intro:
       '🏡 /home открывает главное меню. Начинайте с него; список команд ниже — только быстрый доступ.',
+    introWithoutHome:
+      '🏡 Я помогу с финансовыми задачами дома. Ниже — команды, доступные прямо сейчас.',
     tasksHeading: 'Частые задачи:',
     checkMyBill: '• 💸 Проверить, сколько вы должны: /home → Мой счёт',
     checkHouseholdStatus: '• 🏠 Посмотреть статус дома: /home → Статус',
     checkBalances: '• 🛒 Проверить балансы по покупкам: /home → Балансы',
+    recordPurchase: '• 🧾 Записать общую покупку: отправьте текст чека в топик покупок',
+    recordPayment: '• ✅ Подтвердить оплату: отправьте сообщение об оплате в топик оплат',
     openDashboard: '• 📱 Открыть дашборд: /home → Мини-приложение',
     setupHousehold: '• 🧰 Настроить или обслуживать дом: /home → Настройка/админ',
     manageMembers: '• 👥 Пригласить и подтвердить участников: /home → Настройка/админ',
