@@ -3,11 +3,13 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  buildEmptyPurchaseDraft,
   buildQuickPurchasePreview,
   purchaseDraftWithSelectedPayer,
   type QuickPurchasePreviewMember
 } from './purchase-draft'
 import type { PurchaseDraft } from './ledger-helpers'
+import type { MiniAppDashboard } from '../miniapp-api'
 
 const members: QuickPurchasePreviewMember[] = [
   {
@@ -79,5 +81,127 @@ describe('buildQuickPurchasePreview', () => {
     expect(beforeDeltaByMemberId.get('stas')).toBe('-25.50')
     expect(deltaByMemberId.get('alisa')).toBe('-25.50')
     expect(deltaByMemberId.get('stas')).toBe('8.50')
+  })
+
+  test('uses exact custom shares instead of previewing a false equal split', () => {
+    const rows = buildQuickPurchasePreview(
+      {
+        ...equalSplitDraft('alisa'),
+        splitMode: 'custom_amounts',
+        splitInputMode: 'exact',
+        participants: [
+          {
+            memberId: 'alisa',
+            included: true,
+            shareAmountMajor: '10.00',
+            sharePercentage: ''
+          },
+          {
+            memberId: 'dima',
+            included: true,
+            shareAmountMajor: '24.00',
+            sharePercentage: ''
+          },
+          {
+            memberId: 'ion',
+            included: false,
+            shareAmountMajor: '',
+            sharePercentage: ''
+          },
+          {
+            memberId: 'stas',
+            included: false,
+            shareAmountMajor: '',
+            sharePercentage: ''
+          }
+        ]
+      },
+      members
+    )
+    const deltaByMemberId = new Map(rows.map((row) => [row.memberId, row.deltaMajor]))
+
+    expect(deltaByMemberId.get('alisa')).toBe('-24.00')
+    expect(deltaByMemberId.get('dima')).toBe('24.00')
+    expect(deltaByMemberId.has('ion')).toBe(false)
+    expect(deltaByMemberId.has('stas')).toBe(false)
+  })
+
+  test('does not preview an unbalanced custom split as if it were safe', () => {
+    const rows = buildQuickPurchasePreview(
+      {
+        ...equalSplitDraft('alisa'),
+        splitMode: 'custom_amounts',
+        splitInputMode: 'exact',
+        participants: [
+          {
+            memberId: 'alisa',
+            included: true,
+            shareAmountMajor: '10.00',
+            sharePercentage: ''
+          },
+          {
+            memberId: 'dima',
+            included: true,
+            shareAmountMajor: '10.00',
+            sharePercentage: ''
+          }
+        ]
+      },
+      members
+    )
+
+    expect(rows).toEqual([])
+  })
+})
+
+describe('buildEmptyPurchaseDraft', () => {
+  test('defaults purchase participants to active members only', () => {
+    const dashboard = {
+      currency: 'GEL',
+      members: [
+        {
+          memberId: 'alisa',
+          displayName: 'Alisa',
+          status: 'active'
+        },
+        {
+          memberId: 'dima',
+          displayName: 'Dima',
+          status: 'away'
+        },
+        {
+          memberId: 'ion',
+          displayName: 'Ion',
+          status: 'left'
+        }
+      ]
+    } as unknown as MiniAppDashboard
+
+    const draft = buildEmptyPurchaseDraft(dashboard, 'alisa')
+
+    expect(draft.participants.map((participant) => participant.memberId)).toEqual(['alisa'])
+  })
+
+  test('does not default the payer to an inactive current member', () => {
+    const dashboard = {
+      currency: 'GEL',
+      members: [
+        {
+          memberId: 'alisa',
+          displayName: 'Alisa',
+          status: 'active'
+        },
+        {
+          memberId: 'dima',
+          displayName: 'Dima',
+          status: 'away'
+        }
+      ]
+    } as unknown as MiniAppDashboard
+
+    const draft = buildEmptyPurchaseDraft(dashboard, 'dima')
+
+    expect(draft.payerMemberId).toBeUndefined()
+    expect(draft.participants.map((participant) => participant.memberId)).toEqual(['alisa'])
   })
 })

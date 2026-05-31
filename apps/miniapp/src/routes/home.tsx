@@ -78,7 +78,7 @@ export default function HomeRoute() {
   })
   const activeMembers = createMemo(() =>
     (dashboard()?.members ?? [])
-      .filter((member) => member.status !== 'left')
+      .filter((member) => member.status === undefined || member.status === 'active')
       .map((member) => ({
         memberId: member.memberId,
         displayName: member.displayName,
@@ -299,6 +299,7 @@ export default function HomeRoute() {
               balanceMajor={model()!.purchaseBalanceMajor}
               totalMajor={model()!.purchaseTotalMajor}
               unresolvedCount={model()!.unresolvedPurchaseCount}
+              canAddPurchase={effectiveIsAdmin()}
               locale={locale()}
               copy={copy}
               onAddPurchase={openPurchase}

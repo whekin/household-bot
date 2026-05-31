@@ -18,7 +18,8 @@ import {
   createMiniAppSessionService,
   miniAppErrorResponse,
   miniAppJsonResponse,
-  readMiniAppRequestPayload
+  readMiniAppRequestPayload,
+  toMiniAppClientValidationError
 } from './miniapp-auth'
 
 function serializeCycleState(
@@ -202,7 +203,7 @@ async function authenticateAdminSession(
     return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
   }
 
-  if (!session.authorized || !session.member) {
+  if (!session.authorized || !session.member || session.member.status !== 'active') {
     return miniAppJsonResponse(
       { ok: false, error: 'Access limited to active household members' },
       403,
@@ -1648,14 +1649,18 @@ export function createMiniAppAddPurchaseHandler(options: {
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
         const payerMemberId = payload.payerMemberId ?? auth.member.id
-        const purchase = await service.addPurchase(
-          payload.description,
-          payload.amountMajor,
-          payerMemberId,
-          payload.currency,
-          payload.split,
-          payload.occurredOn
-        )
+        const purchase = await service
+          .addPurchase(
+            payload.description,
+            payload.amountMajor,
+            payerMemberId,
+            payload.currency,
+            payload.split,
+            payload.occurredOn
+          )
+          .catch((error) => {
+            throw toMiniAppClientValidationError(error)
+          })
         await recordMiniAppAuditEvent({
           service: options.auditNotificationService,
           logger: options.logger,
@@ -1758,15 +1763,19 @@ export function createMiniAppUpdatePurchaseHandler(options: {
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
         const payerMemberId = payload.payerMemberId
-        const updated = await service.updatePurchase(
-          payload.purchaseId,
-          payload.description,
-          payload.amountMajor,
-          payload.currency,
-          payload.split,
-          payerMemberId,
-          payload.occurredOn
-        )
+        const updated = await service
+          .updatePurchase(
+            payload.purchaseId,
+            payload.description,
+            payload.amountMajor,
+            payload.currency,
+            payload.split,
+            payerMemberId,
+            payload.occurredOn
+          )
+          .catch((error) => {
+            throw toMiniAppClientValidationError(error)
+          })
 
         if (!updated) {
           return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, origin)

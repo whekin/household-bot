@@ -6,7 +6,7 @@ import type {
   HouseholdAuditNotificationService
 } from '@household/application'
 import { createHouseholdOnboardingService } from '@household/application'
-import { instantFromIso, Money } from '@household/domain'
+import { DOMAIN_ERROR_CODE, DomainError, instantFromIso, Money } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   HouseholdTopicBindingRecord
@@ -773,6 +773,65 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
 })
 
 describe('createMiniAppAddPurchaseHandler', () => {
+  test('rejects inactive admins before purchase creation', async () => {
+    const repository = {
+      ...onboardingRepository(),
+      listHouseholdMembersByTelegramUserId: async () => [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'away' as const,
+          preferredLocale: null,
+          householdDefaultLocale: 'ru' as const,
+          rentShareWeight: 1,
+          isAdmin: true
+        }
+      ]
+    } satisfies HouseholdConfigurationRepository
+    let serviceCalled = false
+
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        addPurchase: async () => {
+          serviceCalled = true
+          throw new Error('should not be called')
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL'
+        })
+      })
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: 'Access limited to active household members'
+    })
+    expect(serviceCalled).toBe(false)
+  })
+
   test('forwards purchase creation with split to the finance service', async () => {
     const repository = onboardingRepository()
     let capturedArgs: any = null
@@ -875,6 +934,63 @@ describe('createMiniAppAddPurchaseHandler', () => {
         purchaseId: 'new-purchase-1'
       }
     ])
+  })
+
+  test('returns 400 for purchase mutation validation errors before dashboard refresh', async () => {
+    const repository = onboardingRepository()
+    const logEntries: { payload: unknown; message: string }[] = []
+    let dashboardLoaded = false
+
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      adHocNotificationService,
+      logger: {
+        error: (payload: unknown, message: string) => {
+          logEntries.push({ payload, message })
+        }
+      } as never,
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        addPurchase: async () => {
+          throw new DomainError(
+            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+            'Purchase participant must be an active household member: member-away'
+          )
+        },
+        generateDashboard: async () => {
+          dashboardLoaded = true
+          return createDashboardStub()
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL'
+        })
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Purchase participant must be an active household member: member-away'
+    })
+    expect(dashboardLoaded).toBe(false)
+    expect(logEntries).toEqual([])
   })
 
   test('does not fail purchase creation when topic notice delivery fails', async () => {

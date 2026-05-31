@@ -829,6 +829,46 @@ function createService(repository: FinanceRepositoryStub) {
   })
 }
 
+function seedPurchaseMutationFixture(repository: FinanceRepositoryStub) {
+  repository.members = [
+    {
+      id: 'alice',
+      telegramUserId: '1',
+      displayName: 'Alice',
+      rentShareWeight: 1,
+      isAdmin: true
+    },
+    {
+      id: 'bob',
+      telegramUserId: '2',
+      displayName: 'Bob',
+      rentShareWeight: 1,
+      isAdmin: false
+    },
+    {
+      id: 'carol',
+      telegramUserId: '3',
+      displayName: 'Carol',
+      rentShareWeight: 1,
+      isAdmin: false
+    }
+  ]
+  repository.purchases = [
+    {
+      id: 'purchase-1',
+      cycleId: 'cycle-2026-03',
+      cyclePeriod: '2026-03',
+      payerMemberId: 'alice',
+      amountMinor: 3000n,
+      currency: 'GEL',
+      description: 'Kitchen towels',
+      occurredAt: instantFromIso('2026-03-12T11:00:00.000Z'),
+      splitMode: 'equal',
+      participants: []
+    }
+  ]
+}
+
 describe('createFinanceCommandService', () => {
   test('setRent falls back to the open cycle period when one is active', async () => {
     const repository = new FinanceRepositoryStub()
@@ -1311,6 +1351,7 @@ describe('createFinanceCommandService', () => {
 
   test('updatePurchase persists explicit participant splits', async () => {
     const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
     const service = createService(repository)
 
     const result = await service.updatePurchase('purchase-1', 'Kitchen towels', '30.00', 'GEL', {
@@ -1354,6 +1395,7 @@ describe('createFinanceCommandService', () => {
 
   test('updatePurchase allows excluded participants without explicit custom amounts', async () => {
     const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
     const service = createService(repository)
 
     const result = await service.updatePurchase('purchase-1', 'Kitchen towels', '30.00', 'GEL', {
@@ -1408,6 +1450,7 @@ describe('createFinanceCommandService', () => {
 
   test('updatePurchase persists the edited occurred date', async () => {
     const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
     const service = createService(repository)
 
     await service.updatePurchase(
@@ -1421,6 +1464,145 @@ describe('createFinanceCommandService', () => {
     )
 
     expect(repository.lastUpdatedPurchaseInput?.occurredAt?.toString()).toBe('2026-03-14T08:00:00Z')
+  })
+
+  test('updatePurchase rejects implicit amount changes for existing custom splits', async () => {
+    const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
+    repository.purchases = repository.purchases.map((purchase) => ({
+      ...purchase,
+      splitMode: 'custom_amounts' as const,
+      participants: [
+        {
+          memberId: 'alice',
+          included: true,
+          shareAmountMinor: 2000n
+        },
+        {
+          memberId: 'bob',
+          included: true,
+          shareAmountMinor: 1000n
+        }
+      ]
+    }))
+    const service = createService(repository)
+
+    await expect(
+      service.updatePurchase('purchase-1', 'Kitchen towels', '31.00', 'GEL')
+    ).rejects.toThrow('Purchase custom split must be resubmitted when changing amount or currency')
+    expect(repository.lastUpdatedPurchaseInput).toBeNull()
+  })
+
+  test('purchase mutations reject non-active or out-of-household split actors', async () => {
+    const inactivePayerRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(inactivePayerRepository)
+    inactivePayerRepository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    inactivePayerRepository.memberStatuses.set('alice', 'away')
+    const inactivePayerService = createService(inactivePayerRepository)
+
+    await expect(
+      inactivePayerService.addPurchase('Snacks', '10.00', 'alice', 'GEL')
+    ).rejects.toThrow('Purchase payer must be an active household member')
+    expect(inactivePayerRepository.lastAddedPurchaseInput).toBeNull()
+
+    const outsiderRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(outsiderRepository)
+    const outsiderService = createService(outsiderRepository)
+
+    await expect(
+      outsiderService.updatePurchase('purchase-1', 'Snacks', '10.00', 'GEL', {
+        mode: 'equal',
+        participants: [
+          { memberId: 'alice', included: true },
+          { memberId: 'mallory', included: true }
+        ]
+      })
+    ).rejects.toThrow('Purchase participant is not a household member: mallory')
+    expect(outsiderRepository.lastUpdatedPurchaseInput).toBeNull()
+  })
+
+  test('purchase mutations reject ambiguous or impossible custom splits', async () => {
+    const duplicateRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(duplicateRepository)
+    const duplicateService = createService(duplicateRepository)
+
+    await expect(
+      duplicateService.updatePurchase('purchase-1', 'Snacks', '30.00', 'GEL', {
+        mode: 'custom_amounts',
+        participants: [
+          { memberId: 'alice', shareAmountMajor: '20.00' },
+          { memberId: 'alice', shareAmountMajor: '10.00' }
+        ]
+      })
+    ).rejects.toThrow('Purchase split contains duplicate participant: alice')
+    expect(duplicateRepository.lastUpdatedPurchaseInput).toBeNull()
+
+    const negativeShareRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(negativeShareRepository)
+    const negativeShareService = createService(negativeShareRepository)
+
+    await expect(
+      negativeShareService.updatePurchase('purchase-1', 'Snacks', '30.00', 'GEL', {
+        mode: 'custom_amounts',
+        participants: [
+          { memberId: 'alice', shareAmountMajor: '40.00' },
+          { memberId: 'bob', shareAmountMajor: '-10.00' }
+        ]
+      })
+    ).rejects.toThrow('Purchase custom split shares must be positive')
+    expect(negativeShareRepository.lastUpdatedPurchaseInput).toBeNull()
+
+    const emptyRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(emptyRepository)
+    const emptyService = createService(emptyRepository)
+
+    await expect(
+      emptyService.updatePurchase('purchase-1', 'Snacks', '30.00', 'GEL', {
+        mode: 'equal',
+        participants: [
+          { memberId: 'alice', included: false },
+          { memberId: 'bob', included: false }
+        ]
+      })
+    ).rejects.toThrow('Purchase split must include at least one active participant')
+    expect(emptyRepository.lastUpdatedPurchaseInput).toBeNull()
+
+    const invalidModeRepository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(invalidModeRepository)
+    const invalidModeService = createService(invalidModeRepository)
+    const invalidModeSplit = {
+      mode: 'weighted',
+      participants: [{ memberId: 'alice', included: true }]
+    } as unknown as Parameters<typeof invalidModeService.updatePurchase>[4]
+
+    await expect(
+      invalidModeService.updatePurchase('purchase-1', 'Snacks', '30.00', 'GEL', invalidModeSplit)
+    ).rejects.toThrow('Purchase split mode is not supported')
+    expect(invalidModeRepository.lastUpdatedPurchaseInput).toBeNull()
+  })
+
+  test('purchase mutations reject non-positive purchase amounts before persistence', async () => {
+    const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    const service = createService(repository)
+
+    await expect(service.addPurchase('Free sample', '0.00', 'alice', 'GEL')).rejects.toThrow(
+      'Purchase amount must be positive'
+    )
+    await expect(service.updatePurchase('purchase-1', 'Refund', '-1.00', 'GEL')).rejects.toThrow(
+      'Purchase amount must be positive'
+    )
+    expect(repository.lastAddedPurchaseInput).toBeNull()
+    expect(repository.lastUpdatedPurchaseInput).toBeNull()
   })
 
   test('purchase mutations supersede the current utility plan and regenerate it from latest purchases', async () => {

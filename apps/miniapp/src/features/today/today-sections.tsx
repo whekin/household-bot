@@ -490,6 +490,7 @@ export function PurchaseStream(props: {
   balanceMajor: string
   totalMajor: string
   unresolvedCount: number
+  canAddPurchase: boolean
   locale: Locale
   copy: Copy
   onAddPurchase: () => void
@@ -538,12 +539,14 @@ export function PurchaseStream(props: {
           <p>{props.copy().todayPurchaseCommandBody}</p>
         </div>
 
-        <div class="today-section__actions">
-          <Button variant="primary" size="sm" onClick={props.onAddPurchase}>
-            <Plus size={15} />
-            {props.copy().todayAddPurchase}
-          </Button>
-        </div>
+        <Show when={props.canAddPurchase}>
+          <div class="today-section__actions">
+            <Button variant="primary" size="sm" onClick={props.onAddPurchase}>
+              <Plus size={15} />
+              {props.copy().todayAddPurchase}
+            </Button>
+          </div>
+        </Show>
       </div>
 
       <div class="today-ledger-snapshot">

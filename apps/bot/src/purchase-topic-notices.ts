@@ -55,6 +55,16 @@ function memberName(
   return members.find((member) => member.id === memberId)?.displayName ?? null
 }
 
+function memberStatus(
+  members: readonly HouseholdMemberRecord[],
+  memberId: string | null | undefined
+): HouseholdMemberRecord['status'] | null {
+  if (!memberId) {
+    return null
+  }
+  return members.find((member) => member.id === memberId)?.status ?? null
+}
+
 function splitLabel(locale: BotLocale, splitMode: string | null | undefined): string {
   if (splitMode === 'custom_amounts') {
     return locale === 'ru' ? 'индивидуальные суммы' : 'custom amounts'
@@ -119,7 +129,12 @@ export function renderPurchaseTopicNotice(input: {
   const participantButtons =
     input.purchase.splitMode !== 'custom_amounts'
       ? (input.purchase.participants ?? [])
-          .filter((participant) => participant.id)
+          .filter(
+            (participant) =>
+              participant.id &&
+              (participant.included !== false ||
+                memberStatus(input.members, participant.memberId) === 'active')
+          )
           .map((participant) => {
             const displayName =
               memberName(input.members, participant.memberId) ?? participant.memberId

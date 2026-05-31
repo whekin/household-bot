@@ -125,6 +125,7 @@ interface PurchaseProposalParticipant {
   memberId: string
   displayName: string
   included: boolean
+  memberStatus?: 'active' | 'away' | 'left'
 }
 
 export type PurchaseProposalPayerSelectionResult =
@@ -221,6 +222,10 @@ export type PurchaseProposalParticipantToggleResult =
       householdId: string
     }
   | {
+      status: 'not_editable'
+      householdId: string
+    }
+  | {
       status: 'not_found'
     }
 
@@ -289,7 +294,7 @@ export interface PurchaseMessageIngestionRepository {
   ): Promise<PurchaseProposalAmountCorrectionResult>
 }
 
-interface PurchasePersistenceDecision {
+export interface PurchasePersistenceDecision {
   status: 'pending_confirmation' | 'clarification_needed' | 'ignored_not_purchase' | 'parse_failed'
   parsedAmountMinor: bigint | null
   parsedCurrency: 'GEL' | 'USD' | null
@@ -312,6 +317,7 @@ interface StoredPurchaseParticipantRow {
   memberId: string
   displayName: string
   telegramUserId: string
+  memberStatus: 'active' | 'away' | 'left'
   included: boolean
 }
 
@@ -504,11 +510,12 @@ export function resolveProposalParticipantSelection(input: {
   explicitParticipantMemberIds: readonly string[] | null
 }): readonly { memberId: string; included: boolean }[] {
   const eligibleMembers = input.members.filter((member) => member.lifecycleStatus !== 'left')
+  const activeMembers = eligibleMembers.filter((member) => member.lifecycleStatus === 'active')
   if (input.explicitParticipantMemberIds && input.explicitParticipantMemberIds.length > 0) {
     const explicitMemberIds = new Set(input.explicitParticipantMemberIds)
     const explicitParticipants = eligibleMembers.map((member) => ({
       memberId: member.memberId,
-      included: explicitMemberIds.has(member.memberId)
+      included: member.lifecycleStatus === 'active' && explicitMemberIds.has(member.memberId)
     }))
 
     if (explicitParticipants.some((participant) => participant.included)) {
@@ -516,10 +523,10 @@ export function resolveProposalParticipantSelection(input: {
     }
 
     const fallbackParticipant =
-      eligibleMembers.find((member) => member.memberId === input.payerMemberId) ??
-      eligibleMembers.find((member) => member.memberId === input.senderMemberId) ??
-      eligibleMembers.find((member) => member.telegramUserId === input.senderTelegramUserId) ??
-      eligibleMembers[0]
+      activeMembers.find((member) => member.memberId === input.payerMemberId) ??
+      activeMembers.find((member) => member.memberId === input.senderMemberId) ??
+      activeMembers.find((member) => member.telegramUserId === input.senderTelegramUserId) ??
+      activeMembers[0]
 
     return explicitParticipants.map(({ memberId }) => ({
       memberId,
@@ -546,15 +553,9 @@ export function resolveProposalParticipantSelection(input: {
     }))
   }
 
-  const fallbackParticipant =
-    participants.find((participant) => participant.memberId === input.payerMemberId) ??
-    participants.find((participant) => participant.memberId === input.senderMemberId) ??
-    participants.find((participant) => participant.telegramUserId === input.senderTelegramUserId) ??
-    participants[0]
-
   return participants.map(({ memberId }) => ({
     memberId,
-    included: memberId === fallbackParticipant?.memberId
+    included: false
   }))
 }
 
@@ -598,7 +599,7 @@ function memberAliases(displayName: string): string[] {
   return [...aliases]
 }
 
-function resolvePurchasePayer(input: {
+export function resolvePurchasePayer(input: {
   rawText: string
   members: readonly {
     memberId: string
@@ -617,18 +618,38 @@ function resolvePurchasePayer(input: {
       payerMemberId: null
       payerCandidateMemberIds: readonly string[]
     } {
-  const eligibleMembers = input.members.filter((member) => member.status !== 'left')
+  const nonLeftMembers = input.members.filter((member) => member.status !== 'left')
+  const eligibleMembers = nonLeftMembers.filter((member) => member.status === 'active')
+  const senderIsEligible = eligibleMembers.some(
+    (member) => member.memberId === input.senderMemberId
+  )
   const normalizedText = normalizeMemberText(input.rawText)
 
-  if (normalizedText.length === 0 || eligibleMembers.length === 0) {
+  if (normalizedText.length === 0) {
+    if (senderIsEligible) {
+      return {
+        status: 'resolved',
+        payerMemberId: input.senderMemberId,
+        payerCandidateMemberIds: null
+      }
+    }
+
     return {
-      status: 'resolved',
-      payerMemberId: input.senderMemberId,
-      payerCandidateMemberIds: null
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: eligibleMembers.map((member) => member.memberId)
     }
   }
 
-  const mentionedMembers = eligibleMembers.filter((member) =>
+  if (eligibleMembers.length === 0) {
+    return {
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: []
+    }
+  }
+
+  const mentionsMember = (member: { displayName: string }) =>
     memberAliases(member.displayName).some((alias) => {
       const pattern = new RegExp(
         `(^|\\s)${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`,
@@ -636,10 +657,21 @@ function resolvePurchasePayer(input: {
       )
       return pattern.test(normalizedText)
     })
+  const mentionedMembers = eligibleMembers.filter(mentionsMember)
+  const mentionedInactiveMembers = nonLeftMembers.filter(
+    (member) => member.status !== 'active' && mentionsMember(member)
   )
 
   if (mentionedMembers.length === 0) {
-    if (input.senderMemberId) {
+    if (mentionedInactiveMembers.length > 0) {
+      return {
+        status: 'ambiguous',
+        payerMemberId: null,
+        payerCandidateMemberIds: eligibleMembers.map((member) => member.memberId)
+      }
+    }
+
+    if (senderIsEligible) {
       return {
         status: 'resolved',
         payerMemberId: input.senderMemberId,
@@ -666,6 +698,82 @@ function resolvePurchasePayer(input: {
     status: 'ambiguous',
     payerMemberId: null,
     payerCandidateMemberIds: mentionedMembers.map((member) => member.memberId)
+  }
+}
+
+export function finalizePayerDecision(input: {
+  decision: PurchasePersistenceDecision
+  rawText: string
+  householdMembers: readonly {
+    memberId: string
+    displayName: string
+    status: 'active' | 'away' | 'left'
+  }[]
+  senderMemberId: string | null
+}): PurchasePersistenceDecision {
+  if (
+    input.decision.status === 'ignored_not_purchase' ||
+    input.decision.status === 'parse_failed'
+  ) {
+    return input.decision
+  }
+
+  const activePayerMemberIds = new Set(
+    input.householdMembers
+      .filter((member) => member.status === 'active')
+      .map((member) => member.memberId)
+  )
+
+  if (input.decision.payerMemberId && activePayerMemberIds.has(input.decision.payerMemberId)) {
+    return input.decision
+  }
+
+  const hasInactiveInterpreterPayer = Boolean(input.decision.payerMemberId)
+  const decision = hasInactiveInterpreterPayer
+    ? {
+        ...input.decision,
+        payerMemberId: null,
+        needsReview: true
+      }
+    : input.decision
+  const payerResolution = hasInactiveInterpreterPayer
+    ? {
+        status: 'ambiguous' as const,
+        payerMemberId: null,
+        payerCandidateMemberIds: [...activePayerMemberIds]
+      }
+    : resolvePurchasePayer({
+        rawText: input.rawText,
+        members: input.householdMembers,
+        senderMemberId: input.senderMemberId
+      })
+
+  if (payerResolution.status === 'resolved' && payerResolution.payerMemberId) {
+    return {
+      ...decision,
+      payerMemberId: payerResolution.payerMemberId,
+      payerCandidateMemberIds: null
+    }
+  }
+
+  const canAskWithButtons =
+    decision.parsedAmountMinor !== null &&
+    decision.parsedCurrency !== null &&
+    decision.parsedItemDescription !== null
+
+  return {
+    ...decision,
+    status: canAskWithButtons ? 'clarification_needed' : decision.status,
+    payerMemberId: null,
+    payerCandidateMemberIds:
+      canAskWithButtons && payerResolution.status === 'ambiguous'
+        ? payerResolution.payerCandidateMemberIds
+        : null,
+    clarificationQuestion:
+      canAskWithButtons && decision.clarificationQuestion === null
+        ? null
+        : decision.clarificationQuestion,
+    needsReview: true
   }
 }
 
@@ -729,8 +837,41 @@ function toProposalParticipants(
     id: row.id,
     memberId: row.memberId,
     displayName: row.displayName,
-    included: row.included
+    included: row.included,
+    memberStatus: row.memberStatus
   }))
+}
+
+function canToggleProposalParticipant(participant: PurchaseProposalParticipant): boolean {
+  return (
+    participant.included ||
+    participant.memberStatus === undefined ||
+    participant.memberStatus === 'active'
+  )
+}
+
+export function canConfirmActivePurchaseProposal(input: {
+  payerMemberId: string | null
+  participants: readonly {
+    memberId: string
+    included: boolean
+  }[]
+  members: readonly {
+    memberId: string
+    status: 'active' | 'away' | 'left'
+  }[]
+}): boolean {
+  const activeMemberIds = new Set(
+    input.members.filter((member) => member.status === 'active').map((member) => member.memberId)
+  )
+  const includedParticipants = input.participants.filter((participant) => participant.included)
+
+  return (
+    input.payerMemberId !== null &&
+    activeMemberIds.has(input.payerMemberId) &&
+    includedParticipants.length > 0 &&
+    includedParticipants.every((participant) => activeMemberIds.has(participant.memberId))
+  )
 }
 
 async function replyToPurchaseMessage(
@@ -1035,6 +1176,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         memberId: schema.purchaseMessageParticipants.memberId,
         displayName: schema.members.displayName,
         telegramUserId: schema.members.telegramUserId,
+        memberStatus: schema.members.lifecycleStatus,
         included: schema.purchaseMessageParticipants.included
       })
       .from(schema.purchaseMessageParticipants)
@@ -1047,6 +1189,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       memberId: row.memberId,
       displayName: row.displayName,
       telegramUserId: row.telegramUserId,
+      memberStatus: normalizeLifecycleStatus(row.memberStatus),
       included: row.included === 1
     }))
   }
@@ -1133,57 +1276,6 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     })
   }
 
-  function finalizePayerDecision(input: {
-    decision: PurchasePersistenceDecision
-    rawText: string
-    householdMembers: readonly {
-      memberId: string
-      displayName: string
-      status: 'active' | 'away' | 'left'
-    }[]
-    senderMemberId: string | null
-  }): PurchasePersistenceDecision {
-    if (
-      input.decision.status === 'ignored_not_purchase' ||
-      input.decision.status === 'parse_failed' ||
-      input.decision.payerMemberId
-    ) {
-      return input.decision
-    }
-
-    const payerResolution = resolvePurchasePayer({
-      rawText: input.rawText,
-      members: input.householdMembers,
-      senderMemberId: input.senderMemberId
-    })
-
-    if (payerResolution.status === 'resolved' && payerResolution.payerMemberId) {
-      return {
-        ...input.decision,
-        payerMemberId: payerResolution.payerMemberId,
-        payerCandidateMemberIds: null
-      }
-    }
-
-    const canAskWithButtons =
-      input.decision.parsedAmountMinor !== null &&
-      input.decision.parsedCurrency !== null &&
-      input.decision.parsedItemDescription !== null
-
-    return {
-      ...input.decision,
-      status: canAskWithButtons ? 'clarification_needed' : input.decision.status,
-      payerMemberId: null,
-      payerCandidateMemberIds:
-        payerResolution.status === 'ambiguous' ? payerResolution.payerCandidateMemberIds : null,
-      clarificationQuestion:
-        canAskWithButtons && input.decision.clarificationQuestion === null
-          ? null
-          : input.decision.clarificationQuestion,
-      needsReview: true
-    }
-  }
-
   async function mutateProposalStatus(
     purchaseMessageId: string,
     actorTelegramUserId: string,
@@ -1199,7 +1291,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     const actorRows = await db
       .select({
         memberId: schema.members.id,
-        isAdmin: schema.members.isAdmin
+        isAdmin: schema.members.isAdmin,
+        lifecycleStatus: schema.members.lifecycleStatus
       })
       .from(schema.members)
       .where(
@@ -1211,9 +1304,11 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       .limit(1)
 
     const actor = actorRows[0]
+    const actorIsActiveAdmin =
+      actor?.isAdmin === 1 && normalizeLifecycleStatus(actor.lifecycleStatus) === 'active'
     const actorIsAllowed =
       existing.senderTelegramUserId === actorTelegramUserId ||
-      actor?.isAdmin === 1 ||
+      actorIsActiveAdmin ||
       (actor?.memberId !== undefined && actor.memberId === existing.payerMemberId)
 
     if (!actorIsAllowed) {
@@ -1241,6 +1336,26 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       return {
         status: 'not_pending',
         householdId: existing.householdId
+      }
+    }
+
+    if (targetStatus === 'confirmed') {
+      const [participants, householdMembers] = await Promise.all([
+        getStoredParticipants(existing.id),
+        loadHouseholdMembers(existing.householdId)
+      ])
+
+      if (
+        !canConfirmActivePurchaseProposal({
+          payerMemberId: existing.payerMemberId,
+          participants,
+          members: householdMembers
+        })
+      ) {
+        return {
+          status: 'not_pending',
+          householdId: existing.householdId
+        }
       }
     }
 
@@ -1688,7 +1803,8 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       const actorRows = await db
         .select({
           memberId: schema.members.id,
-          isAdmin: schema.members.isAdmin
+          isAdmin: schema.members.isAdmin,
+          lifecycleStatus: schema.members.lifecycleStatus
         })
         .from(schema.members)
         .where(
@@ -1700,7 +1816,9 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
         .limit(1)
 
       const actor = actorRows[0]
-      if (existing.senderTelegramUserId !== actorTelegramUserId && actor?.isAdmin !== 1) {
+      const actorIsActiveAdmin =
+        actor?.isAdmin === 1 && normalizeLifecycleStatus(actor.lifecycleStatus) === 'active'
+      if (existing.senderTelegramUserId !== actorTelegramUserId && !actorIsActiveAdmin) {
         return {
           status: 'forbidden',
           householdId: existing.householdId
@@ -1708,6 +1826,22 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       }
 
       const currentParticipants = await getStoredParticipants(existing.purchaseMessageId)
+      const targetParticipant = currentParticipants.find(
+        (participant) => participant.id === participantId
+      )
+      if (!targetParticipant) {
+        return {
+          status: 'not_found'
+        }
+      }
+
+      if (existing.included !== 1 && targetParticipant.memberStatus !== 'active') {
+        return {
+          status: 'not_editable',
+          householdId: existing.householdId
+        }
+      }
+
       const currentlyIncludedCount = currentParticipants.filter(
         (participant) => participant.included
       ).length
@@ -1784,7 +1918,7 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
 
       const householdMembers = await loadHouseholdMembers(existing.householdId)
       const payer = householdMembers.find(
-        (candidate) => candidate.memberId === memberId && candidate.status !== 'left'
+        (candidate) => candidate.memberId === memberId && candidate.status === 'active'
       )
 
       if (!payer) {
@@ -2063,7 +2197,7 @@ function purchaseProposalReplyMarkup(
 
   return {
     inline_keyboard: [
-      ...participants.map((participant) => [
+      ...participants.filter(canToggleProposalParticipant).map((participant) => [
         {
           text: participant.included
             ? t.participantToggleIncluded(participant.displayName)
@@ -2523,7 +2657,11 @@ function registerPurchaseProposalCallbacks(
     const locale = 'householdId' in result ? await resolveLocale(result.householdId) : 'en'
     const t = getBotTranslations(locale).purchase
 
-    if (result.status === 'not_found' || result.status === 'not_pending') {
+    if (
+      result.status === 'not_found' ||
+      result.status === 'not_pending' ||
+      result.status === 'not_editable'
+    ) {
       await ctx.answerCallbackQuery({
         text: t.proposalUnavailable,
         show_alert: true

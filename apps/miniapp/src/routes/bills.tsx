@@ -91,9 +91,6 @@ export default function BillsRoute() {
   const currentMemberId = createMemo(() =>
     readySession()?.status === 'ready' ? readySession()!.member.id : null
   )
-  const currentMemberIsAdmin = createMemo(
-    () => readySession()?.status === 'ready' && readySession()!.member.isAdmin
-  )
   const utilityBillingPlan = createMemo(() => dashboard()?.utilityBillingPlan ?? null)
   const currentUtilityAssignments = createMemo(() =>
     (utilityBillingPlan()?.categories ?? []).filter(
@@ -116,7 +113,7 @@ export default function BillsRoute() {
   })
   const canResolveUtilityPlan = createMemo(() => {
     const plan = utilityBillingPlan()
-    if (!plan || !currentMemberIsAdmin()) return false
+    if (!plan || !effectiveIsAdmin()) return false
     return plan.status !== 'settled' && hasUtilityPlanAssignments(plan)
   })
   const utilityPlanIsSnapshot = createMemo(() => {

@@ -19,6 +19,7 @@ import {
   formatMoneyLabel,
   ledgerSecondaryAmount,
   memberEffectivePurchaseBalanceMajor,
+  percentageStringToBasisPoints,
   purchaseDraftForEntry,
   rebalancePurchaseSplit,
   validatePurchaseDraft,
@@ -153,9 +154,9 @@ function ParticipantSplitInputs(props: {
                   }}
                   onBlur={(e) => {
                     const value = e.currentTarget.value
-                    const percentage = parseFloat(value) || 0
+                    const percentageBasisPoints = percentageStringToBasisPoints(value)
                     props.updateDraft((draft) => {
-                      if (percentage <= 0) {
+                      if (percentageBasisPoints <= 0n) {
                         const participants = draft.participants.map((entry, entryIndex) =>
                           entryIndex === idx
                             ? {
@@ -169,8 +170,7 @@ function ParticipantSplitInputs(props: {
                         return rebalancePurchaseSplit({ ...draft, participants }, null, null)
                       }
                       const totalMinor = majorStringToMinor(draft.amountMajor)
-                      const shareMinor =
-                        (totalMinor * BigInt(Math.round(percentage * 100))) / 10000n
+                      const shareMinor = (totalMinor * percentageBasisPoints) / 10000n
                       const amountMajor = minorToMajorString(shareMinor)
                       const updated = rebalancePurchaseSplit(
                         draft,
@@ -340,8 +340,13 @@ export default function PurchasesRoute() {
   const [deletingPurchase, setDeletingPurchase] = createSignal(false)
   const [purchaseMutationError, setPurchaseMutationError] = createSignal<string | null>(null)
 
+  const activeDashboardMembers = createMemo(() =>
+    (dashboard()?.members ?? []).filter(
+      (member) => member.status === undefined || member.status === 'active'
+    )
+  )
   const memberOptions = createMemo(() =>
-    (dashboard()?.members ?? []).map((member) => ({
+    activeDashboardMembers().map((member) => ({
       value: member.memberId,
       label: member.displayName
     }))
@@ -633,7 +638,7 @@ export default function PurchasesRoute() {
                             setNewPurchase((draft) => updater(draft))
                           }}
                           activeMembers={() =>
-                            (dashboard()?.members ?? []).map((member) => ({
+                            activeDashboardMembers().map((member) => ({
                               memberId: member.memberId,
                               displayName: member.displayName,
                               remainingMajor: member.remainingMajor,
@@ -842,18 +847,12 @@ export default function PurchasesRoute() {
                                         currentDraft.splitInputMode !== 'equal' &&
                                         !validatePurchaseDraft(currentDraft).valid
                                       ) {
-                                        const rebalanced = rebalancePurchaseSplit(
-                                          currentDraft,
-                                          null,
-                                          null
+                                        setPurchaseDraft(
+                                          rebalancePurchaseSplit(currentDraft, null, null)
                                         )
-                                        setPurchaseDraft(rebalanced)
-                                        if (validatePurchaseDraft(rebalanced).valid) {
-                                          void handleSavePurchase()
-                                        }
-                                      } else {
-                                        void handleSavePurchase()
+                                        return
                                       }
+                                      void handleSavePurchase()
                                     }}
                                   >
                                     {editPurchaseButtonText()}
@@ -1044,18 +1043,12 @@ export default function PurchasesRoute() {
                                           currentDraft.splitInputMode !== 'equal' &&
                                           !validatePurchaseDraft(currentDraft).valid
                                         ) {
-                                          const rebalanced = rebalancePurchaseSplit(
-                                            currentDraft,
-                                            null,
-                                            null
+                                          setPurchaseDraft(
+                                            rebalancePurchaseSplit(currentDraft, null, null)
                                           )
-                                          setPurchaseDraft(rebalanced)
-                                          if (validatePurchaseDraft(rebalanced).valid) {
-                                            void handleSavePurchase()
-                                          }
-                                        } else {
-                                          void handleSavePurchase()
+                                          return
                                         }
+                                        void handleSavePurchase()
                                       }}
                                     >
                                       {editPurchaseButtonText()}

@@ -130,6 +130,165 @@ function purchaseOccurredAtFromDate(input: {
     .toInstant()
 }
 
+type PurchaseMutationSplit = {
+  mode: 'equal' | 'custom_amounts'
+  participants: readonly {
+    memberId: string
+    included?: boolean
+    shareAmountMajor?: string
+  }[]
+}
+
+interface NormalizedPurchaseParticipant {
+  memberId: string
+  included: boolean
+  shareAmountMinor: bigint | null
+}
+
+function invalidPurchaseInput(message: string): never {
+  throw new DomainError(DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT, message)
+}
+
+function validatePositivePurchaseAmount(amount: Money): void {
+  if (amount.amountMinor <= 0n) {
+    invalidPurchaseInput('Purchase amount must be positive')
+  }
+}
+
+function activePurchaseMemberIds(members: readonly HouseholdMemberRecord[]): ReadonlySet<string> {
+  return new Set(members.filter((member) => member.status === 'active').map((member) => member.id))
+}
+
+function normalizePurchaseMutationSplit(input: {
+  amount: Money
+  payerMemberId: string
+  split: PurchaseMutationSplit | undefined
+  members: readonly HouseholdMemberRecord[]
+}): {
+  splitMode?: 'equal' | 'custom_amounts'
+  participants?: readonly NormalizedPurchaseParticipant[]
+} {
+  validatePositivePurchaseAmount(input.amount)
+
+  const memberIds = new Set(input.members.map((member) => member.id))
+  const activeMemberIds = activePurchaseMemberIds(input.members)
+
+  if (!activeMemberIds.has(input.payerMemberId)) {
+    invalidPurchaseInput('Purchase payer must be an active household member')
+  }
+
+  if (!input.split) {
+    return {}
+  }
+
+  const seenParticipantIds = new Set<string>()
+  const normalizedParticipants = input.split.participants.map((participant) => {
+    if (seenParticipantIds.has(participant.memberId)) {
+      invalidPurchaseInput(`Purchase split contains duplicate participant: ${participant.memberId}`)
+    }
+    seenParticipantIds.add(participant.memberId)
+
+    if (!memberIds.has(participant.memberId)) {
+      invalidPurchaseInput(
+        `Purchase participant is not a household member: ${participant.memberId}`
+      )
+    }
+
+    const included = participant.included !== false
+    if (included && !activeMemberIds.has(participant.memberId)) {
+      invalidPurchaseInput(
+        `Purchase participant must be an active household member: ${participant.memberId}`
+      )
+    }
+
+    return {
+      memberId: participant.memberId,
+      included,
+      shareAmountMinor: null
+    } satisfies NormalizedPurchaseParticipant
+  })
+
+  const includedParticipants = normalizedParticipants.filter((participant) => participant.included)
+  if (input.split.participants.length > 0 && includedParticipants.length === 0) {
+    invalidPurchaseInput('Purchase split must include at least one active participant')
+  }
+
+  const splitMode = input.split.mode as string
+  if (splitMode !== 'equal' && splitMode !== 'custom_amounts') {
+    invalidPurchaseInput('Purchase split mode is not supported')
+  }
+
+  if (splitMode === 'equal') {
+    return {
+      splitMode: 'equal',
+      participants: normalizedParticipants
+    }
+  }
+
+  if (includedParticipants.length === 0) {
+    invalidPurchaseInput('Purchase custom split must include at least one active participant')
+  }
+
+  let totalMinor = 0n
+  const participants = input.split.participants.map((participant, index) => {
+    const normalized = normalizedParticipants[index]!
+    if (!normalized.included) {
+      return normalized
+    }
+
+    if (participant.shareAmountMajor === undefined) {
+      invalidPurchaseInput(
+        'Purchase custom split must include explicit share amounts for every included participant'
+      )
+    }
+
+    const share = Money.fromMajor(participant.shareAmountMajor, input.amount.currency)
+    if (share.amountMinor <= 0n) {
+      invalidPurchaseInput('Purchase custom split shares must be positive')
+    }
+
+    totalMinor += share.amountMinor
+
+    return {
+      ...normalized,
+      shareAmountMinor: share.amountMinor
+    } satisfies NormalizedPurchaseParticipant
+  })
+
+  if (totalMinor !== input.amount.amountMinor) {
+    invalidPurchaseInput('Purchase custom split must add up to the full amount')
+  }
+
+  return {
+    splitMode: 'custom_amounts',
+    participants
+  }
+}
+
+function preventImplicitCustomPurchaseAmountChange(input: {
+  existingPurchase: FinanceParsedPurchaseRecord | null
+  amount: Money
+  currency: CurrencyCode
+  split: PurchaseMutationSplit | undefined
+}): void {
+  if (
+    input.split ||
+    !input.existingPurchase ||
+    input.existingPurchase.splitMode !== 'custom_amounts'
+  ) {
+    return
+  }
+
+  if (
+    input.existingPurchase.amountMinor === input.amount.amountMinor &&
+    input.existingPurchase.currency === input.currency
+  ) {
+    return
+  }
+
+  invalidPurchaseInput('Purchase custom split must be resubmitted when changing amount or currency')
+}
+
 export interface FinanceDashboardMemberLine {
   memberId: string
   displayName: string
@@ -3435,33 +3594,29 @@ export function createFinanceCommandService(
       payerMemberId,
       occurredOnArg
     ) {
-      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
-        dependencies.householdId
-      )
+      const [settings, members, existingPurchase] = await Promise.all([
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+        householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
+        repository.getParsedPurchase(purchaseId)
+      ])
+      if (!existingPurchase && !payerMemberId) {
+        return null
+      }
+
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
-
-      if (split?.mode === 'custom_amounts') {
-        const includedParticipants = split.participants.filter((p) => p.included !== false)
-
-        if (includedParticipants.some((p) => p.shareAmountMajor === undefined)) {
-          throw new DomainError(
-            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must include explicit share amounts for every included participant'
-          )
-        }
-
-        const totalMinor = includedParticipants.reduce(
-          (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
-          0n
-        )
-        if (totalMinor !== amount.amountMinor) {
-          throw new DomainError(
-            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must add up to the full amount'
-          )
-        }
-      }
+      preventImplicitCustomPurchaseAmountChange({
+        existingPurchase,
+        amount,
+        currency,
+        split
+      })
+      const normalizedSplit = normalizePurchaseMutationSplit({
+        amount,
+        payerMemberId: payerMemberId ?? existingPurchase!.payerMemberId,
+        split,
+        members
+      })
 
       const updated = await repository.updateParsedPurchase({
         purchaseId,
@@ -3483,15 +3638,8 @@ export function createFinanceCommandService(
           : {}),
         ...(split
           ? {
-              splitMode: split.mode,
-              participants: split.participants.map((participant) => ({
-                memberId: participant.memberId,
-                included: participant.included ?? true,
-                shareAmountMinor:
-                  participant.shareAmountMajor !== undefined
-                    ? Money.fromMajor(participant.shareAmountMajor, currency).amountMinor
-                    : null
-              }))
+              splitMode: normalizedSplit.splitMode,
+              participants: normalizedSplit.participants
             }
           : {})
       })
@@ -3510,37 +3658,22 @@ export function createFinanceCommandService(
     },
 
     async addPurchase(description, amountArg, payerMemberId, currencyArg, split, occurredOnArg) {
-      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
-        dependencies.householdId
-      )
+      const [settings, members] = await Promise.all([
+        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+        householdConfigurationRepository.listHouseholdMembers(dependencies.householdId)
+      ])
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
+      const normalizedSplit = normalizePurchaseMutationSplit({
+        amount,
+        payerMemberId,
+        split,
+        members
+      })
 
       const openCycle = await repository.getOpenCycle()
       if (!openCycle) {
         throw new DomainError(DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT, 'No open billing cycle')
-      }
-
-      if (split?.mode === 'custom_amounts') {
-        const includedParticipants = split.participants.filter((p) => p.included !== false)
-
-        if (includedParticipants.some((p) => p.shareAmountMajor === undefined)) {
-          throw new DomainError(
-            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must include explicit share amounts for every included participant'
-          )
-        }
-
-        const totalMinor = includedParticipants.reduce(
-          (sum, p) => sum + Money.fromMajor(p.shareAmountMajor!, currency).amountMinor,
-          0n
-        )
-        if (totalMinor !== amount.amountMinor) {
-          throw new DomainError(
-            DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
-            'Purchase custom split must add up to the full amount'
-          )
-        }
       }
 
       const created = await repository.addParsedPurchase({
@@ -3557,15 +3690,8 @@ export function createFinanceCommandService(
           : nowInstant(),
         ...(split
           ? {
-              splitMode: split.mode,
-              participants: split.participants.map((participant) => ({
-                memberId: participant.memberId,
-                included: participant.included ?? true,
-                shareAmountMinor:
-                  participant.shareAmountMajor !== undefined
-                    ? Money.fromMajor(participant.shareAmountMajor, currency).amountMinor
-                    : null
-              }))
+              splitMode: normalizedSplit.splitMode,
+              participants: normalizedSplit.participants
             }
           : {})
       })

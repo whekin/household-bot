@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { createHouseholdOnboardingService } from '@household/application'
+import { DOMAIN_ERROR_CODE, DomainError } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -11,7 +12,8 @@ import type {
 import {
   createMiniAppAuthHandler,
   createMiniAppJoinHandler,
-  miniAppErrorResponse
+  miniAppErrorResponse,
+  toMiniAppClientValidationError
 } from './miniapp-auth'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
@@ -413,5 +415,106 @@ describe('createMiniAppAuthHandler', () => {
     expect(serializedPayload).not.toContain('secret')
     expect(serializedPayload).not.toContain('user:secret')
     expect(serializedPayload).not.toContain('hash=')
+  })
+
+  test('returns 400 for scoped mutation validation errors without server-failure logging', async () => {
+    const logEntries: { payload: unknown; message: string }[] = []
+    const logger = {
+      error: (payload: unknown, message: string) => {
+        logEntries.push({ payload, message })
+      }
+    } as Logger
+
+    const response = miniAppErrorResponse(
+      toMiniAppClientValidationError(
+        new DomainError(
+          DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+          'Purchase split cannot include inactive members'
+        )
+      ),
+      'http://localhost:5173',
+      logger,
+      {
+        route: 'miniapp.billing.purchase.add'
+      }
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Purchase split cannot include inactive members'
+    })
+    expect(logEntries).toEqual([])
+  })
+
+  test('logs raw settlement input domain errors by default', async () => {
+    const logEntries: { payload: unknown; message: string }[] = []
+    const logger = {
+      error: (payload: unknown, message: string) => {
+        logEntries.push({ payload, message })
+      }
+    } as Logger
+
+    const response = miniAppErrorResponse(
+      new DomainError(
+        DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+        'Purchase participant is not an active member: member-left'
+      ),
+      'http://localhost:5173',
+      logger,
+      {
+        route: 'miniapp.dashboard'
+      }
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Internal Server Error'
+    })
+    expect(logEntries).toHaveLength(1)
+    expect(logEntries[0]?.payload).toMatchObject({
+      event: 'miniapp.request_failed',
+      route: 'miniapp.dashboard',
+      errorDetails: {
+        name: 'DomainError',
+        code: DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT,
+        message: 'Purchase participant is not an active member: member-left'
+      }
+    })
+  })
+
+  test('logs internal domain errors instead of exposing them as client validation', async () => {
+    const logEntries: { payload: unknown; message: string }[] = []
+    const logger = {
+      error: (payload: unknown, message: string) => {
+        logEntries.push({ payload, message })
+      }
+    } as Logger
+
+    const response = miniAppErrorResponse(
+      new DomainError(DOMAIN_ERROR_CODE.CURRENCY_MISMATCH, 'Money operation currency mismatch'),
+      'http://localhost:5173',
+      logger,
+      {
+        route: 'miniapp.dashboard'
+      }
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Internal Server Error'
+    })
+    expect(logEntries).toHaveLength(1)
+    expect(logEntries[0]?.payload).toMatchObject({
+      event: 'miniapp.request_failed',
+      route: 'miniapp.dashboard',
+      errorDetails: {
+        name: 'DomainError',
+        code: DOMAIN_ERROR_CODE.CURRENCY_MISMATCH,
+        message: 'Money operation currency mismatch'
+      }
+    })
   })
 })

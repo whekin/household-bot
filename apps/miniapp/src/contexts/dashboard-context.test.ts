@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { MiniAppDashboard } from '../miniapp-api'
 import { computeEffectiveBillingStage } from '../lib/billing-stage'
+import { hasEffectiveAdminAccess } from '../lib/admin-access'
 
 function dashboard(): MiniAppDashboard {
   return {
@@ -97,5 +98,30 @@ describe('computeEffectiveBillingStage', () => {
         preferTimelineWindow: true
       })
     ).toBe('utilities')
+  })
+})
+
+describe('hasEffectiveAdminAccess', () => {
+  const activeAdmin = {
+    id: 'member-a',
+    householdName: 'Kojori House',
+    displayName: 'Ada',
+    status: 'active' as const,
+    isAdmin: true,
+    preferredLocale: null,
+    householdDefaultLocale: 'en' as const
+  }
+
+  test('requires an active admin member', () => {
+    expect(hasEffectiveAdminAccess(activeAdmin, null)).toBe(true)
+    expect(hasEffectiveAdminAccess({ ...activeAdmin, status: 'away' }, null)).toBe(false)
+    expect(hasEffectiveAdminAccess({ ...activeAdmin, status: 'left' }, null)).toBe(false)
+    expect(hasEffectiveAdminAccess({ ...activeAdmin, isAdmin: false }, null)).toBe(false)
+    expect(hasEffectiveAdminAccess(null, null)).toBe(false)
+  })
+
+  test('keeps QA resident preview from granting admin access', () => {
+    expect(hasEffectiveAdminAccess(activeAdmin, 'admin')).toBe(true)
+    expect(hasEffectiveAdminAccess(activeAdmin, 'resident')).toBe(false)
   })
 })

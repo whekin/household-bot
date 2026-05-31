@@ -10,6 +10,7 @@ import {
 import { fetchSessionQuery, invalidateHouseholdQueries } from '../app/miniapp-queries'
 import { getTelegramWebApp } from '../telegram-webapp'
 import { demoMember, demoTelegramUser } from '../demo/miniapp-demo'
+import { hasEffectiveAdminAccess } from '../lib/admin-access'
 import { useI18n } from './i18n-context'
 
 /* ── Types ──────────────────────────────────────────── */
@@ -185,7 +186,7 @@ export function SessionProvider(
       if (import.meta.env.DEV) {
         setSession(demoSession)
         setDisplayNameDraft(demoSession.member.displayName)
-        await props.onReady?.('', true)
+        await props.onReady?.('', hasEffectiveAdminAccess(demoSession.member, null))
         return
       }
       setSession({ status: 'blocked', reason: 'telegram_only' })
@@ -222,12 +223,12 @@ export function SessionProvider(
         member: payload.member,
         telegramUser: payload.telegramUser
       })
-      await props.onReady?.(data, payload.member.isAdmin)
+      await props.onReady?.(data, hasEffectiveAdminAccess(payload.member, null))
     } catch (error) {
       if (import.meta.env.DEV) {
         setSession(demoSession)
         setDisplayNameDraft(demoSession.member.displayName)
-        await props.onReady?.('', true)
+        await props.onReady?.('', hasEffectiveAdminAccess(demoSession.member, null))
         return
       }
       if (handleMiniAppRequestError(error)) {
@@ -254,7 +255,7 @@ export function SessionProvider(
           member: payload.member,
           telegramUser: payload.telegramUser
         })
-        await props.onReady?.(data, payload.member.isAdmin)
+        await props.onReady?.(data, hasEffectiveAdminAccess(payload.member, null))
         return
       }
 
@@ -341,7 +342,7 @@ export function SessionProvider(
   async function handleHouseholdLocaleChange(nextLocale: Locale) {
     const data = initData()
     const current = readySession()
-    if (!data || current?.mode !== 'live' || !current.member.isAdmin) return
+    if (!data || current?.mode !== 'live' || !hasEffectiveAdminAccess(current.member, null)) return
 
     try {
       const updated = await updateMiniAppLocalePreference(data, nextLocale, 'household')
@@ -371,7 +372,7 @@ export function SessionProvider(
     // Delegate actual data loading to dashboard context via onReady
     const current = readySession()
     if (current) {
-      const isAdmin = current.member.isAdmin && includeAdmin
+      const isAdmin = hasEffectiveAdminAccess(current.member, null) && includeAdmin
       await Promise.all([
         props.onReady?.(data, isAdmin),
         ...Array.from(refreshListeners).map((l) => l(data, isAdmin))

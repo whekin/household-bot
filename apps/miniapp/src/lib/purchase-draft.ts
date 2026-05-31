@@ -9,15 +9,22 @@ export function buildEmptyPurchaseDraft(
   data: MiniAppDashboard | null | undefined,
   currentMemberId: string | undefined
 ): PurchaseDraft {
+  const activeMembers = (data?.members ?? []).filter(
+    (member) => member.status === undefined || member.status === 'active'
+  )
+  const activeMemberIds = new Set(activeMembers.map((member) => member.memberId))
+  const payerMemberId =
+    currentMemberId && activeMemberIds.has(currentMemberId) ? currentMemberId : undefined
+
   return {
     description: '',
     amountMajor: '',
     currency: (data?.currency as 'USD' | 'GEL') ?? 'GEL',
     occurredOn: todayCalendarInputValue(),
-    ...(currentMemberId ? { payerMemberId: currentMemberId } : {}),
+    ...(payerMemberId ? { payerMemberId } : {}),
     splitMode: 'equal',
     splitInputMode: 'equal',
-    participants: (data?.members ?? []).map((member) => ({
+    participants: activeMembers.map((member) => ({
       memberId: member.memberId,
       included: true,
       shareAmountMajor: '',
@@ -126,8 +133,26 @@ export function buildQuickPurchasePreview(
   const payerMemberId = draft.payerMemberId ?? null
 
   const deltaByMemberId = new Map<string, bigint>()
+  const customShareMinors =
+    draft.splitMode === 'custom_amounts'
+      ? includedParticipants.map((participant) =>
+          majorStringToMinor(participant.shareAmountMajor || '0')
+        )
+      : null
+  const customShareTotalMinor = customShareMinors?.reduce((sum, current) => sum + current, 0n) ?? 0n
+  const useCustomShares =
+    customShareMinors !== null &&
+    customShareMinors.every((shareMinor) => shareMinor > 0n) &&
+    customShareTotalMinor === amountMinor
+
+  if (customShareMinors !== null && !useCustomShares) {
+    return []
+  }
+
   includedParticipants.forEach((participant, index) => {
-    const shareMinor = splitEvenlyShareMinor(amountMinor, includedParticipants.length, index)
+    const shareMinor =
+      customShareMinors?.[index] ??
+      splitEvenlyShareMinor(amountMinor, includedParticipants.length, index)
     const paidMinor = participant.memberId === payerMemberId ? amountMinor : 0n
     deltaByMemberId.set(participant.memberId, shareMinor - paidMinor)
   })

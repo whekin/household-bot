@@ -377,7 +377,10 @@ export function rebalancePurchaseSplit(
     }
   }
 
-  return recalculatePercentages({ ...draft, participants })
+  return recalculatePercentages({
+    ...draft,
+    participants: excludeZeroShareCustomParticipants(draft, participants)
+  })
 }
 
 function recalculatePercentages(draft: PurchaseDraft): PurchaseDraft {
@@ -399,12 +402,56 @@ function recalculatePercentages(draft: PurchaseDraft): PurchaseDraft {
   return { ...draft, participants }
 }
 
+function excludeZeroShareCustomParticipants(
+  draft: PurchaseDraft,
+  participants: ParticipantShare[]
+): ParticipantShare[] {
+  if (draft.splitInputMode === 'equal') {
+    return participants
+  }
+
+  return participants.map((participant) => {
+    if (!participant.included) {
+      return participant
+    }
+
+    const shareMinor = majorStringToMinor(participant.shareAmountMajor || '0')
+    if (shareMinor > 0n) {
+      return participant
+    }
+
+    return {
+      ...participant,
+      included: false,
+      shareAmountMajor: '0.00',
+      sharePercentage: '',
+      isAutoCalculated: true
+    }
+  })
+}
+
 export function calculateRemainingToAllocate(draft: PurchaseDraft): bigint {
   const totalMinor = majorStringToMinor(draft.amountMajor)
   const allocated = draft.participants
     .filter((p) => p.included)
     .reduce((sum, p) => sum + majorStringToMinor(p.shareAmountMajor || '0'), 0n)
   return totalMinor - allocated
+}
+
+export function percentageStringToBasisPoints(value: string): bigint {
+  const normalized = value.trim().replace(',', '.')
+  const match = /^(?:(\d+)(?:\.(\d*))?|\.(\d+))$/.exec(normalized)
+  if (!match) {
+    return 0n
+  }
+
+  const [, wholePart = '0', fractionalPart = '', leadingFractionalPart = ''] = match
+  const roundedFractionalBasisPoints = (fractionalPart || leadingFractionalPart).padEnd(3, '0')
+  const basisPoints =
+    BigInt(wholePart) * 100n +
+    BigInt(roundedFractionalBasisPoints.slice(0, 2) || '0') +
+    (Number(roundedFractionalBasisPoints[2] ?? '0') >= 5 ? 1n : 0n)
+  return basisPoints
 }
 
 export type PurchaseDraftValidation = {
@@ -420,6 +467,20 @@ export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValida
 
   const totalMinor = majorStringToMinor(draft.amountMajor)
   const remaining = calculateRemainingToAllocate(draft)
+
+  const hasNonPositiveShare = draft.participants.some((p) => {
+    if (!p.included) return false
+    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    return shareMinor <= 0n
+  })
+
+  if (hasNonPositiveShare) {
+    return {
+      valid: false,
+      error: 'Included shares must be positive',
+      remainingMinor: remaining
+    }
+  }
 
   const hasInvalidShare = draft.participants.some((p) => {
     if (!p.included) return false

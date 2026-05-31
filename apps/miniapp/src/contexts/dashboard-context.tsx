@@ -11,6 +11,7 @@ import {
 import type { CalendarDateParts } from '../lib/dates'
 import { normalizePeriodOverride, parseCalendarDate } from '../lib/dates'
 import { computeEffectiveBillingStage } from '../lib/billing-stage'
+import { hasEffectiveAdminAccess } from '../lib/admin-access'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
   fetchDashboardQuery,
@@ -377,10 +378,7 @@ export function DashboardProvider(props: ParentProps) {
 
   const effectiveIsAdmin = createMemo(() => {
     const current = readySession()
-    if (!current?.member.isAdmin) return false
-    const preview = testingRolePreview()
-    if (!preview) return true
-    return preview === 'admin'
+    return hasEffectiveAdminAccess(current?.member, testingRolePreview())
   })
 
   const currentMemberLine = createMemo(() => {
@@ -451,11 +449,15 @@ export function DashboardProvider(props: ParentProps) {
     const normalizedTodayOverride = testingTodayOverride()
     if (!current) return
 
-    void loadDashboardData(data ?? '', current.member.isAdmin, {
-      background: hasLoadedOnce(),
-      periodOverride: normalizedPeriodOverride,
-      todayOverride: normalizedTodayOverride
-    })
+    void loadDashboardData(
+      data ?? '',
+      hasEffectiveAdminAccess(current.member, testingRolePreview()),
+      {
+        background: hasLoadedOnce(),
+        periodOverride: normalizedPeriodOverride,
+        todayOverride: normalizedTodayOverride
+      }
+    )
   })
 
   async function loadDashboardData(
@@ -567,7 +569,7 @@ export function DashboardProvider(props: ParentProps) {
     if (!data || !current) return
 
     await invalidateHouseholdQueries(data)
-    await loadDashboardData(data, current.member.isAdmin, {
+    await loadDashboardData(data, hasEffectiveAdminAccess(current.member, testingRolePreview()), {
       background: dashboard() !== null
     })
   }

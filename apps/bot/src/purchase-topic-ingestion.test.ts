@@ -10,11 +10,14 @@ import { createTelegramBot } from './bot'
 
 import {
   buildPurchaseAcknowledgement,
+  canConfirmActivePurchaseProposal,
   extractPurchaseTopicCandidate,
   explicitPurchaseParticipantMemberIds,
+  finalizePayerDecision,
   looksLikeLikelyCompletedPurchase,
   registerConfiguredPurchaseTopicIngestion,
   registerPurchaseTopicIngestion,
+  resolvePurchasePayer,
   resolveProposalParticipantSelection,
   resolveConfiguredPurchaseTopicRecord,
   type PurchaseMessageIngestionRepository,
@@ -436,7 +439,7 @@ Confirm or cancel below.`)
 })
 
 describe('resolveProposalParticipantSelection', () => {
-  test('prefers explicit llm-selected participants over away-status defaults', () => {
+  test('ignores explicit away participants when active members are available', () => {
     const participants = resolveProposalParticipantSelection({
       members: [
         {
@@ -471,7 +474,7 @@ describe('resolveProposalParticipantSelection', () => {
       },
       {
         memberId: 'member-alice',
-        included: true
+        included: false
       }
     ])
   })
@@ -550,6 +553,264 @@ describe('resolveProposalParticipantSelection', () => {
         included: false
       }
     ])
+  })
+
+  test('does not include away members when no active purchase participants exist', () => {
+    const participants = resolveProposalParticipantSelection({
+      members: [
+        {
+          memberId: 'member-away',
+          telegramUserId: '10002',
+          lifecycleStatus: 'away'
+        },
+        {
+          memberId: 'member-other-away',
+          telegramUserId: '10003',
+          lifecycleStatus: 'away'
+        }
+      ],
+      senderTelegramUserId: '10002',
+      senderMemberId: 'member-away',
+      explicitParticipantMemberIds: null
+    })
+
+    expect(participants).toEqual([
+      {
+        memberId: 'member-away',
+        included: false
+      },
+      {
+        memberId: 'member-other-away',
+        included: false
+      }
+    ])
+  })
+})
+
+describe('resolvePurchasePayer', () => {
+  test('does not resolve an away sender as payer while active members are available', () => {
+    const resolution = resolvePurchasePayer({
+      rawText: 'купил хлеб 10 лари',
+      senderMemberId: 'member-away',
+      members: [
+        {
+          memberId: 'member-active',
+          displayName: 'Mia',
+          status: 'active'
+        },
+        {
+          memberId: 'member-away',
+          displayName: 'Dima',
+          status: 'away'
+        }
+      ]
+    })
+
+    expect(resolution).toEqual({
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: ['member-active']
+    })
+  })
+
+  test('does not resolve active sender when text names an away payer', () => {
+    const resolution = resolvePurchasePayer({
+      rawText: 'Dima bought bread 10 GEL',
+      senderMemberId: 'member-active',
+      members: [
+        {
+          memberId: 'member-active',
+          displayName: 'Mia',
+          status: 'active'
+        },
+        {
+          memberId: 'member-away',
+          displayName: 'Dima',
+          status: 'away'
+        }
+      ]
+    })
+
+    expect(resolution).toEqual({
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: ['member-active']
+    })
+  })
+
+  test('does not resolve an away payer when no active payer candidates exist', () => {
+    const resolution = resolvePurchasePayer({
+      rawText: 'купил хлеб 10 лари',
+      senderMemberId: 'member-away',
+      members: [
+        {
+          memberId: 'member-away',
+          displayName: 'Dima',
+          status: 'away'
+        },
+        {
+          memberId: 'member-other-away',
+          displayName: 'Mia',
+          status: 'away'
+        }
+      ]
+    })
+
+    expect(resolution).toEqual({
+      status: 'ambiguous',
+      payerMemberId: null,
+      payerCandidateMemberIds: []
+    })
+  })
+})
+
+describe('finalizePayerDecision', () => {
+  test('turns interpreter-provided inactive payers into payer clarification', () => {
+    const decision: Parameters<typeof finalizePayerDecision>[0]['decision'] = {
+      status: 'pending_confirmation',
+      parsedAmountMinor: 1000n,
+      parsedCurrency: 'GEL',
+      parsedItemDescription: 'bread',
+      payerMemberId: 'member-away',
+      payerCandidateMemberIds: null,
+      amountSource: 'explicit',
+      calculationExplanation: null,
+      participantMemberIds: null,
+      parserConfidence: 95,
+      parserMode: 'llm',
+      clarificationQuestion: null,
+      parserError: null,
+      needsReview: false
+    }
+
+    expect(
+      finalizePayerDecision({
+        decision,
+        rawText: 'Dima bought bread 10 GEL',
+        senderMemberId: 'member-active',
+        householdMembers: [
+          {
+            memberId: 'member-active',
+            displayName: 'Mia',
+            status: 'active'
+          },
+          {
+            memberId: 'member-away',
+            displayName: 'Dima',
+            status: 'away'
+          }
+        ]
+      })
+    ).toEqual({
+      ...decision,
+      status: 'clarification_needed',
+      payerMemberId: null,
+      payerCandidateMemberIds: ['member-active'],
+      needsReview: true
+    })
+  })
+
+  test('does not attach payer buttons before incomplete inactive-payer parses are complete', () => {
+    const decision: Parameters<typeof finalizePayerDecision>[0]['decision'] = {
+      status: 'clarification_needed',
+      parsedAmountMinor: null,
+      parsedCurrency: null,
+      parsedItemDescription: 'bread',
+      payerMemberId: 'member-away',
+      payerCandidateMemberIds: null,
+      amountSource: null,
+      calculationExplanation: null,
+      participantMemberIds: null,
+      parserConfidence: 80,
+      parserMode: 'llm',
+      clarificationQuestion: 'How much did the bread cost?',
+      parserError: null,
+      needsReview: true
+    }
+
+    expect(
+      finalizePayerDecision({
+        decision,
+        rawText: 'Dima bought bread',
+        senderMemberId: 'member-active',
+        householdMembers: [
+          {
+            memberId: 'member-active',
+            displayName: 'Mia',
+            status: 'active'
+          },
+          {
+            memberId: 'member-away',
+            displayName: 'Dima',
+            status: 'away'
+          }
+        ]
+      })
+    ).toEqual({
+      ...decision,
+      payerMemberId: null,
+      payerCandidateMemberIds: null,
+      needsReview: true
+    })
+  })
+})
+
+describe('canConfirmActivePurchaseProposal', () => {
+  const members = [
+    {
+      memberId: 'member-active',
+      status: 'active' as const
+    },
+    {
+      memberId: 'member-away',
+      status: 'away' as const
+    }
+  ]
+
+  test('allows confirmation only when payer and included participants are still active', () => {
+    expect(
+      canConfirmActivePurchaseProposal({
+        payerMemberId: 'member-active',
+        participants: [
+          {
+            memberId: 'member-active',
+            included: true
+          },
+          {
+            memberId: 'member-away',
+            included: false
+          }
+        ],
+        members
+      })
+    ).toBe(true)
+  })
+
+  test('rejects stale confirmation when payer or included participant is inactive', () => {
+    expect(
+      canConfirmActivePurchaseProposal({
+        payerMemberId: 'member-away',
+        participants: [
+          {
+            memberId: 'member-active',
+            included: true
+          }
+        ],
+        members
+      })
+    ).toBe(false)
+    expect(
+      canConfirmActivePurchaseProposal({
+        payerMemberId: 'member-active',
+        participants: [
+          {
+            memberId: 'member-away',
+            included: true
+          }
+        ],
+        members
+      })
+    ).toBe(false)
   })
 })
 
@@ -2335,6 +2596,13 @@ Confirm or cancel below.`
               memberId: 'member-2',
               displayName: 'Dima',
               included: true
+            },
+            {
+              id: 'participant-3',
+              memberId: 'member-3',
+              displayName: 'Guest',
+              included: false,
+              memberStatus: 'away'
             }
           ]
         }
@@ -2359,6 +2627,7 @@ Confirm or cancel below.`
 Participants:
 - Mia
 - Dima
+- Guest (excluded)
 Confirm or cancel below.`,
         reply_markup: {
           inline_keyboard: [
@@ -2375,17 +2644,61 @@ Confirm or cancel below.`,
               }
             ],
             [
-              {
-                text: 'Confirm',
-                callback_data: 'purchase:confirm:proposal-1'
-              },
-              {
-                text: 'Cancel',
-                callback_data: 'purchase:cancel:proposal-1'
-              }
+              { text: 'Confirm', callback_data: 'purchase:confirm:proposal-1' },
+              { text: 'Cancel', callback_data: 'purchase:cancel:proposal-1' }
             ]
           ]
         }
+      }
+    })
+  })
+
+  test('does not toggle stale inactive proposal participant buttons', async () => {
+    const bot = createTestBot()
+    const calls: Array<{ method: string; payload: unknown }> = []
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    const repository: PurchaseMessageIngestionRepository = {
+      async hasClarificationContext() {
+        return false
+      },
+      async save() {
+        throw new Error('not used')
+      },
+      async confirm() {
+        throw new Error('not used')
+      },
+      async saveWithInterpretation() {
+        throw new Error('not implemented')
+      },
+      async cancel() {
+        throw new Error('not used')
+      },
+      async toggleParticipant() {
+        return {
+          status: 'not_editable' as const,
+          householdId: config.householdId
+        }
+      }
+    }
+
+    registerPurchaseTopicIngestion(bot, config, repository)
+    await bot.handleUpdate(callbackUpdate('purchase:participant:participant-3') as never)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1',
+        text: 'This purchase proposal is no longer available.',
+        show_alert: true
       }
     })
   })

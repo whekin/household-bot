@@ -204,6 +204,20 @@ describe('renderPurchaseTopicNotice', () => {
     expect(rendered.text).toContain('индивидуальные суммы')
     expect(rendered.replyMarkup).toBeUndefined()
   })
+
+  test('does not offer excluded inactive participants as toggle targets', () => {
+    const rendered = renderPurchaseTopicNotice({
+      locale: 'ru',
+      purchase: purchase(),
+      members: members.map((member) =>
+        member.id === 'member-2' ? { ...member, status: 'away' as const } : member
+      )
+    })
+
+    expect(rendered.text).toContain('- Дима (не участвует)')
+    expect(rendered.replyMarkup?.inline_keyboard.length).toBe(1)
+    expect(JSON.stringify(rendered.replyMarkup)).not.toContain('participant-2')
+  })
 })
 
 describe('createPurchaseTopicNoticeService', () => {

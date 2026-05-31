@@ -885,6 +885,28 @@ export function createDbFinanceRepository(
             return { status: 'forbidden' as const }
           }
 
+          const participantRows = await tx
+            .select({
+              lifecycleStatus: schema.members.lifecycleStatus
+            })
+            .from(schema.members)
+            .where(
+              and(
+                eq(schema.members.householdId, row.purchaseHouseholdId),
+                eq(schema.members.id, row.memberId)
+              )
+            )
+            .limit(1)
+
+          const participant = participantRows[0]
+          if (!participant) {
+            return { status: 'not_found' as const }
+          }
+
+          if (row.included !== 1 && participant.lifecycleStatus !== 'active') {
+            return { status: 'not_editable' as const }
+          }
+
           if (
             row.splitMode === 'custom_amounts' ||
             (row.processingStatus !== 'confirmed' && row.processingStatus !== 'parsed')

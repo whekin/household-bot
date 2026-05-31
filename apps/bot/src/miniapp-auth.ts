@@ -1,5 +1,5 @@
 import type { HouseholdOnboardingService } from '@household/application'
-import type { SupportedLocale } from '@household/domain'
+import { DOMAIN_ERROR_CODE, type SupportedLocale } from '@household/domain'
 import type { Logger } from '@household/observability'
 
 import { verifyTelegramMiniAppInitData } from './telegram-miniapp-auth'
@@ -131,6 +131,20 @@ const databaseUrlCredentialsPattern = /\b(postgres(?:ql)?:\/\/)([^:@\s/]+):([^@\
 const telegramBotTokenPattern = /\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g
 const bearerTokenPattern = /\b(authorization:\s*bearer\s+)[^\s,]+/gi
 const telegramInitDataPattern = /\b(initData=)[^\s]+/gi
+const clientDomainErrorCodes = new Set<string>([
+  DOMAIN_ERROR_CODE.INVALID_MONEY_MAJOR_FORMAT,
+  DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT
+])
+const MINIAPP_CLIENT_VALIDATION_ERROR_CODE = 'MINIAPP_CLIENT_VALIDATION'
+
+class MiniAppClientValidationError extends Error {
+  readonly code = MINIAPP_CLIENT_VALIDATION_ERROR_CODE
+
+  constructor(message: string, cause: unknown) {
+    super(message, { cause })
+    this.name = 'MiniAppClientValidationError'
+  }
+}
 
 function redactSensitiveText(value: string): string {
   return value
@@ -195,6 +209,19 @@ function serializeMiniAppError(error: unknown, depth = 0): SerializedMiniAppErro
   return serialized
 }
 
+function isClientMiniAppError(error: SerializedMiniAppError): boolean {
+  return error.code === MINIAPP_CLIENT_VALIDATION_ERROR_CODE
+}
+
+export function toMiniAppClientValidationError(error: unknown): unknown {
+  const errorDetails = serializeMiniAppError(error)
+  if (!errorDetails.code || !clientDomainErrorCodes.has(errorDetails.code)) {
+    return error
+  }
+
+  return new MiniAppClientValidationError(errorDetails.message, error)
+}
+
 export function miniAppErrorResponse(
   error: unknown,
   origin?: string,
@@ -205,6 +232,10 @@ export function miniAppErrorResponse(
   const message = errorDetails.message
 
   if (message === 'Invalid JSON body') {
+    return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
+  }
+
+  if (isClientMiniAppError(errorDetails)) {
     return miniAppJsonResponse({ ok: false, error: message }, 400, origin)
   }
 
