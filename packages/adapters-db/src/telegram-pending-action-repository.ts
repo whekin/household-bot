@@ -170,6 +170,30 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
       }
     },
 
+    async consumePendingActionByPayloadValue(telegramChatId, telegramUserId, action, key, value) {
+      const rows = await db
+        .delete(schema.telegramPendingActions)
+        .where(
+          and(
+            eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
+            eq(schema.telegramPendingActions.telegramUserId, telegramUserId),
+            eq(schema.telegramPendingActions.action, action),
+            sql`${schema.telegramPendingActions.payload}->>${key} = ${value}`,
+            sql`(${schema.telegramPendingActions.expiresAt} is null or ${schema.telegramPendingActions.expiresAt} > ${instantToDate(nowInstant())})`
+          )
+        )
+        .returning({
+          telegramUserId: schema.telegramPendingActions.telegramUserId,
+          telegramChatId: schema.telegramPendingActions.telegramChatId,
+          action: schema.telegramPendingActions.action,
+          payload: schema.telegramPendingActions.payload,
+          expiresAt: schema.telegramPendingActions.expiresAt
+        })
+
+      const row = rows[0]
+      return row ? mapPendingAction(row) : null
+    },
+
     async findPendingActionByPayloadValue(telegramChatId, action, key, value) {
       const now = nowInstant()
       const rows = await db

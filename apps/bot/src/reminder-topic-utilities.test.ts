@@ -11,11 +11,16 @@ import {
   REMINDER_UTILITY_TEMPLATE_CALLBACK
 } from './reminder-topic-utilities'
 
-function reminderCallbackUpdate(data: string, fromId = 10002) {
+function reminderCallbackUpdate(
+  data: string,
+  fromId = 10002,
+  updateId = 2001,
+  callbackId = 'callback-1'
+) {
   return {
-    update_id: 2001,
+    update_id: updateId,
     callback_query: {
-      id: 'callback-1',
+      id: callbackId,
       from: {
         id: fromId,
         is_bot: false,
@@ -96,6 +101,29 @@ function createPromptRepository(): TelegramPendingActionRepository & {
       }
 
       return pending
+    },
+    async consumePendingActionByPayloadValue(telegramChatId, telegramUserId, action, key, value) {
+      if (
+        !pending ||
+        pending.telegramChatId !== telegramChatId ||
+        pending.telegramUserId !== telegramUserId ||
+        pending.action !== action ||
+        pending.payload[key] !== value
+      ) {
+        return null
+      }
+
+      if (
+        pending.expiresAt &&
+        pending.expiresAt.epochMilliseconds <= nowInstant().epochMilliseconds
+      ) {
+        pending = null
+        return null
+      }
+
+      const consumed = pending
+      pending = null
+      return consumed
     },
     async clearPendingAction() {
       pending = null
@@ -449,7 +477,9 @@ describe('registerReminderTopicUtilities', () => {
 
   test('uses the reminder callback period when saving template utility bills', async () => {
     const paymentInstructionStatuses: string[] = []
-    const { bot, financeService, promptRepository } = setupBot({ paymentInstructionStatuses })
+    const { bot, financeService, promptRepository } = setupBot({
+      paymentInstructionStatuses
+    })
 
     await bot.handleUpdate(
       reminderCallbackUpdate(`${REMINDER_UTILITY_TEMPLATE_CALLBACK}:2026-06`) as never
@@ -555,5 +585,59 @@ describe('registerReminderTopicUtilities', () => {
         show_alert: true
       }
     })
+  })
+
+  test('consumes a confirmation proposal before side effects so duplicate callbacks cannot double-save', async () => {
+    const paymentInstructionStatuses: string[] = []
+    const { bot, calls, financeService, promptRepository } = setupBot({
+      paymentInstructionStatuses
+    })
+
+    await bot.handleUpdate(reminderCallbackUpdate(REMINDER_UTILITY_TEMPLATE_CALLBACK) as never)
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: 0') as never)
+
+    const confirmProposalId = (
+      promptRepository.current()?.payload as {
+        proposalId?: string
+      } | null
+    )?.proposalId
+    const confirmCallbackData = `reminder_util:confirm:${confirmProposalId ?? 'missing'}`
+    calls.length = 0
+
+    await Promise.all([
+      bot.handleUpdate(
+        reminderCallbackUpdate(confirmCallbackData, 10002, 3001, 'callback-a') as never
+      ),
+      bot.handleUpdate(
+        reminderCallbackUpdate(confirmCallbackData, 10002, 3002, 'callback-b') as never
+      )
+    ])
+
+    expect(financeService.addedUtilityBills).toEqual([
+      {
+        billName: 'Electricity',
+        amountMajor: '22.00',
+        createdByMemberId: 'member-1',
+        currency: 'GEL',
+        periodArg: '2026-03'
+      }
+    ])
+    expect(paymentInstructionStatuses).toEqual(['household-1:utilities:2026-03'])
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === 'answerCallbackQuery' &&
+          (call.payload as { text?: string }).text ===
+            'Сохранено 1 начисление коммуналки за 2026-03.'
+      )
+    ).toHaveLength(1)
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === 'answerCallbackQuery' &&
+          (call.payload as { text?: string }).text ===
+            'Это предложение по коммуналке уже недоступно.'
+      )
+    ).toHaveLength(1)
   })
 })

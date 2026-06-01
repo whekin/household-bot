@@ -542,9 +542,28 @@ export function registerReminderTopicUtilities(options: {
       repository: options.householdConfigurationRepository
     })
     const t = getBotTranslations(locale).reminders
-    const pending = await options.promptRepository.getPendingAction(
+    if (!options.promptRepository.consumePendingActionByPayloadValue) {
+      options.logger?.error(
+        {
+          event: 'reminder.utility_confirm_claim_unavailable',
+          chatId: messageChat.id.toString(),
+          proposalId
+        },
+        'Reminder utility confirmation requires an atomic pending-action claim'
+      )
+      await ctx.answerCallbackQuery({
+        text: t.proposalUnavailable,
+        show_alert: true
+      })
+      return
+    }
+
+    const pending = await options.promptRepository.consumePendingActionByPayloadValue(
       messageChat.id.toString(),
-      actorTelegramUserId
+      actorTelegramUserId,
+      REMINDER_UTILITY_ACTION,
+      'proposalId',
+      proposalId
     )
     const payload =
       pending?.action === REMINDER_UTILITY_ACTION
@@ -594,10 +613,6 @@ export function registerReminderTopicUtilities(options: {
         return { status: 'failed' }
       })
 
-    await options.promptRepository.clearPendingAction(
-      messageChat.id.toString(),
-      actorTelegramUserId
-    )
     const savedText = t.saved(payload.entries.length, payload.period!)
     await ctx.answerCallbackQuery({
       text: savedText
@@ -634,10 +649,18 @@ export function registerReminderTopicUtilities(options: {
       repository: options.householdConfigurationRepository
     })
     const t = getBotTranslations(locale).reminders
-    const pending = await options.promptRepository.getPendingAction(
-      messageChat.id.toString(),
-      actorTelegramUserId
-    )
+    const pending = options.promptRepository.consumePendingActionByPayloadValue
+      ? await options.promptRepository.consumePendingActionByPayloadValue(
+          messageChat.id.toString(),
+          actorTelegramUserId,
+          REMINDER_UTILITY_ACTION,
+          'proposalId',
+          proposalId
+        )
+      : await options.promptRepository.getPendingAction(
+          messageChat.id.toString(),
+          actorTelegramUserId
+        )
     const payload =
       pending?.action === REMINDER_UTILITY_ACTION
         ? (pending.payload as Partial<ReminderUtilityEntryPayload>)
@@ -651,10 +674,12 @@ export function registerReminderTopicUtilities(options: {
       return
     }
 
-    await options.promptRepository.clearPendingAction(
-      messageChat.id.toString(),
-      actorTelegramUserId
-    )
+    if (!options.promptRepository.consumePendingActionByPayloadValue) {
+      await options.promptRepository.clearPendingAction(
+        messageChat.id.toString(),
+        actorTelegramUserId
+      )
+    }
     await ctx.answerCallbackQuery({
       text: t.cancelled
     })
