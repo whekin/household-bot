@@ -313,6 +313,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     cancelled: 'Ввод коммуналки отменён.',
     saved: (count, period) =>
       `Сохранено ${count} ${count === 1 ? 'начисление коммуналки' : 'начислений коммуналки'} за ${period}.`,
+    paymentInstructionSent: 'Инструкция по оплате отправлена в топик оплат.',
     proposalUnavailable: 'Это предложение по коммуналке уже недоступно.',
     onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
     detailsButton: 'Детали',

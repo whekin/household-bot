@@ -184,6 +184,7 @@ function createFinanceService(): FinanceCommandService & {
     amountMajor: string
     createdByMemberId: string
     currency?: string
+    periodArg?: string
   }>
 } {
   return {
@@ -222,19 +223,27 @@ function createFinanceService(): FinanceCommandService & {
     }),
     closeCycle: async () => null,
     setRent: async () => null,
-    addUtilityBill: async function (billName, amountMajor, createdByMemberId, currencyArg) {
+    addUtilityBill: async function (
+      billName,
+      amountMajor,
+      createdByMemberId,
+      currencyArg,
+      periodArg
+    ) {
       if (currencyArg) {
         this.addedUtilityBills.push({
           billName,
           amountMajor,
           createdByMemberId,
-          currency: currencyArg
+          currency: currencyArg,
+          ...(periodArg ? { periodArg } : {})
         })
       } else {
         this.addedUtilityBills.push({
           billName,
           amountMajor,
-          createdByMemberId
+          createdByMemberId,
+          ...(periodArg ? { periodArg } : {})
         })
       }
 
@@ -272,7 +281,7 @@ function createFinanceService(): FinanceCommandService & {
   }
 }
 
-function setupBot() {
+function setupBot(options: { paymentInstructionStatuses?: string[] } = {}) {
   const bot = createTelegramBot('000000:test-token')
   const calls: Array<{ method: string; payload: unknown }> = []
   const promptRepository = createPromptRepository()
@@ -305,7 +314,19 @@ function setupBot() {
     bot,
     householdConfigurationRepository: createHouseholdRepository() as never,
     promptRepository,
-    financeServiceForHousehold: () => financeService
+    financeServiceForHousehold: () => financeService,
+    ...(options.paymentInstructionStatuses
+      ? {
+          paymentInstructionPublisher: {
+            sendPaymentInstruction: async (input) => {
+              options.paymentInstructionStatuses?.push(
+                `${input.householdId}:${input.kind}:${input.period}`
+              )
+              return { status: 'sent' }
+            }
+          }
+        }
+      : {})
   })
 
   return {
@@ -382,13 +403,15 @@ describe('registerReminderTopicUtilities', () => {
         billName: 'Electricity',
         amountMajor: '55.00',
         createdByMemberId: 'member-1',
-        currency: 'GEL'
+        currency: 'GEL',
+        periodArg: '2026-03'
       },
       {
         billName: 'Water',
         amountMajor: '12.50',
         createdByMemberId: 'member-1',
-        currency: 'GEL'
+        currency: 'GEL',
+        periodArg: '2026-03'
       }
     ])
     expect(calls[0]).toMatchObject({
@@ -422,6 +445,36 @@ describe('registerReminderTopicUtilities', () => {
         text: expect.stringContaining('- Electricity: 22.00 ₾')
       }
     })
+  })
+
+  test('uses the reminder callback period when saving template utility bills', async () => {
+    const paymentInstructionStatuses: string[] = []
+    const { bot, financeService, promptRepository } = setupBot({ paymentInstructionStatuses })
+
+    await bot.handleUpdate(
+      reminderCallbackUpdate(`${REMINDER_UTILITY_TEMPLATE_CALLBACK}:2026-06`) as never
+    )
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: 0') as never)
+
+    const confirmProposalId = (
+      promptRepository.current()?.payload as {
+        proposalId?: string
+      } | null
+    )?.proposalId
+    await bot.handleUpdate(
+      reminderCallbackUpdate(`reminder_util:confirm:${confirmProposalId ?? 'missing'}`) as never
+    )
+
+    expect(financeService.addedUtilityBills).toEqual([
+      {
+        billName: 'Electricity',
+        amountMajor: '22.00',
+        createdByMemberId: 'member-1',
+        currency: 'GEL',
+        periodArg: '2026-06'
+      }
+    ])
+    expect(paymentInstructionStatuses).toEqual(['household-1:utilities:2026-06'])
   })
 
   test('treats blank or removed template lines as skipped categories', async () => {

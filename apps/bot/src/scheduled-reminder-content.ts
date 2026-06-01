@@ -24,6 +24,30 @@ export function buildScheduledReminderMessageContent(input: {
   miniAppUrl?: string
   botUsername?: string
 }): ScheduledReminderMessageContent {
+  if (
+    input.reminderType === 'utilities' &&
+    (!input.dashboard?.utilityBillingPlan ||
+      input.dashboard.utilityBillingPlan.categories.length === 0)
+  ) {
+    const t = getBotTranslations(input.locale).reminders
+    return {
+      text: t.utilities(input.period),
+      replyMarkup: buildUtilitiesReminderReplyMarkup(input.locale, {
+        ...(input.miniAppUrl
+          ? {
+              miniAppUrl: input.miniAppUrl
+            }
+          : {}),
+        ...(input.botUsername
+          ? {
+              botUsername: input.botUsername
+            }
+          : {}),
+        period: input.period
+      })
+    }
+  }
+
   if (input.dashboard) {
     const dispatchKind: PaymentReminderDispatchKind =
       input.reminderType === 'utilities'
@@ -38,6 +62,7 @@ export function buildScheduledReminderMessageContent(input: {
       period: input.period,
       dashboard: input.dashboard,
       viewMode: 'compact',
+      includeUtilityEntryButtons: false,
       ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
       ...(input.botUsername ? { botUsername: input.botUsername } : {})
     })
@@ -71,7 +96,8 @@ export function buildScheduledReminderMessageContent(input: {
             ? {
                 botUsername: input.botUsername
               }
-            : {})
+            : {}),
+          period: input.period
         })
       }
     case 'rent-warning':

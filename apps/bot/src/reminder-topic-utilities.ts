@@ -1,5 +1,5 @@
 import type { FinanceCommandService } from '@household/application'
-import { nowInstant } from '@household/domain'
+import { BillingPeriod, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -19,6 +19,8 @@ const REMINDER_UTILITY_CONFIRM_CALLBACK_PREFIX = 'reminder_util:confirm:'
 const REMINDER_UTILITY_CANCEL_CALLBACK_PREFIX = 'reminder_util:cancel:'
 export const REMINDER_UTILITY_ACTION = 'reminder_utility_entry' as const
 export const REMINDER_UTILITY_ACTION_TTL_MS = 30 * 60_000
+const REMINDER_UTILITY_GUIDED_CALLBACK_PATTERN = /^reminder_util:guided(?::(\d{4}-\d{2}))?$/
+const REMINDER_UTILITY_TEMPLATE_CALLBACK_PATTERN = /^reminder_util:template(?::(\d{4}-\d{2}))?$/
 
 type ReminderUtilityEntryPayload =
   | {
@@ -322,7 +324,8 @@ async function replyInTopic(
 async function resolveReminderContext(
   ctx: Context,
   householdConfigurationRepository: HouseholdConfigurationRepository,
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService,
+  periodArg?: string
 ): Promise<{
   locale: BotLocale
   householdId: string
@@ -345,7 +348,11 @@ async function resolveReminderContext(
   const [settings, categories, cycle] = await Promise.all([
     householdConfigurationRepository.getHouseholdBillingSettings(actorContext.householdId),
     householdConfigurationRepository.listHouseholdUtilityCategories(actorContext.householdId),
-    financeService.ensureExpectedCycle()
+    periodArg
+      ? Promise.resolve({
+          period: BillingPeriod.fromString(periodArg).toString()
+        })
+      : financeService.ensureExpectedCycle()
   ])
 
   return {
@@ -367,21 +374,25 @@ export function buildUtilitiesReminderReplyMarkup(
   options?: {
     miniAppUrl?: string
     botUsername?: string
+    period?: string
   }
 ): InlineKeyboardMarkup {
   const t = getBotTranslations(locale).reminders
   const dashboardUrl = buildBotStartDeepLink(options?.botUsername, 'dashboard')
+  const periodSuffix = options?.period
+    ? `:${BillingPeriod.fromString(options.period).toString()}`
+    : ''
 
   return {
     inline_keyboard: [
       [
         {
           text: t.guidedEntryButton,
-          callback_data: REMINDER_UTILITY_GUIDED_CALLBACK
+          callback_data: `${REMINDER_UTILITY_GUIDED_CALLBACK}${periodSuffix}`
         },
         {
           text: t.copyTemplateButton,
-          callback_data: REMINDER_UTILITY_TEMPLATE_CALLBACK
+          callback_data: `${REMINDER_UTILITY_TEMPLATE_CALLBACK}${periodSuffix}`
         }
       ],
       ...(dashboardUrl
@@ -403,9 +414,16 @@ export function registerReminderTopicUtilities(options: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  paymentInstructionPublisher?: {
+    sendPaymentInstruction(input: {
+      householdId: string
+      kind: 'utilities' | 'rent'
+      period: string
+    }): Promise<{ status: string }>
+  }
   logger?: Logger
 }): void {
-  async function startFlow(ctx: Context, stage: 'guided' | 'template') {
+  async function startFlow(ctx: Context, stage: 'guided' | 'template', periodArg?: string) {
     if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
       return
     }
@@ -413,7 +431,8 @@ export function registerReminderTopicUtilities(options: {
     const reminderContext = await resolveReminderContext(
       ctx,
       options.householdConfigurationRepository,
-      options.financeServiceForHousehold
+      options.financeServiceForHousehold,
+      periodArg
     )
 
     if (!reminderContext) {
@@ -496,12 +515,12 @@ export function registerReminderTopicUtilities(options: {
     })
   }
 
-  options.bot.callbackQuery(REMINDER_UTILITY_GUIDED_CALLBACK, async (ctx) => {
-    await startFlow(ctx, 'guided')
+  options.bot.callbackQuery(REMINDER_UTILITY_GUIDED_CALLBACK_PATTERN, async (ctx) => {
+    await startFlow(ctx, 'guided', ctx.match?.[1])
   })
 
-  options.bot.callbackQuery(REMINDER_UTILITY_TEMPLATE_CALLBACK, async (ctx) => {
-    await startFlow(ctx, 'template')
+  options.bot.callbackQuery(REMINDER_UTILITY_TEMPLATE_CALLBACK_PATTERN, async (ctx) => {
+    await startFlow(ctx, 'template', ctx.match?.[1])
   })
 
   const handleReminderUtilityConfirm = async (ctx: Context, proposalId: string) => {
@@ -551,24 +570,48 @@ export function registerReminderTopicUtilities(options: {
         entry.billName,
         entry.amountMajor,
         payload.memberId!,
-        payload.currency
+        payload.currency,
+        payload.period!
       )
     }
+
+    const publishResult = await options.paymentInstructionPublisher
+      ?.sendPaymentInstruction({
+        householdId: payload.householdId!,
+        kind: 'utilities',
+        period: payload.period!
+      })
+      .catch((error) => {
+        options.logger?.warn(
+          {
+            event: 'reminder.utility_payment_instruction_failed',
+            householdId: payload.householdId,
+            period: payload.period,
+            error
+          },
+          'Failed to publish utility payment instruction after reminder entry'
+        )
+        return { status: 'failed' }
+      })
 
     await options.promptRepository.clearPendingAction(
       messageChat.id.toString(),
       actorTelegramUserId
     )
+    const savedText = t.saved(payload.entries.length, payload.period!)
     await ctx.answerCallbackQuery({
-      text: t.saved(payload.entries.length, payload.period!)
+      text: savedText
     })
 
     if (ctx.msg) {
-      await ctx.editMessageText(t.saved(payload.entries.length, payload.period!), {
-        reply_markup: {
-          inline_keyboard: []
+      await ctx.editMessageText(
+        publishResult?.status === 'sent' ? `${savedText}\n${t.paymentInstructionSent}` : savedText,
+        {
+          reply_markup: {
+            inline_keyboard: []
+          }
         }
-      })
+      )
     }
   }
 

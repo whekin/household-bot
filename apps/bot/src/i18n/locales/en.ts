@@ -309,6 +309,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     cancelled: 'Utility submission cancelled.',
     saved: (count, period) =>
       `Saved ${count} utility ${count === 1 ? 'charge' : 'charges'} for ${period}.`,
+    paymentInstructionSent: 'Payment instructions were sent to the payments topic.',
     proposalUnavailable: 'This utility submission is no longer available.',
     onlyOriginalSender: 'Only the person who started this utility submission can confirm it.',
     detailsButton: 'Details',

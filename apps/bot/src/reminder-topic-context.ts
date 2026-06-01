@@ -1,5 +1,9 @@
 import type { FinanceCommandService } from '@household/application'
-import type { FinanceMemberRecord, HouseholdConfigurationRepository } from '@household/ports'
+import type {
+  FinanceMemberRecord,
+  HouseholdConfigurationRepository,
+  HouseholdTopicRole
+} from '@household/ports'
 import type { Context } from 'grammy'
 
 import { resolveReplyLocale } from './bot-locale'
@@ -36,6 +40,7 @@ export async function resolveReminderTopicActorContext(input: {
     | 'listHouseholdMembersByTelegramUserId'
   >
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  allowedTopicRoles?: readonly HouseholdTopicRole[]
 }): Promise<ReminderTopicActorContext | null> {
   const message = callbackMessage(input.ctx)
   if (!message || (message.chat.type !== 'group' && message.chat.type !== 'supergroup')) {
@@ -70,15 +75,24 @@ export async function resolveReminderTopicActorContext(input: {
     return null
   }
 
-  if (reminderTopic) {
+  const allowedTopicRoles = input.allowedTopicRoles ?? (['reminders'] as const)
+  if (topicBinding) {
     if (
-      topicBinding?.householdId !== householdId ||
-      topicBinding.role !== 'reminders' ||
-      topicBinding.telegramThreadId !== reminderTopic.telegramThreadId
+      topicBinding.householdId !== householdId ||
+      !allowedTopicRoles.includes(topicBinding.role)
     ) {
       return null
     }
-  } else if (topicBinding && topicBinding.role !== 'reminders') {
+  } else if (telegramThreadId) {
+    return null
+  }
+
+  if (
+    reminderTopic &&
+    allowedTopicRoles.length === 1 &&
+    allowedTopicRoles[0] === 'reminders' &&
+    topicBinding?.telegramThreadId !== reminderTopic.telegramThreadId
+  ) {
     return null
   }
 

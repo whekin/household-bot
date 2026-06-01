@@ -1710,7 +1710,14 @@ async function invalidateCurrentUtilityBillingPlan(repository: FinanceRepository
     return
   }
 
-  const plans = await repository.listUtilityBillingPlansForCycle(cycle.id)
+  await invalidateUtilityBillingPlanForCycle(repository, cycle.id)
+}
+
+async function invalidateUtilityBillingPlanForCycle(
+  repository: FinanceRepository,
+  cycleId: string
+): Promise<void> {
+  const plans = await repository.listUtilityBillingPlansForCycle(cycleId)
   const activePlan =
     [...plans].reverse().find((plan) => plan.status === 'active' || plan.status === 'settled') ??
     null
@@ -1719,7 +1726,7 @@ async function invalidateCurrentUtilityBillingPlan(repository: FinanceRepository
     return
   }
 
-  const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+  const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycleId)
   if (activePlan.status === 'settled') {
     const hasCategories = activePlan.payload.categories.length > 0
     if (hasCategories || vendorFacts.length > 0) {
@@ -3066,7 +3073,8 @@ export interface FinanceCommandService {
     billName: string,
     amountArg: string,
     createdByMemberId: string,
-    currencyArg?: string
+    currencyArg?: string,
+    periodArg?: string
   ): Promise<{
     amount: Money
     currency: CurrencyCode
@@ -3555,28 +3563,43 @@ export function createFinanceCommandService(
       }
     },
 
-    async addUtilityBill(billName, amountArg, createdByMemberId, currencyArg) {
-      const [openCycle, settings] = await Promise.all([
-        ensureExpectedCycle(),
-        householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId)
-      ])
+    async addUtilityBill(billName, amountArg, createdByMemberId, currencyArg, periodArg) {
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const targetCycle = periodArg
+        ? await (async () => {
+            const period = BillingPeriod.fromString(periodArg).toString()
+            let cycle = await repository.getCycleByPeriod(period)
+            if (!cycle) {
+              await repository.openCycle(period, settings.settlementCurrency)
+              cycle = await repository.getCycleByPeriod(period)
+            }
+
+            if (!cycle) {
+              throw new Error(`Failed to ensure billing cycle for period ${period}`)
+            }
+
+            return cycle
+          })()
+        : await ensureExpectedCycle()
 
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
 
       await repository.addUtilityBill({
-        cycleId: openCycle.id,
+        cycleId: targetCycle.id,
         billName,
         amountMinor: amount.amountMinor,
         currency,
         createdByMemberId
       })
-      await invalidateCurrentUtilityBillingPlan(repository)
+      await invalidateUtilityBillingPlanForCycle(repository, targetCycle.id)
 
       return {
         amount,
         currency,
-        period: openCycle.period
+        period: targetCycle.period
       }
     },
 

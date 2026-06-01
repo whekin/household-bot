@@ -281,6 +281,7 @@ export interface BotTranslationCatalog {
     cancelButton: string
     cancelled: string
     saved: (count: number, period: string) => string
+    paymentInstructionSent: string
     proposalUnavailable: string
     onlyOriginalSender: string
     detailsButton: string

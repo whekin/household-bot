@@ -33,6 +33,8 @@ export interface PaymentReminderContentInput {
   viewMode: PaymentReminderViewMode
   botUsername?: string
   miniAppUrl?: string
+  includeUtilityEntryButtons?: boolean
+  utilityAssignmentLimit?: number | null
 }
 
 function moneyText(amount: Money): string {
@@ -146,24 +148,33 @@ function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): s
   ])
 }
 
+function rentMemberAmountLines(dashboard: FinanceDashboard): string[] {
+  return dashboard.rentBillingState.memberSummaries.map((member) => {
+    const paid = member.remaining.amountMinor <= 0n ? '✅' : '🔴'
+    return `${paid} ${escapeHtml(member.displayName)} — ${escapeHtml(moneyText(member.remaining.amountMinor > 0n ? member.remaining : member.due))}`
+  })
+}
+
 function utilityAssignmentLines(
   dashboard: FinanceDashboard,
   locale: BotLocale,
-  details: boolean
+  details: boolean,
+  limit?: number | null
 ): string[] {
   const categories = dashboard.utilityBillingPlan?.categories ?? []
   if (categories.length === 0) {
     return ['• ' + escapeHtml(getBotTranslations(locale).reminders.noUtilityPlan)]
   }
 
-  const visible = details ? categories : categories.slice(0, 4)
+  const compactLimit = limit === undefined ? 4 : limit
+  const visible = details || compactLimit === null ? categories : categories.slice(0, compactLimit)
   const lines = visible.map((category) => {
     const paid =
       category.paidAmount.amountMinor >= category.assignedAmount.amountMinor ? '✅' : '🔴'
     return `${paid} ${escapeHtml(category.billName)} → ${escapeHtml(category.assignedDisplayName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
   })
 
-  if (!details && categories.length > visible.length) {
+  if (!details && compactLimit !== null && categories.length > visible.length) {
     lines.push(`• +${categories.length - visible.length} more`)
   }
 
@@ -219,11 +230,16 @@ function buildKeyboard(input: PaymentReminderContentInput): InlineKeyboardMarkup
     ])
   }
 
-  if (input.kind === 'utilities' && input.viewMode !== 'confirm-close') {
+  if (
+    input.kind === 'utilities' &&
+    input.viewMode !== 'confirm-close' &&
+    input.includeUtilityEntryButtons !== false
+  ) {
     rows.push(
       ...buildUtilitiesReminderReplyMarkup(input.locale, {
         ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
-        ...(input.botUsername ? { botUsername: input.botUsername } : {})
+        ...(input.botUsername ? { botUsername: input.botUsername } : {}),
+        period: input.period
       }).inline_keyboard.slice(0, 1)
     )
   }
@@ -281,6 +297,9 @@ export function buildPaymentReminderMessageContent(
   if (input.kind === 'rent') {
     lines.push(
       '',
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Сколько платить' : 'Amounts by member')}</b>`,
+      ...rentMemberAmountLines(input.dashboard),
+      '',
       `<b>${escapeHtml(input.locale === 'ru' ? 'Куда платить' : 'Where to pay')}</b>`,
       ...rentDestinationLines(input.dashboard, input.locale)
     )
@@ -288,7 +307,12 @@ export function buildPaymentReminderMessageContent(
     lines.push(
       '',
       `<b>${escapeHtml(input.locale === 'ru' ? 'Кто платит провайдерам' : 'Provider assignments')}</b>`,
-      ...utilityAssignmentLines(input.dashboard, input.locale, details)
+      ...utilityAssignmentLines(
+        input.dashboard,
+        input.locale,
+        details,
+        input.utilityAssignmentLimit
+      )
     )
   }
 

@@ -138,8 +138,89 @@ function paymentDashboard(remainingMinor = 46900n): FinanceDashboard {
   }
 }
 
-function createHouseholdRepository(options: { reminderThreadId?: string } = {}) {
+function utilityPaymentDashboard(): FinanceDashboard {
+  const base = paymentDashboard()
+  const gel = (minor: bigint) => Money.fromMinor(minor, 'GEL')
+
+  return {
+    ...base,
+    billingStage: 'utilities',
+    totalDue: gel(12000n),
+    totalPaid: gel(0n),
+    totalRemaining: gel(12000n),
+    utilityBillingPlan: {
+      id: 'plan-1',
+      version: 1,
+      status: 'active',
+      dueDate: '2026-05-25',
+      updatedFromVersion: null,
+      reason: null,
+      categories: [
+        {
+          utilityBillId: 'gas',
+          billName: 'Gas',
+          billTotal: gel(12000n),
+          assignedAmount: gel(12000n),
+          assignedMemberId: 'member-1',
+          assignedDisplayName: 'Mia',
+          paidAmount: gel(0n),
+          isFullAssignment: true,
+          splitGroupId: null
+        }
+      ],
+      memberSummaries: [
+        {
+          memberId: 'member-1',
+          displayName: 'Mia',
+          fairShare: gel(12000n),
+          vendorPaid: gel(0n),
+          assignedThisCycle: gel(12000n),
+          projectedDeltaAfterPlan: gel(0n)
+        }
+      ]
+    },
+    paymentPeriods: [
+      {
+        period: '2026-05',
+        utilityTotal: gel(12000n),
+        hasOverdueBalance: false,
+        isCurrentPeriod: true,
+        kinds: [
+          {
+            kind: 'rent',
+            totalDue: gel(0n),
+            totalPaid: gel(0n),
+            totalRemaining: gel(0n),
+            unresolvedMembers: []
+          },
+          {
+            kind: 'utilities',
+            totalDue: gel(12000n),
+            totalPaid: gel(0n),
+            totalRemaining: gel(12000n),
+            unresolvedMembers: [
+              {
+                memberId: 'member-1',
+                displayName: 'Mia',
+                suggestedAmount: gel(12000n),
+                baseDue: gel(12000n),
+                paid: gel(0n),
+                remaining: gel(12000n),
+                effectivelySettled: false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+
+function createHouseholdRepository(
+  options: { reminderThreadId?: string; paymentsThreadId?: string } = {}
+) {
   const reminderThreadId = options.reminderThreadId ?? '555'
+  const paymentsThreadId = options.paymentsThreadId ?? '777'
   const chat = {
     householdId: 'household-1',
     householdName: 'Kojori House',
@@ -152,11 +233,11 @@ function createHouseholdRepository(options: { reminderThreadId?: string } = {}) 
   return {
     getTelegramHouseholdChat: async () => chat,
     getHouseholdChatByHouseholdId: async () => chat,
-    getHouseholdTopicBinding: async () => ({
+    getHouseholdTopicBinding: async (_householdId: string, role: string) => ({
       householdId: 'household-1',
-      role: 'reminders' as const,
-      telegramThreadId: reminderThreadId,
-      topicName: 'Reminders'
+      role: role === 'payments' ? ('payments' as const) : ('reminders' as const),
+      telegramThreadId: role === 'payments' ? paymentsThreadId : reminderThreadId,
+      topicName: role === 'payments' ? 'Payments' : 'Reminders'
     }),
     findHouseholdTopicByTelegramContext: async (input: { telegramThreadId: string }) =>
       input.telegramThreadId === reminderThreadId
@@ -166,7 +247,14 @@ function createHouseholdRepository(options: { reminderThreadId?: string } = {}) 
             telegramThreadId: reminderThreadId,
             topicName: 'Reminders'
           }
-        : null,
+        : input.telegramThreadId === paymentsThreadId
+          ? {
+              householdId: 'household-1',
+              role: 'payments' as const,
+              telegramThreadId: paymentsThreadId,
+              topicName: 'Payments'
+            }
+          : null,
     getHouseholdMember: async () => null,
     listHouseholdMembersByTelegramUserId: async () => []
   }
@@ -224,10 +312,19 @@ function createFinanceService(): FinanceCommandService & {
   }
 }
 
-function setupBot(options: { reminderThreadId?: string } = {}) {
+function setupBot(
+  options: {
+    reminderThreadId?: string
+    paymentsThreadId?: string
+    dashboard?: FinanceDashboard
+  } = {}
+) {
   const bot = createTelegramBot('000000:test-token')
   const calls: Array<{ method: string; payload: unknown }> = []
   const financeService = createFinanceService()
+  if (options.dashboard) {
+    financeService.generateDashboard = async () => options.dashboard!
+  }
   const auditEvents: unknown[] = []
   const auditNotificationService = {
     recordEvent: async (input: Parameters<HouseholdAuditNotificationService['recordEvent']>[0]) => {
@@ -298,6 +395,40 @@ describe('registerPaymentReminderActions', () => {
     expect(auditEvents).toHaveLength(1)
   })
 
+  test('accepts payment buttons from the payments topic', async () => {
+    const { bot, calls, financeService } = setupBot()
+
+    await bot.handleUpdate(rentReminderCallbackUpdate('pr:p:rent:2026-05', 777) as never)
+
+    expect(financeService.closeInputs).toEqual([
+      {
+        kind: 'rent',
+        memberIds: ['member-1'],
+        actorMemberId: 'member-1',
+        periodArg: '2026-05'
+      }
+    ])
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        text: 'Payment marked as paid.'
+      }
+    })
+  })
+
+  test('keeps utility entry buttons hidden when payment-topic instructions refresh', async () => {
+    const { bot, calls } = setupBot({ dashboard: utilityPaymentDashboard() })
+
+    await bot.handleUpdate(
+      rentReminderCallbackUpdate('pr:d:utilities:2026-05:details', 777) as never
+    )
+
+    const editCall = calls.find((call) => call.method === 'editMessageText')
+    expect(JSON.stringify(editCall?.payload)).toContain('pr:p:utilities:2026-05')
+    expect(JSON.stringify(editCall?.payload)).not.toContain('reminder_util:guided')
+    expect(JSON.stringify(editCall?.payload)).not.toContain('reminder_util:template')
+  })
+
   test('treats duplicate paid clicks as already paid without a duplicate audit event', async () => {
     const { bot, calls, auditEvents } = setupBot()
 
@@ -316,17 +447,17 @@ describe('registerPaymentReminderActions', () => {
     expect(auditEvents).toEqual([])
   })
 
-  test('rejects payment buttons outside the reminders topic', async () => {
+  test('rejects payment buttons outside configured reminder and payments topics', async () => {
     const { bot, calls, financeService } = setupBot()
 
-    await bot.handleUpdate(rentReminderCallbackUpdate('pr:p:rent:2026-05', 777) as never)
+    await bot.handleUpdate(rentReminderCallbackUpdate('pr:p:rent:2026-05', 999) as never)
 
     expect(financeService.closeInputs).toEqual([])
     expect(calls).toEqual([
       {
         method: 'answerCallbackQuery',
         payload: {
-          callback_query_id: 'callback-pr:p:rent:2026-05-777',
+          callback_query_id: 'callback-pr:p:rent:2026-05-999',
           text: 'Reminder unavailable.',
           show_alert: true
         }

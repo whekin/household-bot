@@ -14,6 +14,7 @@ import type {
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { buildTopicNotificationText } from './ad-hoc-notifications'
+import type { PaymentInstructionPublisher } from './payment-instruction-publisher'
 import { buildScheduledReminderMessageContent } from './scheduled-reminder-content'
 
 function json(body: object, status = 200): Response {
@@ -76,6 +77,7 @@ export function createScheduledDispatchHandler(options: {
   }) => Promise<void>
   sendDirectMessage: (input: { telegramUserId: string; text: string }) => Promise<void>
   financeServiceForHousehold?: (householdId: string) => FinanceCommandService
+  paymentInstructionPublisher?: PaymentInstructionPublisher
   auditNotificationService?: HouseholdAuditNotificationService
   miniAppUrl?: string
   botUsername?: string
@@ -222,6 +224,35 @@ export function createScheduledDispatchHandler(options: {
       const dashboard = options.financeServiceForHousehold
         ? await options.financeServiceForHousehold(dispatch.householdId).generateDashboard(period)
         : null
+
+      if (options.paymentInstructionPublisher) {
+        if (
+          dispatch.kind === 'rent_due' ||
+          (dispatch.kind === 'utilities' &&
+            dashboard?.utilityBillingPlan &&
+            dashboard.utilityBillingPlan.categories.length > 0)
+        ) {
+          await options.paymentInstructionPublisher
+            .sendPaymentInstruction({
+              householdId: dispatch.householdId,
+              kind: dispatch.kind === 'utilities' ? 'utilities' : 'rent',
+              period
+            })
+            .catch((error) => {
+              options.logger?.warn(
+                {
+                  event: 'scheduled_dispatch.payment_instruction_failed',
+                  householdId: dispatch.householdId,
+                  dispatchId: dispatch.id,
+                  kind: dispatch.kind,
+                  period,
+                  error
+                },
+                'Failed to send payment instruction for scheduled dispatch'
+              )
+            })
+        }
+      }
 
       if (!dashboard && options.financeServiceForHousehold) {
         options.logger?.warn(

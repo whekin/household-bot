@@ -96,7 +96,8 @@ export function registerPaymentReminderActions(options: {
     const actorContext = await resolveReminderTopicActorContext({
       ctx,
       householdConfigurationRepository: options.householdConfigurationRepository,
-      financeServiceForHousehold: options.financeServiceForHousehold
+      financeServiceForHousehold: options.financeServiceForHousehold,
+      allowedTopicRoles: ['reminders', 'payments']
     })
     if (!actorContext) {
       await safeAnswerCallback(
@@ -122,7 +123,28 @@ export function registerPaymentReminderActions(options: {
       return null
     }
 
-    return { actorContext, dashboard, kind, period, service, t }
+    const message =
+      ctx.callbackQuery && 'message' in ctx.callbackQuery ? ctx.callbackQuery.message : undefined
+    const telegramThreadId =
+      message && 'message_thread_id' in message && message.message_thread_id !== undefined
+        ? message.message_thread_id.toString()
+        : null
+    const topicBinding = telegramThreadId
+      ? await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+          telegramChatId: actorContext.telegramChatId,
+          telegramThreadId
+        })
+      : null
+
+    return {
+      actorContext,
+      dashboard,
+      kind,
+      period,
+      service,
+      t,
+      topicRole: topicBinding?.role ?? null
+    }
   }
 
   async function refresh(
@@ -137,6 +159,8 @@ export function registerPaymentReminderActions(options: {
       period: action.period,
       dashboard: action.dashboard,
       viewMode,
+      includeUtilityEntryButtons: action.topicRole !== 'payments',
+      ...(action.topicRole === 'payments' ? { utilityAssignmentLimit: null } : {}),
       ...(options.botUsername ? { botUsername: options.botUsername } : {}),
       ...(options.miniAppUrl ? { miniAppUrl: options.miniAppUrl } : {})
     })

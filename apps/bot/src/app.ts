@@ -94,6 +94,7 @@ import {
 } from './purchase-topic-ingestion'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
+import { createPaymentInstructionPublisher } from './payment-instruction-publisher'
 import { registerPaymentReminderActions } from './payment-reminder-actions'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
@@ -190,10 +191,9 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const telegramPendingActionRepositoryClient = runtime.databaseUrl
     ? createDbTelegramPendingActionRepository(runtime.databaseUrl)
     : null
-  const processedBotMessageRepositoryClient =
-    runtime.databaseUrl && runtime.assistantEnabled
-      ? createDbProcessedBotMessageRepository(runtime.databaseUrl)
-      : null
+  const processedBotMessageRepositoryClient = runtime.databaseUrl
+    ? createDbProcessedBotMessageRepository(runtime.databaseUrl)
+    : null
   const purchaseRepositoryClient = runtime.databaseUrl
     ? createPurchaseMessageRepository(runtime.databaseUrl)
     : null
@@ -372,6 +372,48 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     return service
   }
 
+  const sendTelegramTopicMessage = async (input: {
+    chatId: string
+    threadId: string | null
+    text: string
+    parseMode?: 'HTML'
+    replyMarkup?: unknown
+  }) => {
+    const threadId = input.threadId ? Number(input.threadId) : undefined
+    await bot.api.sendMessage(input.chatId, input.text, {
+      ...(threadId && Number.isInteger(threadId)
+        ? {
+            message_thread_id: threadId
+          }
+        : {}),
+      ...(input.parseMode
+        ? {
+            parse_mode: input.parseMode
+          }
+        : {}),
+      ...(input.replyMarkup
+        ? {
+            reply_markup: input.replyMarkup as never
+          }
+        : {})
+    })
+  }
+
+  const paymentInstructionPublisher =
+    householdConfigurationRepositoryClient && processedBotMessageRepositoryClient
+      ? createPaymentInstructionPublisher({
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          financeServiceForHousehold,
+          processedBotMessageRepository: processedBotMessageRepositoryClient.repository,
+          sendTopicMessage: async (input) => {
+            await sendTelegramTopicMessage(input)
+          },
+          ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
+          ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
+          logger: getLogger('payment-instructions')
+        })
+      : null
+
   if (householdConfigurationRepositoryClient) {
     shutdownTasks.push(householdConfigurationRepositoryClient.close)
   }
@@ -547,6 +589,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       promptRepository: telegramPendingActionRepositoryClient.repository,
       financeServiceForHousehold,
+      ...(paymentInstructionPublisher ? { paymentInstructionPublisher } : {}),
       logger: getLogger('reminder-utilities')
     })
   }
@@ -575,29 +618,13 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           adHocNotificationRepository: adHocNotificationRepositoryClient.repository,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           sendTopicMessage: async (input) => {
-            const threadId = input.threadId ? Number(input.threadId) : undefined
-            await bot.api.sendMessage(input.chatId, input.text, {
-              ...(threadId && Number.isInteger(threadId)
-                ? {
-                    message_thread_id: threadId
-                  }
-                : {}),
-              ...(input.parseMode
-                ? {
-                    parse_mode: input.parseMode
-                  }
-                : {}),
-              ...(input.replyMarkup
-                ? {
-                    reply_markup: input.replyMarkup
-                  }
-                : {})
-            })
+            await sendTelegramTopicMessage(input)
           },
           sendDirectMessage: async (input) => {
             await bot.api.sendMessage(input.telegramUserId, input.text)
           },
           financeServiceForHousehold,
+          ...(paymentInstructionPublisher ? { paymentInstructionPublisher } : {}),
           ...(auditNotificationService
             ? {
                 auditNotificationService

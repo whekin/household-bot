@@ -4,7 +4,7 @@ import type {
   HouseholdAuditNotificationService,
   ScheduledDispatchService
 } from '@household/application'
-import { Temporal } from '@household/domain'
+import { Money, Temporal } from '@household/domain'
 import type {
   AdHocNotificationRecord,
   HouseholdMemberRecord,
@@ -168,7 +168,7 @@ describe('createScheduledDispatchHandler', () => {
       new Request('http://localhost/jobs/dispatch/dispatch-1', { method: 'POST' }),
       'dispatch-1'
     )
-    const payload = (await response.json()) as { ok: boolean; outcome: string }
+    const payload = (await response.json()) as { ok: boolean; dispatchId: string; outcome: string }
 
     expect(payload.ok).toBe(true)
     expect(payload.outcome).toBe('sent')
@@ -240,7 +240,7 @@ describe('createScheduledDispatchHandler', () => {
       new Request('http://localhost/jobs/dispatch/dispatch-1', { method: 'POST' }),
       'dispatch-1'
     )
-    const payload = (await response.json()) as { ok: boolean; outcome: string }
+    const payload = (await response.json()) as { ok: boolean; dispatchId: string; outcome: string }
 
     expect(payload.ok).toBe(true)
     expect(payload.outcome).toBe('stale')
@@ -361,5 +361,250 @@ describe('createScheduledDispatchHandler', () => {
     expect(audit.events[0]?.summaryText).toContain('Utilities')
     expect(markedDispatches).toEqual(['dispatch-utilities'])
     expect(reconciledHouseholds).toEqual(['household-1'])
+  })
+
+  test('publishes payment instructions for utilities dispatches when a plan exists', async () => {
+    const dispatch = scheduledDispatch({
+      id: 'dispatch-utilities',
+      householdId: 'household-1',
+      kind: 'utilities',
+      period: '2026-06'
+    })
+    const paymentInstructions: string[] = []
+    const gel = (minor: bigint) => Money.fromMinor(minor, 'GEL')
+    const service: ScheduledDispatchService = {
+      scheduleAdHocNotification: async () => dispatch,
+      cancelAdHocNotification: async () => {},
+      reconcileHouseholdBuiltInDispatches: async () => {},
+      reconcileAllBuiltInDispatches: async () => {},
+      listDueDispatches: async () => [dispatch],
+      getDispatchById: async () => dispatch,
+      claimDispatch: async () => true,
+      releaseDispatch: async () => {},
+      markDispatchSent: async () => dispatch
+    }
+
+    const handler = createScheduledDispatchHandler({
+      scheduledDispatchService: service,
+      adHocNotificationRepository: {
+        async getNotificationById() {
+          throw new Error('not used')
+        },
+        async markNotificationSent() {
+          throw new Error('not used')
+        }
+      },
+      householdConfigurationRepository: {
+        async getHouseholdChatByHouseholdId(): Promise<HouseholdTelegramChatRecord | null> {
+          return {
+            householdId: 'household-1',
+            householdName: 'Kojori',
+            telegramChatId: 'chat-1',
+            telegramChatType: 'supergroup',
+            title: 'Kojori',
+            defaultLocale: 'en'
+          }
+        },
+        async getHouseholdTopicBinding(): Promise<HouseholdTopicBindingRecord | null> {
+          return {
+            householdId: 'household-1',
+            role: 'reminders',
+            telegramThreadId: '103',
+            topicName: 'Reminders'
+          }
+        },
+        async getHouseholdBillingSettings() {
+          throw new Error('not used')
+        },
+        async listHouseholdMembers(): Promise<readonly HouseholdMemberRecord[]> {
+          return []
+        }
+      },
+      financeServiceForHousehold: () =>
+        ({
+          generateDashboard: async () => ({
+            period: '2026-06',
+            currency: 'GEL',
+            timezone: 'Asia/Tbilisi',
+            rentWarningDay: 1,
+            rentDueDay: 5,
+            utilitiesReminderDay: 1,
+            utilitiesDueDay: 5,
+            paymentBalanceAdjustmentPolicy: 'utilities',
+            rentPaymentDestinations: null,
+            totalDue: gel(1000n),
+            totalPaid: gel(0n),
+            totalRemaining: gel(1000n),
+            billingStage: 'utilities',
+            rentSourceAmount: gel(0n),
+            rentDisplayAmount: gel(0n),
+            rentFxRateMicros: null,
+            rentFxEffectiveDate: null,
+            utilityBillingPlan: {
+              id: 'plan-1',
+              version: 1,
+              status: 'active',
+              dueDate: '2026-06-05',
+              updatedFromVersion: null,
+              reason: null,
+              categories: [
+                {
+                  utilityBillId: 'electricity',
+                  billName: 'Electricity',
+                  billTotal: gel(1000n),
+                  assignedAmount: gel(1000n),
+                  assignedMemberId: 'member-1',
+                  assignedDisplayName: 'Mia',
+                  paidAmount: gel(0n),
+                  isFullAssignment: true,
+                  splitGroupId: null
+                }
+              ],
+              memberSummaries: []
+            },
+            rentBillingState: {
+              dueDate: '2026-06-05',
+              paymentDestinations: null,
+              memberSummaries: []
+            },
+            members: [],
+            paymentPeriods: [],
+            ledger: []
+          })
+        }) as never,
+      paymentInstructionPublisher: {
+        sendPaymentInstruction: async (input) => {
+          paymentInstructions.push(`${input.householdId}:${input.kind}:${input.period}`)
+          return { status: 'sent' }
+        }
+      },
+      sendTopicMessage: async () => {},
+      sendDirectMessage: async () => {
+        throw new Error('not used')
+      }
+    })
+
+    await handler.handle(
+      new Request('http://localhost/jobs/dispatch/dispatch-utilities', { method: 'POST' }),
+      'dispatch-utilities'
+    )
+
+    expect(paymentInstructions).toEqual(['household-1:utilities:2026-06'])
+  })
+
+  test('still sends the reminder when payment instruction publishing fails', async () => {
+    const dispatch = scheduledDispatch({
+      id: 'dispatch-rent',
+      householdId: 'household-1',
+      kind: 'rent_due',
+      period: '2026-06'
+    })
+    const sentTopicMessages: string[] = []
+    const markedDispatches: string[] = []
+    const gel = (minor: bigint) => Money.fromMinor(minor, 'GEL')
+    const service: ScheduledDispatchService = {
+      scheduleAdHocNotification: async () => dispatch,
+      cancelAdHocNotification: async () => {},
+      reconcileHouseholdBuiltInDispatches: async () => {},
+      reconcileAllBuiltInDispatches: async () => {},
+      listDueDispatches: async () => [dispatch],
+      getDispatchById: async () => dispatch,
+      claimDispatch: async () => true,
+      releaseDispatch: async () => {},
+      markDispatchSent: async (dispatchId) => {
+        markedDispatches.push(dispatchId)
+        return dispatch
+      }
+    }
+
+    const handler = createScheduledDispatchHandler({
+      scheduledDispatchService: service,
+      adHocNotificationRepository: {
+        async getNotificationById() {
+          throw new Error('not used')
+        },
+        async markNotificationSent() {
+          throw new Error('not used')
+        }
+      },
+      householdConfigurationRepository: {
+        async getHouseholdChatByHouseholdId(): Promise<HouseholdTelegramChatRecord | null> {
+          return {
+            householdId: 'household-1',
+            householdName: 'Kojori',
+            telegramChatId: 'chat-1',
+            telegramChatType: 'supergroup',
+            title: 'Kojori',
+            defaultLocale: 'en'
+          }
+        },
+        async getHouseholdTopicBinding(): Promise<HouseholdTopicBindingRecord | null> {
+          return {
+            householdId: 'household-1',
+            role: 'reminders',
+            telegramThreadId: '103',
+            topicName: 'Reminders'
+          }
+        },
+        async getHouseholdBillingSettings() {
+          throw new Error('not used')
+        },
+        async listHouseholdMembers(): Promise<readonly HouseholdMemberRecord[]> {
+          return []
+        }
+      },
+      financeServiceForHousehold: () =>
+        ({
+          generateDashboard: async () => ({
+            period: '2026-06',
+            currency: 'GEL',
+            timezone: 'Asia/Tbilisi',
+            rentWarningDay: 1,
+            rentDueDay: 5,
+            utilitiesReminderDay: 1,
+            utilitiesDueDay: 5,
+            paymentBalanceAdjustmentPolicy: 'utilities',
+            rentPaymentDestinations: null,
+            totalDue: gel(1000n),
+            totalPaid: gel(0n),
+            totalRemaining: gel(1000n),
+            billingStage: 'rent',
+            rentSourceAmount: gel(1000n),
+            rentDisplayAmount: gel(1000n),
+            rentFxRateMicros: null,
+            rentFxEffectiveDate: null,
+            utilityBillingPlan: null,
+            rentBillingState: {
+              dueDate: '2026-06-05',
+              paymentDestinations: null,
+              memberSummaries: []
+            },
+            members: [],
+            paymentPeriods: [],
+            ledger: []
+          })
+        }) as never,
+      paymentInstructionPublisher: {
+        sendPaymentInstruction: async () => {
+          throw new Error('payments topic unavailable')
+        }
+      },
+      sendTopicMessage: async (input) => {
+        sentTopicMessages.push(`${input.chatId}:${input.threadId}:${input.text}`)
+      },
+      sendDirectMessage: async () => {
+        throw new Error('not used')
+      }
+    })
+
+    const response = await handler.handle(
+      new Request('http://localhost/jobs/dispatch/dispatch-rent', { method: 'POST' }),
+      'dispatch-rent'
+    )
+    const payload = (await response.json()) as { ok: boolean; dispatchId: string; outcome: string }
+
+    expect(payload).toEqual({ ok: true, dispatchId: 'dispatch-rent', outcome: 'sent' })
+    expect(sentTopicMessages).toHaveLength(1)
+    expect(markedDispatches).toEqual(['dispatch-rent'])
   })
 })

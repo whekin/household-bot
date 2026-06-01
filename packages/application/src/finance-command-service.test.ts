@@ -968,6 +968,79 @@ describe('createFinanceCommandService', () => {
     })
   })
 
+  test('addUtilityBill can target an explicit reminder period without using the current cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.openCycleRecord = {
+      id: 'cycle-current',
+      period: '2026-07',
+      currency: 'GEL'
+    }
+    repository.cycles = [
+      repository.openCycleRecord,
+      {
+        id: 'cycle-june',
+        period: '2026-06',
+        currency: 'GEL'
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-june',
+        version: 1,
+        status: 'active',
+        dueDate: '2026-06-05',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      },
+      {
+        cycleId: 'cycle-current',
+        version: 2,
+        status: 'active',
+        dueDate: '2026-07-05',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      }
+    ]
+    const service = createService(repository)
+
+    const result = await service.addUtilityBill(
+      'Electricity',
+      '55.20',
+      'member-1',
+      'GEL',
+      '2026-06'
+    )
+
+    expect(result?.period).toBe('2026-06')
+    expect(repository.lastUtilityBill).toEqual({
+      cycleId: 'cycle-june',
+      billName: 'Electricity',
+      amountMinor: 5520n,
+      currency: 'GEL',
+      createdByMemberId: 'member-1'
+    })
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'superseded',
+      'active'
+    ])
+  })
+
   test('addUtilityBill invalidates an existing utility plan for the active cycle', async () => {
     const repository = new FinanceRepositoryStub()
     const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
