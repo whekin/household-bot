@@ -3,6 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  formatUtilityPlanShareDeltaLabel,
   hasUtilityPlanAssignments,
   isSettledQuietPlan,
   isUtilityPlanActionable,
@@ -148,6 +149,12 @@ function dashboard(input: {
 }
 
 describe('billing UI helpers', () => {
+  test('formats utility plan deltas as share comparison, not payment due', () => {
+    expect(formatUtilityPlanShareDeltaLabel('13.55', 'GEL', 'ru')).toBe('Сверх доли: 13.55 ₾')
+    expect(formatUtilityPlanShareDeltaLabel('-22.93', 'GEL', 'ru')).toBe('Меньше доли: 22.93 ₾')
+    expect(formatUtilityPlanShareDeltaLabel('0.00', 'GEL', 'ru')).toBe('По доле')
+  })
+
   test('detects settled quiet utility plans for snapshot rendering', () => {
     expect(
       isSettledQuietPlan(dashboard({ billingStage: 'idle', utilityBillingPlan: settledPlan }))

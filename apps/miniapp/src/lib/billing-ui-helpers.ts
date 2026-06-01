@@ -1,5 +1,6 @@
 import { majorStringToMinor, minorToMajorString } from './money'
 import type { MiniAppDashboard } from '../miniapp-api'
+import { formatAbsoluteMoneyLabel } from './ledger-helpers'
 
 export type UtilityBillingPlan = NonNullable<MiniAppDashboard['utilityBillingPlan']>
 export type UtilityPlanMemberSummary = UtilityBillingPlan['memberSummaries'][number]
@@ -36,6 +37,34 @@ export interface PaymentQueueGroup {
   hasOverdueBalance: boolean
   isCurrentPeriod: boolean
   unresolvedMembers: PaymentPeriodSummary['kinds'][number]['unresolvedMembers']
+}
+
+export interface UtilityPlanShareDeltaLabels {
+  overShare: string
+  underShare: string
+  neutral: string
+}
+
+export function formatUtilityPlanShareDeltaLabel(
+  amountMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: 'en' | 'ru',
+  labels?: Partial<UtilityPlanShareDeltaLabels>
+): string {
+  const amountMinor = majorStringToMinor(amountMajor)
+  const resolvedLabels: UtilityPlanShareDeltaLabels = {
+    overShare: locale === 'ru' ? 'Сверх доли' : 'Over share',
+    underShare: locale === 'ru' ? 'Меньше доли' : 'Under share',
+    neutral: locale === 'ru' ? 'По доле' : 'Matches share',
+    ...labels
+  }
+
+  if (amountMinor === 0n) {
+    return resolvedLabels.neutral
+  }
+
+  const label = amountMinor > 0n ? resolvedLabels.overShare : resolvedLabels.underShare
+  return `${label}: ${formatAbsoluteMoneyLabel(amountMajor, currency, locale)}`
 }
 
 export function hasUtilityPlanAssignments(plan: UtilityBillingPlan | null | undefined): boolean {

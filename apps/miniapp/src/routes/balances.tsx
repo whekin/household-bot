@@ -12,6 +12,7 @@ import {
   formatSemanticMoneyLabel,
   memberEffectivePurchaseBalanceMajor
 } from '../lib/ledger-helpers'
+import { formatUtilityPlanShareDeltaLabel } from '../lib/billing-ui-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import type { Locale } from '../i18n'
 import type { MiniAppDashboard } from '../miniapp-api'
@@ -539,20 +540,10 @@ export default function BalancesRoute() {
                                             <div class="balances-inline-mini-card">
                                               <span>{copy().balancesAfterPlanLabel}</span>
                                               <strong>
-                                                {formatSemanticMoneyLabel(
+                                                {formatUtilityPlanShareDeltaLabel(
                                                   summary().projectedDeltaAfterPlanMajor,
                                                   data().currency,
-                                                  locale(),
-                                                  {
-                                                    credit:
-                                                      locale() === 'ru' ? 'В плюсе' : 'In credit',
-                                                    debit:
-                                                      locale() === 'ru' ? 'К доплате' : 'To pay',
-                                                    neutral:
-                                                      locale() === 'ru'
-                                                        ? 'Без доплаты'
-                                                        : 'No extra due'
-                                                  }
+                                                  locale()
                                                 )}
                                               </strong>
                                             </div>

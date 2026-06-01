@@ -10,9 +10,10 @@ import { CurrencyToggle } from '../components/ui/currency-toggle'
 import { Field } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Skeleton } from '../components/ui/skeleton'
-import { formatMoneyLabel, formatSemanticMoneyLabel } from '../lib/ledger-helpers'
+import { formatMoneyLabel } from '../lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '../lib/money'
 import {
+  formatUtilityPlanShareDeltaLabel,
   hasUtilityPlanAssignments,
   isSettledQuietPlan,
   isUtilityPlanActionable,
@@ -383,18 +384,10 @@ export default function BillsRoute() {
                                     )}
                                   </span>
                                   <Show
-                                    when={formatSemanticMoneyLabel(
+                                    when={formatUtilityPlanShareDeltaLabel(
                                       summary().projectedDeltaAfterPlanMajor,
                                       data().currency,
-                                      locale(),
-                                      {
-                                        credit:
-                                          locale() === 'ru' ? 'В плюсе по плану' : 'Credit by plan',
-                                        debit:
-                                          locale() === 'ru'
-                                            ? 'К доплате по плану'
-                                            : 'Still due by plan'
-                                      }
+                                      locale()
                                     )}
                                   >
                                     {(label) => <span>{label()}</span>}
@@ -441,18 +434,10 @@ export default function BillsRoute() {
                                     )}
                                   </span>
                                   <Show
-                                    when={formatSemanticMoneyLabel(
+                                    when={formatUtilityPlanShareDeltaLabel(
                                       summary().projectedDeltaAfterPlanMajor,
                                       data().currency,
-                                      locale(),
-                                      {
-                                        credit:
-                                          locale() === 'ru' ? 'В плюсе по плану' : 'Credit by plan',
-                                        debit:
-                                          locale() === 'ru'
-                                            ? 'К доплате по плану'
-                                            : 'Still due by plan'
-                                      }
+                                      locale()
                                     )}
                                   >
                                     {(label) => <span>{label()}</span>}
@@ -518,7 +503,7 @@ export default function BillsRoute() {
                                 currentMemberId() && void handleResolvePlanned(currentMemberId()!)
                               }
                             >
-                              {locale() === 'ru' ? 'Оплачено по плану' : 'Resolve my plan'}
+                              {locale() === 'ru' ? 'Записать мою оплату' : 'Record my payment'}
                             </Button>
                           </div>
                         </Show>
@@ -721,15 +706,11 @@ export default function BillsRoute() {
                                       <span>
                                         {copy().balancesAfterPlanLabel}:{' '}
                                         <strong>
-                                          {formatSemanticMoneyLabel(
+                                          {formatUtilityPlanShareDeltaLabel(
                                             summary.projectedDeltaAfterPlanMajor,
                                             data().currency,
-                                            locale(),
-                                            {
-                                              neutral:
-                                                locale() === 'ru' ? 'Без доплаты' : 'No extra due'
-                                            }
-                                          ) ?? (locale() === 'ru' ? 'Без доплаты' : 'No extra due')}
+                                            locale()
+                                          )}
                                         </strong>
                                       </span>
                                     </div>
@@ -745,11 +726,11 @@ export default function BillsRoute() {
                                     >
                                       {summary.isCurrent
                                         ? locale() === 'ru'
-                                          ? 'Оплачено по плану'
-                                          : 'Resolve mine'
+                                          ? 'Записать мою оплату'
+                                          : 'Record my payment'
                                         : locale() === 'ru'
-                                          ? `Записать за ${summary.displayName}`
-                                          : `Record for ${summary.displayName}`}
+                                          ? 'Записать оплату'
+                                          : 'Record payment'}
                                     </Button>
                                   </Show>
                                   <Show when={summary.categories.length > 0}>
