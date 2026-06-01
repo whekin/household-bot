@@ -280,6 +280,34 @@ describe('renderAuditNotification', () => {
     expect(rendered.details?.expandedText).toContain('Member: Dima')
     expect(rendered.details?.expandedText).toContain('Period: May 2026')
   })
+
+  test('renders planned utility payment target and bills', () => {
+    const rendered = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Стас',
+      eventType: 'utility_plan.resolved',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        period: '2026-06',
+        memberId: 'ion',
+        resolvedAssignments: [
+          {
+            memberId: 'ion',
+            displayName: 'Ион',
+            utilityBillId: 'gas',
+            billName: 'Gas (Water)',
+            amountMinor: '9306',
+            currency: 'GEL'
+          }
+        ]
+      }
+    })
+
+    expect(rendered.compactText).toBe(
+      'Стас: отметил коммуналку по плану: Ион · Gas (Water) 93.06 ₾ июнь 2026 г.'
+    )
+    expect(rendered.details?.expandedText).toContain('Счета: Ион · Gas (Water) 93.06 ₾')
+  })
 })
 
 describe('createHouseholdAuditNotificationService', () => {

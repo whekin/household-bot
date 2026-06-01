@@ -266,6 +266,19 @@ function formatRemainingCreditLine(input: {
     : `Due after utilities: ${amountText}`
 }
 
+function formatCarryForwardCreditLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  amount: Money
+  currency: 'USD' | 'GEL'
+}): string | null {
+  if (input.amount.amountMinor <= 0n) {
+    return null
+  }
+
+  const amountText = formatAbsoluteMoney(input.amount, input.currency)
+  return input.locale === 'ru' ? `Перенос: ${amountText}` : `Carry-over credit: ${amountText}`
+}
+
 function formatDashboardUtilityTotal(dashboard: FinanceDashboardForBot): Money {
   return dashboard.ledger
     .filter((entry) => entry.kind === 'utility')
@@ -576,6 +589,29 @@ function formatUtilityAssignmentLine(input: {
   return detailLines.length > 0 ? `- ${line}\n  ${detailLines.join('\n  ')}` : `- ${line}`
 }
 
+function formatUtilityAssignmentSummaryLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  currency: 'USD' | 'GEL'
+  categories: readonly {
+    billName: string
+    assignedAmount: Money
+  }[]
+}): string | null {
+  if (input.categories.length === 0) {
+    return null
+  }
+
+  return `${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${input.categories
+    .map(
+      (category) =>
+        `${category.billName} ${formatUserFacingMoney(
+          category.assignedAmount.toMajorString(),
+          input.currency
+        )}`
+    )
+    .join('; ')}`
+}
+
 function formatUtilityMemberBlock(input: {
   locale: Parameters<typeof getBotTranslations>[0]
   currency: 'USD' | 'GEL'
@@ -589,6 +625,7 @@ function formatUtilityMemberBlock(input: {
   balance?: {
     utilityShare: Money
     purchaseOffset: Money
+    carryForwardCredit?: Money
     purchaseDrivers?: readonly {
       title: string
       amount: Money
@@ -601,12 +638,21 @@ function formatUtilityMemberBlock(input: {
 }): string {
   const isFullyPaid =
     input.payNow.amountMinor === 0n && input.summary && input.summary.vendorPaid.amountMinor > 0n
+  const carryForwardCredit = input.balance?.carryForwardCredit ?? Money.zero(input.currency)
   const isCoveredByBalance =
     input.payNow.amountMinor === 0n &&
     !isFullyPaid &&
     input.balance &&
     input.balance.utilityShare.amountMinor > 0n &&
     input.balance.purchaseOffset.amountMinor < 0n
+  const isCoveredByCarryForward =
+    input.payNow.amountMinor === 0n &&
+    !isFullyPaid &&
+    !isCoveredByBalance &&
+    input.summary?.fairShare.amountMinor === 0n &&
+    input.balance &&
+    input.balance.utilityShare.amountMinor > 0n &&
+    carryForwardCredit.amountMinor > 0n
 
   // Calculate remaining balance after this cycle
   const remainingBalance =
@@ -621,12 +667,21 @@ function formatUtilityMemberBlock(input: {
           currency: input.currency
         })
       : null
+  const carryForwardCreditLine =
+    input.balance && input.summary
+      ? formatCarryForwardCreditLine({
+          locale: input.locale,
+          amount: carryForwardCredit,
+          currency: input.currency
+        })
+      : null
 
   const balanceLine =
     input.balance && input.summary
       ? `📊 ${[
           `${input.locale === 'ru' ? 'Доля' : 'Share'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)}`,
           purchaseBalanceLine,
+          carryForwardCreditLine,
           `${input.locale === 'ru' ? 'План' : 'Plan'}: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
         ]
           .filter(Boolean)
@@ -641,12 +696,16 @@ function formatUtilityMemberBlock(input: {
               ? 'Уже оплачено.'
               : isCoveredByBalance
                 ? 'Закрыто твоим плюсом.'
-                : 'В этом цикле платить не нужно.'
+                : isCoveredByCarryForward
+                  ? 'Закрыто переносом.'
+                  : 'В этом цикле платить не нужно.'
             : isFullyPaid
               ? 'Already paid.'
               : isCoveredByBalance
                 ? 'Covered by your credit.'
-                : 'Nothing to pay this cycle.'
+                : isCoveredByCarryForward
+                  ? 'Covered by carry-over credit.'
+                  : 'Nothing to pay this cycle.'
         ]
       : [
           `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
@@ -660,12 +719,16 @@ function formatUtilityMemberBlock(input: {
               ? 'Уже оплачено.'
               : isCoveredByBalance
                 ? 'Закрыто твоим плюсом.'
-                : 'Платить не нужно.'
+                : isCoveredByCarryForward
+                  ? 'Закрыто переносом.'
+                  : 'Платить не нужно.'
             : isFullyPaid
               ? 'Already paid.'
               : isCoveredByBalance
                 ? 'Covered by your credit.'
-                : 'Nothing to pay.'
+                : isCoveredByCarryForward
+                  ? 'Covered by carry-over credit.'
+                  : 'Nothing to pay.'
           : `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
       ]
 
@@ -1248,6 +1311,7 @@ export function createFinanceCommandsService(options: {
       memberId: string
       utilityShare: Money
       purchaseOffset: Money
+      carryForwardCredit?: Money
       purchaseDrivers?: readonly {
         title: string
         amount: Money
@@ -1303,9 +1367,29 @@ export function createFinanceCommandsService(options: {
         : input.viewerMemberId
           ? [input.viewerMemberId]
           : fallbackMemberIds
+    const appliedCarryForwardByMemberId = new Map<string, Money>()
+    for (const credit of input.plan.carryForwardCredits ?? []) {
+      if (credit.policyTarget !== 'utilities' || credit.creditConsumed.amountMinor <= 0n) {
+        continue
+      }
+
+      appliedCarryForwardByMemberId.set(
+        credit.memberId,
+        (appliedCarryForwardByMemberId.get(credit.memberId) ?? Money.zero(input.currency)).add(
+          credit.creditConsumed
+        )
+      )
+    }
     const memberEntries = memberIds.map((memberId) => {
       const summary = relevantSummaries.find((item) => item.memberId === memberId) ?? null
-      const balance = input.memberBalances?.find((item) => item.memberId === memberId) ?? null
+      const memberBalance = input.memberBalances?.find((item) => item.memberId === memberId) ?? null
+      const balance = memberBalance
+        ? {
+            ...memberBalance,
+            carryForwardCredit:
+              appliedCarryForwardByMemberId.get(memberId) ?? Money.zero(input.currency)
+          }
+        : null
       const memberCategories = relevantCategories.filter(
         (category) => category.assignedMemberId === memberId
       )
@@ -1349,16 +1433,41 @@ export function createFinanceCommandsService(options: {
                   currency: input.currency
                 })
               : null
+            const carryForwardLine = entry.balance
+              ? formatCarryForwardCreditLine({
+                  locale: input.locale,
+                  amount: entry.balance.carryForwardCredit ?? Money.zero(input.currency),
+                  currency: input.currency
+                })
+              : null
+            const assignmentSummaryLine =
+              entry.payNow.amountMinor > 0n
+                ? formatUtilityAssignmentSummaryLine({
+                    locale: input.locale,
+                    currency: input.currency,
+                    categories: entry.memberCategories
+                  })
+                : null
 
             if (input.detailMode === 'compact') {
               if (entry.payNow.amountMinor === 0n) {
+                const isCoveredByCarryForward =
+                  !isCoveredByBalance &&
+                  entry.summary?.fairShare.amountMinor === 0n &&
+                  entry.balance &&
+                  entry.balance.utilityShare.amountMinor > 0n &&
+                  (entry.balance.carryForwardCredit?.amountMinor ?? 0n) > 0n
                 const statusText = isCoveredByBalance
                   ? input.locale === 'ru'
                     ? 'Закрыто твоим плюсом'
                     : 'Covered by your credit'
-                  : input.locale === 'ru'
-                    ? 'Уже оплачено'
-                    : 'Already paid'
+                  : isCoveredByCarryForward
+                    ? input.locale === 'ru'
+                      ? 'Закрыто переносом'
+                      : 'Covered by carry-over credit'
+                    : input.locale === 'ru'
+                      ? 'Уже оплачено'
+                      : 'Already paid'
                 const remainingCreditLine =
                   isCoveredByBalance && remainingBalance
                     ? formatRemainingCreditLine({
@@ -1374,14 +1483,17 @@ export function createFinanceCommandsService(options: {
                   ...(remainingCreditLine ? [`  • ${remainingCreditLine}`] : []),
                   ...(!isCoveredByBalance && purchaseBalanceLine
                     ? [`  • ${purchaseBalanceLine}`]
-                    : [])
+                    : []),
+                  ...(carryForwardLine ? [`  • ${carryForwardLine}`] : [])
                 ].join('\n')
               }
 
               return [
                 `👤 ${entry.displayName}`,
                 `  • ${input.locale === 'ru' ? 'К оплате' : 'To pay'}: ${formatUserFacingMoney(entry.payNow.toMajorString(), input.currency)}`,
-                ...(purchaseBalanceLine ? [`  • ${purchaseBalanceLine}`] : [])
+                ...(assignmentSummaryLine ? [`  • ${assignmentSummaryLine}`] : []),
+                ...(purchaseBalanceLine ? [`  • ${purchaseBalanceLine}`] : []),
+                ...(carryForwardLine ? [`  • ${carryForwardLine}`] : [])
               ].join('\n')
             }
 
@@ -1639,6 +1751,11 @@ export function createFinanceCommandsService(options: {
       amount: member.purchaseOffset,
       currency: input.dashboard.currency
     })
+    const carryForwardLine = formatCarryForwardCreditLine({
+      locale: input.locale,
+      amount: member.carryForwardCredit ?? Money.zero(input.dashboard.currency),
+      currency: input.dashboard.currency
+    })
 
     return [
       title,
@@ -1650,6 +1767,7 @@ export function createFinanceCommandsService(options: {
       `${input.locale === 'ru' ? 'Начислено' : 'Total due'}: ${formatUserFacingMoney(member.netDue.toMajorString(), input.dashboard.currency)}`,
       `${input.locale === 'ru' ? 'Оплачено' : 'Paid'}: ${formatUserFacingMoney(member.paid.toMajorString(), input.dashboard.currency)}`,
       ...(purchaseLine ? [`🛒 ${purchaseLine}`] : []),
+      ...(carryForwardLine ? [`💳 ${carryForwardLine}`] : []),
       '',
       `${input.locale === 'ru' ? 'Аренда' : 'Rent'}: ${formatUserFacingMoney(member.rentShare.toMajorString(), input.dashboard.currency)}`,
       `${input.locale === 'ru' ? 'Коммуналка' : 'Utilities'}: ${formatUserFacingMoney(member.utilityShare.toMajorString(), input.dashboard.currency)}`

@@ -476,6 +476,7 @@ export interface FinanceCurrentBillPlan {
     displayName: string
     utilityShare: Money
     purchaseOffset: Money
+    carryForwardCredit?: Money
     purchaseDrivers: readonly {
       purchaseId: string
       title: string
@@ -3174,6 +3175,13 @@ export interface FinanceCommandService {
   }): Promise<{
     period: string
     resolvedBillIds: readonly string[]
+    resolvedAssignments: readonly {
+      memberId: string
+      displayName: string
+      utilityBillId: string
+      billName: string
+      amount: Money
+    }[]
     plan: FinanceDashboardUtilityBillingPlan | null
   } | null>
   recordUtilityVendorPayment(input: {
@@ -4154,6 +4162,11 @@ export function createFinanceCommandService(
           displayName: member.displayName,
           utilityShare: member.utilityShare,
           purchaseOffset: member.purchaseOffset,
+          ...(member.carryForwardCredit
+            ? {
+                carryForwardCredit: member.carryForwardCredit
+              }
+            : {}),
           purchaseDrivers: dashboard.ledger
             .map((entry) =>
               purchaseDriverForMember({
@@ -4196,6 +4209,23 @@ export function createFinanceCommandService(
       if (memberIds.length === 0) {
         throw new Error('No planned utility bills assigned')
       }
+      const memberNameById = new Map(
+        utilityPlan.memberSummaries.map((summary) => [summary.memberId, summary.displayName])
+      )
+      const resolvedAssignments = utilityPlan.categories
+        .filter(
+          (category) =>
+            memberIds.includes(category.assignedMemberId) &&
+            category.assignedAmount.amountMinor > 0n
+        )
+        .map((category) => ({
+          memberId: category.assignedMemberId,
+          displayName:
+            memberNameById.get(category.assignedMemberId) ?? category.assignedDisplayName,
+          utilityBillId: category.utilityBillId,
+          billName: category.billName,
+          amount: category.assignedAmount
+        }))
 
       const cycle = await repository.getCycleByPeriod(dashboard.period)
       if (!cycle) {
@@ -4245,6 +4275,7 @@ export function createFinanceCommandService(
       return {
         period: dashboard.period,
         resolvedBillIds: [...new Set(resolvedBillIds)],
+        resolvedAssignments,
         plan: nextDashboard?.utilityBillingPlan ?? null
       }
     },

@@ -3213,6 +3213,15 @@ describe('createFinanceCommandService', () => {
     })
     expect(result).not.toBeNull()
     expect(result?.resolvedBillIds).toContain('bill-gas')
+    expect(result?.resolvedAssignments).toContainEqual(
+      expect.objectContaining({
+        memberId: 'alice',
+        displayName: 'Alice',
+        utilityBillId: 'bill-gas',
+        billName: 'Gas',
+        amount: expect.objectContaining({ amountMinor: 10000n })
+      })
+    )
 
     // Verify vendor facts created with matchedPlan
     expect(repository.utilityVendorPaymentFacts.length).toBeGreaterThan(0)
@@ -3974,6 +3983,12 @@ describe('createFinanceCommandService', () => {
         creditConsumed: expect.objectContaining({ amountMinor: 5000n })
       })
     )
+
+    const juneCurrentBill = await service.generateCurrentBillPlan('2026-06')
+    expect(
+      juneCurrentBill?.members?.find((member) => member.memberId === 'alice')?.carryForwardCredit
+        ?.amountMinor
+    ).toBe(5000n)
   })
 
   test('generateDashboard does not show overdue utilities when the current plan covered them', async () => {

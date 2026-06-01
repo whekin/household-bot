@@ -379,6 +379,15 @@ function createFinanceServiceStub(): FinanceCommandService & {
       return {
         period: input.periodArg ?? '2026-03',
         resolvedBillIds: ['utility-1'],
+        resolvedAssignments: [
+          {
+            memberId: input.memberId ?? 'member-123456',
+            displayName: 'Stan',
+            utilityBillId: 'utility-1',
+            billName: 'Electricity',
+            amount: Money.fromMinor(12000n, 'GEL')
+          }
+        ],
         plan: null
       }
     },
@@ -1391,7 +1400,19 @@ describe('utility billing action handlers', () => {
         actorDisplayName: 'Stan',
         category: 'plan_events',
         eventType: 'utility_plan.resolved',
-        summaryText: 'Stan resolved utility plan for 2026-03'
+        summaryText: 'Stan marked planned utilities paid: Stan · Electricity 120.00 ₾ (2026-03)',
+        metadata: {
+          resolvedAssignments: [
+            {
+              memberId: 'member-123456',
+              displayName: 'Stan',
+              utilityBillId: 'utility-1',
+              billName: 'Electricity',
+              amountMinor: '12000',
+              currency: 'GEL'
+            }
+          ]
+        }
       }
     ])
   })

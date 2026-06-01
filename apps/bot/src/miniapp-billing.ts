@@ -80,6 +80,67 @@ async function recordMiniAppAuditEvent(input: {
   }
 }
 
+function formatUtilityResolutionSummaryText(input: {
+  actorDisplayName: string
+  period: string
+  status: 'active' | 'diverged' | 'superseded' | 'settled' | null | undefined
+  assignments: readonly {
+    displayName: string
+    billName: string
+    amount: {
+      toMajorString(): string
+      currency: 'USD' | 'GEL'
+    }
+  }[]
+}): string {
+  const action =
+    input.status === 'settled' ? 'settled planned utilities' : 'marked planned utilities paid'
+  const memberNames = [...new Set(input.assignments.map((assignment) => assignment.displayName))]
+  const objectText =
+    memberNames.length === 1
+      ? [
+          memberNames[0],
+          input.assignments
+            .map(
+              (assignment) =>
+                `${assignment.billName} ${formatUserFacingMoney(
+                  assignment.amount.toMajorString(),
+                  assignment.amount.currency
+                )}`
+            )
+            .join('; ')
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : memberNames.length > 1
+        ? `${memberNames.length} members`
+        : null
+
+  return `${input.actorDisplayName} ${action}${objectText ? `: ${objectText}` : ''} (${input.period})`
+}
+
+function serializeUtilityResolutionAssignments(
+  assignments: readonly {
+    memberId: string
+    displayName: string
+    utilityBillId: string
+    billName: string
+    amount: {
+      amountMinor: bigint
+      currency: 'USD' | 'GEL'
+    }
+  }[]
+): Record<string, unknown>[] {
+  return assignments.map((assignment) => ({
+    memberId: assignment.memberId,
+    displayName: assignment.displayName,
+    utilityBillId: assignment.utilityBillId,
+    billName: assignment.billName,
+    amountMinor: assignment.amount.amountMinor.toString(),
+    currency: assignment.amount.currency
+  }))
+}
+
 async function recordMiniAppPurchaseTopicNotice(input: {
   service: PurchaseTopicNoticeService | undefined
   logger: Logger | undefined
@@ -2419,14 +2480,17 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           category: 'plan_events',
           eventType:
             result.plan?.status === 'settled' ? 'utility_plan.settled' : 'utility_plan.resolved',
-          summaryText:
-            result.plan?.status === 'settled'
-              ? `${auth.member.displayName} marked utility plan settled for ${result.period}`
-              : `${auth.member.displayName} resolved utility plan for ${result.period}`,
+          summaryText: formatUtilityResolutionSummaryText({
+            actorDisplayName: auth.member.displayName,
+            period: result.period,
+            status: result.plan?.status,
+            assignments: result.resolvedAssignments
+          }),
           metadata: {
             period: result.period,
             memberId: memberId ?? null,
             allMembers: payload.allMembers === true,
+            resolvedAssignments: serializeUtilityResolutionAssignments(result.resolvedAssignments),
             resolvedBillIds: result.resolvedBillIds,
             planVersion: result.plan?.version ?? null,
             planStatus: result.plan?.status ?? null

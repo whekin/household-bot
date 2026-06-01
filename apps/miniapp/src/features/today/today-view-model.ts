@@ -44,6 +44,13 @@ export type TodayViewModel = {
     billName: string
     amountMajor: string
   }[]
+  currentMemberUtilityBreakdown: {
+    shareMajor: string
+    purchaseOffsetMajor: string
+    carryForwardCreditMajor: string
+    targetMajor: string
+    hasAdjustment: boolean
+  } | null
   rentPaymentDestinations: readonly RentPaymentDestination[]
   currentMemberRentDueDate: string | null
   nextWindow: {
@@ -240,6 +247,39 @@ function currentTimelineSegmentKey(input: {
   )
 }
 
+function appliedUtilityCarryForwardCreditMajor(input: {
+  policy: MiniAppDashboard['paymentBalanceAdjustmentPolicy']
+  shareMajor: string
+  purchaseOffsetMajor: string
+  availableCreditMajor: string
+  targetMajor: string
+}): string {
+  if (input.policy !== 'utilities') {
+    return '0.00'
+  }
+
+  const availableCreditMinor = majorStringToMinor(input.availableCreditMajor)
+  if (availableCreditMinor <= 0n) {
+    return '0.00'
+  }
+
+  const preCarryForwardMinor =
+    majorStringToMinor(input.shareMajor) + majorStringToMinor(input.purchaseOffsetMajor)
+  if (preCarryForwardMinor <= 0n) {
+    return '0.00'
+  }
+
+  const targetMinor = majorStringToMinor(input.targetMajor)
+  const appliedMinor = preCarryForwardMinor > targetMinor ? preCarryForwardMinor - targetMinor : 0n
+  if (appliedMinor <= 0n) {
+    return '0.00'
+  }
+
+  return minorToMajorString(
+    appliedMinor < availableCreditMinor ? appliedMinor : availableCreditMinor
+  )
+}
+
 export function buildTodayTimeline(input: {
   period: string
   rentStartDay: number
@@ -344,6 +384,22 @@ export function buildTodayViewModel(input: {
   const currentMember = input.dashboard.members.find(
     (member) => member.memberId === input.currentMemberId
   )
+  const currentMemberUtilitySummary =
+    currentMember && input.dashboard.utilityBillingPlan
+      ? input.dashboard.utilityBillingPlan.memberSummaries.find(
+          (summary) => summary.memberId === currentMember.memberId
+        )
+      : null
+  const currentMemberCarryForwardCreditMajor =
+    currentMember && currentMemberUtilitySummary
+      ? appliedUtilityCarryForwardCreditMajor({
+          policy: input.dashboard.paymentBalanceAdjustmentPolicy,
+          shareMajor: currentMember.utilityShareMajor,
+          purchaseOffsetMajor: currentMember.purchaseOffsetMajor,
+          availableCreditMajor: currentMember.carryForwardCreditMajor ?? '0.00',
+          targetMajor: currentMemberUtilitySummary.fairShareMajor
+        })
+      : '0.00'
 
   return {
     period,
@@ -417,6 +473,18 @@ export function buildTodayViewModel(input: {
             Number(majorStringToMinor(right.amountMajor) - majorStringToMinor(left.amountMajor))
           )
       : [],
+    currentMemberUtilityBreakdown:
+      stage === 'utilities' && currentMember && currentMemberUtilitySummary
+        ? {
+            shareMajor: currentMember.utilityShareMajor,
+            purchaseOffsetMajor: currentMember.purchaseOffsetMajor,
+            carryForwardCreditMajor: currentMemberCarryForwardCreditMajor,
+            targetMajor: currentMemberUtilitySummary.fairShareMajor,
+            hasAdjustment:
+              majorStringToMinor(currentMember.purchaseOffsetMajor) !== 0n ||
+              majorStringToMinor(currentMemberCarryForwardCreditMajor) > 0n
+          }
+        : null,
     rentPaymentDestinations:
       input.dashboard.rentBillingState.paymentDestinations !== null
         ? input.dashboard.rentBillingState.paymentDestinations

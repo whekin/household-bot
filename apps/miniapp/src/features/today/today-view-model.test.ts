@@ -307,6 +307,52 @@ describe('today view model', () => {
     ])
   })
 
+  test('exposes current member utility carry-forward breakdown', () => {
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ utilitiesRemaining: '28.12' })),
+        members: [
+          {
+            ...dashboard(periodSummary()).members[0]!,
+            utilityShareMajor: '63.05',
+            purchaseOffsetMajor: '-12.00',
+            carryForwardCreditMajor: '99.99',
+            effectivePurchaseBalanceMajor: '-111.99'
+          }
+        ],
+        utilityBillingPlan: {
+          version: 1,
+          status: 'active',
+          dueDate: '2026-03-05',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [],
+          memberSummaries: [
+            {
+              memberId: 'member-a',
+              displayName: 'Ada',
+              fairShareMajor: '28.12',
+              vendorPaidMajor: '0.00',
+              assignedThisCycleMajor: '28.12',
+              projectedDeltaAfterPlanMajor: '0.00'
+            }
+          ]
+        }
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'utilities'
+    })
+
+    expect(model.currentMemberUtilityBreakdown).toEqual({
+      shareMajor: '63.05',
+      purchaseOffsetMajor: '-12.00',
+      carryForwardCreditMajor: '22.93',
+      targetMajor: '28.12',
+      hasAdjustment: true
+    })
+  })
+
   test('uses rent billing-state payment destinations when present', () => {
     const householdDestination = {
       label: 'Household card',

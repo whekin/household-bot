@@ -69,6 +69,27 @@ function purchasePositionLabel(amountMajor: string, copy: ReturnType<Copy>): str
   return copy.todayPurchasePositionEven
 }
 
+function formatAdjustmentMoneyLabel(
+  amountMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: Locale
+): string {
+  const amountMinor = majorStringToMinor(amountMajor)
+  const label = formatMoneyLabel(minorToMajorString(amountMinor), currency, locale)
+
+  return amountMinor > 0n ? `+${label}` : label
+}
+
+function formatCarryForwardCreditAdjustmentLabel(
+  creditMajor: string,
+  currency: MiniAppDashboard['currency'],
+  locale: Locale
+): string {
+  const creditMinor = majorStringToMinor(creditMajor)
+
+  return formatAdjustmentMoneyLabel(minorToMajorString(-creditMinor), currency, locale)
+}
+
 function CopyIconButton(props: {
   label: string
   copied: boolean
@@ -300,6 +321,59 @@ export function CurrentPeriodPanel(props: {
       </div>
 
       <div class="today-personal-lines">
+        <Show
+          when={
+            props.model.stage === 'utilities' &&
+            props.model.currentMemberUtilityBreakdown?.hasAdjustment
+              ? props.model.currentMemberUtilityBreakdown
+              : null
+          }
+        >
+          {(breakdown) => (
+            <div class="today-personal-lines__group">
+              <span>{copy().todayUtilityBreakdownTitle}</span>
+              <div class="today-personal-lines__list">
+                <div class="today-personal-line">
+                  <strong>{copy().todayUtilityShareLabel}</strong>
+                  <span>
+                    {formatMoneyLabel(breakdown().shareMajor, props.currency, props.locale)}
+                  </span>
+                </div>
+                <Show when={majorStringToMinor(breakdown().purchaseOffsetMajor) !== 0n}>
+                  <div class="today-personal-line today-personal-line--muted">
+                    <strong>{copy().todayUtilityPurchasesAdjustmentLabel}</strong>
+                    <span>
+                      {formatAdjustmentMoneyLabel(
+                        breakdown().purchaseOffsetMajor,
+                        props.currency,
+                        props.locale
+                      )}
+                    </span>
+                  </div>
+                </Show>
+                <Show when={majorStringToMinor(breakdown().carryForwardCreditMajor) > 0n}>
+                  <div class="today-personal-line today-personal-line--muted">
+                    <strong>{copy().todayUtilityCarryForwardCreditLabel}</strong>
+                    <span>
+                      {formatCarryForwardCreditAdjustmentLabel(
+                        breakdown().carryForwardCreditMajor,
+                        props.currency,
+                        props.locale
+                      )}
+                    </span>
+                  </div>
+                </Show>
+                <div class="today-personal-line">
+                  <strong>{copy().todayUtilityPlanTargetLabel}</strong>
+                  <span>
+                    {formatMoneyLabel(breakdown().targetMajor, props.currency, props.locale)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </Show>
+
         <Show
           when={
             props.model.stage === 'utilities' && props.model.currentMemberUtilityLines.length > 0

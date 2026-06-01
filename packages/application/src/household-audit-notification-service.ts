@@ -130,6 +130,10 @@ function formatMoneyFromMetadata(metadata: Record<string, unknown>): string | nu
   return `${amount} ${currency}`
 }
 
+function formatMoneyFromRecord(record: Record<string, unknown>): string | null {
+  return formatMoneyFromMetadata(record)
+}
+
 function localizedKind(locale: SupportedLocale, value: string | null): string | null {
   if (!value) {
     return null
@@ -165,8 +169,8 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.updated': 'updated payment:',
     'payment.deleted': 'deleted payment',
     'payment_period.closed': 'closed',
-    'utility_plan.resolved': 'resolved utility plan for',
-    'utility_plan.settled': 'marked utility plan settled for',
+    'utility_plan.resolved': 'marked planned utilities paid:',
+    'utility_plan.settled': 'settled planned utilities:',
     'utility_vendor_payment.recorded': 'recorded utility bill payment'
   }
   const ru: Record<string, string> = {
@@ -184,11 +188,119 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.updated': 'обновление платежа',
     'payment.deleted': 'удаление платежа',
     'payment_period.closed': 'закрытие',
-    'utility_plan.resolved': 'отметка коммунального плана за',
-    'utility_plan.settled': 'закрытие коммунального плана за',
+    'utility_plan.resolved': 'отметил коммуналку по плану:',
+    'utility_plan.settled': 'закрыл коммуналку по плану:',
     'utility_vendor_payment.recorded': 'запись оплаты коммуналки'
   }
   return (locale === 'ru' ? ru : en)[eventType] ?? null
+}
+
+function utilityPlanAssignmentDetails(metadata: Record<string, unknown>): Array<{
+  memberId: string | null
+  displayName: string
+  billName: string
+  amountText: string | null
+}> {
+  const raw = metadata.resolvedAssignments
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null
+      }
+      const record = entry as Record<string, unknown>
+      const memberId = typeof record.memberId === 'string' ? record.memberId : null
+      const displayName =
+        typeof record.displayName === 'string' && record.displayName.trim().length > 0
+          ? record.displayName.trim()
+          : memberId
+            ? `#${memberId}`
+            : null
+      const billName =
+        typeof record.billName === 'string' && record.billName.trim().length > 0
+          ? record.billName.trim()
+          : null
+      if (!displayName || !billName) {
+        return null
+      }
+
+      return {
+        memberId,
+        displayName,
+        billName,
+        amountText: formatMoneyFromRecord(record)
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+}
+
+function utilityPlanResolutionDescription(
+  locale: SupportedLocale,
+  metadata: Record<string, unknown>
+): string | null {
+  const assignments = utilityPlanAssignmentDetails(metadata)
+  if (assignments.length === 0) {
+    const member = metadataString(metadata, 'memberDisplayName')
+    if (member) {
+      return member
+    }
+
+    return metadataBoolean(metadata, 'allMembers') === true
+      ? locale === 'ru'
+        ? 'все участники'
+        : 'all members'
+      : null
+  }
+
+  const memberNames = [...new Set(assignments.map((assignment) => assignment.displayName))]
+  const totalByCurrency = new Map<string, bigint>()
+  for (const entry of (metadata.resolvedAssignments as unknown[]).filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+  )) {
+    const currency = metadataString(entry, 'currency')
+    const amountMinorRaw = metadataString(entry, 'amountMinor')
+    if ((currency !== 'USD' && currency !== 'GEL') || !amountMinorRaw) {
+      continue
+    }
+
+    try {
+      totalByCurrency.set(currency, (totalByCurrency.get(currency) ?? 0n) + BigInt(amountMinorRaw))
+    } catch {
+      // Ignore malformed amounts in notification metadata.
+    }
+  }
+
+  if (memberNames.length === 1) {
+    const billSummary = assignments
+      .map((assignment) =>
+        assignment.amountText
+          ? `${assignment.billName} ${assignment.amountText}`
+          : assignment.billName
+      )
+      .join('; ')
+    return billSummary ? `${memberNames[0]} · ${billSummary}` : memberNames[0]!
+  }
+
+  const totalText =
+    totalByCurrency.size === 1
+      ? (() => {
+          const [currency, amountMinor] = [...totalByCurrency.entries()][0]!
+          return formatMoneyFromMetadata({
+            amountMinor: amountMinor.toString(),
+            currency
+          })
+        })()
+      : null
+  const memberCountText =
+    locale === 'ru'
+      ? `${memberNames.length} участн.`
+      : `${memberNames.length} ${memberNames.length === 1 ? 'member' : 'members'}`
+
+  return totalText ? `${memberCountText} · ${totalText}` : memberCountText
 }
 
 function participantDetails(metadata: Record<string, unknown>): Array<{
@@ -301,6 +413,7 @@ function buildExpandedText(input: {
   const excluded = participants.filter((participant) => !participant.included)
   const closedMembers = paymentMemberDetails(input.metadata, 'closedMembers')
   const skippedMembers = paymentMemberDetails(input.metadata, 'skippedMembers')
+  const utilityAssignments = utilityPlanAssignmentDetails(input.metadata)
 
   if (amountText) {
     lines.push(`${input.locale === 'ru' ? 'Сумма' : 'Amount'}: ${amountText}`)
@@ -350,6 +463,18 @@ function buildExpandedText(input: {
     lines.push(input.locale === 'ru' ? 'Для всех участников' : 'For all members')
     hasMeaningfulDetail = true
   }
+  if (utilityAssignments.length > 0) {
+    lines.push(
+      `${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${utilityAssignments
+        .map((assignment) =>
+          assignment.amountText
+            ? `${assignment.displayName} · ${assignment.billName} ${assignment.amountText}`
+            : `${assignment.displayName} · ${assignment.billName}`
+        )
+        .join('; ')}`
+    )
+    hasMeaningfulDetail = true
+  }
   if (closedMembers.length > 0) {
     lines.push(
       `${input.locale === 'ru' ? 'Закрыто для' : 'Closed for'}: ${closedMembers
@@ -387,7 +512,12 @@ export function renderAuditNotification(input: {
   const actor = input.actorDisplayName.trim() || (input.locale === 'ru' ? 'Кто-то' : 'Someone')
   const actorPrefix = input.locale === 'ru' ? `${actor}:` : actor
   const action = actionText(input.locale, input.eventType)
+  const utilityPlanDescription =
+    input.eventType === 'utility_plan.resolved' || input.eventType === 'utility_plan.settled'
+      ? utilityPlanResolutionDescription(input.locale, input.metadata)
+      : null
   const description =
+    utilityPlanDescription ??
     metadataString(input.metadata, 'description') ??
     metadataString(input.metadata, 'billName') ??
     (input.eventType === 'purchase.confirmed'

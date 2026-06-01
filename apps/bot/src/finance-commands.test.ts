@@ -2076,6 +2076,7 @@ describe('createFinanceCommandsService', () => {
     expect(text).toContain('доля 103.40 ₾')
     expect(text).toContain('👤 Дима')
     expect(text).toContain('К оплате: 77.17 ₾')
+    expect(text).toContain('Счета: Electricity 56.86 ₾; Gas (Water) 20.31 ₾')
     expect(text).toContain('Покупки: в плюсе 1.00 ₾')
     expect(text).not.toContain('Electricity: 56.86 ₾')
     expect(text).not.toContain('Gas (Water): 20.31 ₾')
@@ -2093,6 +2094,118 @@ describe('createFinanceCommandsService', () => {
     expect(fullText).toContain('Gas (Water) — 20.31 ₾ из 253.33 ₾')
     expect(fullText).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; One +1.00 ₾')
     expect(fullText).not.toContain('ещё 1')
+  })
+
+  test('renders carry-forward utility credit in plan details', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-06',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Стас',
+            utilityShare: Money.fromMajor('63.05', 'GEL'),
+            purchaseOffset: Money.fromMajor('-12.00', 'GEL'),
+            carryForwardCredit: Money.fromMajor('99.99', 'GEL'),
+            purchaseDrivers: []
+          }
+        ],
+        utilityBillingPlan: {
+          id: 'utility-plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-06-05',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'internet',
+              billName: 'Internet',
+              billTotal: Money.fromMajor('35.00', 'GEL'),
+              assignedAmount: Money.fromMajor('28.12', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Стас',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: null
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Стас',
+              fairShare: Money.fromMajor('28.12', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('28.12', 'GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            }
+          ],
+          carryForwardCredits: [
+            {
+              memberId: 'member-1',
+              creditCreated: Money.zero('GEL'),
+              creditConsumed: Money.fromMajor('22.93', 'GEL'),
+              policyTarget: 'utilities'
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-06-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
+
+    const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(fullText).toContain(
+      'Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾ · Перенос: 22.93 ₾ · План: 28.12 ₾'
+    )
+    expect(fullText).toContain('Осталось оплатить: 28.12 ₾')
+    expect(fullText).toContain('Internet — 28.12 ₾ из 35.00 ₾')
   })
 
   test('renders rent as short payment instructions with destinations', async () => {
