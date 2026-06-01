@@ -2469,6 +2469,158 @@ describe('createFinanceCommandService', () => {
     ])
   })
 
+  test('generateDashboard closes prior utility payment queues from settled utility plans', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'stas',
+        telegramUserId: '2',
+        displayName: 'Stas',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-05', period: '2026-05', currency: 'GEL' },
+      { id: 'cycle-2026-06', period: '2026-06', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[1]!
+    repository.latestCycleRecord = repository.cycles[1]!
+    repository.rentRule = {
+      amountMinor: 0n,
+      currency: 'GEL'
+    }
+    repository.utilityBills = [
+      {
+        id: 'bill-may-gas',
+        cycleId: 'cycle-2026-05',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-05',
+        version: 1,
+        status: 'settled',
+        dueDate: '2026-05-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 1,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-may-gas',
+              billName: 'Gas',
+              billTotalMinor: '10000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'stas',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '10000' },
+            { memberId: 'stas', amountMinor: '0' }
+          ],
+          carryForwardCredits: [],
+          preferredUtilityPayerMemberId: null
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-06', {
+      todayOverride: '2026-06-01'
+    })
+    const mayUtilities = dashboard?.paymentPeriods
+      ?.find((period) => period.period === '2026-05')
+      ?.kinds.find((kind) => kind.kind === 'utilities')
+
+    expect(mayUtilities?.totalRemaining.amountMinor).toBe(0n)
+    expect(mayUtilities?.unresolvedMembers).toEqual([])
+    expect(
+      dashboard?.members
+        .find((member) => member.memberId === 'stas')
+        ?.overduePayments.find((payment) => payment.kind === 'utilities')
+    ).toBeUndefined()
+  })
+
+  test('generateDashboard keeps current rent out of the payment queue before rent warning day', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-06',
+      period: '2026-06',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 46700n,
+      currency: 'GEL'
+    }
+    repository.billingSettingsOverride = {
+      rentWarningDay: 15,
+      rentDueDay: 20
+    }
+
+    const service = createService(repository)
+    const earlyDashboard = await service.generateDashboard('2026-06', {
+      todayOverride: '2026-06-01'
+    })
+    const earlyRent = earlyDashboard?.paymentPeriods?.[0]?.kinds.find(
+      (kind) => kind.kind === 'rent'
+    )
+    expect(earlyRent?.totalRemaining.amountMinor).toBe(46700n)
+    expect(earlyRent?.unresolvedMembers).toEqual([])
+
+    const warningDashboard = await service.generateDashboard('2026-06', {
+      todayOverride: '2026-06-15'
+    })
+    const warningRent = warningDashboard?.paymentPeriods?.[0]?.kinds.find(
+      (kind) => kind.kind === 'rent'
+    )
+    expect(warningRent?.unresolvedMembers.map((member) => member.memberId)).toEqual(['alice'])
+  })
+
   test('addPayment without explicit period applies overdue payments oldest-first across cycles', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

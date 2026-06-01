@@ -823,6 +823,13 @@ interface MutableOverdueSummary {
   utilities: { amountMinor: bigint; periods: string[] }
 }
 
+interface UtilityPlanPaymentMemberSummary {
+  baseDue: Money
+  paid: Money
+  remaining: Money
+  isSettled: boolean
+}
+
 const PAYMENT_SETTLEMENT_TOLERANCE_MINOR = 200n
 
 function effectiveRemainingMinor(expectedMinor: bigint, paidMinor: bigint): bigint {
@@ -1270,6 +1277,101 @@ function utilityFactMatchesPlan(
   }
 
   return fact.planId ? fact.planId === plan.id : fact.planVersion === plan.version
+}
+
+function currentUtilityBillingPlanRecord(
+  plans: readonly Awaited<
+    ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>
+  >[number][]
+): Awaited<ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>>[number] | null {
+  return (
+    [...plans].reverse().find((plan) => plan.status === 'active' || plan.status === 'settled') ??
+    null
+  )
+}
+
+function utilityPlanHasPaymentTargets(computed: UtilityBillingPlanComputed): boolean {
+  return (
+    computed.categories.length > 0 ||
+    computed.memberSummaries.some(
+      (summary) =>
+        summary.assignedThisCycle.amountMinor > 0n ||
+        summary.fairShare.amountMinor > 0n ||
+        summary.vendorPaid.amountMinor > 0n
+    )
+  )
+}
+
+function utilityPlanPaymentSummariesByMemberId(input: {
+  plan: Awaited<ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>>[number]
+  vendorFacts: readonly Awaited<
+    ReturnType<FinanceRepository['listUtilityVendorPaymentFactsForCycle']>
+  >[number][]
+}): ReadonlyMap<string, UtilityPlanPaymentMemberSummary> | null {
+  const computed = materializeUtilityBillingPlanRecord(input.plan)
+  if (!utilityPlanHasPaymentTargets(computed)) {
+    return null
+  }
+
+  const matchedPaidByMemberId = input.vendorFacts
+    .filter((fact) => utilityFactMatchesPlan(fact, input.plan))
+    .reduce((totals, fact) => {
+      totals.set(fact.payerMemberId, (totals.get(fact.payerMemberId) ?? 0n) + fact.amountMinor)
+      return totals
+    }, new Map<string, bigint>())
+
+  return new Map(
+    computed.memberSummaries.map((summary) => {
+      const baseDueMinor = summary.assignedThisCycle.amountMinor
+      const matchedPaidMinor = matchedPaidByMemberId.get(summary.memberId) ?? 0n
+      const paidMinor =
+        input.plan.status === 'settled'
+          ? matchedPaidMinor > baseDueMinor
+            ? matchedPaidMinor
+            : baseDueMinor
+          : matchedPaidMinor
+      const remainingMinor =
+        input.plan.status === 'settled'
+          ? 0n
+          : baseDueMinor > matchedPaidMinor
+            ? baseDueMinor - matchedPaidMinor
+            : 0n
+
+      return [
+        summary.memberId,
+        {
+          baseDue: Money.fromMinor(baseDueMinor, input.plan.currency),
+          paid: Money.fromMinor(paidMinor, input.plan.currency),
+          remaining: Money.fromMinor(remainingMinor, input.plan.currency),
+          isSettled: input.plan.status === 'settled'
+        }
+      ] as const
+    })
+  )
+}
+
+function utilityPlanRemainingAfterRecordedPayments(input: {
+  plannedSummary: UtilityPlanPaymentMemberSummary
+  recordedPaid: Money
+}): UtilityPlanPaymentMemberSummary {
+  if (input.plannedSummary.isSettled) {
+    return input.plannedSummary
+  }
+
+  const effectivePaidMinor =
+    input.recordedPaid.amountMinor > input.plannedSummary.paid.amountMinor
+      ? input.recordedPaid.amountMinor
+      : input.plannedSummary.paid.amountMinor
+  const remainingMinor =
+    input.plannedSummary.baseDue.amountMinor > effectivePaidMinor
+      ? input.plannedSummary.baseDue.amountMinor - effectivePaidMinor
+      : 0n
+
+  return {
+    ...input.plannedSummary,
+    paid: Money.fromMinor(effectivePaidMinor, input.plannedSummary.paid.currency),
+    remaining: Money.fromMinor(remainingMinor, input.plannedSummary.remaining.currency)
+  }
 }
 
 async function ensureUtilityBillingPlan(input: {
@@ -1967,23 +2069,29 @@ async function computeMemberOverduePayments(input: {
   members: readonly HouseholdMemberRecord[]
   memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
-  currentUtilityPlan: UtilityBillingPlanComputed | null
   activeCarryoverCreditByMemberId?: ReadonlyMap<string, bigint>
+  todayOverride?: string
 }): Promise<ReadonlyMap<string, readonly FinanceMemberOverduePaymentRecord[]>> {
-  const localDate = localDateInTimezone(input.settings.timezone)
+  const localDate = input.todayOverride
+    ? Temporal.PlainDate.from(input.todayOverride)
+    : localDateInTimezone(input.settings.timezone)
   const overdueByMemberId = new Map<string, MutableOverdueSummary>()
   const cycles = (await input.dependencies.repository.listCycles()).filter(
     (cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0
   )
 
   for (const cycle of cycles) {
-    const baseLines = await buildCycleBaseMemberLines({
-      dependencies: input.dependencies,
-      cycle,
-      members: input.members,
-      memberPresenceDays: input.memberPresenceDays,
-      settings: input.settings
-    })
+    const [baseLines, utilityPlans, vendorFacts] = await Promise.all([
+      buildCycleBaseMemberLines({
+        dependencies: input.dependencies,
+        cycle,
+        members: input.members,
+        memberPresenceDays: input.memberPresenceDays,
+        settings: input.settings
+      }),
+      input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
+      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+    ])
     const rentDueDate = billingPeriodLockDate(
       BillingPeriod.fromString(cycle.period),
       input.settings.rentDueDay
@@ -1992,14 +2100,10 @@ async function computeMemberOverduePayments(input: {
       BillingPeriod.fromString(cycle.period),
       input.settings.utilitiesDueDay
     )
-    const currentUtilityPlanSummaryByMemberId =
-      cycle.id === input.currentCycle.id && input.currentUtilityPlan
-        ? new Map(
-            input.currentUtilityPlan.memberSummaries.map(
-              (summary) => [summary.memberId, summary] as const
-            )
-          )
-        : null
+    const utilityPlanSummaryByMemberId = (() => {
+      const plan = currentUtilityBillingPlanRecord(utilityPlans)
+      return plan ? utilityPlanPaymentSummariesByMemberId({ plan, vendorFacts }) : null
+    })()
 
     for (const line of baseLines) {
       const current = overdueByMemberId.get(line.memberId) ?? {
@@ -2023,9 +2127,13 @@ async function computeMemberOverduePayments(input: {
         current.rent.periods.push(cycle.period)
       }
 
-      const plannedUtilityRemainingMinor =
-        currentUtilityPlanSummaryByMemberId?.get(line.memberId)?.assignedThisCycle.amountMinor ??
-        null
+      const plannedSummary = utilityPlanSummaryByMemberId?.get(line.memberId) ?? null
+      const plannedUtilityRemainingMinor = plannedSummary
+        ? utilityPlanRemainingAfterRecordedPayments({
+            plannedSummary,
+            recordedPaid: line.utilityPaid
+          }).remaining.amountMinor
+        : null
       const utilityRemainingMinor =
         plannedUtilityRemainingMinor ??
         effectiveRemainingMinor(line.utilityShare.amountMinor, line.utilityPaid.amountMinor)
@@ -2070,10 +2178,12 @@ async function buildPaymentPeriodSummaries(input: {
   members: readonly HouseholdMemberRecord[]
   memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
   settings: HouseholdBillingSettingsRecord
-  currentUtilityPlan: UtilityBillingPlanComputed | null
   activeCarryoverCreditByMemberId?: ReadonlyMap<string, bigint>
+  todayOverride?: string
 }): Promise<readonly FinanceDashboardPaymentPeriodSummary[]> {
-  const localDate = localDateInTimezone(input.settings.timezone)
+  const localDate = input.todayOverride
+    ? Temporal.PlainDate.from(input.todayOverride)
+    : localDateInTimezone(input.settings.timezone)
   const memberNameById = new Map(input.members.map((member) => [member.id, member.displayName]))
   const cycles = (await input.dependencies.repository.listCycles())
     .filter((cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0)
@@ -2082,7 +2192,7 @@ async function buildPaymentPeriodSummaries(input: {
   const summaries: FinanceDashboardPaymentPeriodSummary[] = []
 
   for (const cycle of cycles) {
-    const [baseLines, utilityBills] = await Promise.all([
+    const [baseLines, utilityBills, utilityPlans, vendorFacts] = await Promise.all([
       buildCycleBaseMemberLines({
         dependencies: input.dependencies,
         cycle,
@@ -2090,7 +2200,9 @@ async function buildPaymentPeriodSummaries(input: {
         memberPresenceDays: input.memberPresenceDays,
         settings: input.settings
       }),
-      input.dependencies.repository.listUtilityBillsForCycle(cycle.id)
+      input.dependencies.repository.listUtilityBillsForCycle(cycle.id),
+      input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
+      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
     ])
 
     const utilityTotal = utilityBills.reduce(
@@ -2101,18 +2213,21 @@ async function buildPaymentPeriodSummaries(input: {
       BillingPeriod.fromString(cycle.period),
       input.settings.rentDueDay
     )
+    const rentReminderDate = billingPeriodLockDate(
+      BillingPeriod.fromString(cycle.period),
+      input.settings.rentWarningDay
+    )
     const utilitiesDueDate = billingPeriodLockDate(
       BillingPeriod.fromString(cycle.period),
       input.settings.utilitiesDueDay
     )
-    const utilityPlanSummaryByMemberId =
-      cycle.period === input.currentCycle.period && input.currentUtilityPlan
-        ? new Map(
-            input.currentUtilityPlan.memberSummaries.map(
-              (summary) => [summary.memberId, summary] as const
-            )
-          )
-        : null
+    const utilityPlanSummaryByMemberId = (() => {
+      const plan = currentUtilityBillingPlanRecord(utilityPlans)
+      return plan ? utilityPlanPaymentSummariesByMemberId({ plan, vendorFacts }) : null
+    })()
+    const rentIsActionable =
+      cycle.period !== input.currentCycle.period ||
+      Temporal.PlainDate.compare(localDate, rentReminderDate) >= 0
 
     const rentMembers = baseLines.map((line) => {
       const dueMinor = actionablePaymentDueMinor({
@@ -2139,22 +2254,37 @@ async function buildPaymentPeriodSummaries(input: {
         effectivelySettled: remainingMinor === 0n
       } satisfies FinanceDashboardPaymentMemberSummary
     })
+    const visibleRentMembers = rentIsActionable ? rentMembers : []
 
     const utilitiesMembers = baseLines.map((line) => {
-      const plannedAssignedMinor =
-        utilityPlanSummaryByMemberId?.get(line.memberId)?.assignedThisCycle.amountMinor ?? null
-      const dueMinor =
-        plannedAssignedMinor ??
-        adjustedPaymentBaseMinor({
-          kind: 'utilities',
-          baseMinor: line.utilityShare.amountMinor,
-          purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-          carryoverCreditMinor:
-            cycle.id === input.currentCycle.id
-              ? (input.activeCarryoverCreditByMemberId?.get(line.memberId) ?? 0n)
-              : 0n,
-          settings: input.settings
+      const plannedSummary = utilityPlanSummaryByMemberId?.get(line.memberId) ?? null
+      if (plannedSummary) {
+        const effectivePlannedSummary = utilityPlanRemainingAfterRecordedPayments({
+          plannedSummary,
+          recordedPaid: line.utilityPaid
         })
+
+        return {
+          memberId: line.memberId,
+          displayName: memberNameById.get(line.memberId) ?? line.memberId,
+          suggestedAmount: effectivePlannedSummary.remaining,
+          baseDue: effectivePlannedSummary.baseDue,
+          paid: effectivePlannedSummary.paid,
+          remaining: effectivePlannedSummary.remaining,
+          effectivelySettled: effectivePlannedSummary.remaining.amountMinor === 0n
+        } satisfies FinanceDashboardPaymentMemberSummary
+      }
+
+      const dueMinor = adjustedPaymentBaseMinor({
+        kind: 'utilities',
+        baseMinor: line.utilityShare.amountMinor,
+        purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+        carryoverCreditMinor:
+          cycle.id === input.currentCycle.id
+            ? (input.activeCarryoverCreditByMemberId?.get(line.memberId) ?? 0n)
+            : 0n,
+        settings: input.settings
+      })
       const remainingMinor = effectiveRemainingMinor(dueMinor, line.utilityPaid.amountMinor)
       return {
         memberId: line.memberId,
@@ -2193,7 +2323,7 @@ async function buildPaymentPeriodSummaries(input: {
             (sum, member) => sum.add(member.remaining),
             Money.zero(cycle.currency)
           ),
-          unresolvedMembers: rentMembers.filter((member) => !member.effectivelySettled)
+          unresolvedMembers: visibleRentMembers.filter((member) => !member.effectivelySettled)
         },
         {
           kind: 'utilities',
@@ -2646,19 +2776,14 @@ async function buildFinanceDashboard(
     purchaseIds: [...currentCyclePurchaseIds],
     ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
   })
-  const currentUtilityPlanForDues =
-    ensuredUtilityPlan.computed &&
-    (ensuredUtilityPlan.computed.categories.length > 0 || convertedUtilityBills.length > 0)
-      ? ensuredUtilityPlan.computed
-      : null
   const overduePaymentsByMemberId = await computeMemberOverduePayments({
     dependencies,
     currentCycle: cycle,
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: currentUtilityPlanForDues,
-    activeCarryoverCreditByMemberId
+    activeCarryoverCreditByMemberId,
+    ...(options.todayOverride ? { todayOverride: options.todayOverride } : {})
   })
   const currentPlanCarryForwardCreditByMemberId = new Map<string, bigint>()
   if (ensuredUtilityPlan.record?.status === 'settled' && ensuredUtilityPlan.computed) {
@@ -2712,8 +2837,8 @@ async function buildFinanceDashboard(
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: currentUtilityPlanForDues,
-    activeCarryoverCreditByMemberId
+    activeCarryoverCreditByMemberId,
+    ...(options.todayOverride ? { todayOverride: options.todayOverride } : {})
   })
   const utilityPlanVersions = await dependencies.repository.listUtilityBillingPlansForCycle(
     cycle.id
