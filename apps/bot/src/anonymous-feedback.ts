@@ -18,6 +18,10 @@ function isPrivateChat(ctx: Context): boolean {
   return ctx.chat?.type === 'private'
 }
 
+function isGroupChat(ctx: Context): boolean {
+  return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
+}
+
 function commandArgText(ctx: Context): string {
   return typeof ctx.match === 'string' ? ctx.match.trim() : ''
 }
@@ -40,7 +44,52 @@ function cancelReplyMarkup(locale: BotLocale) {
 }
 
 function isCommandMessage(ctx: Context): boolean {
-  return typeof ctx.msg?.text === 'string' && ctx.msg.text.trim().startsWith('/')
+  const text = ctx.msg?.text ?? ctx.msg?.caption
+  return typeof text === 'string' && text.trim().startsWith('/')
+}
+
+function isMessageFromBot(ctx: Context): boolean {
+  return ctx.from?.is_bot === true || ctx.from?.id === ctx.me.id
+}
+
+function currentTopicThreadId(ctx: Context): string | null {
+  const message = ctx.msg
+  if (
+    !message ||
+    !('is_topic_message' in message) ||
+    message.is_topic_message !== true ||
+    !('message_thread_id' in message) ||
+    message.message_thread_id === undefined
+  ) {
+    return null
+  }
+
+  return message.message_thread_id.toString()
+}
+
+function hasCopyableUserContent(ctx: Context): boolean {
+  const message = ctx.msg
+  if (!message) {
+    return false
+  }
+
+  return (
+    'text' in message ||
+    'photo' in message ||
+    'animation' in message ||
+    'audio' in message ||
+    'document' in message ||
+    'sticker' in message ||
+    'video' in message ||
+    'video_note' in message ||
+    'voice' in message ||
+    'contact' in message ||
+    'dice' in message ||
+    'game' in message ||
+    'location' in message ||
+    'poll' in message ||
+    'venue' in message
+  )
 }
 
 function shouldKeepPrompt(reason: string): boolean {
@@ -276,6 +325,81 @@ async function submitAnonymousFeedback(options: {
   }
 }
 
+async function relayAnonymousTopicMessage(options: {
+  ctx: Context
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  logger?: Logger | undefined
+}): Promise<boolean> {
+  const ctx = options.ctx
+  const telegramChatId = ctx.chat?.id?.toString()
+  const telegramMessageId = ctx.msg?.message_id
+  const telegramThreadId = currentTopicThreadId(ctx)
+
+  if (
+    !isGroupChat(ctx) ||
+    !telegramChatId ||
+    !telegramMessageId ||
+    !telegramThreadId ||
+    isCommandMessage(ctx) ||
+    isMessageFromBot(ctx) ||
+    !hasCopyableUserContent(ctx)
+  ) {
+    return false
+  }
+
+  const binding =
+    await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+      telegramChatId,
+      telegramThreadId
+    })
+
+  if (binding?.role !== 'feedback') {
+    return false
+  }
+
+  const numericChatId = Number(telegramChatId)
+  const targetChatId = Number.isSafeInteger(numericChatId) ? numericChatId : telegramChatId
+  const numericThreadId = Number(telegramThreadId)
+  const copyOptions = Number.isInteger(numericThreadId)
+    ? {
+        message_thread_id: numericThreadId
+      }
+    : {}
+
+  try {
+    await ctx.api.copyMessage(targetChatId, targetChatId, telegramMessageId, copyOptions)
+  } catch (error) {
+    options.logger?.error(
+      {
+        event: 'anonymous_feedback.topic_relay_copy_failed',
+        telegramChatId,
+        telegramThreadId,
+        telegramMessageId: telegramMessageId.toString(),
+        error: error instanceof Error ? error.message : error
+      },
+      'Anonymous topic message copy failed'
+    )
+    return true
+  }
+
+  try {
+    await ctx.api.deleteMessage(targetChatId, telegramMessageId)
+  } catch (error) {
+    options.logger?.error(
+      {
+        event: 'anonymous_feedback.topic_relay_delete_failed',
+        telegramChatId,
+        telegramThreadId,
+        telegramMessageId: telegramMessageId.toString(),
+        error: error instanceof Error ? error.message : error
+      },
+      'Anonymous topic message delete failed after copy'
+    )
+  }
+
+  return true
+}
+
 export function registerAnonymousFeedback(options: {
   bot: Bot
   anonymousFeedbackServiceForHousehold: (householdId: string) => AnonymousFeedbackService
@@ -339,6 +463,20 @@ export function registerAnonymousFeedback(options: {
       logger: options.logger,
       rawText
     })
+  })
+
+  options.bot.on('message', async (ctx, next) => {
+    if (
+      await relayAnonymousTopicMessage({
+        ctx,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        logger: options.logger
+      })
+    ) {
+      return
+    }
+
+    await next()
   })
 
   options.bot.on('message:text', async (ctx, next) => {

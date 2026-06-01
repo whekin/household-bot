@@ -50,6 +50,83 @@ function anonUpdate(params: {
   }
 }
 
+function anonymousTopicTextUpdate(params: {
+  updateId: number
+  chatId?: number
+  threadId?: number
+  text: string
+  fromBot?: boolean
+}) {
+  return {
+    update_id: params.updateId,
+    message: {
+      message_id: params.updateId,
+      date: Math.floor(Date.now() / 1000),
+      chat: {
+        id: params.chatId ?? -100222333,
+        type: 'supergroup',
+        title: 'Kojori House',
+        is_forum: true
+      },
+      from: {
+        id: params.fromBot ? 999000 : 123456,
+        is_bot: params.fromBot === true,
+        first_name: params.fromBot ? 'Household Test Bot' : 'Stan'
+      },
+      is_topic_message: true,
+      message_thread_id: params.threadId ?? 77,
+      text: params.text
+    }
+  }
+}
+
+function anonymousTopicPhotoUpdate(params: {
+  updateId: number
+  chatId?: number
+  threadId?: number
+  caption?: string
+}) {
+  return {
+    update_id: params.updateId,
+    message: {
+      message_id: params.updateId,
+      date: Math.floor(Date.now() / 1000),
+      chat: {
+        id: params.chatId ?? -100222333,
+        type: 'supergroup',
+        title: 'Kojori House',
+        is_forum: true
+      },
+      from: {
+        id: 123456,
+        is_bot: false,
+        first_name: 'Stan'
+      },
+      is_topic_message: true,
+      message_thread_id: params.threadId ?? 77,
+      photo: [
+        {
+          file_id: 'photo-small',
+          file_unique_id: 'photo-small-unique',
+          width: 90,
+          height: 90
+        },
+        {
+          file_id: 'photo-large',
+          file_unique_id: 'photo-large-unique',
+          width: 1280,
+          height: 960
+        }
+      ],
+      ...(params.caption
+        ? {
+            caption: params.caption
+          }
+        : {})
+    }
+  }
+}
+
 function createPromptRepository(): TelegramPendingActionRepository {
   const store = new Map<
     string,
@@ -484,6 +561,247 @@ describe('registerAnonymousFeedback', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
       text: 'Используйте /anon в личном чате с ботом.'
+    })
+  })
+
+  test('copies and deletes messages sent in the configured anonymous feedback topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    repository.findHouseholdTopicByTelegramContext = async (input) =>
+      input.telegramChatId === '-100222333' && input.telegramThreadId === '77'
+        ? {
+            householdId: 'household-1',
+            role: 'feedback',
+            telegramThreadId: '77',
+            topicName: 'Anonymous feedback'
+          }
+        : null
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: true,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result:
+          method === 'deleteMessage'
+            ? true
+            : {
+                message_id: calls.length,
+                date: Math.floor(Date.now() / 1000),
+                chat: {
+                  id: -100222333,
+                  type: 'supergroup'
+                },
+                text: 'ok'
+              }
+      } as never
+    })
+
+    const submit = mock(async () => ({
+      status: 'accepted' as const,
+      submissionId: 'submission-1',
+      sanitizedText: 'unused'
+    }))
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit,
+        markPosted: mock(async () => {}),
+        markFailed: mock(async () => {})
+      }),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(
+      anonymousTopicTextUpdate({
+        updateId: 2001,
+        text: 'Please talk anonymously here.'
+      }) as never
+    )
+
+    expect(submit).toHaveBeenCalledTimes(0)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.method).toBe('copyMessage')
+    expect(calls[0]?.payload).toMatchObject({
+      chat_id: -100222333,
+      from_chat_id: -100222333,
+      message_id: 2001,
+      message_thread_id: 77
+    })
+    expect(calls[1]?.method).toBe('deleteMessage')
+    expect(calls[1]?.payload).toMatchObject({
+      chat_id: -100222333,
+      message_id: 2001
+    })
+  })
+
+  test('copies and deletes photos sent in the configured anonymous feedback topic', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    repository.findHouseholdTopicByTelegramContext = async () => ({
+      householdId: 'household-1',
+      role: 'feedback',
+      telegramThreadId: '77',
+      topicName: 'Anonymous feedback'
+    })
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: true,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result:
+          method === 'deleteMessage'
+            ? true
+            : {
+                message_id: calls.length,
+                date: Math.floor(Date.now() / 1000),
+                chat: {
+                  id: -100222333,
+                  type: 'supergroup'
+                },
+                photo: []
+              }
+      } as never
+    })
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit: mock(async () => ({
+          status: 'accepted' as const,
+          submissionId: 'submission-1',
+          sanitizedText: 'unused'
+        })),
+        markPosted: mock(async () => {}),
+        markFailed: mock(async () => {})
+      }),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(
+      anonymousTopicPhotoUpdate({
+        updateId: 2002,
+        caption: 'Anonymous image'
+      }) as never
+    )
+
+    expect(calls.map((call) => call.method)).toEqual(['copyMessage', 'deleteMessage'])
+    expect(calls[0]?.payload).toMatchObject({
+      chat_id: -100222333,
+      from_chat_id: -100222333,
+      message_id: 2002,
+      message_thread_id: 77
+    })
+  })
+
+  test('passes non-feedback topic messages to later handlers', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    repository.findHouseholdTopicByTelegramContext = async () => ({
+      householdId: 'household-1',
+      role: 'chat',
+      telegramThreadId: '77',
+      topicName: 'Chat'
+    })
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: true,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100222333,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerAnonymousFeedback({
+      bot,
+      anonymousFeedbackServiceForHousehold: () => ({
+        submit: mock(async () => ({
+          status: 'accepted' as const,
+          submissionId: 'submission-1',
+          sanitizedText: 'unused'
+        })),
+        markPosted: mock(async () => {}),
+        markFailed: mock(async () => {})
+      }),
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+    bot.on('message', async (ctx) => {
+      await ctx.reply('downstream handler reached')
+    })
+
+    await bot.handleUpdate(
+      anonymousTopicTextUpdate({
+        updateId: 2003,
+        text: 'Normal chat message'
+      }) as never
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.method).toBe('sendMessage')
+    expect(calls[0]?.payload).toMatchObject({
+      text: 'downstream handler reached'
     })
   })
 
