@@ -1,6 +1,6 @@
 # Specs Guide
 
-Each implementation ticket should have one spec file in `docs/specs/`.
+Each larger implementation goal should have one spec file in `docs/specs/`.
 
 ## Naming
 
@@ -82,7 +82,7 @@ Short description of the feature and user value.
 - Tests for new behavior are included and passing.
 - Lint and typecheck pass in CI.
 - Docs/ADR updates included if behavior or architecture changed.
-- No TODOs without linked follow-up ticket.
+- No TODOs without a linked follow-up spec, OMX goal, or explicit user-approved follow-up.
 
 ## Boundary Rules (Hexagonal)
 

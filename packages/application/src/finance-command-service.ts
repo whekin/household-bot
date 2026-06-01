@@ -1289,8 +1289,8 @@ async function ensureUtilityBillingPlan(input: {
   }[]
   purchaseIds?: readonly string[]
 }): Promise<{
-  record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>>
-  computed: UtilityBillingPlanComputed
+  record: Awaited<ReturnType<FinanceRepository['saveUtilityBillingPlan']>> | null
+  computed: UtilityBillingPlanComputed | null
 }> {
   const adjustmentPolicy = resolvedPaymentBalanceAdjustmentPolicy(input.settings)
   const [existingPlans, vendorFacts] = await Promise.all([
@@ -1319,7 +1319,10 @@ async function ensureUtilityBillingPlan(input: {
   const validMatchedFacts = activePlan
     ? vendorFacts.filter((fact) => utilityFactMatchesPlan(fact, activePlan))
     : []
-  const isLocked = activePlan && (validMatchedFacts.length > 0 || activePlan.status === 'settled')
+  const activePlanHasCategories = (activePlan?.payload.categories.length ?? 0) > 0
+  const isLocked =
+    activePlan &&
+    (validMatchedFacts.length > 0 || (activePlan.status === 'settled' && activePlanHasCategories))
 
   // On-plan payments lock the plan; off-plan facts only rebalance draft plans.
   const offPlanFacts = vendorFacts.filter((fact) => !fact.matchedPlan)
@@ -1464,6 +1467,13 @@ async function ensureUtilityBillingPlan(input: {
         )
       }
     })
+  }
+
+  if (computed.categories.length === 0 && input.convertedUtilityBills.length === 0) {
+    return {
+      record: null,
+      computed: null
+    }
   }
 
   if (activePlan && isLocked) {
@@ -1708,11 +1718,14 @@ async function invalidateCurrentUtilityBillingPlan(repository: FinanceRepository
     return
   }
 
+  const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
   if (activePlan.status === 'settled') {
-    return
+    const hasCategories = activePlan.payload.categories.length > 0
+    if (hasCategories || vendorFacts.length > 0) {
+      return
+    }
   }
 
-  const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
   if (vendorFacts.some((fact) => utilityFactMatchesPlan(fact, activePlan))) {
     return
   }
@@ -2625,17 +2638,22 @@ async function buildFinanceDashboard(
     purchaseIds: [...currentCyclePurchaseIds],
     ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
   })
+  const currentUtilityPlanForDues =
+    ensuredUtilityPlan.computed &&
+    (ensuredUtilityPlan.computed.categories.length > 0 || convertedUtilityBills.length > 0)
+      ? ensuredUtilityPlan.computed
+      : null
   const overduePaymentsByMemberId = await computeMemberOverduePayments({
     dependencies,
     currentCycle: cycle,
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: ensuredUtilityPlan.computed,
+    currentUtilityPlan: currentUtilityPlanForDues,
     activeCarryoverCreditByMemberId
   })
   const currentPlanCarryForwardCreditByMemberId = new Map<string, bigint>()
-  if (ensuredUtilityPlan.record.status === 'settled') {
+  if (ensuredUtilityPlan.record?.status === 'settled' && ensuredUtilityPlan.computed) {
     for (const credit of ensuredUtilityPlan.computed.carryForwardCredits ?? []) {
       const signedCreditMinor = credit.creditCreated.amountMinor - credit.creditConsumed.amountMinor
       if (signedCreditMinor !== 0n) {
@@ -2686,7 +2704,7 @@ async function buildFinanceDashboard(
     members,
     memberPresenceDays,
     settings,
-    currentUtilityPlan: ensuredUtilityPlan.computed,
+    currentUtilityPlan: currentUtilityPlanForDues,
     activeCarryoverCreditByMemberId
   })
   const utilityPlanVersions = await dependencies.repository.listUtilityBillingPlansForCycle(
@@ -2695,12 +2713,15 @@ async function buildFinanceDashboard(
   const utilityPlanVersionById = new Map(
     utilityPlanVersions.map((plan) => [plan.id, plan.version] as const)
   )
-  const dashboardUtilityBillingPlan = buildDashboardUtilityBillingPlan({
-    planRecord: ensuredUtilityPlan.record,
-    computed: ensuredUtilityPlan.computed,
-    memberNameById,
-    priorVersionByPlanId: utilityPlanVersionById
-  })
+  const dashboardUtilityBillingPlan =
+    ensuredUtilityPlan.record && ensuredUtilityPlan.computed
+      ? buildDashboardUtilityBillingPlan({
+          planRecord: ensuredUtilityPlan.record,
+          computed: ensuredUtilityPlan.computed,
+          memberNameById,
+          priorVersionByPlanId: utilityPlanVersionById
+        })
+      : null
   const rentPaidByMemberId = new Map<string, Money>()
   for (const payment of paymentRecords.filter((payment) => payment.kind === 'rent')) {
     rentPaidByMemberId.set(

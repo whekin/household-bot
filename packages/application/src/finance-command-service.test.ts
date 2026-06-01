@@ -1003,6 +1003,41 @@ describe('createFinanceCommandService', () => {
     expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
   })
 
+  test('addUtilityBill invalidates an empty settled utility plan for the active cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    repository.openCycleRecord = {
+      id: 'cycle-current',
+      period: currentPeriod,
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-current',
+        version: 1,
+        status: 'settled',
+        dueDate: `${currentPeriod}-04`,
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    await service.addUtilityBill('Electricity', '55.20', 'member-1')
+
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
+  })
+
   test('generateStatement settles into cycle currency and persists snapshot', async () => {
     const repository = new FinanceRepositoryStub()
     repository.latestCycleRecord = {
@@ -4564,7 +4599,7 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.billingStage).toBe('utilities')
   })
 
-  test('generateDashboard keeps a settled utility plan frozen when newer utility bills were added', async () => {
+  test('generateDashboard replaces an empty settled utility plan when utility bills were added later', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -4647,10 +4682,129 @@ describe('createFinanceCommandService', () => {
       todayOverride: '2026-05-04'
     })
 
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual([
+      'superseded',
+      'active'
+    ])
+    expect(dashboard?.utilityBillingPlan?.version).toBe(2)
+    expect(dashboard?.utilityBillingPlan?.categories.length).toBeGreaterThan(0)
+    expect(dashboard?.billingStage).toBe('utilities')
+  })
+
+  test('generateDashboard does not materialize an empty utility plan before bills exist', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-06',
+      period: '2026-06',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-06', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-06', daysPresent: 30 }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-06', {
+      todayOverride: '2026-06-01'
+    })
+
+    expect(repository.utilityBillingPlans).toHaveLength(0)
+    expect(dashboard?.utilityBillingPlan).toBeNull()
+  })
+
+  test('generateDashboard ignores an existing empty settled utility plan before bills exist', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-06',
+      period: '2026-06',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = { amountMinor: 70000n, currency: 'USD' }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-06', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-06', daysPresent: 30 }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-06',
+        version: 1,
+        status: 'settled',
+        dueDate: '2026-06-05',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 0,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '0',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '0',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '0' },
+            { memberId: 'bob', amountMinor: '0' }
+          ]
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-06', {
+      todayOverride: '2026-06-01'
+    })
+
     expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['settled'])
-    expect(dashboard?.utilityBillingPlan?.version).toBe(1)
-    expect(dashboard?.utilityBillingPlan?.categories).toHaveLength(0)
-    expect(dashboard?.billingStage).toBe('idle')
+    expect(dashboard?.utilityBillingPlan).toBeNull()
   })
 
   test('resolveUtilityBillAsPlanned resolves purchases when policy is utilities', async () => {

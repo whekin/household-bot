@@ -54,15 +54,15 @@ Boundary rules:
 
 ## Workflow
 
-- Work from Linear tickets and linked specs in `docs/specs/`
-- Keep the corresponding Linear ticket in sync while working
-- One ticket at a time, small commits
-- Before implementation: re-check ticket/spec and assumptions
+- Work from OMX goals/plans and linked specs in `docs/specs/`
+- Keep the corresponding OMX state/plan/checkpoint in sync while working
+- One OMX goal or implementation thread at a time, small commits
+- Before implementation: re-check the active OMX goal/spec and assumptions
 - Do not commit without explicit user approval
 - Use pre-commit and pre-push hooks as the default validation path
 - Run manual checks selectively for targeted validation or when hooks do not cover the relevant risk
-- After push: add a Linear comment with branch/commit and validation status
-- After merge to `main`: move the Linear ticket to `Done` unless the user says otherwise
+- After push: record branch/commit and validation status in OMX state/notepad or the relevant PR
+- After merge to `main`: mark the OMX goal complete unless the user says otherwise
 - Treat removal of fresh legacy code and config as normal pre-1.0 cleanup, not as a risky exception
 - Run Codex review before merge (`codex review --base origin/main`)
 

@@ -541,6 +541,16 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     )
   }
 
+  if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
+    registerReminderTopicUtilities({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      financeServiceForHousehold,
+      logger: getLogger('reminder-utilities')
+    })
+  }
+
   if (
     householdConfigurationRepositoryClient &&
     telegramPendingActionRepositoryClient &&
@@ -711,13 +721,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   }
 
   if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
-    registerReminderTopicUtilities({
-      bot,
-      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-      promptRepository: telegramPendingActionRepositoryClient.repository,
-      financeServiceForHousehold,
-      logger: getLogger('reminder-utilities')
-    })
     registerPaymentReminderActions({
       bot,
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,

@@ -503,6 +503,109 @@ describe('registerAdHocNotifications', () => {
     })
   })
 
+  test('passes pending utility template submissions through without ad-hoc parsing', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const promptRepository = createPromptRepository()
+    let interpreterCalls = 0
+    let nextHandlerReached = false
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    await promptRepository.upsertPendingAction({
+      telegramChatId: '-10012345',
+      telegramUserId: '10002',
+      action: 'reminder_utility_entry',
+      payload: {
+        stage: 'template',
+        householdId: 'household-1',
+        threadId: '777',
+        period: '2026-06',
+        currency: 'GEL',
+        memberId: 'dima',
+        categories: ['Electricity']
+      },
+      expiresAt: null
+    })
+
+    registerAdHocNotifications({
+      bot,
+      householdConfigurationRepository: createHouseholdRepository() as never,
+      promptRepository,
+      notificationService: {
+        async scheduleNotification() {
+          throw new Error('not used')
+        },
+        async listUpcomingNotifications() {
+          return []
+        },
+        async cancelNotification() {
+          return { status: 'not_found' }
+        },
+        async updateNotification() {
+          return { status: 'not_found' }
+        },
+        async listDueNotifications() {
+          return []
+        },
+        async claimDueNotification() {
+          return false
+        },
+        async releaseDueNotification() {},
+        async markNotificationSent() {
+          return null
+        }
+      },
+      reminderInterpreter: {
+        async interpretRequest() {
+          interpreterCalls += 1
+          return {
+            decision: 'not_notification',
+            notificationText: null,
+            assigneeMemberId: null,
+            resolvedLocalDate: null,
+            resolvedHour: null,
+            resolvedMinute: null,
+            relativeOffsetMinutes: null,
+            dateReferenceMode: null,
+            resolutionMode: null,
+            clarificationQuestion: null,
+            confidence: 0,
+            parserMode: 'llm'
+          }
+        },
+        async interpretSchedule() {
+          throw new Error('not used')
+        },
+        async interpretDraftEdit() {
+          throw new Error('not used')
+        },
+        async renderDeliveryText() {
+          throw new Error('not used')
+        }
+      }
+    })
+    bot.use(async () => {
+      nextHandlerReached = true
+    })
+
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22') as never)
+
+    expect(interpreterCalls).toBe(0)
+    expect(nextHandlerReached).toBe(true)
+  })
+
   test('expands advanced controls inline', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

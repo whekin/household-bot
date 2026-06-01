@@ -134,6 +134,12 @@ bun run docker:smoke
 
 For a fuller setup walkthrough, see the [development setup runbook](docs/runbooks/dev-setup.md).
 
+## Development Workflow
+
+Day-to-day implementation is tracked with OMX goals/plans. Use repo specs in `docs/specs/` for
+durable feature context when a change needs a written contract, and keep OMX state/checkpoints
+current while working.
+
 ## Engineering Notes
 
 Some product choices here are intentional:

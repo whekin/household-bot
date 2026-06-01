@@ -18,6 +18,7 @@ import type {
   AdHocNotificationInterpreter,
   AdHocNotificationInterpreterMember
 } from './openai-ad-hoc-notification-interpreter'
+import { REMINDER_UTILITY_ACTION } from './reminder-topic-utilities'
 
 const AD_HOC_NOTIFICATION_ACTION = 'ad_hoc_notification' as const
 const AD_HOC_NOTIFICATION_ACTION_TTL_MS = 30 * 60_000
@@ -735,6 +736,22 @@ export function registerAdHocNotifications(options: {
       options.householdConfigurationRepository
     )
     if (!reminderContext) {
+      await next()
+      return
+    }
+
+    const telegramChatId = ctx.chat?.id.toString()
+    const telegramUserId = ctx.from?.id.toString()
+    if (!telegramChatId || !telegramUserId) {
+      await next()
+      return
+    }
+
+    const pendingAction = await options.promptRepository.getPendingAction(
+      telegramChatId,
+      telegramUserId
+    )
+    if (pendingAction?.action === REMINDER_UTILITY_ACTION) {
       await next()
       return
     }
