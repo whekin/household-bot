@@ -1451,25 +1451,34 @@ export function createFinanceCommandsService(options: {
 
             if (input.detailMode === 'compact') {
               if (entry.payNow.amountMinor === 0n) {
+                const isFullyPaid = Boolean(
+                  entry.summary && entry.summary.vendorPaid.amountMinor > 0n
+                )
+                const isCompactCoveredByBalance = isCoveredByBalance && !isFullyPaid
                 const isCoveredByCarryForward =
-                  !isCoveredByBalance &&
+                  !isCompactCoveredByBalance &&
+                  !isFullyPaid &&
                   entry.summary?.fairShare.amountMinor === 0n &&
                   entry.balance &&
                   entry.balance.utilityShare.amountMinor > 0n &&
                   (entry.balance.carryForwardCredit?.amountMinor ?? 0n) > 0n
-                const statusText = isCoveredByBalance
+                const statusText = isFullyPaid
                   ? input.locale === 'ru'
-                    ? 'Закрыто твоим плюсом'
-                    : 'Covered by your credit'
-                  : isCoveredByCarryForward
+                    ? 'Уже оплачено'
+                    : 'Already paid'
+                  : isCompactCoveredByBalance
                     ? input.locale === 'ru'
-                      ? 'Закрыто переносом'
-                      : 'Covered by carry-over credit'
-                    : input.locale === 'ru'
-                      ? 'Уже оплачено'
-                      : 'Already paid'
+                      ? 'Закрыто твоим плюсом'
+                      : 'Covered by your credit'
+                    : isCoveredByCarryForward
+                      ? input.locale === 'ru'
+                        ? 'Закрыто переносом'
+                        : 'Covered by carry-over credit'
+                      : input.locale === 'ru'
+                        ? 'Уже оплачено'
+                        : 'Already paid'
                 const remainingCreditLine =
-                  isCoveredByBalance && remainingBalance
+                  isCompactCoveredByBalance && remainingBalance
                     ? formatRemainingCreditLine({
                         locale: input.locale,
                         amount: remainingBalance,
@@ -1481,7 +1490,7 @@ export function createFinanceCommandsService(options: {
                   `👤 ${entry.displayName}`,
                   `  ✅ ${statusText}`,
                   ...(remainingCreditLine ? [`  • ${remainingCreditLine}`] : []),
-                  ...(!isCoveredByBalance && purchaseBalanceLine
+                  ...(!isCompactCoveredByBalance && purchaseBalanceLine
                     ? [`  • ${purchaseBalanceLine}`]
                     : []),
                   ...(carryForwardLine ? [`  • ${carryForwardLine}`] : [])
