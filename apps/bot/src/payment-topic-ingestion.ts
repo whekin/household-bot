@@ -784,7 +784,8 @@ async function resolveCurrentPayableMultiMemberAmounts(input: {
       kind: input.kind,
       period: input.period,
       memberLine,
-      settings
+      settings,
+      paymentKindSummary: kindSummary
     })
     if (guidance.proposalAmount.amountMinor > 0n) {
       amounts.set(member.memberId, guidance.proposalAmount)
@@ -945,6 +946,38 @@ async function isActorHouseholdAdmin(input: {
     .financeServiceForHousehold(input.householdId)
     .getMemberByTelegramUserId(input.actorTelegramUserId)
   return actor?.isAdmin === true
+}
+
+async function replyWithPaymentBalanceQuestionIfPossible(input: {
+  ctx: Context
+  locale: BotLocale
+  record: PaymentTopicRecord
+  rawText: string
+  financeService: FinanceCommandService
+  memberId: string
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  memoryStore?: AssistantConversationMemoryStore
+  historyRepository?: TopicMessageHistoryRepository
+}): Promise<boolean> {
+  const balanceReply = await maybeCreatePaymentBalanceReply({
+    rawText: input.rawText,
+    householdId: input.record.householdId,
+    memberId: input.memberId,
+    financeService: input.financeService,
+    householdConfigurationRepository: input.householdConfigurationRepository
+  })
+
+  if (!balanceReply) {
+    return false
+  }
+
+  const helperText = formatPaymentBalanceReplyText(input.locale, balanceReply)
+  await replyToPaymentMessage(input.ctx, helperText, undefined, {
+    repository: input.historyRepository,
+    record: input.record
+  })
+  appendConversation(input.memoryStore, input.record, input.record.rawText, helperText)
+  return true
 }
 
 async function handleSemanticPaymentCandidate(input: {
@@ -1884,6 +1917,31 @@ export function registerConfiguredPaymentTopicIngestion(
           }
 
           case 'dismiss_workflow': {
+            if (senderMember) {
+              const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
+                ctx,
+                locale,
+                record,
+                rawText: combinedText,
+                financeService,
+                memberId: senderMember.id,
+                householdConfigurationRepository,
+                ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
+                ...(options.historyRepository
+                  ? { historyRepository: options.historyRepository }
+                  : {})
+              })
+              if (handledQuestion) {
+                if (activeWorkflow !== null) {
+                  await promptRepository.clearPendingAction(
+                    record.chatId,
+                    record.senderTelegramUserId
+                  )
+                }
+                return
+              }
+            }
+
             if (activeWorkflow !== null) {
               await promptRepository.clearPendingAction(record.chatId, record.senderTelegramUserId)
             }
@@ -1912,29 +1970,44 @@ export function registerConfiguredPaymentTopicIngestion(
               return
             }
 
-            const balanceReply = await maybeCreatePaymentBalanceReply({
+            const handled = await replyWithPaymentBalanceQuestionIfPossible({
+              ctx,
+              locale,
+              record,
               rawText: combinedText,
-              householdId: record.householdId,
-              memberId: member.id,
               financeService,
-              householdConfigurationRepository
+              memberId: member.id,
+              householdConfigurationRepository,
+              ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
+              ...(options.historyRepository ? { historyRepository: options.historyRepository } : {})
             })
 
-            if (!balanceReply) {
+            if (!handled) {
               await next()
-              return
             }
-
-            const helperText = formatPaymentBalanceReplyText(locale, balanceReply)
-            await replyToPaymentMessage(ctx, helperText, undefined, {
-              repository: options.historyRepository,
-              record
-            })
-            appendConversation(options.memoryStore, record, record.rawText, helperText)
             return
           }
 
           case 'payment_clarification': {
+            if (senderMember) {
+              const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
+                ctx,
+                locale,
+                record,
+                rawText: combinedText,
+                financeService,
+                memberId: senderMember.id,
+                householdConfigurationRepository,
+                ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
+                ...(options.historyRepository
+                  ? { historyRepository: options.historyRepository }
+                  : {})
+              })
+              if (handledQuestion) {
+                return
+              }
+            }
+
             options.logger?.info(
               {
                 event: 'payment.topic_processor_clarification_silenced',
@@ -1959,6 +2032,21 @@ export function registerConfiguredPaymentTopicIngestion(
           case 'payment': {
             if (!senderMember) {
               await next()
+              return
+            }
+
+            const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
+              ctx,
+              locale,
+              record,
+              rawText: combinedText,
+              financeService,
+              memberId: senderMember.id,
+              householdConfigurationRepository,
+              ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
+              ...(options.historyRepository ? { historyRepository: options.historyRepository } : {})
+            })
+            if (handledQuestion) {
               return
             }
 

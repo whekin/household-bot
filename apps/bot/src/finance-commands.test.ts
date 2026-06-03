@@ -2563,6 +2563,107 @@ describe('createFinanceCommandsService', () => {
     )
   })
 
+  test('omits planned utility resolve button when the viewer has no unresolved plan amount', async () => {
+    const promptRepository = createPromptRepository()
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-04',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        utilityBillingPlan: {
+          id: 'utility-plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-04-04',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'utility-gas',
+              billName: 'Gas',
+              billTotal: Money.fromMajor('300', 'GEL'),
+              assignedAmount: Money.fromMajor('300', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Стас',
+              paidAmount: Money.fromMajor('300', 'GEL'),
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Стас',
+              fairShare: Money.fromMajor('300', 'GEL'),
+              vendorPaid: Money.fromMajor('300', 'GEL'),
+              assignedThisCycle: Money.zero('GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-04-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService,
+      promptRepository
+    }).register(bot)
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+
+    const payload = calls[0]?.payload as
+      | {
+          reply_markup?: {
+            inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>
+          }
+        }
+      | undefined
+    const buttons = payload?.reply_markup?.inline_keyboard?.flat() ?? []
+
+    expect(buttons.some((button) => button.callback_data === 'bill:resolve:current')).toBe(false)
+    expect(promptRepository.current()).toBeNull()
+  })
+
   test('does not handle removed /bill_all command', async () => {
     const repository = createRepository()
     const bot = createTelegramBot('000000:test-token', undefined, repository)

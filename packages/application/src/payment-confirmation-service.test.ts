@@ -520,4 +520,136 @@ describe('createPaymentConfirmationService', () => {
     })
     expect(repository.saved).toHaveLength(0)
   })
+
+  test('resolves implicit utilities confirmations against the active utility plan amount', async () => {
+    const repository = {
+      ...createRepositoryStub(),
+      async getOpenCycle() {
+        return {
+          id: 'cycle-2026-06',
+          period: '2026-06',
+          currency: 'GEL' as CurrencyCode
+        }
+      },
+      async getLatestCycle() {
+        return {
+          id: 'cycle-2026-06',
+          period: '2026-06',
+          currency: 'GEL' as CurrencyCode
+        }
+      }
+    }
+    const service = createPaymentConfirmationService({
+      householdId: 'household-1',
+      financeService: {
+        getMemberByTelegramUserId: async () => ({
+          id: 'member-dima',
+          telegramUserId: '123',
+          displayName: 'Дима',
+          rentShareWeight: 1,
+          isAdmin: false
+        }),
+        generateDashboard: async () => ({
+          period: '2026-06',
+          currency: 'GEL',
+          timezone: 'Asia/Tbilisi',
+          rentWarningDay: 17,
+          rentDueDay: 20,
+          utilitiesReminderDay: 3,
+          preferredUtilityPayerMemberId: null,
+          utilitiesDueDay: 5,
+          paymentBalanceAdjustmentPolicy: 'utilities',
+          rentPaymentDestinations: null,
+          totalDue: Money.fromMajor('600.00', 'GEL'),
+          totalPaid: Money.zero('GEL'),
+          totalRemaining: Money.fromMajor('600.00', 'GEL'),
+          billingStage: 'utilities',
+          rentSourceAmount: Money.fromMajor('700', 'USD'),
+          rentDisplayAmount: Money.fromMajor('1900', 'GEL'),
+          rentFxRateMicros: null,
+          rentFxEffectiveDate: null,
+          utilityBillingPlan: null,
+          rentBillingState: {
+            dueDate: '2026-06-20',
+            paymentDestinations: null,
+            memberSummaries: []
+          },
+          members: [
+            {
+              memberId: 'member-dima',
+              displayName: 'Дима',
+              rentShare: Money.fromMajor('469.00', 'GEL'),
+              utilityShare: Money.fromMajor('63.06', 'GEL'),
+              purchaseOffset: Money.fromMajor('3.00', 'GEL'),
+              netDue: Money.fromMajor('532.49', 'GEL'),
+              paid: Money.zero('GEL'),
+              remaining: Money.fromMajor('532.49', 'GEL'),
+              overduePayments: [],
+              explanations: []
+            }
+          ],
+          paymentPeriods: [
+            {
+              period: '2026-06',
+              utilityTotal: Money.fromMajor('252.23', 'GEL'),
+              hasOverdueBalance: false,
+              isCurrentPeriod: true,
+              kinds: [
+                {
+                  kind: 'utilities',
+                  totalDue: Money.fromMajor('66.44', 'GEL'),
+                  totalPaid: Money.zero('GEL'),
+                  totalRemaining: Money.fromMajor('66.44', 'GEL'),
+                  unresolvedMembers: [
+                    {
+                      memberId: 'member-dima',
+                      displayName: 'Дима',
+                      suggestedAmount: Money.fromMajor('66.44', 'GEL'),
+                      baseDue: Money.fromMajor('66.44', 'GEL'),
+                      paid: Money.zero('GEL'),
+                      remaining: Money.fromMajor('66.44', 'GEL'),
+                      effectivelySettled: false
+                    }
+                  ]
+                },
+                {
+                  kind: 'rent',
+                  totalDue: Money.zero('GEL'),
+                  totalPaid: Money.zero('GEL'),
+                  totalRemaining: Money.zero('GEL'),
+                  unresolvedMembers: []
+                }
+              ]
+            }
+          ],
+          ledger: []
+        })
+      },
+      repository,
+      householdConfigurationRepository: settingsRepository,
+      exchangeRateProvider
+    })
+
+    const result = await service.submit({
+      senderTelegramUserId: '123',
+      rawText: 'оплатил коммуналку',
+      telegramChatId: '-1001',
+      telegramMessageId: '15',
+      telegramThreadId: '4',
+      telegramUpdateId: '205',
+      attachmentCount: 0,
+      messageSentAt: instantFromIso('2026-06-03T18:00:00.000Z')
+    })
+
+    expect(result).toEqual({
+      status: 'recorded',
+      kind: 'utilities',
+      amount: Money.fromMajor('66.44', 'GEL')
+    })
+    expect(repository.saved[0]).toMatchObject({
+      status: 'recorded',
+      amountMinor: 6644n,
+      currency: 'GEL'
+    })
+  })
 })

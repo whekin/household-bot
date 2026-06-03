@@ -410,6 +410,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
       'Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
     breakdownBase: (kind, amount, currency) =>
       `${kind === 'rent' ? 'Аренда к оплате' : 'Коммуналка к оплате'}: ${formatUserFacingMoney(amount, currency)}`,
+    breakdownPlannedBase: (kind, amount, currency) =>
+      `${kind === 'rent' ? 'Аренда к оплате' : 'Сумма по плану коммуналки'}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownPurchaseBalance: (amount, currency) =>
       `Баланс по общим покупкам: ${formatUserFacingMoney(amount, currency)}`,
     breakdownSuggestedTotal: (amount, currency, policy) =>

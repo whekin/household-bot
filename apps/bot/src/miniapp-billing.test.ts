@@ -1304,6 +1304,7 @@ describe('utility billing action handlers', () => {
 
   test('close payment period supports admin all-members close', async () => {
     const repository = onboardingRepository()
+    const audit = createAuditNotificationServiceStub()
     const calls: Parameters<FinanceCommandService['closePaymentPeriod']>[0][] = []
     const financeService = {
       ...createFinanceServiceStub(),
@@ -1325,7 +1326,8 @@ describe('utility billing action handlers', () => {
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({ repository }),
       financeServiceForHousehold: () => financeService,
-      adHocNotificationService
+      adHocNotificationService,
+      auditNotificationService: audit.service
     })
 
     const response = await handler.handler(
@@ -1353,6 +1355,7 @@ describe('utility billing action handlers', () => {
         allMembers: true
       }
     ])
+    expect(audit.events).toEqual([])
   })
 
   test('resolve planned utility payment records the selected member action', async () => {

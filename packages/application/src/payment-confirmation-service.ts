@@ -101,6 +101,18 @@ async function convertIntoCycleCurrency(
   }
 }
 
+function currentKindSummary(input: {
+  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  period: string
+  kind: FinancePaymentKind
+}) {
+  return (
+    input.dashboard.paymentPeriods
+      ?.find((period) => period.period === input.period)
+      ?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
+  )
+}
+
 export interface PaymentConfirmationMessageInput {
   senderTelegramUserId: string
   memberId?: string | null
@@ -312,7 +324,12 @@ export function createPaymentConfirmationService(input: {
         kind: parsed.kind,
         period: cycle.period,
         memberLine,
-        settings
+        settings,
+        paymentKindSummary: currentKindSummary({
+          dashboard,
+          period: cycle.period,
+          kind: parsed.kind
+        })
       })
 
       const resolvedAmount = parsed.explicitAmount

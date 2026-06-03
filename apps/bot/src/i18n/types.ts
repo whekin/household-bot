@@ -368,6 +368,7 @@ export interface BotTranslationCatalog {
     alreadySettled: (kind: 'rent' | 'utilities', displayName?: string | null) => string
     purchaseRedirect: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    breakdownPlannedBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPurchaseBalance: (amount: string, currency: string) => string
     breakdownSuggestedTotal: (amount: string, currency: string, policy: string) => string
     breakdownRecordingAmount: (amount: string, currency: string) => string

@@ -1873,13 +1873,26 @@ export function createFinanceCommandsService(options: {
     }
 
     const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
+    const viewerUtilitySummary = input.viewerMemberId
+      ? plan.utilityBillingPlan?.memberSummaries.find(
+          (summary) => summary.memberId === input.viewerMemberId
+        )
+      : null
+    const viewerHasUnresolvedPlannedUtilities = input.viewerMemberId
+      ? viewerUtilitySummary
+        ? viewerUtilitySummary.assignedThisCycle.amountMinor > 0n
+        : (plan.utilityBillingPlan?.categories.some(
+            (category) =>
+              category.assignedMemberId === input.viewerMemberId &&
+              category.assignedAmount.amountMinor > category.paidAmount.amountMinor
+          ) ?? false)
+      : false
+
     if (
       (input.forcedMode ?? plan.billingStage) === 'utilities' &&
       plan.utilityBillingPlan &&
       input.viewerMemberId &&
-      plan.utilityBillingPlan.categories.some(
-        (category) => category.assignedMemberId === input.viewerMemberId
-      )
+      viewerHasUnresolvedPlannedUtilities
     ) {
       await storeBillPendingAction({
         ctx: input.ctx,
@@ -2951,14 +2964,64 @@ export function createFinanceCommandsService(options: {
           repository: options.householdConfigurationRepository,
           householdId
         })
+        const periodArg =
+          pendingAction?.payload.kind === 'resolve' &&
+          typeof pendingAction.payload.periodArg === 'string' &&
+          pendingAction.payload.periodArg.length > 0
+            ? pendingAction.payload.periodArg
+            : undefined
         const household =
           await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(householdId)
+        const beforePlan = await service.generateCurrentBillPlan(periodArg)
+        const beforeSummary = beforePlan?.utilityBillingPlan?.memberSummaries.find(
+          (summary) => summary.memberId === memberId
+        )
+        if (beforeSummary && beforeSummary.assignedThisCycle.amountMinor <= 0n) {
+          const [utilityCategories, billingSettings] = await Promise.all([
+            options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId),
+            options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
+          ])
+          await replyOrEditText({
+            ctx,
+            text: buildBillReply({
+              locale,
+              householdName: household?.householdName ?? householdId,
+              plan: beforePlan!,
+              utilityCategories: utilityCategories
+                .filter((category) => category.isActive)
+                .map((category) => ({
+                  name: category.name,
+                  providerName: category.providerName ?? null,
+                  customerNumber: category.customerNumber ?? null,
+                  paymentLink: category.paymentLink ?? null,
+                  note: category.note ?? null
+                })),
+              adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+              forcedMode: 'utilities',
+              viewerMemberId: actingMember.id,
+              detailMode: 'compact'
+            }),
+            options: {
+              reply_markup: {
+                inline_keyboard: [homeMenuRow(locale)]
+              }
+            },
+            editMessage: true
+          })
+          await ctx.answerCallbackQuery({
+            text:
+              locale === 'ru' ? 'Задолженность уже закрыта.' : 'This balance is already settled.'
+          })
+          return
+        }
+
         await service.resolveUtilityBillAsPlanned({
           memberId,
-          actorMemberId: actingMember.id
+          actorMemberId: actingMember.id,
+          ...(periodArg ? { periodArg } : {})
         })
         const [plan, utilityCategories, billingSettings] = await Promise.all([
-          service.generateCurrentBillPlan(),
+          service.generateCurrentBillPlan(periodArg),
           options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId),
           options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
         ])

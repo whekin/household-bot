@@ -12,8 +12,15 @@ import type {
 } from '@household/ports'
 
 import { getBotTranslations, type BotLocale } from './i18n'
+import { formatUserFacingMoney } from './i18n/money'
 
-const RENT_BALANCE_KEYWORDS = [/\b(rent|housing|apartment|landlord)\b/i, /аренд/i, /жиль[еёя]/i]
+const RENT_BALANCE_KEYWORDS = [
+  /\b(rent|housing|apartment|landlord)\b/i,
+  /аренд/i,
+  /жиль[еёя]/i,
+  /квартир/i,
+  /хозяин/i
+]
 const UTILITIES_BALANCE_KEYWORDS = [
   /\b(utilities|utility|gas|water|electricity|internet|cleaning)\b/i,
   /коммун/i,
@@ -22,15 +29,20 @@ const UTILITIES_BALANCE_KEYWORDS = [
   /элект/i,
   /свет/i,
   /интернет/i,
-  /уборк/i
+  /уборк/i,
+  /услуг/i,
+  /провайдер/i
 ]
 const BALANCE_QUESTION_KEYWORDS = [
   /\?/,
-  /\b(how much|owe|due|balance|remaining)\b/i,
+  /\b(how much|where|which|what|owe|due|balance|remaining)\b/i,
   /сколько/i,
   /долж/i,
   /баланс/i,
-  /остат/i
+  /остат/i,
+  /куда/i,
+  /какие/i,
+  /ч[её]/i
 ]
 const CYRILLIC_NAME_ALIASES: ReadonlyMap<string, readonly string[]> = new Map([
   ['alisa', ['алиса', 'алису']],
@@ -61,6 +73,7 @@ export interface PaymentProposalBreakdown {
 export interface PaymentBalanceReply {
   kind: 'rent' | 'utilities'
   guidance: MemberPaymentGuidance
+  categoryLines?: readonly string[]
 }
 
 export interface MultiMemberPaymentProposalMember {
@@ -306,7 +319,8 @@ function inferActivePaymentKind(input: {
             kind,
             period: dashboard.period,
             memberLine,
-            settings: input.settings
+            settings: input.settings,
+            paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
           }).proposalAmount.amountMinor > 0n
       )
     if (hasPayableMember) {
@@ -315,6 +329,18 @@ function inferActivePaymentKind(input: {
   }
 
   return payableKinds.length === 1 ? payableKinds[0]! : null
+}
+
+function currentKindSummary(input: {
+  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  period: string
+  kind: FinancePaymentKind
+}) {
+  return (
+    input.dashboard.paymentPeriods
+      ?.find((period) => period.period === input.period)
+      ?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
+  )
 }
 
 function findPaymentPeriodKindSummary(input: {
@@ -401,26 +427,39 @@ function formatDateLabel(locale: BotLocale, rawDate: string): string {
 function formatPaymentBreakdown(locale: BotLocale, breakdown: PaymentProposalBreakdown): string {
   const t = getBotTranslations(locale).payments
   const policyLabel = t.adjustmentPolicy(breakdown.guidance.adjustmentPolicy)
-  const lines = [
-    t.breakdownBase(
-      breakdown.guidance.kind,
-      breakdown.guidance.baseAmount.toMajorString(),
-      breakdown.guidance.baseAmount.currency
-    ),
-    t.breakdownPurchaseBalance(
-      breakdown.guidance.purchaseOffset.toMajorString(),
-      breakdown.guidance.purchaseOffset.currency
-    ),
-    t.breakdownSuggestedTotal(
-      breakdown.guidance.proposalAmount.toMajorString(),
-      breakdown.guidance.proposalAmount.currency,
-      policyLabel
-    ),
-    t.breakdownRemaining(
-      breakdown.guidance.totalRemaining.toMajorString(),
-      breakdown.guidance.totalRemaining.currency
-    )
-  ]
+  const lines =
+    breakdown.guidance.source === 'payment_period'
+      ? [
+          t.breakdownPlannedBase(
+            breakdown.guidance.kind,
+            breakdown.guidance.baseAmount.toMajorString(),
+            breakdown.guidance.baseAmount.currency
+          ),
+          t.breakdownRemaining(
+            breakdown.guidance.totalRemaining.toMajorString(),
+            breakdown.guidance.totalRemaining.currency
+          )
+        ]
+      : [
+          t.breakdownBase(
+            breakdown.guidance.kind,
+            breakdown.guidance.baseAmount.toMajorString(),
+            breakdown.guidance.baseAmount.currency
+          ),
+          t.breakdownPurchaseBalance(
+            breakdown.guidance.purchaseOffset.toMajorString(),
+            breakdown.guidance.purchaseOffset.currency
+          ),
+          t.breakdownSuggestedTotal(
+            breakdown.guidance.proposalAmount.toMajorString(),
+            breakdown.guidance.proposalAmount.currency,
+            policyLabel
+          ),
+          t.breakdownRemaining(
+            breakdown.guidance.totalRemaining.toMajorString(),
+            breakdown.guidance.totalRemaining.currency
+          )
+        ]
 
   if (
     breakdown.explicitAmount &&
@@ -457,6 +496,13 @@ function shouldUseCompactTopicProposal(input: {
 }): boolean {
   if (input.surface !== 'topic') {
     return false
+  }
+
+  if (input.breakdown.guidance.source === 'payment_period') {
+    return (
+      input.breakdown.explicitAmount === null ||
+      input.breakdown.explicitAmount.equals(input.breakdown.guidance.proposalAmount)
+    )
   }
 
   if (input.breakdown.guidance.kind !== 'rent') {
@@ -523,13 +569,24 @@ export function formatPaymentBalanceReplyText(
 ): string {
   const t = getBotTranslations(locale).payments
 
-  return [
+  const lines = [
     t.balanceReply(reply.kind),
     formatPaymentBreakdown(locale, {
       guidance: reply.guidance,
       explicitAmount: null
     })
-  ].join('\n\n')
+  ]
+
+  if (reply.categoryLines && reply.categoryLines.length > 0) {
+    lines.push(
+      [
+        locale === 'ru' ? 'По услугам:' : 'By service:',
+        ...reply.categoryLines.map((line) => `• ${line}`)
+      ].join('\n')
+    )
+  }
+
+  return lines.join('\n\n')
 }
 
 export async function maybeCreatePaymentProposal(input: {
@@ -631,7 +688,12 @@ export async function maybeCreatePaymentProposal(input: {
           kind: inferredKind,
           period: dashboard.period,
           memberLine: line,
-          settings
+          settings,
+          paymentKindSummary: currentKindSummary({
+            dashboard,
+            period: dashboard.period,
+            kind: inferredKind
+          })
         })
         const amount = parsed.explicitAmount ?? guidance.proposalAmount
         const unpaid = isMemberUnpaidForKind({
@@ -713,7 +775,8 @@ export async function maybeCreatePaymentProposal(input: {
     kind,
     period: dashboard.period,
     memberLine,
-    settings
+    settings,
+    paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
   })
   if (
     !isMemberUnpaidForKind({
@@ -851,7 +914,12 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
           kind: inferredKind,
           period: dashboard.period,
           memberLine: line,
-          settings
+          settings,
+          paymentKindSummary: currentKindSummary({
+            dashboard,
+            period: dashboard.period,
+            kind: inferredKind
+          })
         })
         const amount = explicitAmount ?? guidance.proposalAmount
         const unpaid = isMemberUnpaidForKind({
@@ -924,7 +992,8 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
     kind,
     period: dashboard.period,
     memberLine,
-    settings
+    settings,
+    paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
   })
 
   if (
@@ -993,14 +1062,33 @@ export async function maybeCreatePaymentBalanceReply(input: {
     return null
   }
 
+  const categoryLines =
+    kind === 'utilities'
+      ? (dashboard.utilityBillingPlan?.categories
+          .filter(
+            (category) =>
+              category.assignedMemberId === input.memberId &&
+              category.assignedAmount.amountMinor > 0n
+          )
+          .map(
+            (category) =>
+              `${category.billName}: ${formatUserFacingMoney(
+                category.assignedAmount.toMajorString(),
+                category.assignedAmount.currency
+              )}`
+          ) ?? [])
+      : []
+
   return {
     kind,
     guidance: buildMemberPaymentGuidance({
       kind,
       period: dashboard.period,
       memberLine,
-      settings
-    })
+      settings,
+      paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
+    }),
+    ...(categoryLines.length > 0 ? { categoryLines } : {})
   }
 }
 

@@ -406,6 +406,8 @@ export const enBotTranslations: BotTranslationCatalog = {
       'That looks like a shared purchase, but this thread is for payments. Toss it into the purchases topic and I will confirm it there.',
     breakdownBase: (kind, amount, currency) =>
       `${kind === 'rent' ? 'Rent due' : 'Utilities due'}: ${formatUserFacingMoney(amount, currency)}`,
+    breakdownPlannedBase: (kind, amount, currency) =>
+      `${kind === 'rent' ? 'Rent due' : 'Utilities plan amount'}: ${formatUserFacingMoney(amount, currency)}`,
     breakdownPurchaseBalance: (amount, currency) =>
       `Purchase balance: ${formatUserFacingMoney(amount, currency)}`,
     breakdownSuggestedTotal: (amount, currency, policy) =>

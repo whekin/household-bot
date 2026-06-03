@@ -4,7 +4,10 @@ import type {
   HouseholdPaymentBalanceAdjustmentPolicy
 } from '@household/ports'
 
-import type { FinanceDashboardMemberLine } from './finance-command-service'
+import type {
+  FinanceDashboardMemberLine,
+  FinanceDashboardPaymentKindSummary
+} from './finance-command-service'
 
 export interface MemberPaymentGuidance {
   kind: 'rent' | 'utilities'
@@ -13,6 +16,7 @@ export interface MemberPaymentGuidance {
   purchaseOffset: Money
   proposalAmount: Money
   totalRemaining: Money
+  source: 'settlement' | 'payment_period'
   reminderDate: string
   dueDate: string
   paymentWindowOpen: boolean
@@ -53,23 +57,37 @@ export function buildMemberPaymentGuidance(input: {
   period: string
   memberLine: FinanceDashboardMemberLine
   settings: HouseholdBillingSettingsRecord
+  paymentKindSummary?: FinanceDashboardPaymentKindSummary | null
   referenceInstant?: Temporal.Instant
 }): MemberPaymentGuidance {
   const policy = input.settings.paymentBalanceAdjustmentPolicy ?? 'utilities'
-  const baseAmount =
-    input.kind === 'rent' ? input.memberLine.rentShare : input.memberLine.utilityShare
-  const purchaseOffset = input.memberLine.purchaseOffset
+  const paymentPeriodMember =
+    input.paymentKindSummary?.kind === input.kind
+      ? (input.paymentKindSummary.unresolvedMembers.find(
+          (member) => member.memberId === input.memberLine.memberId
+        ) ?? null)
+      : null
+  const baseAmount = paymentPeriodMember
+    ? paymentPeriodMember.baseDue
+    : input.kind === 'rent'
+      ? input.memberLine.rentShare
+      : input.memberLine.utilityShare
+  const purchaseOffset = paymentPeriodMember
+    ? Money.zero(baseAmount.currency)
+    : input.memberLine.purchaseOffset
   const adjustedMinor = adjustmentApplies(policy, input.kind)
     ? baseAmount.amountMinor + purchaseOffset.amountMinor
     : baseAmount.amountMinor
-  const proposalAmount = Money.fromMinor(
-    input.kind === 'rent'
-      ? roundRentMinor(adjustedMinor > 0n ? adjustedMinor : 0n)
-      : adjustedMinor > 0n
-        ? adjustedMinor
-        : 0n,
-    baseAmount.currency
-  )
+  const proposalAmount = paymentPeriodMember
+    ? paymentPeriodMember.suggestedAmount
+    : Money.fromMinor(
+        input.kind === 'rent'
+          ? roundRentMinor(adjustedMinor > 0n ? adjustedMinor : 0n)
+          : adjustedMinor > 0n
+            ? adjustedMinor
+            : 0n,
+        baseAmount.currency
+      )
 
   const reminderDay =
     input.kind === 'rent' ? input.settings.rentWarningDay : input.settings.utilitiesReminderDay
@@ -86,7 +104,8 @@ export function buildMemberPaymentGuidance(input: {
     baseAmount,
     purchaseOffset,
     proposalAmount,
-    totalRemaining: input.memberLine.remaining,
+    totalRemaining: paymentPeriodMember?.remaining ?? input.memberLine.remaining,
+    source: paymentPeriodMember ? 'payment_period' : 'settlement',
     reminderDate: reminderDate.toString(),
     dueDate: dueDate.toString(),
     paymentWindowOpen: Temporal.PlainDate.compare(localDate, reminderDate) >= 0,

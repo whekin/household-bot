@@ -669,6 +669,290 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(`payment_topic:cancel:${proposalId ?? ''}`.length).toBeLessThanOrEqual(64)
   })
 
+  test('answers utility amount/location questions instead of opening a payment proposal', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    const paymentConfirmationService = createPaymentConfirmationService()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      generateDashboard: async () => ({
+        period: '2026-06',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        rentWarningDay: 17,
+        rentDueDay: 20,
+        utilitiesReminderDay: 3,
+        preferredUtilityPayerMemberId: null,
+        utilitiesDueDay: 4,
+        paymentBalanceAdjustmentPolicy: 'utilities',
+        rentPaymentDestinations: null,
+        totalDue: Money.fromMajor('600.00', 'GEL'),
+        totalPaid: Money.zero('GEL'),
+        totalRemaining: Money.fromMajor('600.00', 'GEL'),
+        billingStage: 'utilities',
+        rentSourceAmount: Money.fromMajor('700', 'USD'),
+        rentDisplayAmount: Money.fromMajor('1900', 'GEL'),
+        rentFxRateMicros: null,
+        rentFxEffectiveDate: null,
+        utilityBillingPlan: {
+          id: 'plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-06-04',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'gas',
+              billName: 'Gas (Water)',
+              billTotal: Money.fromMajor('165.66', 'GEL'),
+              assignedAmount: Money.fromMajor('21.54', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Mia',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'gas'
+            },
+            {
+              utilityBillId: 'electricity',
+              billName: 'Electricity',
+              billTotal: Money.fromMajor('49.07', 'GEL'),
+              assignedAmount: Money.fromMajor('35.52', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Mia',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'electricity'
+            },
+            {
+              utilityBillId: 'internet',
+              billName: 'Internet',
+              billTotal: Money.fromMajor('35.00', 'GEL'),
+              assignedAmount: Money.fromMajor('6.88', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Mia',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'internet'
+            },
+            {
+              utilityBillId: 'cleaning',
+              billName: 'Cleaning',
+              billTotal: Money.fromMajor('2.50', 'GEL'),
+              assignedAmount: Money.fromMajor('2.50', 'GEL'),
+              assignedMemberId: 'member-1',
+              assignedDisplayName: 'Mia',
+              paidAmount: Money.zero('GEL'),
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-1',
+              displayName: 'Mia',
+              fairShare: Money.fromMajor('63.06', 'GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.fromMajor('66.44', 'GEL'),
+              projectedDeltaAfterPlan: Money.fromMajor('9.38', 'GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-06-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        },
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Mia',
+            rentShare: Money.fromMajor('472.50', 'GEL'),
+            utilityShare: Money.fromMajor('63.06', 'GEL'),
+            purchaseOffset: Money.fromMajor('3.00', 'GEL'),
+            netDue: Money.fromMajor('532.49', 'GEL'),
+            paid: Money.zero('GEL'),
+            remaining: Money.fromMajor('532.49', 'GEL'),
+            overduePayments: [],
+            explanations: []
+          }
+        ],
+        paymentPeriods: [
+          {
+            period: '2026-06',
+            utilityTotal: Money.fromMajor('252.23', 'GEL'),
+            hasOverdueBalance: false,
+            isCurrentPeriod: true,
+            kinds: [
+              {
+                kind: 'utilities',
+                totalDue: Money.fromMajor('66.44', 'GEL'),
+                totalPaid: Money.zero('GEL'),
+                totalRemaining: Money.fromMajor('66.44', 'GEL'),
+                unresolvedMembers: [
+                  {
+                    memberId: 'member-1',
+                    displayName: 'Mia',
+                    suggestedAmount: Money.fromMajor('66.44', 'GEL'),
+                    baseDue: Money.fromMajor('66.44', 'GEL'),
+                    paid: Money.zero('GEL'),
+                    remaining: Money.fromMajor('66.44', 'GEL'),
+                    effectivelySettled: false
+                  }
+                ]
+              },
+              {
+                kind: 'rent',
+                totalDue: Money.zero('GEL'),
+                totalPaid: Money.zero('GEL'),
+                totalRemaining: Money.zero('GEL'),
+                unresolvedMembers: []
+              }
+            ]
+          }
+        ],
+        ledger: []
+      })
+    }
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => financeService,
+      () => paymentConfirmationService,
+      { topicProcessor: createMockPaymentTopicProcessor() }
+    )
+
+    await bot.handleUpdate(
+      paymentUpdate('@household_test_bot За какие услуги сколько скинуть?') as never
+    )
+
+    expect(paymentConfirmationService.submitted).toHaveLength(0)
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+    expect(calls).toHaveLength(1)
+    const payload = calls[0]?.payload as { text?: string; reply_markup?: unknown } | undefined
+    expect(payload?.text).toContain('Текущая сводка по коммуналке')
+    expect(payload?.text).toContain('Сумма по плану коммуналки: 66.44 ₾')
+    expect(payload?.text).toContain('По услугам:')
+    expect(payload?.text).toContain('Gas (Water): 21.54 ₾')
+    expect(payload?.text).toContain('Electricity: 35.52 ₾')
+    expect(payload?.reply_markup).toBeUndefined()
+  })
+
+  test('answers amount/location questions instead of cancelling an active payment workflow', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+
+    await promptRepository.upsertPendingAction({
+      telegramUserId: '10002',
+      telegramChatId: '-10012345',
+      action: 'payment_topic_confirmation',
+      payload: {
+        proposalId: 'proposal-1',
+        householdId: 'household-1',
+        memberId: 'member-1',
+        kind: 'rent',
+        amountMinor: '47250',
+        currency: 'GEL',
+        rawText: 'За жилье отправил',
+        senderTelegramUserId: '10002',
+        telegramChatId: '-10012345',
+        telegramMessageId: '55',
+        telegramThreadId: '888',
+        telegramUpdateId: '1001',
+        attachmentCount: 0,
+        messageSentAt: null
+      },
+      expiresAt: null
+    })
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -10012345,
+            type: 'supergroup'
+          },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => createPaymentConfirmationService(),
+      {
+        topicProcessor: async () => ({
+          route: 'dismiss_workflow',
+          replyText: 'Предложение оплаты отменено.',
+          reason: 'test'
+        })
+      }
+    )
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot чё куда за аренду кидать?') as never)
+
+    expect(calls).toHaveLength(1)
+    const payload = calls[0]?.payload as { text?: string } | undefined
+    expect(payload?.text).toContain('Текущая сводка по аренде')
+    expect(payload?.text).not.toContain('Предложение оплаты отменено')
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+  })
+
   test('does not let regex fallback override topic processor silence for a clear rent payment', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []

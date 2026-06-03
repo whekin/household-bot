@@ -2201,25 +2201,27 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
           )
         }
 
-        await recordMiniAppAuditEvent({
-          service: options.auditNotificationService,
-          logger: options.logger,
-          authMember: auth.member,
-          category: 'payment_events',
-          eventType: 'payment_period.closed',
-          summaryText: `${auth.member.displayName} closed ${payload.kind} for ${result.period}`,
-          metadata: {
-            period: result.period,
-            kind: result.kind,
-            closedMembers: result.closedMembers.map((member) => ({
-              memberId: member.memberId,
-              displayName: member.displayName,
-              amountMinor: member.amount.amountMinor.toString(),
-              currency: member.amount.currency
-            })),
-            skippedMembers: result.skippedMembers
-          }
-        })
+        if (result.closedMembers.length > 0) {
+          await recordMiniAppAuditEvent({
+            service: options.auditNotificationService,
+            logger: options.logger,
+            authMember: auth.member,
+            category: 'payment_events',
+            eventType: 'payment_period.closed',
+            summaryText: `${auth.member.displayName} closed ${payload.kind} for ${result.period}`,
+            metadata: {
+              period: result.period,
+              kind: result.kind,
+              closedMembers: result.closedMembers.map((member) => ({
+                memberId: member.memberId,
+                displayName: member.displayName,
+                amountMinor: member.amount.amountMinor.toString(),
+                currency: member.amount.currency
+              })),
+              skippedMembers: result.skippedMembers
+            }
+          })
+        }
 
         return miniAppJsonResponse(
           {
