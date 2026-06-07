@@ -101,6 +101,7 @@ import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
 import { createBotWebhookServer } from './server'
 import { createTopicProcessor } from './topic-processor'
+import { createTelegramTransport } from './runtime/telegram-transport'
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
@@ -137,6 +138,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const webhookHandler = webhookCallback(bot, 'std/http', {
     onTimeout: 'return'
   })
+  const telegramTransport = createTelegramTransport(bot)
   const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
   const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
   const paymentConfirmationServices = new Map<
@@ -252,27 +254,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           repository: auditNotificationRepositoryClient.repository,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           sendTopicMessage: async (input) => {
-            const threadId = input.threadId ? Number(input.threadId) : undefined
-            const message = await bot.api.sendMessage(input.chatId, input.text, {
-              ...(threadId && Number.isInteger(threadId)
-                ? {
-                    message_thread_id: threadId
-                  }
-                : {}),
-              ...(input.replyMarkup
-                ? {
-                    reply_markup: input.replyMarkup as never
-                  }
-                : {}),
-              ...(input.parseMode
-                ? {
-                    parse_mode: input.parseMode
-                  }
-                : {})
-            })
-            return {
-              telegramMessageId: String(message.message_id)
-            }
+            return telegramTransport.sendTopicMessage(input)
           },
           logger: getLogger('audit-notifications')
         })
@@ -372,33 +354,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     return service
   }
 
-  const sendTelegramTopicMessage = async (input: {
-    chatId: string
-    threadId: string | null
-    text: string
-    parseMode?: 'HTML'
-    replyMarkup?: unknown
-  }) => {
-    const threadId = input.threadId ? Number(input.threadId) : undefined
-    await bot.api.sendMessage(input.chatId, input.text, {
-      ...(threadId && Number.isInteger(threadId)
-        ? {
-            message_thread_id: threadId
-          }
-        : {}),
-      ...(input.parseMode
-        ? {
-            parse_mode: input.parseMode
-          }
-        : {}),
-      ...(input.replyMarkup
-        ? {
-            reply_markup: input.replyMarkup as never
-          }
-        : {})
-    })
-  }
-
   const paymentInstructionPublisher =
     householdConfigurationRepositoryClient && processedBotMessageRepositoryClient
       ? createPaymentInstructionPublisher({
@@ -406,7 +361,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           financeServiceForHousehold,
           processedBotMessageRepository: processedBotMessageRepositoryClient.repository,
           sendTopicMessage: async (input) => {
-            await sendTelegramTopicMessage(input)
+            await telegramTransport.sendTopicMessage(input)
           },
           ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
           ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
@@ -618,10 +573,10 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           adHocNotificationRepository: adHocNotificationRepositoryClient.repository,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           sendTopicMessage: async (input) => {
-            await sendTelegramTopicMessage(input)
+            await telegramTransport.sendTopicMessage(input)
           },
           sendDirectMessage: async (input) => {
-            await bot.api.sendMessage(input.telegramUserId, input.text)
+            await telegramTransport.sendDirectMessage(input)
           },
           financeServiceForHousehold,
           ...(paymentInstructionPublisher ? { paymentInstructionPublisher } : {}),
