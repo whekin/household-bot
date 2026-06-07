@@ -2,7 +2,6 @@ import { webhookCallback } from 'grammy'
 
 import {
   createAdHocNotificationService,
-  createAnonymousFeedbackService,
   createHouseholdAuditNotificationService,
   createHouseholdAdminService,
   createHouseholdOnboardingService,
@@ -10,7 +9,6 @@ import {
   createLocalePreferenceService,
   createMiniAppAdminService
 } from '@household/application'
-import { createDbAnonymousFeedbackRepository } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
 import { registerAdHocNotifications } from './ad-hoc-notifications'
@@ -85,6 +83,7 @@ import { createTelegramTransport } from './runtime/telegram-transport'
 import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
 import { createBotRepositoryClients } from './runtime/repositories'
 import { createScheduledDispatchRuntime } from './runtime/scheduled-dispatch-runtime'
+import { createAnonymousFeedbackServiceRegistry } from './runtime/anonymous-feedback-registry'
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
@@ -192,14 +191,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     getLogger('topic-processor')
   )
   const householdContextCache = new HouseholdContextCache()
-  const anonymousFeedbackRepositoryClients = new Map<
-    string,
-    ReturnType<typeof createDbAnonymousFeedbackRepository>
-  >()
-  const anonymousFeedbackServices = new Map<
-    string,
-    ReturnType<typeof createAnonymousFeedbackService>
-  >()
+  const anonymousFeedbackServiceRegistry = runtime.databaseUrl
+    ? createAnonymousFeedbackServiceRegistry({
+        databaseUrl: runtime.databaseUrl,
+        onClose: (task) => shutdownTasks.push(task)
+      })
+    : null
   const auditNotificationService =
     auditNotificationRepositoryClient && householdConfigurationRepositoryClient
       ? createHouseholdAuditNotificationService({
@@ -245,20 +242,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       )
     : null
 
-  function anonymousFeedbackServiceForHousehold(householdId: string) {
-    const existing = anonymousFeedbackServices.get(householdId)
-    if (existing) {
-      return existing
-    }
-
-    const repositoryClient = createDbAnonymousFeedbackRepository(runtime.databaseUrl!, householdId)
-    anonymousFeedbackRepositoryClients.set(householdId, repositoryClient)
-    shutdownTasks.push(repositoryClient.close)
-
-    const service = createAnonymousFeedbackService(repositoryClient.repository)
-    anonymousFeedbackServices.set(householdId, service)
-    return service
-  }
+  const anonymousFeedbackServiceForHousehold = (householdId: string) =>
+    anonymousFeedbackServiceRegistry!.serviceForHousehold(householdId)
 
   const paymentInstructionPublisher =
     householdConfigurationRepositoryClient && processedBotMessageRepositoryClient
