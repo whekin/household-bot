@@ -5,7 +5,7 @@ import type { FinanceDashboard } from '@household/application'
 import { getBotTranslations } from './i18n'
 import type { BotLocale } from './i18n'
 import {
-  buildPaymentReminderMessageContent,
+  buildScheduledPaymentReminderContent,
   type PaymentReminderDispatchKind
 } from './payment-reminder-content'
 import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
@@ -55,14 +55,13 @@ export function buildScheduledReminderMessageContent(input: {
         : input.reminderType === 'rent-warning'
           ? 'rent_warning'
           : 'rent_due'
-    return buildPaymentReminderMessageContent({
+    return buildScheduledPaymentReminderContent({
       locale: input.locale,
       kind: input.reminderType === 'utilities' ? 'utilities' : 'rent',
       dispatchKind,
       period: input.period,
       dashboard: input.dashboard,
       viewMode: 'compact',
-      includeUtilityEntryButtons: false,
       ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
       ...(input.botUsername ? { botUsername: input.botUsername } : {})
     })

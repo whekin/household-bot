@@ -3,7 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import type { FinanceDashboard } from '@household/application'
 import { Money } from '@household/domain'
 
-import { buildPaymentReminderMessageContent, formatBillingMonth } from './payment-reminder-content'
+import { buildBillingReminderPromptContent } from './billing-reminder-prompt-content'
+import { buildPaymentInstructionContent } from './payment-instruction-content'
+import { formatBillingMonth } from './payment-reminder-content'
 
 function dashboard(): FinanceDashboard {
   const gel = (minor: bigint) => Money.fromMinor(minor, 'GEL')
@@ -169,7 +171,7 @@ describe('payment reminder content', () => {
   })
 
   test('renders rent details with escaped member names and requisites', () => {
-    const content = buildPaymentReminderMessageContent({
+    const content = buildBillingReminderPromptContent({
       locale: 'en',
       kind: 'rent',
       dispatchKind: 'rent_due',
@@ -188,7 +190,7 @@ describe('payment reminder content', () => {
   })
 
   test('renders paid-state fallback text in Russian', () => {
-    const content = buildPaymentReminderMessageContent({
+    const content = buildBillingReminderPromptContent({
       locale: 'ru',
       kind: 'utilities',
       dispatchKind: 'utilities',
@@ -224,7 +226,7 @@ describe('payment reminder content', () => {
   })
 
   test('renders utility provider assignments and action buttons', () => {
-    const content = buildPaymentReminderMessageContent({
+    const content = buildBillingReminderPromptContent({
       locale: 'en',
       kind: 'utilities',
       dispatchKind: 'utilities',
@@ -239,7 +241,7 @@ describe('payment reminder content', () => {
   })
 
   test('renders utility entry controls for reminder-topic utility prompts by default', () => {
-    const content = buildPaymentReminderMessageContent({
+    const content = buildBillingReminderPromptContent({
       locale: 'en',
       kind: 'utilities',
       dispatchKind: 'utilities',
@@ -254,15 +256,13 @@ describe('payment reminder content', () => {
   })
 
   test('hides utility entry controls for payments-topic instruction refreshes', () => {
-    const content = buildPaymentReminderMessageContent({
+    const content = buildPaymentInstructionContent({
       locale: 'en',
       kind: 'utilities',
       dispatchKind: 'utilities',
       period: '2026-05',
       dashboard: dashboard(),
-      viewMode: 'details',
-      includeUtilityEntryButtons: false,
-      utilityAssignmentLimit: null
+      viewMode: 'details'
     })
 
     const markup = JSON.stringify(content.replyMarkup)

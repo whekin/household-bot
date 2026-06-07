@@ -451,7 +451,7 @@ describe('registerReminderTopicUtilities', () => {
   })
 
   test('parses the filled template and turns it into a confirmation proposal', async () => {
-    const { bot, calls } = setupBot()
+    const { bot, calls, promptRepository } = setupBot()
 
     await bot.handleUpdate(reminderCallbackUpdate(REMINDER_UTILITY_TEMPLATE_CALLBACK) as never)
 
@@ -465,7 +465,7 @@ describe('registerReminderTopicUtilities', () => {
     })
 
     calls.length = 0
-    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: 0') as never)
+    await bot.handleUpdate(reminderMessageUpdate('Electricity: 22\nWater: 12,5') as never)
 
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
@@ -473,6 +473,16 @@ describe('registerReminderTopicUtilities', () => {
         text: expect.stringContaining('- Electricity: 22.00 ₾')
       }
     })
+    expect(
+      (
+        promptRepository.current()?.payload as {
+          entries?: Array<{ billName: string; amountMajor: string }>
+        } | null
+      )?.entries
+    ).toEqual([
+      { billName: 'Electricity', amountMajor: '22.00' },
+      { billName: 'Water', amountMajor: '12.50' }
+    ])
   })
 
   test('uses the reminder callback period when saving template utility bills', async () => {

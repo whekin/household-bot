@@ -7,17 +7,19 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 import { resolveReminderTopicActorContext } from './reminder-topic-context'
+import { buildBillingReminderPromptContent } from './billing-reminder-prompt-content'
 import { getBotTranslations } from './i18n'
 import {
-  buildPaymentReminderMessageContent,
   formatBillingMonth,
   PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX,
   PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX,
   PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX,
   PAYMENT_REMINDER_PAID_CALLBACK_PREFIX,
+  type PaymentReminderMessageContent,
   type PaymentReminderKind,
   type PaymentReminderViewMode
 } from './payment-reminder-content'
+import { buildPaymentInstructionContent } from './payment-instruction-content'
 
 const PAYMENT_REMINDER_PAID_PATTERN = new RegExp(
   `^${PAYMENT_REMINDER_PAID_CALLBACK_PREFIX}(rent|utilities):(\\d{4}-\\d{2})$`
@@ -55,7 +57,7 @@ async function safeAnswerCallback(
 
 async function safeEditCallbackMessage(
   ctx: Context,
-  content: ReturnType<typeof buildPaymentReminderMessageContent>,
+  content: PaymentReminderMessageContent,
   logger?: Logger
 ): Promise<void> {
   try {
@@ -152,15 +154,17 @@ export function registerPaymentReminderActions(options: {
     action: NonNullable<Awaited<ReturnType<typeof resolveAction>>>,
     viewMode: PaymentReminderViewMode
   ) {
-    const content = buildPaymentReminderMessageContent({
+    const buildContent =
+      action.topicRole === 'payments'
+        ? buildPaymentInstructionContent
+        : buildBillingReminderPromptContent
+    const content = buildContent({
       locale: action.actorContext.locale,
       kind: action.kind,
       dispatchKind: action.kind === 'utilities' ? 'utilities' : 'rent_due',
       period: action.period,
       dashboard: action.dashboard,
       viewMode,
-      includeUtilityEntryButtons: action.topicRole !== 'payments',
-      ...(action.topicRole === 'payments' ? { utilityAssignmentLimit: null } : {}),
       ...(options.botUsername ? { botUsername: options.botUsername } : {}),
       ...(options.miniAppUrl ? { miniAppUrl: options.miniAppUrl } : {})
     })

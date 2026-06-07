@@ -33,8 +33,15 @@ export interface PaymentReminderContentInput {
   viewMode: PaymentReminderViewMode
   botUsername?: string
   miniAppUrl?: string
-  includeUtilityEntryButtons?: boolean
-  utilityAssignmentLimit?: number | null
+}
+
+export type PaymentReminderRenderSurface =
+  | 'billing-reminder-prompt'
+  | 'payment-instruction'
+  | 'scheduled-reminder'
+
+type PaymentReminderRenderInput = PaymentReminderContentInput & {
+  surface: PaymentReminderRenderSurface
 }
 
 function moneyText(amount: Money): string {
@@ -185,7 +192,7 @@ function totalRemainingText(summary: FinanceDashboardPaymentKindSummary | null):
   return summary ? moneyText(summary.totalRemaining) : '0.00'
 }
 
-function buildKeyboard(input: PaymentReminderContentInput): InlineKeyboardMarkup {
+function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup {
   const t = getBotTranslations(input.locale).reminders
   const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
   const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
@@ -233,7 +240,7 @@ function buildKeyboard(input: PaymentReminderContentInput): InlineKeyboardMarkup
   if (
     input.kind === 'utilities' &&
     input.viewMode !== 'confirm-close' &&
-    input.includeUtilityEntryButtons !== false
+    input.surface === 'billing-reminder-prompt'
   ) {
     rows.push(
       ...buildUtilitiesReminderReplyMarkup(input.locale, {
@@ -251,8 +258,14 @@ function buildKeyboard(input: PaymentReminderContentInput): InlineKeyboardMarkup
   return { inline_keyboard: rows }
 }
 
-export function buildPaymentReminderMessageContent(
-  input: PaymentReminderContentInput
+function utilityAssignmentLimitForSurface(
+  surface: PaymentReminderRenderSurface
+): number | null | undefined {
+  return surface === 'payment-instruction' ? null : undefined
+}
+
+export function buildPaymentReminderMessageContentForSurface(
+  input: PaymentReminderRenderInput
 ): PaymentReminderMessageContent {
   const t = getBotTranslations(input.locale).reminders
   const month = formatBillingMonth(input.locale, input.period)
@@ -311,7 +324,7 @@ export function buildPaymentReminderMessageContent(
         input.dashboard,
         input.locale,
         details,
-        input.utilityAssignmentLimit
+        utilityAssignmentLimitForSurface(input.surface)
       )
     )
   }
@@ -334,4 +347,13 @@ export function buildPaymentReminderMessageContent(
     parseMode: 'HTML',
     replyMarkup: buildKeyboard(input)
   }
+}
+
+export function buildScheduledPaymentReminderContent(
+  input: PaymentReminderContentInput
+): PaymentReminderMessageContent {
+  return buildPaymentReminderMessageContentForSurface({
+    ...input,
+    surface: 'scheduled-reminder'
+  })
 }

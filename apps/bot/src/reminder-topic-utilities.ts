@@ -116,17 +116,22 @@ function toReminderTopicCandidate(ctx: Context): ReminderTopicCandidate | null {
 }
 
 function normalizeDraftAmount(raw: string): string | null {
-  const match = raw.replace(',', '.').match(/\d+(?:\.\d{1,2})?/)
+  const match = raw.match(/-?\d+(?:[,.]\d{1,2})?/)
   if (!match) {
     return null
   }
 
-  const parsed = Number(match[0])
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  const normalized = match[0].replace(',', '.')
+  if (normalized.startsWith('-')) {
     return null
   }
 
-  return parsed.toFixed(2)
+  const [integerPart = '0', fractionalPart = ''] = normalized.split('.')
+  const integerMinor = BigInt(integerPart) * 100n
+  const fractionMinor = BigInt(fractionalPart.padEnd(2, '0'))
+  const amountMinor = integerMinor + fractionMinor
+
+  return `${amountMinor / 100n}.${(amountMinor % 100n).toString().padStart(2, '0')}`
 }
 
 function isSkipValue(raw: string): boolean {

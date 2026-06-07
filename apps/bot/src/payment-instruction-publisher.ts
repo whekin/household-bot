@@ -6,7 +6,7 @@ import type {
 } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
-import { buildPaymentReminderMessageContent } from './payment-reminder-content'
+import { buildPaymentInstructionContent } from './payment-instruction-content'
 
 export type PaymentInstructionKind = 'utilities' | 'rent'
 
@@ -109,15 +109,13 @@ export function createPaymentInstructionPublisher(options: {
       }
 
       try {
-        const content = buildPaymentReminderMessageContent({
+        const content = buildPaymentInstructionContent({
           locale: chat.defaultLocale,
           kind: input.kind,
           dispatchKind: input.kind === 'utilities' ? 'utilities' : 'rent_due',
           period: input.period,
           dashboard,
           viewMode: 'compact',
-          includeUtilityEntryButtons: false,
-          utilityAssignmentLimit: null,
           ...(options.botUsername ? { botUsername: options.botUsername } : {}),
           ...(options.miniAppUrl ? { miniAppUrl: options.miniAppUrl } : {})
         })
