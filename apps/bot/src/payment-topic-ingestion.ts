@@ -29,7 +29,11 @@ import {
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
 } from './payment-proposals'
-import { cacheTopicMessageRoute, type TopicMessageRouter } from './topic-message-router'
+import {
+  cacheTopicMessageRoute,
+  fallbackTopicMessageRoute,
+  type TopicMessageRouter
+} from './topic-message-router'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
@@ -154,6 +158,28 @@ function isReplyToBotMessage(ctx: Context): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
+}
+
+function cacheFallbackPaymentRoute(input: {
+  ctx: Context
+  locale: BotLocale
+  messageText: string
+  isExplicitMention: boolean
+  isReplyToBot: boolean
+  activeWorkflow: 'payment_clarification' | 'payment_confirmation' | null
+}): void {
+  cacheTopicMessageRoute(
+    input.ctx,
+    'payments',
+    fallbackTopicMessageRoute({
+      locale: input.locale,
+      topicRole: 'payments',
+      messageText: input.messageText,
+      isExplicitMention: input.isExplicitMention,
+      isReplyToBot: input.isReplyToBot,
+      activeWorkflow: input.activeWorkflow
+    })
+  )
 }
 
 function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
@@ -1846,22 +1872,17 @@ export function registerConfiguredPaymentTopicIngestion(
           'Topic processor finished'
         )
 
-        // Handle processor failure - only if explicitly mentioned
+        // Handle processor failure through deterministic fallback routing.
         if (!processorResult) {
-          if (conversationContext.explicitMention) {
-            const { botSleepsMessage } = await import('./topic-processor')
-            await replyToPaymentMessage(
-              ctx,
-              botSleepsMessage(locale === 'ru' ? 'ru' : 'en'),
-              undefined,
-              {
-                repository: options.historyRepository,
-                record
-              }
-            )
-          } else {
-            await next()
-          }
+          cacheFallbackPaymentRoute({
+            ctx,
+            locale,
+            messageText: combinedText,
+            isExplicitMention: conversationContext.explicitMention,
+            isReplyToBot: conversationContext.replyToBot,
+            activeWorkflow
+          })
+          await next()
           return
         }
 
@@ -1869,23 +1890,24 @@ export function registerConfiguredPaymentTopicIngestion(
         switch (processorResult.route) {
           case 'silent': {
             if (conversationContext.explicitMention) {
-              const { botSleepsMessage } = await import('./topic-processor')
-              const replyText = botSleepsMessage(locale === 'ru' ? 'ru' : 'en')
-
               options.logger?.info(
                 {
                   event: 'payment.topic_processor_explicit_fallback',
                   reason: processorResult.reason,
                   messageText: record.rawText
                 },
-                'Replying after topic processor stayed silent on an explicit mention'
+                'Using fallback route after topic processor stayed silent on an explicit mention'
               )
 
-              await replyToPaymentMessage(ctx, replyText, undefined, {
-                repository: options.historyRepository,
-                record
+              cacheFallbackPaymentRoute({
+                ctx,
+                locale,
+                messageText: combinedText,
+                isExplicitMention: conversationContext.explicitMention,
+                isReplyToBot: conversationContext.replyToBot,
+                activeWorkflow
               })
-              appendConversation(options.memoryStore, record, record.rawText, replyText)
+              await next()
               return
             }
 
@@ -2135,21 +2157,16 @@ export function registerConfiguredPaymentTopicIngestion(
         }
       }
 
-      // No topic processor available
-      if (stripExplicitBotMention(ctx) !== null) {
-        const { botSleepsMessage } = await import('./topic-processor')
-        await replyToPaymentMessage(
-          ctx,
-          botSleepsMessage(locale === 'ru' ? 'ru' : 'en'),
-          undefined,
-          {
-            repository: options.historyRepository,
-            record
-          }
-        )
-      } else {
-        await next()
-      }
+      // No topic processor available; hand off through deterministic fallback routing.
+      cacheFallbackPaymentRoute({
+        ctx,
+        locale,
+        messageText: combinedText,
+        isExplicitMention: stripExplicitBotMention(ctx) !== null,
+        isReplyToBot: isReplyToBotMessage(ctx),
+        activeWorkflow
+      })
+      await next()
     } catch (error) {
       options.logger?.error(
         {

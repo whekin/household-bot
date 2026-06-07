@@ -26,6 +26,7 @@ import type {
 } from './openai-purchase-interpreter'
 import {
   cacheTopicMessageRoute,
+  fallbackTopicMessageRoute,
   getCachedTopicMessageRoute,
   type TopicMessageRouter,
   type TopicMessageRoutingResult
@@ -331,6 +332,28 @@ function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
+}
+
+function cacheFallbackPurchaseRoute(input: {
+  ctx: Context
+  locale: BotLocale
+  messageText: string
+  isExplicitMention: boolean
+  isReplyToBot: boolean
+  activeWorkflow: 'purchase_clarification' | null
+}): void {
+  cacheTopicMessageRoute(
+    input.ctx,
+    'purchase',
+    fallbackTopicMessageRoute({
+      locale: input.locale,
+      topicRole: 'purchase',
+      messageText: input.messageText,
+      isExplicitMention: input.isExplicitMention,
+      isReplyToBot: input.isReplyToBot,
+      activeWorkflow: input.activeWorkflow
+    })
+  )
 }
 
 export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
@@ -3255,22 +3278,17 @@ export function registerConfiguredPurchaseTopicIngestion(
           'Topic processor finished'
         )
 
-        // Handle processor failure - fun "bot sleeps" message only if explicitly mentioned
+        // Handle processor failure through deterministic fallback routing.
         if (!processorResult) {
-          if (conversationContext.explicitMention) {
-            const { botSleepsMessage } = await import('./topic-processor')
-            await replyToPurchaseMessage(
-              ctx,
-              botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
-              undefined,
-              {
-                repository: options.historyRepository,
-                record
-              }
-            )
-          } else {
-            await next()
-          }
+          cacheFallbackPurchaseRoute({
+            ctx,
+            locale: householdContext.locale,
+            messageText: record.rawText,
+            isExplicitMention: conversationContext.explicitMention,
+            isReplyToBot: conversationContext.replyToBot,
+            activeWorkflow
+          })
+          await next()
           return
         }
 
@@ -3432,21 +3450,16 @@ export function registerConfiguredPurchaseTopicIngestion(
         }
       }
 
-      // No topic processor available
-      if (conversationContext.explicitMention) {
-        const { botSleepsMessage } = await import('./topic-processor')
-        await replyToPurchaseMessage(
-          ctx,
-          botSleepsMessage(householdContext.locale === 'ru' ? 'ru' : 'en'),
-          undefined,
-          {
-            repository: options.historyRepository,
-            record
-          }
-        )
-      } else {
-        await next()
-      }
+      // No topic processor available; hand off through deterministic fallback routing.
+      cacheFallbackPurchaseRoute({
+        ctx,
+        locale: householdContext.locale,
+        messageText: record.rawText,
+        isExplicitMention: conversationContext.explicitMention,
+        isReplyToBot: conversationContext.replyToBot,
+        activeWorkflow
+      })
+      await next()
     } catch (error) {
       options.logger?.error(
         {

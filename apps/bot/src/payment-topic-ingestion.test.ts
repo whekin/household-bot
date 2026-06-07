@@ -14,6 +14,7 @@ import {
   resolveConfiguredPaymentTopicRecord,
   type PaymentTopicCandidate
 } from './payment-topic-ingestion'
+import { getCachedTopicMessageRoute } from './topic-message-router'
 import type { TopicProcessor } from './topic-processor'
 
 function candidate(overrides: Partial<PaymentTopicCandidate> = {}): PaymentTopicCandidate {
@@ -3198,11 +3199,12 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
     expect(paymentConfirmationService.submitted).toHaveLength(0)
   })
 
-  test('replies when explicitly mentioned even if the topic processor stays silent', async () => {
+  test('hands explicit processor silence to deterministic fallback without sleep replies', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
     const promptRepository = createPromptRepository()
     const paymentConfirmationService = createPaymentConfirmationService()
+    let downstreamRoute: ReturnType<typeof getCachedTopicMessageRoute> | null = null
 
     bot.botInfo = {
       id: 999000,
@@ -3243,21 +3245,69 @@ describe('registerConfiguredPaymentTopicIngestion', () => {
       () => paymentConfirmationService,
       { topicProcessor: createMockPaymentTopicProcessor('silent') }
     )
+    bot.on('message', (ctx) => {
+      downstreamRoute = getCachedTopicMessageRoute(ctx, 'payments')
+    })
 
     await bot.handleUpdate(paymentUpdate('@household_test_bot Значит игнор') as never)
 
     expect(paymentConfirmationService.submitted).toHaveLength(0)
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -10012345,
-        reply_parameters: {
-          message_id: 55
-        }
-      }
+    expect(calls).toHaveLength(0)
+    expect(downstreamRoute).toMatchObject({
+      route: 'topic_helper',
+      helperKind: 'assistant',
+      reason: 'addressed_finance_topic'
     })
-    expect(calls[0]?.payload).toHaveProperty('text')
+  })
+
+  test('hands explicit mentions to deterministic fallback when the topic processor is absent', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const promptRepository = createPromptRepository()
+    let downstreamRoute: ReturnType<typeof getCachedTopicMessageRoute> | null = null
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: true
+      } as never
+    })
+
+    registerConfiguredPaymentTopicIngestion(
+      bot,
+      createHouseholdRepository() as never,
+      promptRepository,
+      () => createFinanceService(),
+      () => createPaymentConfirmationService()
+    )
+    bot.on('message', (ctx) => {
+      downstreamRoute = getCachedTopicMessageRoute(ctx, 'payments')
+    })
+
+    await bot.handleUpdate(paymentUpdate('@household_test_bot куда платить?') as never)
+
+    expect(calls).toHaveLength(0)
+    expect(await promptRepository.getPendingAction('-10012345', '10002')).toBeNull()
+    expect(downstreamRoute).toMatchObject({
+      route: 'topic_helper',
+      helperKind: 'assistant',
+      reason: 'addressed_finance_topic'
+    })
   })
 
   test('does not ingest slash commands sent in the payments topic', async () => {

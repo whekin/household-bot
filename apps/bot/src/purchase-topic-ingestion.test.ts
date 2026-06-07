@@ -24,6 +24,7 @@ import {
   type PurchaseTopicCandidate
 } from './purchase-topic-ingestion'
 import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
+import { getCachedTopicMessageRoute } from './topic-message-router'
 
 const config = {
   householdId: '11111111-1111-4111-8111-111111111111',
@@ -3411,11 +3412,12 @@ Confirm or cancel below.`,
     expect(calls).toHaveLength(0)
   })
 
-  test('fails closed when the topic processor is unavailable for fresh purchase-looking messages', async () => {
+  test('hands explicit processor failures to deterministic fallback without sleep replies', async () => {
     const bot = createTestBot()
     const calls: Array<{ method: string; payload: unknown }> = []
     let saveCalls = 0
     let saveWithInterpretationCalls = 0
+    let downstreamRoute: ReturnType<typeof getCachedTopicMessageRoute> | null = null
 
     bot.api.config.use(async (_prev, method, payload) => {
       calls.push({ method, payload })
@@ -3510,22 +3512,28 @@ Confirm or cancel below.`,
         topicProcessor: async () => null
       }
     )
+    bot.on('message', (ctx) => {
+      downstreamRoute = getCachedTopicMessageRoute(ctx, 'purchase')
+    })
 
     await bot.handleUpdate(purchaseUpdate('Дима купил швабру за 39 лари') as never)
+    expect(downstreamRoute).toMatchObject({
+      route: 'silent',
+      reason: 'quiet_purchase_topic'
+    })
+    downstreamRoute = null
+
     await bot.handleUpdate(
       purchaseUpdate('@household_test_bot Дима купил швабру за 39 лари') as never
     )
 
     expect(saveCalls).toBe(0)
     expect(saveWithInterpretationCalls).toBe(0)
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        reply_parameters: {
-          message_id: 55
-        }
-      }
+    expect(calls).toHaveLength(0)
+    expect(downstreamRoute).toMatchObject({
+      route: 'topic_helper',
+      helperKind: 'assistant',
+      reason: 'addressed_finance_topic'
     })
   })
 
