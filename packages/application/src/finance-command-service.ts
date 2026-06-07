@@ -3356,6 +3356,12 @@ export interface FinanceCommandService {
       todayOverride?: string
     }
   ): Promise<FinanceDashboard | null>
+  ensureDashboardMaterialized(
+    periodArg?: string,
+    options?: {
+      todayOverride?: string
+    }
+  ): Promise<FinanceDashboard | null>
   generateBillingAuditExport(periodArg?: string): Promise<FinanceBillingAuditExport | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -3391,6 +3397,25 @@ export function createFinanceCommandService(
     }
 
     return cycle
+  }
+
+  function materializeDashboard(
+    periodArg?: string,
+    options?: {
+      todayOverride?: string
+    }
+  ): Promise<FinanceDashboard | null> {
+    return periodArg
+      ? buildFinanceDashboard(dependencies, periodArg, {
+          skipPlanRebalance: true,
+          ...options
+        })
+      : ensureExpectedCycle().then(() =>
+          buildFinanceDashboard(dependencies, undefined, {
+            skipPlanRebalance: true,
+            ...options
+          })
+        )
   }
 
   async function resolvePlannedUtilitiesForMember(input: {
@@ -4993,17 +5018,11 @@ export function createFinanceCommandService(
     },
 
     generateDashboard(periodArg, options) {
-      return periodArg
-        ? buildFinanceDashboard(dependencies, periodArg, {
-            skipPlanRebalance: true,
-            ...options
-          })
-        : ensureExpectedCycle().then(() =>
-            buildFinanceDashboard(dependencies, undefined, {
-              skipPlanRebalance: true,
-              ...options
-            })
-          )
+      return materializeDashboard(periodArg, options)
+    },
+
+    ensureDashboardMaterialized(periodArg, options) {
+      return materializeDashboard(periodArg, options)
     },
 
     async manuallyResolvePurchase(input) {

@@ -1240,6 +1240,38 @@ describe('createFinanceCommandService', () => {
     expect(dashboard?.period).toBe('2026-03')
   })
 
+  test('ensureDashboardMaterialized preserves generateDashboard behavior', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'stas',
+        telegramUserId: '100',
+        displayName: 'Stas',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
+
+    const service = createService(repository)
+    const generated = await service.generateDashboard('2026-03')
+    const materialized = await service.ensureDashboardMaterialized('2026-03')
+
+    expect(materialized?.period).toBe(generated?.period)
+    expect(materialized?.currency).toBe(generated?.currency)
+    expect(materialized?.members.map((member) => member.memberId)).toEqual(
+      generated?.members.map((member) => member.memberId)
+    )
+  })
+
   test('generateDashboard marks current-cycle purchases separately from unresolved carryover', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

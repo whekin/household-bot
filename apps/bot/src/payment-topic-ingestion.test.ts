@@ -297,6 +297,7 @@ function createFinanceService(): FinanceCommandService {
       ],
       ledger: []
     }),
+    ensureDashboardMaterialized: async () => null,
     generateBillingAuditExport: async () => null,
     generateStatement: async () => null,
     manuallyResolvePurchase: async () => ({

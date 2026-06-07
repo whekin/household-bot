@@ -509,6 +509,7 @@ function createFinanceService(): FinanceCommandService {
     recordUtilityReimbursement: async () => null,
     rebalanceUtilityPlan: async () => null,
     generateDashboard: async () => createDashboard(),
+    ensureDashboardMaterialized: async () => null,
     generateBillingAuditExport: async () => null,
     generateStatement: async () => null,
     manuallyResolvePurchase: async () => ({
