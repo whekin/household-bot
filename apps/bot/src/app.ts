@@ -84,10 +84,8 @@ import {
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
-import {
-  createPurchaseMessageRepository,
-  registerConfiguredPurchaseTopicIngestion
-} from './purchase-topic-ingestion'
+import { registerConfiguredPurchaseTopicIngestion } from './purchase-topic-ingestion'
+import { createPurchaseMessageRepository } from './adapters/purchase-message-repository'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
 import { createPaymentInstructionPublisher } from './payment-instruction-publisher'

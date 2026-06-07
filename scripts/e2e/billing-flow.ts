@@ -13,10 +13,8 @@ import type { ExchangeRateProvider } from '@household/ports'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
 import { createFinanceCommandsService } from '../../apps/bot/src/finance-commands'
-import {
-  createPurchaseMessageRepository,
-  registerPurchaseTopicIngestion
-} from '../../apps/bot/src/purchase-topic-ingestion'
+import { registerPurchaseTopicIngestion } from '../../apps/bot/src/purchase-topic-ingestion'
+import { createPurchaseMessageRepository } from '../../apps/bot/src/adapters/purchase-message-repository'
 
 const chatId = '-100123456'
 const purchaseTopicId = 77
