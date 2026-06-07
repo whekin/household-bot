@@ -26,11 +26,11 @@ import type {
 } from './openai-purchase-interpreter'
 import {
   cacheTopicMessageRoute,
-  fallbackTopicMessageRoute,
   getCachedTopicMessageRoute,
   type TopicMessageRouter,
   type TopicMessageRoutingResult
 } from './topic-message-router'
+import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
 import { asOptionalBigInt } from './topic-processor'
 import {
   persistTopicHistoryMessage,
@@ -332,28 +332,6 @@ function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
-}
-
-function cacheFallbackPurchaseRoute(input: {
-  ctx: Context
-  locale: BotLocale
-  messageText: string
-  isExplicitMention: boolean
-  isReplyToBot: boolean
-  activeWorkflow: 'purchase_clarification' | null
-}): void {
-  cacheTopicMessageRoute(
-    input.ctx,
-    'purchase',
-    fallbackTopicMessageRoute({
-      locale: input.locale,
-      topicRole: 'purchase',
-      messageText: input.messageText,
-      isExplicitMention: input.isExplicitMention,
-      isReplyToBot: input.isReplyToBot,
-      activeWorkflow: input.activeWorkflow
-    })
-  )
 }
 
 export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
@@ -3280,7 +3258,8 @@ export function registerConfiguredPurchaseTopicIngestion(
 
         // Handle processor failure through deterministic fallback routing.
         if (!processorResult) {
-          cacheFallbackPurchaseRoute({
+          cacheConfiguredTopicFallbackRoute({
+            topicRole: 'purchase',
             ctx,
             locale: householdContext.locale,
             messageText: record.rawText,
@@ -3451,7 +3430,8 @@ export function registerConfiguredPurchaseTopicIngestion(
       }
 
       // No topic processor available; hand off through deterministic fallback routing.
-      cacheFallbackPurchaseRoute({
+      cacheConfiguredTopicFallbackRoute({
+        topicRole: 'purchase',
         ctx,
         locale: householdContext.locale,
         messageText: record.rawText,

@@ -29,11 +29,8 @@ import {
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
 } from './payment-proposals'
-import {
-  cacheTopicMessageRoute,
-  fallbackTopicMessageRoute,
-  type TopicMessageRouter
-} from './topic-message-router'
+import { cacheTopicMessageRoute, type TopicMessageRouter } from './topic-message-router'
+import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
@@ -158,28 +155,6 @@ function isReplyToBotMessage(ctx: Context): boolean {
   }
 
   return replyAuthor.id === ctx.me.id
-}
-
-function cacheFallbackPaymentRoute(input: {
-  ctx: Context
-  locale: BotLocale
-  messageText: string
-  isExplicitMention: boolean
-  isReplyToBot: boolean
-  activeWorkflow: 'payment_clarification' | 'payment_confirmation' | null
-}): void {
-  cacheTopicMessageRoute(
-    input.ctx,
-    'payments',
-    fallbackTopicMessageRoute({
-      locale: input.locale,
-      topicRole: 'payments',
-      messageText: input.messageText,
-      isExplicitMention: input.isExplicitMention,
-      isReplyToBot: input.isReplyToBot,
-      activeWorkflow: input.activeWorkflow
-    })
-  )
 }
 
 function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
@@ -1874,7 +1849,8 @@ export function registerConfiguredPaymentTopicIngestion(
 
         // Handle processor failure through deterministic fallback routing.
         if (!processorResult) {
-          cacheFallbackPaymentRoute({
+          cacheConfiguredTopicFallbackRoute({
+            topicRole: 'payments',
             ctx,
             locale,
             messageText: combinedText,
@@ -1899,7 +1875,8 @@ export function registerConfiguredPaymentTopicIngestion(
                 'Using fallback route after topic processor stayed silent on an explicit mention'
               )
 
-              cacheFallbackPaymentRoute({
+              cacheConfiguredTopicFallbackRoute({
+                topicRole: 'payments',
                 ctx,
                 locale,
                 messageText: combinedText,
@@ -2158,7 +2135,8 @@ export function registerConfiguredPaymentTopicIngestion(
       }
 
       // No topic processor available; hand off through deterministic fallback routing.
-      cacheFallbackPaymentRoute({
+      cacheConfiguredTopicFallbackRoute({
+        topicRole: 'payments',
         ctx,
         locale,
         messageText: combinedText,
