@@ -237,4 +237,37 @@ describe('payment reminder content', () => {
     expect(content.text).toContain('Gas &lt;main&gt;')
     expect(JSON.stringify(content.replyMarkup)).toContain('pr:p:utilities:2026-05')
   })
+
+  test('renders utility entry controls for reminder-topic utility prompts by default', () => {
+    const content = buildPaymentReminderMessageContent({
+      locale: 'en',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: dashboard(),
+      viewMode: 'compact'
+    })
+
+    const markup = JSON.stringify(content.replyMarkup)
+    expect(markup).toContain('reminder_util:guided:2026-05')
+    expect(markup).toContain('reminder_util:template:2026-05')
+  })
+
+  test('hides utility entry controls for payments-topic instruction refreshes', () => {
+    const content = buildPaymentReminderMessageContent({
+      locale: 'en',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: dashboard(),
+      viewMode: 'details',
+      includeUtilityEntryButtons: false,
+      utilityAssignmentLimit: null
+    })
+
+    const markup = JSON.stringify(content.replyMarkup)
+    expect(markup).toContain('pr:p:utilities:2026-05')
+    expect(markup).not.toContain('reminder_util:guided')
+    expect(markup).not.toContain('reminder_util:template')
+  })
 })

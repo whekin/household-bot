@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import type { FinanceCommandService, FinanceDashboard } from '@household/application'
 import { Money } from '@household/domain'
 import type { ProcessedBotMessageRepository } from '@household/ports'
+import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { createPaymentInstructionPublisher } from './payment-instruction-publisher'
 
@@ -221,7 +222,11 @@ function createProcessedRepository(): ProcessedBotMessageRepository & { claimedK
 }
 
 function createPublisher() {
-  const sent: Array<{ threadId: string | null; text: string }> = []
+  const sent: Array<{
+    threadId: string | null
+    text: string
+    replyMarkup?: InlineKeyboardMarkup
+  }> = []
   const processed = createProcessedRepository()
   const publisher = createPaymentInstructionPublisher({
     householdConfigurationRepository: {
@@ -253,7 +258,11 @@ function createPublisher() {
       }) as unknown as FinanceCommandService,
     processedBotMessageRepository: processed,
     sendTopicMessage: async (input) => {
-      sent.push({ threadId: input.threadId, text: input.text })
+      sent.push({
+        threadId: input.threadId,
+        text: input.text,
+        ...(input.replyMarkup ? { replyMarkup: input.replyMarkup } : {})
+      })
     }
   })
 
@@ -277,6 +286,8 @@ describe('createPaymentInstructionPublisher', () => {
     expect(sent[0]?.text).toContain('Gas (Water)')
     expect(sent[0]?.text).toContain('Stas')
     expect(sent[0]?.text).toContain('Ion')
+    expect(JSON.stringify(sent[0]?.replyMarkup)).not.toContain('reminder_util:guided')
+    expect(JSON.stringify(sent[0]?.replyMarkup)).not.toContain('reminder_util:template')
     expect(processed.claimedKeys).toEqual(['payment-instruction:utilities:2026-06:plan-1:v2'])
   })
 

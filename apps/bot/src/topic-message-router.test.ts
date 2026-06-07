@@ -108,6 +108,78 @@ describe('fallbackTopicMessageRoute', () => {
     expect(route.helperKind).toBe('assistant')
   })
 
+  test('keeps addressed purchase topics on deterministic helper routing', () => {
+    const route = fallbackTopicMessageRoute({
+      locale: 'en',
+      topicRole: 'purchase',
+      messageText: '@household_bot are you here?',
+      isExplicitMention: true,
+      isReplyToBot: false,
+      activeWorkflow: null
+    })
+
+    expect(route).toMatchObject({
+      route: 'topic_helper',
+      helperKind: 'assistant',
+      shouldStartTyping: true,
+      reason: 'addressed_finance_topic'
+    })
+  })
+
+  test('keeps addressed payment topics on deterministic helper routing', () => {
+    const route = fallbackTopicMessageRoute({
+      locale: 'en',
+      topicRole: 'payments',
+      messageText: '@household_bot where should I pay?',
+      isExplicitMention: true,
+      isReplyToBot: false,
+      activeWorkflow: null
+    })
+
+    expect(route).toMatchObject({
+      route: 'topic_helper',
+      helperKind: 'assistant',
+      shouldStartTyping: false,
+      reason: 'addressed_finance_topic'
+    })
+  })
+
+  test('keeps unaddressed purchase topic chatter silent', () => {
+    const route = fallbackTopicMessageRoute({
+      locale: 'en',
+      topicRole: 'purchase',
+      messageText: 'maybe I will go shopping tomorrow',
+      isExplicitMention: false,
+      isReplyToBot: false,
+      activeWorkflow: null
+    })
+
+    expect(route).toMatchObject({
+      route: 'silent',
+      helperKind: null,
+      shouldStartTyping: false,
+      reason: 'quiet_purchase_topic'
+    })
+  })
+
+  test('keeps unaddressed payments topic chatter silent', () => {
+    const route = fallbackTopicMessageRoute({
+      locale: 'en',
+      topicRole: 'payments',
+      messageText: 'I can transfer tomorrow if needed',
+      isExplicitMention: false,
+      isReplyToBot: false,
+      activeWorkflow: null
+    })
+
+    expect(route).toMatchObject({
+      route: 'silent',
+      helperKind: null,
+      shouldStartTyping: false,
+      reason: 'quiet_payments_topic'
+    })
+  })
+
   test('returns topic_helper for reply to bot', () => {
     const route = fallbackTopicMessageRoute({
       locale: 'en',
