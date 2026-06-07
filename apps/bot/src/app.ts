@@ -3,21 +3,18 @@ import { webhookCallback } from 'grammy'
 import {
   createAdHocNotificationService,
   createAnonymousFeedbackService,
-  createFinanceCommandService,
   createHouseholdAuditNotificationService,
   createHouseholdAdminService,
   createHouseholdOnboardingService,
   createHouseholdSetupService,
   createLocalePreferenceService,
   createMiniAppAdminService,
-  createPaymentConfirmationService,
   createScheduledDispatchService
 } from '@household/application'
 import {
   createDbAdHocNotificationRepository,
   createDbAuditNotificationRepository,
   createDbAnonymousFeedbackRepository,
-  createDbFinanceRepository,
   createDbHouseholdConfigurationRepository,
   createDbProcessedBotMessageRepository,
   createDbScheduledDispatchRepository,
@@ -84,7 +81,6 @@ import {
   createMiniAppCancelNotificationHandler,
   createMiniAppUpdateNotificationHandler
 } from './miniapp-notifications'
-import { createNbgExchangeRateProvider } from './nbg-exchange-rates'
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
@@ -102,6 +98,7 @@ import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
 import { createBotWebhookServer } from './server'
 import { createTopicProcessor } from './topic-processor'
 import { createTelegramTransport } from './runtime/telegram-transport'
+import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
@@ -139,15 +136,21 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     onTimeout: 'return'
   })
   const telegramTransport = createTelegramTransport(bot)
-  const financeRepositoryClients = new Map<string, ReturnType<typeof createDbFinanceRepository>>()
-  const financeServices = new Map<string, ReturnType<typeof createFinanceCommandService>>()
-  const paymentConfirmationServices = new Map<
-    string,
-    ReturnType<typeof createPaymentConfirmationService>
-  >()
-  const exchangeRateProvider = createNbgExchangeRateProvider({
-    logger: getLogger('fx')
-  })
+  const financeServiceRegistry =
+    runtime.databaseUrl && householdConfigurationRepositoryClient
+      ? createFinanceServiceRegistry({
+          databaseUrl: runtime.databaseUrl,
+          householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+          exchangeRateLogger: getLogger('fx'),
+          onClose: (task) => shutdownTasks.push(task)
+        })
+      : null
+  const financeRepositoryForHousehold = (householdId: string) =>
+    financeServiceRegistry!.financeRepositoryForHousehold(householdId)
+  const financeServiceForHousehold = (householdId: string) =>
+    financeServiceRegistry!.financeServiceForHousehold(householdId)
+  const paymentConfirmationServiceForHousehold = (householdId: string) =>
+    financeServiceRegistry!.paymentConfirmationServiceForHousehold(householdId)
   const householdOnboardingService = householdConfigurationRepositoryClient
     ? createHouseholdOnboardingService({
         repository: householdConfigurationRepositoryClient.repository
@@ -284,7 +287,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         scheduledDispatchService ?? undefined,
         {
           resolveEffectiveFromPeriod: async (householdId) => {
-            const repository = financeRepositoryForHousehold(householdId).repository
+            const repository = financeRepositoryForHousehold(householdId)
             const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
             return cycle?.period ?? null
           }
@@ -292,52 +295,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         auditNotificationRepositoryClient?.repository
       )
     : null
-
-  function financeServiceForHousehold(householdId: string) {
-    const existing = financeServices.get(householdId)
-    if (existing) {
-      return existing
-    }
-
-    const repositoryClient = financeRepositoryForHousehold(householdId)
-    const service = createFinanceCommandService({
-      householdId,
-      repository: repositoryClient.repository,
-      householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
-      exchangeRateProvider
-    })
-    financeServices.set(householdId, service)
-    return service
-  }
-
-  function financeRepositoryForHousehold(householdId: string) {
-    const existing = financeRepositoryClients.get(householdId)
-    if (existing) {
-      return existing
-    }
-
-    const repositoryClient = createDbFinanceRepository(runtime.databaseUrl!, householdId)
-    financeRepositoryClients.set(householdId, repositoryClient)
-    shutdownTasks.push(repositoryClient.close)
-    return repositoryClient
-  }
-
-  function paymentConfirmationServiceForHousehold(householdId: string) {
-    const existing = paymentConfirmationServices.get(householdId)
-    if (existing) {
-      return existing
-    }
-
-    const service = createPaymentConfirmationService({
-      householdId,
-      financeService: financeServiceForHousehold(householdId),
-      repository: financeRepositoryForHousehold(householdId).repository,
-      householdConfigurationRepository: householdConfigurationRepositoryClient!.repository,
-      exchangeRateProvider
-    })
-    paymentConfirmationServices.set(householdId, service)
-    return service
-  }
 
   function anonymousFeedbackServiceForHousehold(householdId: string) {
     const existing = anonymousFeedbackServices.get(householdId)
@@ -406,7 +363,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           bot,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           financeRepositoryForHousehold: (householdId) =>
-            financeRepositoryForHousehold(householdId).repository,
+            financeRepositoryForHousehold(householdId),
           financeServiceForHousehold,
           logger: getLogger('purchase-topic-notices')
         })
