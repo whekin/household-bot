@@ -593,70 +593,41 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     householdConfigurationRepositoryClient &&
     telegramPendingActionRepositoryClient
   ) {
-    if (processedBotMessageRepositoryClient) {
-      registerDmAssistant({
-        bot,
-        householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-        messageProcessingRepository: processedBotMessageRepositoryClient.repository,
-        promptRepository: telegramPendingActionRepositoryClient.repository,
-        financeServiceForHousehold,
-        memoryStore: assistantMemoryStore,
-        rateLimiter: assistantRateLimiter,
-        usageTracker: assistantUsageTracker,
-        ...(purchaseRepositoryClient
-          ? {
-              purchaseRepository: purchaseRepositoryClient.repository
-            }
-          : {}),
-        ...(topicMessageHistoryRepositoryClient
-          ? {
-              topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
-            }
-          : {}),
-        ...(purchaseInterpreter
-          ? {
-              purchaseInterpreter
-            }
-          : {}),
-        ...(conversationalAssistant
-          ? {
-              assistant: conversationalAssistant
-            }
-          : {}),
-        logger: getLogger('dm-assistant')
-      })
-    } else {
-      registerDmAssistant({
-        bot,
-        householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-        promptRepository: telegramPendingActionRepositoryClient.repository,
-        financeServiceForHousehold,
-        memoryStore: assistantMemoryStore,
-        rateLimiter: assistantRateLimiter,
-        usageTracker: assistantUsageTracker,
-        ...(purchaseRepositoryClient
-          ? {
-              purchaseRepository: purchaseRepositoryClient.repository
-            }
-          : {}),
-        ...(topicMessageHistoryRepositoryClient
-          ? {
-              topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
-            }
-          : {}),
-        ...(purchaseInterpreter
-          ? {
-              purchaseInterpreter
-            }
-          : {}),
-        ...(conversationalAssistant
-          ? {
-              assistant: conversationalAssistant
-            }
-          : {}),
-        logger: getLogger('dm-assistant')
-      })
-    }
+    registerDmAssistant({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      financeServiceForHousehold,
+      memoryStore: assistantMemoryStore,
+      rateLimiter: assistantRateLimiter,
+      usageTracker: assistantUsageTracker,
+      ...(processedBotMessageRepositoryClient
+        ? {
+            messageProcessingRepository: processedBotMessageRepositoryClient.repository
+          }
+        : {}),
+      ...(purchaseRepositoryClient
+        ? {
+            purchaseRepository: purchaseRepositoryClient.repository
+          }
+        : {}),
+      ...(topicMessageHistoryRepositoryClient
+        ? {
+            topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
+          }
+        : {}),
+      ...(purchaseInterpreter
+        ? {
+            purchaseInterpreter
+          }
+        : {}),
+      ...(conversationalAssistant
+        ? {
+            assistant: conversationalAssistant
+          }
+        : {}),
+      logger: getLogger('dm-assistant')
+    })
   }
 
   if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {
