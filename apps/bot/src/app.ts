@@ -11,16 +11,7 @@ import {
   createMiniAppAdminService,
   createScheduledDispatchService
 } from '@household/application'
-import {
-  createDbAdHocNotificationRepository,
-  createDbAuditNotificationRepository,
-  createDbAnonymousFeedbackRepository,
-  createDbHouseholdConfigurationRepository,
-  createDbProcessedBotMessageRepository,
-  createDbScheduledDispatchRepository,
-  createDbTelegramPendingActionRepository,
-  createDbTopicMessageHistoryRepository
-} from '@household/adapters-db'
+import { createDbAnonymousFeedbackRepository } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
 
 import { registerAdHocNotifications } from './ad-hoc-notifications'
@@ -85,7 +76,6 @@ import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
 import { registerConfiguredPurchaseTopicIngestion } from './purchase-topic-ingestion'
-import { createPurchaseMessageRepository } from './adapters/purchase-message-repository'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
 import { createPaymentInstructionPublisher } from './payment-instruction-publisher'
@@ -97,6 +87,7 @@ import { createBotWebhookServer } from './server'
 import { createTopicProcessor } from './topic-processor'
 import { createTelegramTransport } from './runtime/telegram-transport'
 import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
+import { createBotRepositoryClients } from './runtime/repositories'
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
@@ -114,9 +105,18 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
 
   const logger = getLogger('runtime')
   const shutdownTasks: Array<() => Promise<void>> = []
-  const householdConfigurationRepositoryClient = runtime.databaseUrl
-    ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
-    : null
+  const repositoryClients = createBotRepositoryClients(runtime)
+  shutdownTasks.push(repositoryClients.close)
+  const {
+    householdConfiguration: householdConfigurationRepositoryClient,
+    scheduledDispatch: scheduledDispatchRepositoryClient,
+    telegramPendingAction: telegramPendingActionRepositoryClient,
+    processedBotMessage: processedBotMessageRepositoryClient,
+    purchaseMessages: purchaseRepositoryClient,
+    topicMessageHistory: topicMessageHistoryRepositoryClient,
+    adHocNotification: adHocNotificationRepositoryClient,
+    auditNotification: auditNotificationRepositoryClient
+  } = repositoryClients
   const bot = createTelegramBot(
     runtime.telegramBotToken,
     getLogger('telegram'),
@@ -154,10 +154,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         repository: householdConfigurationRepositoryClient.repository
       })
     : null
-  const scheduledDispatchRepositoryClient =
-    runtime.databaseUrl && runtime.scheduledDispatch
-      ? createDbScheduledDispatchRepository(runtime.databaseUrl)
-      : null
   const scheduledDispatchScheduler =
     runtime.scheduledDispatch &&
     (runtime.scheduledDispatch.provider === 'aws-eventbridge' || runtime.schedulerSharedSecret)
@@ -190,18 +186,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       : null
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
-    : null
-  const telegramPendingActionRepositoryClient = runtime.databaseUrl
-    ? createDbTelegramPendingActionRepository(runtime.databaseUrl)
-    : null
-  const processedBotMessageRepositoryClient = runtime.databaseUrl
-    ? createDbProcessedBotMessageRepository(runtime.databaseUrl)
-    : null
-  const purchaseRepositoryClient = runtime.databaseUrl
-    ? createPurchaseMessageRepository(runtime.databaseUrl)
-    : null
-  const topicMessageHistoryRepositoryClient = runtime.databaseUrl
-    ? createDbTopicMessageHistoryRepository(runtime.databaseUrl)
     : null
   const purchaseInterpreter = createOpenAiPurchaseInterpreter(
     runtime.openaiApiKey,
@@ -243,12 +227,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     string,
     ReturnType<typeof createAnonymousFeedbackService>
   >()
-  const adHocNotificationRepositoryClient = runtime.databaseUrl
-    ? createDbAdHocNotificationRepository(runtime.databaseUrl)
-    : null
-  const auditNotificationRepositoryClient = runtime.databaseUrl
-    ? createDbAuditNotificationRepository(runtime.databaseUrl)
-    : null
   const auditNotificationService =
     auditNotificationRepositoryClient && householdConfigurationRepositoryClient
       ? createHouseholdAuditNotificationService({
@@ -323,37 +301,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('payment-instructions')
         })
       : null
-
-  if (householdConfigurationRepositoryClient) {
-    shutdownTasks.push(householdConfigurationRepositoryClient.close)
-  }
-
-  if (telegramPendingActionRepositoryClient) {
-    shutdownTasks.push(telegramPendingActionRepositoryClient.close)
-  }
-
-  if (processedBotMessageRepositoryClient) {
-    shutdownTasks.push(processedBotMessageRepositoryClient.close)
-  }
-
-  if (purchaseRepositoryClient) {
-    shutdownTasks.push(purchaseRepositoryClient.close)
-  }
-
-  if (topicMessageHistoryRepositoryClient) {
-    shutdownTasks.push(topicMessageHistoryRepositoryClient.close)
-  }
-  if (auditNotificationRepositoryClient) {
-    shutdownTasks.push(auditNotificationRepositoryClient.close)
-  }
-
-  if (adHocNotificationRepositoryClient) {
-    shutdownTasks.push(adHocNotificationRepositoryClient.close)
-  }
-
-  if (scheduledDispatchRepositoryClient) {
-    shutdownTasks.push(scheduledDispatchRepositoryClient.close)
-  }
 
   const purchaseTopicNoticeService =
     runtime.databaseUrl && householdConfigurationRepositoryClient
