@@ -19,6 +19,7 @@ import type {
   AdHocNotificationInterpreterMember
 } from './openai-ad-hoc-notification-interpreter'
 import { REMINDER_UTILITY_ACTION } from './reminder-topic-utilities'
+import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
 
 const AD_HOC_NOTIFICATION_ACTION = 'ad_hoc_notification' as const
 const AD_HOC_NOTIFICATION_ACTION_TTL_MS = 30 * 60_000
@@ -118,23 +119,6 @@ function getMessageThreadId(ctx: Context): string | null {
   }
 
   return message.message_thread_id.toString()
-}
-
-function readMessageText(ctx: Context): string | null {
-  const message = ctx.message
-  if (!message) {
-    return null
-  }
-
-  if ('text' in message && typeof message.text === 'string') {
-    return message.text.trim()
-  }
-
-  if ('caption' in message && typeof message.caption === 'string') {
-    return message.caption.trim()
-  }
-
-  return null
 }
 
 function escapeHtml(raw: string): string {
@@ -725,7 +709,7 @@ export function registerAdHocNotifications(options: {
   })
 
   options.bot.on('message', async (ctx, next) => {
-    const messageText = readMessageText(ctx)
+    const messageText = readTelegramMessageText(ctx)?.trim() ?? null
     if (!messageText || messageText.startsWith('/')) {
       await next()
       return

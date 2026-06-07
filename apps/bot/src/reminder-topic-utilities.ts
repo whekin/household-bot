@@ -12,6 +12,7 @@ import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 import { buildBotStartDeepLink } from './telegram-deep-links'
 import { resolveReminderTopicActorContext } from './reminder-topic-context'
+import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
 
 export const REMINDER_UTILITY_GUIDED_CALLBACK = 'reminder_util:guided'
 export const REMINDER_UTILITY_TEMPLATE_CALLBACK = 'reminder_util:template'
@@ -69,26 +70,9 @@ interface ReminderTopicCandidate {
   rawText: string
 }
 
-function readMessageText(ctx: Context): string | null {
-  const message = ctx.message
-  if (!message) {
-    return null
-  }
-
-  if ('text' in message && typeof message.text === 'string') {
-    return message.text
-  }
-
-  if ('caption' in message && typeof message.caption === 'string') {
-    return message.caption
-  }
-
-  return null
-}
-
 function toReminderTopicCandidate(ctx: Context): ReminderTopicCandidate | null {
   const message = ctx.message
-  const rawText = readMessageText(ctx)?.trim()
+  const rawText = readTelegramMessageText(ctx)?.trim()
   if (!message || !rawText) {
     return null
   }

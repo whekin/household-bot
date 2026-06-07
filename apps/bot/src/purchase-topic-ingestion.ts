@@ -23,6 +23,12 @@ import {
   type TopicMessageRoutingResult
 } from './topic-message-router'
 import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
+import {
+  hasExplicitBotMention,
+  hasTelegramMessageAttachment,
+  isReplyToCurrentBotMessage,
+  readTelegramMessageTextWithoutBotMention
+} from './topic-ingestion/topic-message-primitives'
 import { asOptionalBigInt } from './topic-processor'
 import {
   persistTopicHistoryMessage,
@@ -30,7 +36,6 @@ import {
   telegramMessageSentAtFromMessage
 } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
-import { stripExplicitBotMention } from './telegram-mentions'
 import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
@@ -277,15 +282,6 @@ export interface PurchasePersistenceDecision {
   clarificationQuestion: string | null
   parserError: string | null
   needsReview: boolean
-}
-
-function isReplyToCurrentBot(ctx: Pick<Context, 'msg' | 'me'>): boolean {
-  const replyAuthor = ctx.msg?.reply_to_message?.from
-  if (!replyAuthor?.is_bot) {
-    return false
-  }
-
-  return replyAuthor.id === ctx.me.id
 }
 
 export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
@@ -711,45 +707,6 @@ async function replyToPurchaseMessage(
   })
 }
 
-function readPurchaseMessageText(ctx: Pick<Context, 'message' | 'msg' | 'me'>): string | null {
-  const strippedMention = stripExplicitBotMention(ctx)
-  if (strippedMention) {
-    return strippedMention.strippedText
-  }
-
-  const message = ctx.message
-  if (!message) {
-    return null
-  }
-
-  if ('text' in message && typeof message.text === 'string') {
-    return message.text
-  }
-
-  if ('caption' in message && typeof message.caption === 'string') {
-    return message.caption
-  }
-
-  return null
-}
-
-function hasPurchaseAttachment(ctx: Pick<Context, 'message'>): boolean {
-  const message = ctx.message
-  if (!message) {
-    return false
-  }
-
-  if ('photo' in message && Array.isArray(message.photo) && message.photo.length > 0) {
-    return true
-  }
-
-  if ('document' in message && message.document) {
-    return true
-  }
-
-  return false
-}
-
 function isPhotoOnlyPurchaseMessage(record: PurchaseTopicRecord): boolean {
   return record.rawText === PHOTO_ONLY_PURCHASE_PLACEHOLDER
 }
@@ -793,8 +750,8 @@ async function finalizePurchaseReply(
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
   const message = ctx.message
   const rawText =
-    readPurchaseMessageText(ctx) ??
-    (hasPurchaseAttachment(ctx) ? PHOTO_ONLY_PURCHASE_PLACEHOLDER : null)
+    readTelegramMessageTextWithoutBotMention(ctx) ??
+    (hasTelegramMessageAttachment(ctx) ? PHOTO_ONLY_PURCHASE_PLACEHOLDER : null)
   if (!message || !rawText) {
     return null
   }
@@ -1137,8 +1094,8 @@ async function routePurchaseTopicMessage(input: {
   assistantTone?: string | null
 }): Promise<TopicMessageRoutingResult> {
   if (!input.router) {
-    const hasExplicitMention = stripExplicitBotMention(input.ctx) !== null
-    const isReply = isReplyToCurrentBot(input.ctx)
+    const hasExplicitMention = hasExplicitBotMention(input.ctx)
+    const isReply = isReplyToCurrentBotMessage(input.ctx)
     const hasClarificationContext = await input.repository.hasClarificationContext(input.record)
 
     if (hasExplicitMention || isReply) {
@@ -1201,8 +1158,8 @@ async function routePurchaseTopicMessage(input: {
     topicRole: 'purchase',
     activeWorkflow,
     messageText: input.record.rawText,
-    explicitMention: stripExplicitBotMention(input.ctx) !== null,
-    replyToBot: isReplyToCurrentBot(input.ctx),
+    explicitMention: hasExplicitBotMention(input.ctx),
+    replyToBot: isReplyToCurrentBotMessage(input.ctx),
     directBotAddress: false,
     memoryStore: input.memoryStore ?? {
       get() {
@@ -2000,8 +1957,8 @@ export function registerConfiguredPurchaseTopicIngestion(
         topicRole: 'purchase',
         activeWorkflow,
         messageText: record.rawText,
-        explicitMention: stripExplicitBotMention(ctx) !== null,
-        replyToBot: isReplyToCurrentBot(ctx),
+        explicitMention: hasExplicitBotMention(ctx),
+        replyToBot: isReplyToCurrentBotMessage(ctx),
         directBotAddress: false,
         memoryStore: options.memoryStore ?? {
           get() {

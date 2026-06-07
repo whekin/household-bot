@@ -32,11 +32,17 @@ import {
 import { cacheTopicMessageRoute, type TopicMessageRouter } from './topic-message-router'
 import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
 import {
+  hasExplicitBotMention,
+  isReplyToCurrentBotMessage,
+  readTelegramMessageTextWithoutBotMention,
+  telegramMessageAttachmentCount
+} from './topic-ingestion/topic-message-primitives'
+import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
-import { stripExplicitBotMention } from './telegram-mentions'
+import { buildConversationContext } from './conversation-orchestrator'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
@@ -114,52 +120,9 @@ interface PaymentTopicMultiConfirmationPayload {
   }>
 }
 
-function readMessageText(ctx: Context): string | null {
-  const message = ctx.message
-  if (!message) {
-    return null
-  }
-
-  if ('text' in message && typeof message.text === 'string') {
-    return message.text
-  }
-
-  if ('caption' in message && typeof message.caption === 'string') {
-    return message.caption
-  }
-
-  return null
-}
-
-function attachmentCount(ctx: Context): number {
-  const message = ctx.message
-  if (!message) {
-    return 0
-  }
-
-  if ('photo' in message && Array.isArray(message.photo)) {
-    return message.photo.length
-  }
-
-  if ('document' in message && message.document) {
-    return 1
-  }
-
-  return 0
-}
-
-function isReplyToBotMessage(ctx: Context): boolean {
-  const replyAuthor = ctx.msg?.reply_to_message?.from
-  if (!replyAuthor) {
-    return false
-  }
-
-  return replyAuthor.id === ctx.me.id
-}
-
 function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
   const message = ctx.message
-  const rawText = stripExplicitBotMention(ctx)?.strippedText ?? readMessageText(ctx)
+  const rawText = readTelegramMessageTextWithoutBotMention(ctx)
   if (!message || !rawText) {
     return null
   }
@@ -184,7 +147,7 @@ function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
     threadId: message.message_thread_id.toString(),
     senderTelegramUserId,
     rawText,
-    attachmentCount: attachmentCount(ctx),
+    attachmentCount: telegramMessageAttachmentCount(ctx),
     messageSentAt: instantFromEpochSeconds(message.date)
   }
 }
@@ -1787,9 +1750,6 @@ export function registerConfiguredPaymentTopicIngestion(
 
       // Use topic processor if available
       if (options.topicProcessor) {
-        const { buildConversationContext } = await import('./conversation-orchestrator')
-        const { stripExplicitBotMention } = await import('./telegram-mentions')
-
         const conversationContext = await buildConversationContext({
           repository: options.historyRepository,
           householdId: record.householdId,
@@ -1799,8 +1759,8 @@ export function registerConfiguredPaymentTopicIngestion(
           topicRole: 'payments',
           activeWorkflow,
           messageText: record.rawText,
-          explicitMention: stripExplicitBotMention(ctx) !== null,
-          replyToBot: isReplyToBotMessage(ctx),
+          explicitMention: hasExplicitBotMention(ctx),
+          replyToBot: isReplyToCurrentBotMessage(ctx),
           directBotAddress: false,
           memoryStore: options.memoryStore ?? {
             get() {
@@ -2140,8 +2100,8 @@ export function registerConfiguredPaymentTopicIngestion(
         ctx,
         locale,
         messageText: combinedText,
-        isExplicitMention: stripExplicitBotMention(ctx) !== null,
-        isReplyToBot: isReplyToBotMessage(ctx),
+        isExplicitMention: hasExplicitBotMention(ctx),
+        isReplyToBot: isReplyToCurrentBotMessage(ctx),
         activeWorkflow
       })
       await next()
