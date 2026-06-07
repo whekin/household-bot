@@ -8,8 +8,7 @@ import {
   createHouseholdOnboardingService,
   createHouseholdSetupService,
   createLocalePreferenceService,
-  createMiniAppAdminService,
-  createScheduledDispatchService
+  createMiniAppAdminService
 } from '@household/application'
 import { createDbAnonymousFeedbackRepository } from '@household/adapters-db'
 import { configureLogger, getLogger } from '@household/observability'
@@ -28,9 +27,6 @@ import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig, type BotRuntimeConfig } from './config'
 import { registerHouseholdSetupCommands } from './household-setup'
 import { HouseholdContextCache } from './household-context-cache'
-import { createAwsScheduledDispatchScheduler } from './aws-scheduled-dispatch-scheduler'
-import { createGcpScheduledDispatchScheduler } from './gcp-scheduled-dispatch-scheduler'
-import { createSelfHostedScheduledDispatchScheduler } from './self-hosted-scheduled-dispatch-scheduler'
 import { createMiniAppAuthHandler, createMiniAppJoinHandler } from './miniapp-auth'
 import {
   createMiniAppApproveMemberHandler,
@@ -88,6 +84,7 @@ import { createTopicProcessor } from './topic-processor'
 import { createTelegramTransport } from './runtime/telegram-transport'
 import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
 import { createBotRepositoryClients } from './runtime/repositories'
+import { createScheduledDispatchRuntime } from './runtime/scheduled-dispatch-runtime'
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
@@ -154,36 +151,12 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         repository: householdConfigurationRepositoryClient.repository
       })
     : null
-  const scheduledDispatchScheduler =
-    runtime.scheduledDispatch &&
-    (runtime.scheduledDispatch.provider === 'aws-eventbridge' || runtime.schedulerSharedSecret)
-      ? runtime.scheduledDispatch.provider === 'gcp-cloud-tasks'
-        ? createGcpScheduledDispatchScheduler({
-            projectId: runtime.scheduledDispatch.projectId,
-            location: runtime.scheduledDispatch.location,
-            queue: runtime.scheduledDispatch.queue,
-            publicBaseUrl: runtime.scheduledDispatch.publicBaseUrl,
-            sharedSecret: runtime.schedulerSharedSecret!
-          })
-        : runtime.scheduledDispatch.provider === 'aws-eventbridge'
-          ? createAwsScheduledDispatchScheduler({
-              region: runtime.scheduledDispatch.region,
-              targetLambdaArn: runtime.scheduledDispatch.targetLambdaArn,
-              roleArn: runtime.scheduledDispatch.roleArn,
-              groupName: runtime.scheduledDispatch.groupName
-            })
-          : createSelfHostedScheduledDispatchScheduler()
-      : null
-  const scheduledDispatchService =
-    scheduledDispatchRepositoryClient &&
-    scheduledDispatchScheduler &&
-    householdConfigurationRepositoryClient
-      ? createScheduledDispatchService({
-          repository: scheduledDispatchRepositoryClient.repository,
-          scheduler: scheduledDispatchScheduler,
-          householdConfigurationRepository: householdConfigurationRepositoryClient.repository
-        })
-      : null
+  const scheduledDispatchRuntime = createScheduledDispatchRuntime({
+    runtime,
+    repository: scheduledDispatchRepositoryClient?.repository ?? null,
+    householdConfigurationRepository: householdConfigurationRepositoryClient?.repository ?? null
+  })
+  const scheduledDispatchService = scheduledDispatchRuntime.service
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
     : null
