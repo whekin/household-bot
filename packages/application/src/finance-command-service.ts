@@ -3021,6 +3021,12 @@ async function allocatePaymentPurchaseOverage(input: {
   kind: FinancePaymentKind
   paymentAmount: Money
   settings: HouseholdBillingSettingsRecord
+  // When re-resolving an existing payment, the allocations it already holds have
+  // reduced the outstanding balances visible in the dashboard. Pass the payment id
+  // so its own prior allocations are added back, letting the recompute reproduce
+  // the full allocation set. Without this, a re-resolve only sees newly-found debt
+  // and the subsequent replace silently drops the earlier (still valid) resolutions.
+  reresolvePaymentRecordId?: string
 }): Promise<{
   allocations: readonly {
     purchaseId: string
@@ -3085,6 +3091,39 @@ async function allocatePaymentPurchaseOverage(input: {
     return entry.isCurrentCyclePurchase !== true
   }
 
+  // Add back this payment's own prior allocations (see reresolvePaymentRecordId).
+  const priorAllocationByPurchaseId = new Map<string, bigint>()
+  if (input.reresolvePaymentRecordId) {
+    const allAllocations = await input.dependencies.repository.listPaymentPurchaseAllocations()
+    for (const allocation of allAllocations) {
+      if (
+        allocation.paymentRecordId === input.reresolvePaymentRecordId &&
+        allocation.memberId === input.memberId
+      ) {
+        priorAllocationByPurchaseId.set(
+          allocation.purchaseId,
+          (priorAllocationByPurchaseId.get(allocation.purchaseId) ?? 0n) + allocation.amountMinor
+        )
+      }
+    }
+  }
+  const memberOutstandingMinor = (
+    entry: FinanceDashboardLedgerEntry & {
+      kind: 'purchase'
+      outstandingByMember: readonly { memberId: string; amount: Money }[]
+    }
+  ): bigint => {
+    const current =
+      entry.outstandingByMember.find((o) => o.memberId === input.memberId)?.amount.amountMinor ?? 0n
+    return current + (priorAllocationByPurchaseId.get(entry.id) ?? 0n)
+  }
+  const isPurchaseEntry = (
+    entry: FinanceDashboardLedgerEntry
+  ): entry is FinanceDashboardLedgerEntry & {
+    kind: 'purchase'
+    outstandingByMember: readonly { memberId: string; amount: Money }[]
+  } => entry.kind === 'purchase' && Array.isArray(entry.outstandingByMember)
+
   let remainingMinor: bigint
 
   if (plannedSummary && input.kind === 'utilities') {
@@ -3100,24 +3139,9 @@ async function allocatePaymentPurchaseOverage(input: {
       // but individual purchases still need resolution. The plan's fairShare
       // guarantees all debts are covered when every member pays their share.
       const grossOutstandingMinor = dashboard.ledger
-        .filter(
-          (
-            entry
-          ): entry is FinanceDashboardLedgerEntry & {
-            kind: 'purchase'
-            outstandingByMember: readonly { memberId: string; amount: Money }[]
-          } =>
-            entry.kind === 'purchase' &&
-            entry.resolutionStatus === 'unresolved' &&
-            Array.isArray(entry.outstandingByMember)
-        )
+        .filter(isPurchaseEntry)
         .filter((entry) => isPurchaseCoveredByPlan(entry))
-        .reduce((sum, entry) => {
-          const memberOutstanding = entry.outstandingByMember.find(
-            (o) => o.memberId === input.memberId
-          )
-          return sum + (memberOutstanding?.amount.amountMinor ?? 0n)
-        }, 0n)
+        .reduce((sum, entry) => sum + memberOutstandingMinor(entry), 0n)
 
       remainingMinor = grossOutstandingMinor
     } else {
@@ -3142,17 +3166,7 @@ async function allocatePaymentPurchaseOverage(input: {
   }
 
   const purchaseEntries = dashboard.ledger
-    .filter(
-      (
-        entry
-      ): entry is FinanceDashboardLedgerEntry & {
-        kind: 'purchase'
-        outstandingByMember: readonly { memberId: string; amount: Money }[]
-      } =>
-        entry.kind === 'purchase' &&
-        entry.resolutionStatus === 'unresolved' &&
-        Array.isArray(entry.outstandingByMember)
-    )
+    .filter(isPurchaseEntry)
     .filter((entry) => isPurchaseCoveredByPlan(entry))
     .sort((left, right) => {
       const leftKey = `${left.originPeriod ?? ''}:${left.occurredAt ?? ''}:${left.id}`
@@ -3167,17 +3181,12 @@ async function allocatePaymentPurchaseOverage(input: {
   }[] = []
 
   for (const entry of purchaseEntries) {
-    const memberOutstanding = entry.outstandingByMember.find(
-      (outstanding) => outstanding.memberId === input.memberId
-    )
-    if (!memberOutstanding || memberOutstanding.amount.amountMinor <= 0n) {
+    const outstandingMinor = memberOutstandingMinor(entry)
+    if (outstandingMinor <= 0n) {
       continue
     }
 
-    const allocatedMinor =
-      remainingMinor >= memberOutstanding.amount.amountMinor
-        ? memberOutstanding.amount.amountMinor
-        : remainingMinor
+    const allocatedMinor = remainingMinor >= outstandingMinor ? outstandingMinor : remainingMinor
 
     if (allocatedMinor <= 0n) {
       continue
@@ -3538,7 +3547,8 @@ export function createFinanceCommandService(
       paymentAmount:
         plannedSummary?.fairShare ??
         Money.fromMinor(effectivePaymentAmountMinor, input.dashboard.currency),
-      settings
+      settings,
+      ...(existingPaymentRecord ? { reresolvePaymentRecordId: existingPaymentRecord.id } : {})
     })
     const payment =
       effectivePaymentAmountMinor > 0n

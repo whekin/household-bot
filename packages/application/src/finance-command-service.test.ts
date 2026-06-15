@@ -4234,6 +4234,120 @@ describe('createFinanceCommandService', () => {
     ).toBe(false)
   })
 
+  test('resolveUtilityBillAsPlanned re-resolve keeps a member already-resolved purchase allocation', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [
+      { id: 'cycle-2026-05', period: '2026-05', currency: 'GEL' },
+      { id: 'cycle-2026-06', period: '2026-06', currency: 'GEL' }
+    ]
+    repository.openCycleRecord = repository.cycles[1]!
+    repository.latestCycleRecord = repository.cycles[1]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-06', daysPresent: 30 },
+      { memberId: 'bob', period: '2026-06', daysPresent: 30 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-06',
+        billName: 'Gas',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-06-01T09:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        // Carried from the prior cycle, already resolved for Bob below.
+        id: 'purchase-carried',
+        cycleId: 'cycle-2026-05',
+        cyclePeriod: '2026-05',
+        payerMemberId: 'alice',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        description: 'Carried supplies',
+        occurredAt: instantFromIso('2026-05-20T09:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        // New current-cycle purchase Bob still owes on.
+        id: 'purchase-new',
+        cycleId: 'cycle-2026-06',
+        cyclePeriod: '2026-06',
+        payerMemberId: 'alice',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        description: 'New supplies',
+        occurredAt: instantFromIso('2026-06-10T09:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+    // Bob already has a utilities payment for June (far above his share) and his
+    // carried-purchase share is already resolved against it.
+    repository.paymentRecords = [
+      {
+        id: 'payment-bob',
+        cycleId: 'cycle-2026-06',
+        cyclePeriod: '2026-06',
+        memberId: 'bob',
+        kind: 'utilities',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-06-02T10:00:00.000Z')
+      }
+    ]
+    repository.paymentPurchaseAllocations = [
+      {
+        id: 'alloc-carried',
+        paymentRecordId: 'payment-bob',
+        purchaseId: 'purchase-carried',
+        memberId: 'bob',
+        amountMinor: 500n,
+        resolutionCycleId: 'cycle-2026-06',
+        resolutionMethod: 'utilities_plan',
+        resolutionPlanId: null,
+        recordedAt: instantFromIso('2026-06-02T10:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    // Re-resolving the cycle must not wipe Bob's already-resolved carried purchase
+    // just because a newer purchase showed up.
+    await service.resolveUtilityBillAsPlanned({
+      allMembers: true,
+      actorMemberId: 'alice',
+      periodArg: '2026-06'
+    })
+
+    expect(
+      repository.paymentPurchaseAllocations.some(
+        (allocation) =>
+          allocation.purchaseId === 'purchase-carried' && allocation.memberId === 'bob'
+      )
+    ).toBe(true)
+  })
+
   test('resolveUtilityBillAsPlanned carries excess purchase credit into the next cycle', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
