@@ -437,6 +437,10 @@ export interface FinanceDashboardUtilityBillingPlan {
     creditConsumed: Money
     policyTarget: 'utilities' | 'rent'
   }[]
+  // The current-cycle purchases whose shares this plan folded into member fair
+  // shares. Used to prevent plan-matched payments from auto-resolving same-cycle
+  // purchases that were logged after the plan and never priced into anyone's share.
+  accountedPurchaseIds?: readonly string[]
 }
 
 export interface FinanceDashboardRentBillingState {
@@ -1686,7 +1690,8 @@ function buildDashboardUtilityBillingPlan(input: {
         projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
     }),
-    carryForwardCredits: input.computed.carryForwardCredits
+    carryForwardCredits: input.computed.carryForwardCredits,
+    accountedPurchaseIds: input.planRecord.payload.purchaseIds ?? []
   }
 }
 
@@ -3060,6 +3065,26 @@ async function allocatePaymentPurchaseOverage(input: {
     (summary) => summary.memberId === input.memberId
   )
 
+  // A plan-matched payment only covers purchases the plan actually priced into
+  // member fair shares: the current-cycle purchases recorded on the plan, plus any
+  // carried-over purchases from earlier cycles (folded in via purchase offset).
+  // A current-cycle purchase that is NOT on the plan was logged after the plan was
+  // materialized and was never paid for, so it must not be auto-resolved here —
+  // otherwise a buy made on an already-settled plan closes itself for free.
+  const planAccountedPurchaseIds = new Set(utilityPlan?.accountedPurchaseIds ?? [])
+  const isPurchaseCoveredByPlan = (
+    entry: FinanceDashboardLedgerEntry & { kind: 'purchase' }
+  ): boolean => {
+    if (!utilityPlan) {
+      return true
+    }
+    if (planAccountedPurchaseIds.has(entry.id)) {
+      return true
+    }
+    // Carried over from an earlier cycle — its offset is baked into this plan.
+    return entry.isCurrentCyclePurchase !== true
+  }
+
   let remainingMinor: bigint
 
   if (plannedSummary && input.kind === 'utilities') {
@@ -3086,6 +3111,7 @@ async function allocatePaymentPurchaseOverage(input: {
             entry.resolutionStatus === 'unresolved' &&
             Array.isArray(entry.outstandingByMember)
         )
+        .filter((entry) => isPurchaseCoveredByPlan(entry))
         .reduce((sum, entry) => {
           const memberOutstanding = entry.outstandingByMember.find(
             (o) => o.memberId === input.memberId
@@ -3127,6 +3153,7 @@ async function allocatePaymentPurchaseOverage(input: {
         entry.resolutionStatus === 'unresolved' &&
         Array.isArray(entry.outstandingByMember)
     )
+    .filter((entry) => isPurchaseCoveredByPlan(entry))
     .sort((left, right) => {
       const leftKey = `${left.originPeriod ?? ''}:${left.occurredAt ?? ''}:${left.id}`
       const rightKey = `${right.originPeriod ?? ''}:${right.occurredAt ?? ''}:${right.id}`

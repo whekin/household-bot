@@ -4106,6 +4106,134 @@ describe('createFinanceCommandService', () => {
     expect(repository.utilityBillingPlans[0]?.status).toBe('settled')
   })
 
+  test('addPayment does not auto-resolve a same-cycle purchase logged after the plan', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.cycles = [{ id: 'cycle-2026-05', period: '2026-05', currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities'
+    }
+    repository.memberPresenceDays = [
+      { memberId: 'alice', period: '2026-05', daysPresent: 31 },
+      { memberId: 'bob', period: '2026-05', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-05',
+        billName: 'Gas',
+        amountMinor: 20000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-05-01T09:00:00.000Z')
+      }
+    ]
+    // Purchase belongs to the SAME cycle as the plan, but was logged after the plan
+    // was materialized, so it is absent from the plan's purchaseIds and was never
+    // priced into anyone's fair share. Paying the (un-rebalanced) plan must not
+    // silently close it for free.
+    repository.purchases = [
+      {
+        id: 'purchase-late',
+        cycleId: 'cycle-2026-05',
+        cyclePeriod: '2026-05',
+        payerMemberId: 'alice',
+        amountMinor: 1200n,
+        currency: 'GEL',
+        description: 'Late supplies',
+        occurredAt: instantFromIso('2026-05-20T09:00:00.000Z'),
+        splitMode: 'equal'
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-05',
+        version: 1,
+        status: 'settled',
+        dueDate: '2026-05-04',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 3,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '20000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '0',
+              isFullAssignment: false,
+              splitGroupId: 'bill-gas'
+            },
+            {
+              utilityBillId: 'bill-gas',
+              billName: 'Gas',
+              billTotalMinor: '20000',
+              assignedAmountMinor: '10000',
+              assignedMemberId: 'bob',
+              paidAmountMinor: '0',
+              isFullAssignment: false,
+              splitGroupId: 'bill-gas'
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [
+            {
+              memberId: 'alice',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            },
+            {
+              memberId: 'bob',
+              fairShareMinor: '10000',
+              vendorPaidMinor: '0',
+              assignedThisCycleMinor: '10000',
+              projectedDeltaAfterPlanMinor: '0'
+            }
+          ],
+          fairShareByMember: [
+            { memberId: 'alice', amountMinor: '10000' },
+            { memberId: 'bob', amountMinor: '10000' }
+          ],
+          preferredUtilityPayerMemberId: null
+        }
+      }
+    ]
+
+    const service = createService(repository)
+    // Bob pays above his planned utilities share, triggering the overage sweep.
+    await service.addPayment('bob', 'utilities', '110.00', 'GEL', '2026-05')
+
+    const allocations = repository.lastReplacedPaymentPurchaseAllocations
+    expect(
+      (allocations?.allocations ?? []).some(
+        (allocation) => allocation.purchaseId === 'purchase-late'
+      )
+    ).toBe(false)
+  })
+
   test('resolveUtilityBillAsPlanned carries excess purchase credit into the next cycle', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
