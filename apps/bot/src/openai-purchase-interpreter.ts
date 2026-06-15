@@ -213,6 +213,7 @@ export function createOpenAiPurchaseInterpreter(
               'Set amountSource to "explicit" when the user directly states the total amount, or "calculated" when you compute it from quantity x price or similar arithmetic.',
               'When amountSource is "calculated", also return a short calculationExplanation in the user message language, such as "5 × 6 lari = 30 lari".',
               'Ignore item quantities like rolls, kilograms, or layers unless they are clearly the money amount.',
+              'Any non-empty item label is acceptable as itemDescription, including foreign, transliterated, slang, brand, or mixed-script names (e.g. Russian plus Georgian like "корм მეიმუნი"). Record it verbatim as itemDescription. Never ask the user to restate, translate, or give a "clearer" or "exact" item name when amount and currency are already known.',
               'Infer intent from the message together with any provided context instead of relying on isolated keywords.',
               'Treat colloquial completed-buy phrasing like "взял", "сходил и взял", or "сторговался до X" as a completed purchase when the message reports a real buy fact.',
               'Treat Russian item-first completed purchases like "стиральный порошок уже купил 12 лари" as completed purchases when item, completed buy verb, amount, and currency are all present.',
