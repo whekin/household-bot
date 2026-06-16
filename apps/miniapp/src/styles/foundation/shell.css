@@ -267,10 +267,6 @@
     font-size: 0.76rem;
   }
 
-  .topbar__purchases-shortcut.ui-button {
-    display: none;
-  }
-
   .locale-switch__buttons button {
     padding: 7px 9px;
   }

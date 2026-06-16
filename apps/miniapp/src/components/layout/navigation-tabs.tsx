@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from '@solidjs/router'
-import { Home, Receipt, ScrollText, UsersRound } from 'lucide-solid'
+import { Home, Receipt, ShoppingBag, UsersRound } from 'lucide-solid'
 import { type JSX } from 'solid-js'
 
 import { useI18n } from '../../contexts/i18n-context'
@@ -21,9 +21,9 @@ export function NavigationTabs(): JSX.Element {
   const tabs = (): TabItem[] => [
     { path: '/', label: locale() === 'ru' ? 'Сегодня' : 'Today', icon: <Home size={20} /> },
     {
-      path: '/activity',
-      label: locale() === 'ru' ? 'Активность' : 'Activity',
-      icon: <ScrollText size={20} />
+      path: '/purchases',
+      label: copy().ledger,
+      icon: <ShoppingBag size={20} />
     },
     { path: '/bills', label: copy().bills, icon: <Receipt size={20} /> },
     {

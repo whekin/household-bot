@@ -1,4 +1,3 @@
-import { useNavigate } from '@solidjs/router'
 import { Show, createSignal, type ParentProps } from 'solid-js'
 
 import { useSession } from '../../contexts/session-context'
@@ -29,7 +28,6 @@ export function AppShell(props: ParentProps) {
     testingOverridesActive,
     applyDemoState
   } = useDashboard()
-  const navigate = useNavigate()
 
   const [testingSurfaceOpen, setTestingSurfaceOpen] = createSignal(false)
 
@@ -112,14 +110,6 @@ export function AppShell(props: ParentProps) {
               </button>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="topbar__purchases-shortcut"
-            onClick={() => navigate('/purchases')}
-          >
-            {copy().homeIdleViewPurchasesAction}
-          </Button>
         </div>
       </section>
 

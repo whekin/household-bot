@@ -1,6 +1,6 @@
 import { Show, For, Index, createEffect, createMemo, createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
-import { ArrowLeft, Globe, Plus, Receipt, User } from 'lucide-solid'
+import { ArrowLeft, Globe, Plus, Receipt, Scale, User } from 'lucide-solid'
 import { useLocation, useNavigate } from '@solidjs/router'
 
 import { useSession } from '../contexts/session-context'
@@ -617,6 +617,15 @@ export default function SettingsRoute() {
                 ? 'Профиль'
                 : 'Profile'}
           </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            class="settings-command__balances-action"
+            onClick={() => navigate('/balances')}
+          >
+            <Scale size={15} />
+            {copy().balances}
+          </Button>
           <Show when={effectiveIsAdmin() && adminSettings()}>
             <Button
               variant="primary"

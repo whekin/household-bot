@@ -10,7 +10,6 @@ import { LoadingState } from './components/session/loading-state'
 import { BlockedState } from './components/session/blocked-state'
 import { OnboardingState } from './components/session/onboarding-state'
 import HomeRoute from './routes/home'
-import ActivityRoute from './routes/activity'
 import BalancesRoute from './routes/balances'
 import BillsRoute from './routes/bills'
 import PurchasesRoute from './routes/purchases'
@@ -106,7 +105,6 @@ function AuthenticatedApp() {
   return (
     <Router root={AppShell}>
       <Route path="/" component={HomeRoute} />
-      <Route path="/activity" component={ActivityRoute} />
       <Route path="/balances" component={BalancesRoute} />
       <Route path="/bills" component={BillsRoute} />
       <Route path="/household" component={SettingsRoute} />
