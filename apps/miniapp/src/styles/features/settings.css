@@ -106,12 +106,13 @@
 .settings-hub-stat {
   display: grid;
   align-content: space-between;
-  gap: 8px;
-  min-height: 96px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 18px;
-  background: rgba(243, 238, 229, 0.024);
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.settings-hub-stat + .settings-hub-stat {
+  padding-left: 14px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 
 .settings-command__stats span {
@@ -139,7 +140,7 @@
   gap: 16px;
   padding: 18px 18px 16px;
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 26px;
+  border-radius: var(--radius-xl);
   background:
     linear-gradient(180deg, rgba(243, 238, 229, 0.035), rgba(243, 238, 229, 0.012)),
     rgba(23, 28, 25, 0.98);
@@ -207,10 +208,12 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 14px;
-  background: rgba(243, 238, 229, 0.024);
+  padding: 6px 12px 6px 0;
+}
+
+.settings-inline-summary-item + .settings-inline-summary-item {
+  padding-left: 16px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 
 .settings-inline-summary-item span {

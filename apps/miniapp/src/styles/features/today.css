@@ -28,7 +28,7 @@
   gap: 20px;
   padding: clamp(20px, 5.4vw, 30px);
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 40px;
+  border-radius: var(--radius-xl);
   background:
     radial-gradient(
       circle at 88% 12%,
@@ -41,9 +41,7 @@
       transparent 30%
     ),
     linear-gradient(180deg, rgba(243, 238, 229, 0.022), rgba(243, 238, 229, 0.008)), #24201d;
-  box-shadow:
-    inset 0 1px 0 rgba(243, 238, 229, 0.04),
-    0 28px 80px rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 1px 0 rgba(243, 238, 229, 0.04);
 }
 
 .today-command__grain {
@@ -201,11 +199,14 @@
   align-content: space-between;
   gap: 6px;
   min-width: 0;
-  min-height: 92px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 20px;
-  background: rgba(243, 238, 229, 0.024);
+  padding: 2px 0;
+}
+
+/* Hairline divider between the two stat columns instead of boxing each one. */
+.today-ledger-snapshot__stats article + article,
+.today-house-grid article + article {
+  padding-left: 16px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 
 .today-ledger-snapshot__stats span,

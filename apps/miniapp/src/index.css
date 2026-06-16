@@ -2213,20 +2213,25 @@ a {
 /* ── Card ─────────────────────────────────────────────── */
 
 .ui-card {
-  background:
-    linear-gradient(180deg, rgba(255, 248, 238, 0.03), rgba(255, 248, 238, 0)),
-    color-mix(in srgb, var(--bg-root) 82%, transparent);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: var(--radius-xl);
   padding: var(--spacing-xl);
-  transition:
-    border-color var(--transition-fast),
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: border-color var(--transition-fast);
   overflow: hidden;
-  backdrop-filter: blur(18px) saturate(120%);
-  -webkit-backdrop-filter: blur(18px) saturate(120%);
-  box-shadow: var(--shadow-md);
+}
+
+/* Decardify: a surface nested inside a card is not its own card. Strip the
+   frame so inner groupings read as sections separated by space, not boxes. */
+.ui-card .ui-card,
+.ui-card .stat-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
 }
 
 .ui-card--overflow-visible {
@@ -2255,15 +2260,13 @@ a {
 }
 
 .stat-card {
-  background: color-mix(in srgb, var(--bg-surface-glass) 94%, transparent);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
 }
 
 .stat-card__icon {
@@ -2288,14 +2291,17 @@ a {
 /* ── Collapsible ──────────────────────────────────────── */
 
 .ui-collapsible {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-    color-mix(in srgb, var(--bg-surface-glass) 96%, transparent);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  backdrop-filter: blur(16px) saturate(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(120%);
+}
+
+/* Nested inside a card it is just a divided section, not its own panel. */
+.ui-card .ui-collapsible {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .ui-collapsible__trigger {
@@ -4787,11 +4793,12 @@ a {
   display: grid;
   align-content: space-between;
   gap: 7px;
-  min-height: 68px;
-  padding: 10px 11px;
-  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
-  border-radius: 14px;
-  background: rgba(243, 238, 229, 0.024);
+  padding: 2px 0;
+}
+
+.purchase-page-command__stats > div + div {
+  padding-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 
 .purchase-page-command__stats span {

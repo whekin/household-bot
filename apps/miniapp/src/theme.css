@@ -69,10 +69,13 @@
   --text-3xl: clamp(1.8rem, 5vw, 2.4rem);
 
   /* ── Shadows ────────────────────────────────────────── */
-  --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.16);
-  --shadow-md: 0 18px 40px rgba(0, 0, 0, 0.22);
-  --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 42px 88px rgba(0, 0, 0, 0.38);
+  /* Flat editorial surfaces: elevation comes from hairline borders and the
+     base/surface contrast, not heavy drop shadows. Keep the larger steps only
+     for genuinely floating UI (modals, toasts, dropdowns). */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.22);
+  --shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.32);
 
   /* ── Transitions ────────────────────────────────────── */
   --transition-fast: 120ms ease;
