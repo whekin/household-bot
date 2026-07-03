@@ -309,6 +309,36 @@ describe('renderAuditNotification', () => {
     expect(rendered.details?.expandedText).toContain('Счета: Ион · Gas (Water) 93.06 ₾')
   })
 
+  test('omits the details block when amount, period and kind add nothing over the compact line', () => {
+    const utilityBill = renderAuditNotification({
+      locale: 'en',
+      actorDisplayName: 'Stas',
+      eventType: 'utility_bill.added',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        billName: 'Electricity',
+        amountMinor: '3584',
+        currency: 'GEL',
+        period: '2026-07'
+      }
+    })
+    expect(utilityBill.compactText).toBe('Stas added utility bill: Electricity 35.84 ₾ (July 2026)')
+    expect(utilityBill.details).toBeNull()
+
+    const rent = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Стас',
+      eventType: 'rent.updated',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        amountMinor: '241500',
+        currency: 'GEL',
+        period: '2026-07'
+      }
+    })
+    expect(rent.details).toBeNull()
+  })
+
   test('renders an actor-less celebratory milestone when utilities are fully paid', () => {
     const ru = renderAuditNotification({
       locale: 'ru',

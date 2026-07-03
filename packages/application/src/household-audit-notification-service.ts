@@ -415,17 +415,16 @@ function buildExpandedText(input: {
   const skippedMembers = paymentMemberDetails(input.metadata, 'skippedMembers')
   const utilityAssignments = utilityPlanAssignmentDetails(input.metadata)
 
+  // Amount, period and kind are already carried by the compact line, so they
+  // enrich the expanded view but never justify a "Details" button on their own.
   if (amountText) {
     lines.push(`${input.locale === 'ru' ? 'Сумма' : 'Amount'}: ${amountText}`)
-    hasMeaningfulDetail = true
   }
   if (period) {
     lines.push(`${input.locale === 'ru' ? 'Период' : 'Period'}: ${period}`)
-    hasMeaningfulDetail = true
   }
   if (kind) {
     lines.push(`${input.locale === 'ru' ? 'Тип' : 'Kind'}: ${kind}`)
-    hasMeaningfulDetail = true
   }
   if (payer) {
     lines.push(`${input.locale === 'ru' ? 'Плательщик' : 'Payer'}: ${payer}`)
