@@ -3024,11 +3024,25 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await service.resolveUtilityBillAsPlanned({
+        const resolveResult = await service.resolveUtilityBillAsPlanned({
           memberId,
           actorMemberId: actingMember.id,
           ...(periodArg ? { periodArg } : {})
         })
+        if (resolveResult?.settledJustNow) {
+          await recordCommandAudit({
+            resolved: {
+              member: actingMember,
+              service,
+              householdId,
+              householdName: household?.householdName ?? householdId
+            },
+            category: 'plan_events',
+            eventType: 'utility_plan.fully_paid',
+            summaryText: `Utilities for ${resolveResult.period} are fully settled`,
+            metadata: { period: resolveResult.period }
+          })
+        }
         const [plan, utilityCategories, billingSettings] = await Promise.all([
           service.generateCurrentBillPlan(periodArg),
           options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId),

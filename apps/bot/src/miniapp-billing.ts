@@ -2498,6 +2498,18 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             planStatus: result.plan?.status ?? null
           }
         })
+
+        if (result.settledJustNow) {
+          await recordMiniAppAuditEvent({
+            service: options.auditNotificationService,
+            logger: options.logger,
+            authMember: auth.member,
+            category: 'plan_events',
+            eventType: 'utility_plan.fully_paid',
+            summaryText: `Utilities for ${result.period} are fully settled`,
+            metadata: { period: result.period }
+          })
+        }
         options.logger?.info(
           {
             event: 'miniapp.utility_plan.resolve_completed',
@@ -2587,6 +2599,18 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
               planStatus: result.plan?.status ?? null
             }
           })
+
+          if (result.settledJustNow) {
+            await recordMiniAppAuditEvent({
+              service: options.auditNotificationService,
+              logger: options.logger,
+              authMember: auth.member,
+              category: 'plan_events',
+              eventType: 'utility_plan.fully_paid',
+              summaryText: `Utilities for ${result.period} are fully settled`,
+              metadata: { period: result.period }
+            })
+          }
         }
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

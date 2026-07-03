@@ -1283,6 +1283,32 @@ function utilityFactMatchesPlan(
   return fact.planId ? fact.planId === plan.id : fact.planVersion === plan.version
 }
 
+// True once every plan category is fully covered by on-plan vendor facts,
+// i.e. the last member paid their assigned share. Empty plans never count.
+function utilityPlanFullyCovered(input: {
+  plan: FinanceDashboardUtilityBillingPlan
+  vendorFacts: Parameters<typeof utilityMatchedPlanPaidMinor>[0]['vendorFacts']
+}): boolean {
+  if (input.plan.categories.length === 0) {
+    return false
+  }
+
+  return input.plan.categories.every((category) => {
+    if (category.assignedAmount.amountMinor <= 0n) {
+      return true
+    }
+
+    const paidMinor = utilityMatchedPlanPaidMinor({
+      plan: input.plan,
+      vendorFacts: input.vendorFacts,
+      utilityBillId: category.utilityBillId,
+      payerMemberId: category.assignedMemberId
+    })
+
+    return paidMinor >= category.assignedAmount.amountMinor
+  })
+}
+
 function currentUtilityBillingPlanRecord(
   plans: readonly Awaited<
     ReturnType<FinanceRepository['listUtilityBillingPlansForCycle']>
@@ -3241,6 +3267,22 @@ export interface FinanceCommandService {
     currency: CurrencyCode
     period: string
   } | null>
+  addUtilityBills(
+    entries: readonly {
+      billName: string
+      amountMajor: string
+    }[],
+    createdByMemberId: string,
+    currencyArg?: string,
+    periodArg?: string
+  ): Promise<{
+    entries: readonly {
+      billName: string
+      amount: Money
+    }[]
+    currency: CurrencyCode
+    period: string
+  } | null>
   updateUtilityBill(
     billId: string,
     billName: string,
@@ -3351,6 +3393,7 @@ export interface FinanceCommandService {
       billName: string
       amount: Money
     }[]
+    settledJustNow: boolean
     plan: FinanceDashboardUtilityBillingPlan | null
   } | null>
   recordUtilityVendorPayment(input: {
@@ -3362,6 +3405,7 @@ export interface FinanceCommandService {
     periodArg?: string
   }): Promise<{
     period: string
+    settledJustNow: boolean
     plan: FinanceDashboardUtilityBillingPlan | null
   } | null>
   recordUtilityReimbursement(input: {
@@ -3430,6 +3474,28 @@ export function createFinanceCommandService(
 
     if (settings.rentAmountMinor !== null) {
       await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency)
+    }
+
+    return cycle
+  }
+
+  async function ensureCycleForPeriod(
+    settings: HouseholdBillingSettingsRecord,
+    periodArg?: string
+  ): Promise<FinanceCycleRecord> {
+    if (!periodArg) {
+      return ensureExpectedCycle()
+    }
+
+    const period = BillingPeriod.fromString(periodArg).toString()
+    let cycle = await repository.getCycleByPeriod(period)
+    if (!cycle) {
+      await repository.openCycle(period, settings.settlementCurrency)
+      cycle = await repository.getCycleByPeriod(period)
+    }
+
+    if (!cycle) {
+      throw new Error(`Failed to ensure billing cycle for period ${period}`)
     }
 
     return cycle
@@ -3754,22 +3820,7 @@ export function createFinanceCommandService(
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
-      const targetCycle = periodArg
-        ? await (async () => {
-            const period = BillingPeriod.fromString(periodArg).toString()
-            let cycle = await repository.getCycleByPeriod(period)
-            if (!cycle) {
-              await repository.openCycle(period, settings.settlementCurrency)
-              cycle = await repository.getCycleByPeriod(period)
-            }
-
-            if (!cycle) {
-              throw new Error(`Failed to ensure billing cycle for period ${period}`)
-            }
-
-            return cycle
-          })()
-        : await ensureExpectedCycle()
+      const targetCycle = await ensureCycleForPeriod(settings, periodArg)
 
       const currency = parseCurrency(currencyArg, settings.settlementCurrency)
       const amount = Money.fromMajor(amountArg, currency)
@@ -3785,6 +3836,40 @@ export function createFinanceCommandService(
 
       return {
         amount,
+        currency,
+        period: targetCycle.period
+      }
+    },
+
+    async addUtilityBills(entries, createdByMemberId, currencyArg, periodArg) {
+      if (entries.length === 0) {
+        return null
+      }
+
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const targetCycle = await ensureCycleForPeriod(settings, periodArg)
+      const currency = parseCurrency(currencyArg, settings.settlementCurrency)
+
+      const savedEntries: { billName: string; amount: Money }[] = []
+      for (const entry of entries) {
+        const amount = Money.fromMajor(entry.amountMajor, currency)
+        await repository.addUtilityBill({
+          cycleId: targetCycle.id,
+          billName: entry.billName,
+          amountMinor: amount.amountMinor,
+          currency,
+          createdByMemberId
+        })
+        savedEntries.push({ billName: entry.billName, amount })
+      }
+
+      // Recompute the plan once for the whole batch instead of per bill.
+      await invalidateUtilityBillingPlanForCycle(repository, targetCycle.id)
+
+      return {
+        entries: savedEntries,
         currency,
         period: targetCycle.period
       }
@@ -4463,19 +4548,12 @@ export function createFinanceCommandService(
         resolvedBillIds.push(...result.resolvedBillIds)
       }
 
-      // Check if all plan categories are now covered by vendor facts → settle the plan
+      // Settle the plan once the last assigned share is covered by on-plan facts.
       const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
-      const allCategoriesCovered = utilityPlan.categories.every((category) => {
-        const paidMinor = utilityMatchedPlanPaidMinor({
-          plan: utilityPlan,
-          vendorFacts,
-          utilityBillId: category.utilityBillId,
-          payerMemberId: category.assignedMemberId
-        })
-
-        return paidMinor >= category.assignedAmount.amountMinor
-      })
-      if (allCategoriesCovered) {
+      const settledJustNow =
+        utilityPlan.status !== 'settled' &&
+        utilityPlanFullyCovered({ plan: utilityPlan, vendorFacts })
+      if (settledJustNow) {
         await repository.updateUtilityBillingPlanStatus(utilityPlan.id, 'settled')
       }
 
@@ -4486,6 +4564,7 @@ export function createFinanceCommandService(
         period: dashboard.period,
         resolvedBillIds: [...new Set(resolvedBillIds)],
         resolvedAssignments,
+        settledJustNow,
         plan: nextDashboard?.utilityBillingPlan ?? null
       }
     },
@@ -4541,6 +4620,17 @@ export function createFinanceCommandService(
         recordedAt: nowInstant()
       })
 
+      // Settle the plan when this on-plan payment covers the last assigned share.
+      const plan = dashboard.utilityBillingPlan
+      let settledJustNow = false
+      if (matchingCategory && plan && plan.status !== 'settled') {
+        const vendorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+        if (utilityPlanFullyCovered({ plan, vendorFacts })) {
+          await repository.updateUtilityBillingPlanStatus(plan.id, 'settled')
+          settledJustNow = true
+        }
+      }
+
       // Only skip rebalancing for on-plan payments.
       // Off-plan payments (when someone pays a bill not assigned to them) must trigger rebalancing.
       const nextDashboard = await buildFinanceDashboard(dependencies, dashboard.period, {
@@ -4548,6 +4638,7 @@ export function createFinanceCommandService(
       })
       return {
         period: dashboard.period,
+        settledJustNow,
         plan: nextDashboard?.utilityBillingPlan ?? null
       }
     },

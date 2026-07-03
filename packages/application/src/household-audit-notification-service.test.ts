@@ -308,6 +308,27 @@ describe('renderAuditNotification', () => {
     )
     expect(rendered.details?.expandedText).toContain('Счета: Ион · Gas (Water) 93.06 ₾')
   })
+
+  test('renders an actor-less celebratory milestone when utilities are fully paid', () => {
+    const ru = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Стас',
+      eventType: 'utility_plan.fully_paid',
+      fallbackSummaryText: 'fallback',
+      metadata: { period: '2026-07' }
+    })
+    expect(ru.compactText).toBe('🎉 Коммуналка за июль 2026 г. закрыта — все платежи внесены!')
+    expect(ru.details).toBeNull()
+
+    const en = renderAuditNotification({
+      locale: 'en',
+      actorDisplayName: 'Stas',
+      eventType: 'utility_plan.fully_paid',
+      fallbackSummaryText: 'fallback',
+      metadata: { period: '2026-07' }
+    })
+    expect(en.compactText).toBe('🎉 Utilities for July 2026 are fully settled — everyone has paid!')
+  })
 })
 
 describe('createHouseholdAuditNotificationService', () => {

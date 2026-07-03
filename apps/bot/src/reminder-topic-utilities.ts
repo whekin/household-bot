@@ -573,15 +573,15 @@ export function registerReminderTopicUtilities(options: {
     }
 
     const financeService = options.financeServiceForHousehold(payload.householdId!)
-    for (const entry of payload.entries) {
-      await financeService.addUtilityBill(
-        entry.billName,
-        entry.amountMajor,
-        payload.memberId!,
-        payload.currency,
-        payload.period!
-      )
-    }
+    await financeService.addUtilityBills(
+      payload.entries.map((entry) => ({
+        billName: entry.billName,
+        amountMajor: entry.amountMajor
+      })),
+      payload.memberId!,
+      payload.currency,
+      payload.period!
+    )
 
     const publishResult = await options.paymentInstructionPublisher
       ?.sendPaymentInstruction({

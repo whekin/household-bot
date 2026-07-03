@@ -490,6 +490,7 @@ function createFinanceService(): FinanceCommandService {
     closeCycle: async () => null,
     setRent: async () => null,
     addUtilityBill: async () => null,
+    addUtilityBills: async () => null,
     updateUtilityBill: async () => null,
     deleteUtilityBill: async () => false,
     updatePurchase: async () => null,

@@ -3410,6 +3410,76 @@ describe('createFinanceCommandService', () => {
     ).toBe(true)
   })
 
+  test('recordUtilityVendorPayment settles the plan when the last assigned share is paid', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.openCycleRecord = {
+      id: 'cycle-2026-04',
+      period: '2026-04',
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        billName: 'Electricity',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        billName: 'Gas',
+        amountMinor: 10000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-04-01T09:01:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const initialPlan = await service.generateCurrentBillPlan('2026-04')
+    const assignmentByBill = new Map(
+      (initialPlan?.utilityBillingPlan?.categories ?? []).map((category) => [
+        category.utilityBillId,
+        category.assignedMemberId
+      ])
+    )
+
+    const firstPayment = await service.recordUtilityVendorPayment({
+      utilityBillId: 'bill-electricity',
+      payerMemberId: assignmentByBill.get('bill-electricity')!,
+      periodArg: '2026-04'
+    })
+    expect(firstPayment?.settledJustNow).toBe(false)
+    expect(repository.utilityBillingPlans.every((plan) => plan.status !== 'settled')).toBe(true)
+
+    const secondPayment = await service.recordUtilityVendorPayment({
+      utilityBillId: 'bill-gas',
+      payerMemberId: assignmentByBill.get('bill-gas')!,
+      periodArg: '2026-04'
+    })
+    expect(secondPayment?.settledJustNow).toBe(true)
+    expect(secondPayment?.plan?.status).toBe('settled')
+  })
+
   test('resolveUtilityBillAsPlanned shows correct vendorPaid and projectedDelta on dashboard', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

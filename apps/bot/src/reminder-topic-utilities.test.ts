@@ -281,6 +281,23 @@ function createFinanceService(): FinanceCommandService & {
         period: '2026-03'
       }
     },
+    addUtilityBills: async function (entries, createdByMemberId, currencyArg, periodArg) {
+      for (const entry of entries) {
+        this.addedUtilityBills.push({
+          billName: entry.billName,
+          amountMajor: entry.amountMajor,
+          createdByMemberId,
+          ...(currencyArg ? { currency: currencyArg } : {}),
+          ...(periodArg ? { periodArg } : {})
+        })
+      }
+
+      return {
+        entries: [],
+        currency: 'GEL',
+        period: '2026-03'
+      }
+    },
     updateUtilityBill: async () => null,
     deleteUtilityBill: async () => false,
     updatePurchase: async () => null,

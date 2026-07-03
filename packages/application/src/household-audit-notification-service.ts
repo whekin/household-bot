@@ -509,6 +509,19 @@ export function renderAuditNotification(input: {
   compactText: string
   details: HouseholdAuditNotificationDetails | null
 } {
+  // Milestone: every planned utility share is paid. Actor-less, celebratory.
+  if (input.eventType === 'utility_plan.fully_paid') {
+    const periodLabel = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
+    const compactText =
+      input.locale === 'ru'
+        ? `🎉 Коммуналка${periodLabel ? ` за ${periodLabel}` : ''} закрыта — все платежи внесены!`
+        : `🎉 Utilities${periodLabel ? ` for ${periodLabel}` : ''} are fully settled — everyone has paid!`
+    return {
+      compactText,
+      details: null
+    }
+  }
+
   const actor = input.actorDisplayName.trim() || (input.locale === 'ru' ? 'Кто-то' : 'Someone')
   const actorPrefix = input.locale === 'ru' ? `${actor}:` : actor
   const action = actionText(input.locale, input.eventType)

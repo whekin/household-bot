@@ -331,6 +331,14 @@ function createFinanceServiceStub(): FinanceCommandService & {
       currency: 'USD',
       period: '2026-03'
     }),
+    addUtilityBills: async (entries) => ({
+      entries: entries.map((entry) => ({
+        billName: entry.billName,
+        amount: Money.fromMinor(4500n, 'USD')
+      })),
+      currency: 'USD',
+      period: '2026-03'
+    }),
     updateUtilityBill: async () => ({
       billId: 'utility-1',
       amount: Money.fromMinor(4500n, 'USD'),
@@ -388,6 +396,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
             amount: Money.fromMinor(12000n, 'GEL')
           }
         ],
+        settledJustNow: false,
         plan: null
       }
     },
@@ -395,6 +404,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
       this.utilityVendorPayments.push(input)
       return {
         period: input.periodArg ?? '2026-03',
+        settledJustNow: false,
         plan: null
       }
     },
