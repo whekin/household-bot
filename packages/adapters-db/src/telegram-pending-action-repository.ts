@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import { instantFromDatabaseValue, instantToDate, nowInstant, Temporal } from '@household/domain'
@@ -179,7 +179,13 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
             eq(schema.telegramPendingActions.telegramUserId, telegramUserId),
             eq(schema.telegramPendingActions.action, action),
             sql`${schema.telegramPendingActions.payload}->>${key} = ${value}`,
-            sql`(${schema.telegramPendingActions.expiresAt} is null or ${schema.telegramPendingActions.expiresAt} > ${instantToDate(nowInstant())})`
+            // Use drizzle operators (not a raw sql template) so the timestamptz
+            // codec binds the Date; a raw template passes it unmapped and the
+            // postgres.js driver throws on a Date parameter.
+            or(
+              isNull(schema.telegramPendingActions.expiresAt),
+              gt(schema.telegramPendingActions.expiresAt, instantToDate(nowInstant()))
+            )
           )
         )
         .returning({
