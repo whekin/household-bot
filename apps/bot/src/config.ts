@@ -13,6 +13,9 @@ export interface BotRuntimeConfig {
   miniAppAuthEnabled: boolean
   schedulerSharedSecret?: string
   schedulerOidcAllowedEmails: readonly string[]
+  // In-process poll cadence for the self-hosted provider (which has no external
+  // scheduler). Ignored for gcp/aws, where an external scheduler drives delivery.
+  schedulerPollIntervalMs: number
   scheduledDispatch?:
     | {
         provider: 'gcp-cloud-tasks'
@@ -201,6 +204,11 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     miniAppAllowedOrigins,
     miniAppAuthEnabled,
     schedulerOidcAllowedEmails,
+    schedulerPollIntervalMs: parsePositiveInteger(
+      env.SCHEDULER_POLL_INTERVAL_MS,
+      60_000,
+      'SCHEDULER_POLL_INTERVAL_MS'
+    ),
     purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-5.4-mini',
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.4-mini',
     topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4.1-nano',

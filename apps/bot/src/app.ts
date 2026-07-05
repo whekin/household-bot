@@ -985,6 +985,49 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     await scheduledDispatchService.reconcileAllBuiltInDispatches()
   }
 
+  // The self-hosted provider has no external scheduler, so poll for due
+  // dispatches in-process. gcp/aws are driven by their own scheduler calling
+  // /jobs/dispatch-due, so we must not double-poll there.
+  if (scheduledDispatchHandler && runtime.scheduledDispatch?.provider === 'self-hosted') {
+    const schedulerLogger = getLogger('scheduler')
+    const intervalMs = runtime.schedulerPollIntervalMs
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
+
+    const tick = async () => {
+      try {
+        await scheduledDispatchHandler.handleDueDispatches(
+          new Request('http://internal/jobs/dispatch-due?limit=25')
+        )
+      } catch (error) {
+        schedulerLogger.error(
+          {
+            event: 'scheduler.in_process_tick_failed',
+            error: error instanceof Error ? error.message : String(error)
+          },
+          'In-process scheduled dispatch poll failed'
+        )
+      } finally {
+        if (!stopped) {
+          pollTimer = setTimeout(() => void tick(), intervalMs)
+        }
+      }
+    }
+
+    pollTimer = setTimeout(() => void tick(), intervalMs)
+    shutdownTasks.push(async () => {
+      stopped = true
+      if (pollTimer) {
+        clearTimeout(pollTimer)
+      }
+    })
+
+    schedulerLogger.info(
+      { event: 'scheduler.in_process_poller_started', intervalMs },
+      'In-process scheduled dispatch poller started'
+    )
+  }
+
   return {
     fetch: server.fetch,
     runtime,
