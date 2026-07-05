@@ -4,7 +4,7 @@ import {
   type FinanceCommandService,
   type MemberPaymentGuidance
 } from '@household/application'
-import { Money } from '@household/domain'
+import { convertMoney, Money } from '@household/domain'
 import type {
   FinanceMemberRecord,
   FinancePaymentKind,
@@ -860,9 +860,20 @@ export async function createAgentPaymentProposal(input: {
     return { status: 'no_action', reason: 'payment_kind_ambiguous' }
   }
 
-  const explicitAmount = targetMemberIds.length > 1 ? input.perMemberAmount : input.explicitAmount
+  let explicitAmount = targetMemberIds.length > 1 ? input.perMemberAmount : input.explicitAmount
   if (explicitAmount && explicitAmount.currency !== dashboard.currency) {
-    return { status: 'unsupported_currency' }
+    // Rent is often quoted in its source currency ("оплатил аренду 175usd");
+    // convert with the cycle's own FX rate so the recorded amount matches billing.
+    if (
+      kind === 'rent' &&
+      dashboard.rentFxRateMicros &&
+      dashboard.rentFxRateMicros > 0n &&
+      explicitAmount.currency === dashboard.rentSourceAmount.currency
+    ) {
+      explicitAmount = convertMoney(explicitAmount, dashboard.currency, dashboard.rentFxRateMicros)
+    } else {
+      return { status: 'unsupported_currency' }
+    }
   }
 
   if (targetMemberIds.length > 1) {

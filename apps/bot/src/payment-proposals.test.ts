@@ -113,6 +113,87 @@ function financeServiceWithUtilityPlan(): FinanceCommandService {
   } as unknown as FinanceCommandService
 }
 
+function financeServiceWithUsdRent(): FinanceCommandService {
+  return {
+    generateDashboard: async () => ({
+      period: '2026-06',
+      currency: 'GEL',
+      timezone: 'Asia/Tbilisi',
+      rentWarningDay: 17,
+      rentDueDay: 20,
+      utilitiesReminderDay: 3,
+      utilitiesDueDay: 5,
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      rentPaymentDestinations: null,
+      totalDue: Money.fromMajor('1890.00', 'GEL'),
+      totalPaid: Money.zero('GEL'),
+      totalRemaining: Money.fromMajor('1890.00', 'GEL'),
+      billingStage: 'rent',
+      rentSourceAmount: Money.fromMajor('700.00', 'USD'),
+      rentDisplayAmount: Money.fromMajor('1890.00', 'GEL'),
+      rentFxRateMicros: 2_700_000n,
+      rentFxEffectiveDate: '2026-06-01',
+      utilityBillingPlan: null,
+      rentBillingState: {
+        dueDate: '2026-06-20',
+        memberSummaries: [],
+        paymentDestinations: null
+      },
+      members: [
+        {
+          memberId: 'dima',
+          displayName: 'Дима',
+          rentShare: Money.fromMajor('472.50', 'GEL'),
+          utilityShare: Money.zero('GEL'),
+          purchaseOffset: Money.zero('GEL'),
+          netDue: Money.fromMajor('472.50', 'GEL'),
+          paid: Money.zero('GEL'),
+          remaining: Money.fromMajor('472.50', 'GEL'),
+          overduePayments: [],
+          explanations: []
+        }
+      ],
+      paymentPeriods: [
+        {
+          period: '2026-06',
+          utilityTotal: Money.zero('GEL'),
+          hasOverdueBalance: false,
+          isCurrentPeriod: true,
+          kinds: [
+            {
+              kind: 'rent',
+              totalDue: Money.fromMajor('1890.00', 'GEL'),
+              totalPaid: Money.zero('GEL'),
+              totalRemaining: Money.fromMajor('1890.00', 'GEL'),
+              unresolvedMembers: [
+                {
+                  memberId: 'dima',
+                  displayName: 'Дима',
+                  suggestedAmount: Money.fromMajor('472.50', 'GEL'),
+                  baseDue: Money.fromMajor('472.50', 'GEL'),
+                  paid: Money.zero('GEL'),
+                  remaining: Money.fromMajor('472.50', 'GEL'),
+                  effectivelySettled: false
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      ledger: []
+    }),
+    listMembers: async () => [
+      {
+        id: 'dima',
+        telegramUserId: '10001',
+        displayName: 'Dima',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+  } as unknown as FinanceCommandService
+}
+
 describe('payment proposals', () => {
   test('uses the active utility payment-period amount instead of recomputing from purchase offset', async () => {
     const result = await createAgentPaymentProposal({
@@ -140,5 +221,39 @@ describe('payment proposals', () => {
     expect(text).toContain('66.44 ₾')
     expect(text).not.toContain('Сумма по плану коммуналки')
     expect(text).not.toContain('Баланс по общим покупкам')
+  })
+
+  test('converts a USD rent amount with the cycle FX rate', async () => {
+    const result = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'dima',
+      additionalMemberIds: [],
+      kind: 'rent',
+      explicitAmount: Money.fromMajor('175', 'USD'),
+      perMemberAmount: null,
+      financeService: financeServiceWithUsdRent(),
+      householdConfigurationRepository
+    })
+
+    expect(result.status).toBe('proposal')
+    if (result.status !== 'proposal') return
+
+    expect(result.payload.currency).toBe('GEL')
+    expect(result.payload.amountMinor).toBe('47250')
+  })
+
+  test('rejects foreign-currency amounts when no rent FX rate applies', async () => {
+    const result = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'dima',
+      additionalMemberIds: [],
+      kind: 'utilities',
+      explicitAmount: Money.fromMajor('20', 'USD'),
+      perMemberAmount: null,
+      financeService: financeServiceWithUtilityPlan(),
+      householdConfigurationRepository
+    })
+
+    expect(result).toEqual({ status: 'unsupported_currency' })
   })
 })
