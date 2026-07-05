@@ -17,9 +17,8 @@ import { registerAnonymousFeedback } from './anonymous-feedback'
 import {
   createInMemoryAssistantConversationMemoryStore,
   createInMemoryAssistantRateLimiter,
-  createInMemoryAssistantUsageTracker,
-  registerDmAssistant
-} from './dm-assistant'
+  createInMemoryAssistantUsageTracker
+} from './assistant-state'
 import { createFinanceCommandsService } from './finance-commands'
 import { createTelegramBot } from './bot'
 import { getBotRuntimeConfig, type BotRuntimeConfig } from './config'
@@ -66,9 +65,7 @@ import {
   createMiniAppCancelNotificationHandler,
   createMiniAppUpdateNotificationHandler
 } from './miniapp-notifications'
-import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
-import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
 import { registerAgentActionCallbacks } from './agent-confirmations'
 import { registerHouseholdAgent } from './household-agent'
 import { registerPurchaseTopicCallbacks } from './purchase-topic-ingestion'
@@ -161,10 +158,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
     : null
-  const purchaseInterpreter = createOpenAiPurchaseInterpreter(
-    runtime.openaiApiKey,
-    runtime.purchaseParserModel
-  )
   const adHocNotificationInterpreter = createOpenAiAdHocNotificationInterpreter({
     apiKey: runtime.openaiApiKey,
     parserModel: runtime.purchaseParserModel,
@@ -181,11 +174,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     rollingWindowMs: runtime.assistantRateLimitRollingWindowMs
   })
   const assistantUsageTracker = createInMemoryAssistantUsageTracker()
-  const conversationalAssistant = createOpenAiChatAssistant(
-    runtime.openaiApiKey,
-    runtime.assistantModel,
-    runtime.assistantTimeoutMs
-  )
   const wakeClassifier = createOpenAiWakeClassifier(
     runtime.openaiApiKey,
     runtime.assistantModel,
@@ -473,48 +461,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       },
       'Anonymous feedback is disabled. Set DATABASE_URL to enable household and topic lookups.'
     )
-  }
-
-  if (
-    runtime.assistantEnabled &&
-    householdConfigurationRepositoryClient &&
-    telegramPendingActionRepositoryClient
-  ) {
-    registerDmAssistant({
-      bot,
-      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-      promptRepository: telegramPendingActionRepositoryClient.repository,
-      financeServiceForHousehold,
-      memoryStore: assistantMemoryStore,
-      rateLimiter: assistantRateLimiter,
-      usageTracker: assistantUsageTracker,
-      ...(processedBotMessageRepositoryClient
-        ? {
-            messageProcessingRepository: processedBotMessageRepositoryClient.repository
-          }
-        : {}),
-      ...(purchaseRepositoryClient
-        ? {
-            purchaseRepository: purchaseRepositoryClient.repository
-          }
-        : {}),
-      ...(topicMessageHistoryRepositoryClient
-        ? {
-            topicMessageHistoryRepository: topicMessageHistoryRepositoryClient.repository
-          }
-        : {}),
-      ...(purchaseInterpreter
-        ? {
-            purchaseInterpreter
-          }
-        : {}),
-      ...(conversationalAssistant
-        ? {
-            assistant: conversationalAssistant
-          }
-        : {}),
-      logger: getLogger('dm-assistant')
-    })
   }
 
   if (

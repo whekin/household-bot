@@ -11,8 +11,7 @@ import type {
 import { getBotTranslations, type BotLocale } from './i18n'
 import type {
   PurchaseInterpretationAmountSource,
-  PurchaseInterpretation,
-  PurchaseMessageInterpreter
+  PurchaseInterpretation
 } from './openai-purchase-interpreter'
 import {
   hasTelegramMessageAttachment,
@@ -198,18 +197,6 @@ export type PurchaseProposalAmountCorrectionResult =
 export interface PurchaseMessageIngestionRepository {
   hasClarificationContext(record: PurchaseTopicRecord): Promise<boolean>
   clearClarificationContext?(record: PurchaseTopicRecord): Promise<void>
-  /**
-   * @deprecated Use saveWithInterpretation instead. This method will be removed.
-   */
-  save(
-    record: PurchaseTopicRecord,
-    interpreter?: PurchaseMessageInterpreter,
-    defaultCurrency?: 'GEL' | 'USD',
-    options?: {
-      householdContext?: string | null
-      assistantTone?: string | null
-    }
-  ): Promise<PurchaseMessageIngestionResult>
   saveWithInterpretation(
     record: PurchaseTopicRecord,
     interpretation: PurchaseInterpretation

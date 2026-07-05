@@ -7,7 +7,7 @@ import {
   type HouseholdNotificationSettingsRecord
 } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
-import type { AssistantUsageTracker } from './dm-assistant'
+import type { AssistantUsageTracker } from './assistant-state'
 
 import {
   allowedMiniAppOrigin,

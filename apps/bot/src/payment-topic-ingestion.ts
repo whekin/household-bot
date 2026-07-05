@@ -880,7 +880,11 @@ export function registerPaymentTopicCallbacks(
   bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_CLARIFICATION_CANCEL_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      if (
+        ctx.chat?.type !== 'group' &&
+        ctx.chat?.type !== 'supergroup' &&
+        ctx.chat?.type !== 'private'
+      ) {
         return
       }
 
@@ -944,7 +948,11 @@ export function registerPaymentTopicCallbacks(
   bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_MULTI_TOGGLE_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
     async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      if (
+        ctx.chat?.type !== 'group' &&
+        ctx.chat?.type !== 'supergroup' &&
+        ctx.chat?.type !== 'private'
+      ) {
         return
       }
 
@@ -1018,7 +1026,11 @@ export function registerPaymentTopicCallbacks(
   bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_MULTI_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      if (
+        ctx.chat?.type !== 'group' &&
+        ctx.chat?.type !== 'supergroup' &&
+        ctx.chat?.type !== 'private'
+      ) {
         return
       }
 
@@ -1175,7 +1187,11 @@ export function registerPaymentTopicCallbacks(
   bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_MULTI_CANCEL_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      if (
+        ctx.chat?.type !== 'group' &&
+        ctx.chat?.type !== 'supergroup' &&
+        ctx.chat?.type !== 'private'
+      ) {
         return
       }
 
@@ -1243,7 +1259,11 @@ export function registerPaymentTopicCallbacks(
   bot.callbackQuery(
     new RegExp(`^${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}([^:]+)$`),
     async (ctx) => {
-      if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+      if (
+        ctx.chat?.type !== 'group' &&
+        ctx.chat?.type !== 'supergroup' &&
+        ctx.chat?.type !== 'private'
+      ) {
         return
       }
 
@@ -1361,7 +1381,11 @@ export function registerPaymentTopicCallbacks(
   )
 
   bot.callbackQuery(new RegExp(`^${PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX}([^:]+)$`), async (ctx) => {
-    if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+    if (
+      ctx.chat?.type !== 'group' &&
+      ctx.chat?.type !== 'supergroup' &&
+      ctx.chat?.type !== 'private'
+    ) {
       return
     }
 

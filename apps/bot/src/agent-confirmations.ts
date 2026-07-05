@@ -249,7 +249,11 @@ export function registerAgentActionCallbacks(
   }
 ): void {
   async function resolveCallbackAction(ctx: Context, actionId: string) {
-    if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+    if (
+      ctx.chat?.type !== 'group' &&
+      ctx.chat?.type !== 'supergroup' &&
+      ctx.chat?.type !== 'private'
+    ) {
       return null
     }
 

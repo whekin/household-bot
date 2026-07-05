@@ -274,6 +274,13 @@
       "when": 1783281629865,
       "tag": "0038_pending_actions_per_action",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783281629866,
+      "tag": "0039_drop_dm_assistant_pending_actions",
+      "breakpoints": true
     }
   ]
 }

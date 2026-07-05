@@ -39,6 +39,7 @@
     "0035_purchase_topic_messages.sql": "0a25fd8e62bc4eb4bd6e81f6b2cf1f5fb4bd1a0ba61f898b5afe27a1c4e7ccc7",
     "0036_payment_confirmation_source_key.sql": "51a941f9625bfca7d2dce4bcb4c10f2ec71eed84760055e338364886a6104236",
     "0037_close_payment_idempotency.sql": "07d0c98c98790a400e9dc09b868fe041b5f0cc9fdfd36da924ef292953a4fca2",
-    "0038_pending_actions_per_action.sql": "146e4c8d94226af508f31a914e1edf90247036a6758b3064ffc2c6186baf5c57"
+    "0038_pending_actions_per_action.sql": "146e4c8d94226af508f31a914e1edf90247036a6758b3064ffc2c6186baf5c57",
+    "0039_drop_dm_assistant_pending_actions.sql": "0a7f0c5301dfe8614c1dd4063322148cde7c260ee8ce4f575d2e7709227627df"
   }
 }

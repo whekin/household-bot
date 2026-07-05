@@ -3,9 +3,7 @@ import type { Instant } from '@household/domain'
 export const TELEGRAM_PENDING_ACTION_TYPES = [
   'ad_hoc_notification',
   'agent_action',
-  'assistant_command_suggestion',
   'anonymous_feedback',
-  'assistant_payment_confirmation',
   'bill_command',
   'household_group_invite',
   'payment_topic_clarification',

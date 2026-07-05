@@ -22,7 +22,7 @@ import {
   type AssistantUsageTracker
 } from './assistant-state'
 import type { HouseholdContextCache } from './household-context-cache'
-import { resolveBotLocale, type BotLocale } from './i18n'
+import { getBotTranslations, resolveBotLocale, type BotLocale } from './i18n'
 import { runToolSession } from './openai-tool-session'
 import type { PurchaseMessageIngestionRepository } from './purchase-topic-ingestion'
 import { availableAssistantCommandCatalog } from './telegram-commands'
@@ -43,7 +43,7 @@ import { assessWake, type WakeClassifier, type WakeGateTopicRole } from './wake-
 const AGENT_HISTORY_LIMIT = 12
 
 const AGENT_SYSTEM_PROMPT = [
-  'You are Kojori (Кожур), the assistant of one shared household in a Telegram group chat.',
+  'You are Kojori (Кожур), the assistant of one shared household on Telegram (group topics and private chats).',
   'You help members track rent, utilities, and shared purchases, and you can chat casually when addressed.',
   '',
   'Hard rules:',
@@ -85,6 +85,30 @@ interface ResolvedAgentTarget {
   householdId: string
   topicRole: WakeGateTopicRole
   locale: BotLocale
+  isPrivate: boolean
+}
+
+type AgentTargetResolution =
+  | { status: 'ok'; target: ResolvedAgentTarget }
+  | { status: 'no_household' }
+  | { status: 'multiple_households' }
+  | { status: 'not_applicable' }
+
+function formatRetryDelay(locale: BotLocale, retryAfterMs: number): string {
+  const t = getBotTranslations(locale).assistant
+  const roundedMinutes = Math.ceil(retryAfterMs / 60_000)
+
+  if (roundedMinutes <= 1) {
+    return t.retryInLessThanMinute
+  }
+
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
+  const parts = [hours > 0 ? t.hour(hours) : null, minutes > 0 ? t.minute(minutes) : null].filter(
+    Boolean
+  )
+
+  return t.retryIn(parts.join(' '))
 }
 
 function toAgentTopicRole(role: string): WakeGateTopicRole {
@@ -102,10 +126,39 @@ function toAgentTopicRole(role: string): WakeGateTopicRole {
 async function resolveAgentTarget(
   ctx: Context,
   repository: HouseholdConfigurationRepository
-): Promise<ResolvedAgentTarget | null> {
+): Promise<AgentTargetResolution> {
   const chatId = ctx.chat?.id?.toString()
   if (!chatId) {
-    return null
+    return { status: 'not_applicable' }
+  }
+
+  if (ctx.chat?.type === 'private') {
+    const telegramUserId = ctx.from?.id?.toString()
+    if (!telegramUserId) {
+      return { status: 'not_applicable' }
+    }
+
+    const memberships = await repository.listHouseholdMembersByTelegramUserId(telegramUserId)
+    const activeMemberships = memberships.filter((member) => member.status !== 'left')
+    if (activeMemberships.length === 0) {
+      return { status: 'no_household' }
+    }
+    if (activeMemberships.length > 1) {
+      return { status: 'multiple_households' }
+    }
+
+    const member = activeMemberships[0]!
+    return {
+      status: 'ok',
+      target: {
+        householdId: member.householdId,
+        topicRole: 'generic',
+        locale: resolveBotLocale(
+          member.preferredLocale ?? member.householdDefaultLocale ?? ctx.from?.language_code ?? null
+        ),
+        isPrivate: true
+      }
+    }
   }
 
   const message = ctx.msg
@@ -122,22 +175,30 @@ async function resolveAgentTarget(
     if (binding) {
       const chat = await repository.getHouseholdChatByHouseholdId(binding.householdId)
       return {
-        householdId: binding.householdId,
-        topicRole: toAgentTopicRole(binding.role),
-        locale: resolveBotLocale(chat?.defaultLocale)
+        status: 'ok',
+        target: {
+          householdId: binding.householdId,
+          topicRole: toAgentTopicRole(binding.role),
+          locale: resolveBotLocale(chat?.defaultLocale),
+          isPrivate: false
+        }
       }
     }
   }
 
   const chat = await repository.getTelegramHouseholdChat(chatId)
   if (!chat) {
-    return null
+    return { status: 'not_applicable' }
   }
 
   return {
-    householdId: chat.householdId,
-    topicRole: 'generic',
-    locale: resolveBotLocale(chat.defaultLocale)
+    status: 'ok',
+    target: {
+      householdId: chat.householdId,
+      topicRole: 'generic',
+      locale: resolveBotLocale(chat.defaultLocale),
+      isPrivate: false
+    }
   }
 }
 
@@ -219,7 +280,8 @@ async function hasAgentRelevantWorkflow(input: {
 
 export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions): void {
   bot.on('message', async (ctx, next) => {
-    if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
+    const chatType = ctx.chat?.type
+    if (chatType !== 'group' && chatType !== 'supergroup' && chatType !== 'private') {
       await next()
       return
     }
@@ -230,11 +292,17 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
       return
     }
 
-    const target = await resolveAgentTarget(ctx, options.householdConfigurationRepository)
-    if (!target) {
+    const resolution = await resolveAgentTarget(ctx, options.householdConfigurationRepository)
+    if (resolution.status === 'no_household' || resolution.status === 'multiple_households') {
+      const t = getBotTranslations(resolveBotLocale(ctx.from?.language_code)).assistant
+      await ctx.reply(resolution.status === 'no_household' ? t.noHousehold : t.multipleHouseholds)
+      return
+    }
+    if (resolution.status !== 'ok') {
       await next()
       return
     }
+    const target = resolution.target
 
     const record = toAgentMessageRecord(ctx, rawText.trim())
     if (!record) {
@@ -312,23 +380,29 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           ? replyToMessage.text
           : null
 
-      const wake = await assessWake({
-        messageText: record.rawText,
-        topicRole: target.topicRole,
-        isExplicitMention: stripExplicitBotMention(ctx) !== null,
-        isReplyToBot: isReplyToCurrentBotMessage(ctx),
-        hasActiveWorkflow: await hasAgentRelevantWorkflow({
-          promptRepository: options.promptRepository,
-          record,
-          householdId: target.householdId,
-          topicRole: target.topicRole,
-          ...(options.purchaseRepository ? { purchaseRepository: options.purchaseRepository } : {})
-        }),
-        botUsername: ctx.me?.username ?? null,
-        recentMessages,
-        replyToText,
-        ...(options.wakeClassifier ? { classifier: options.wakeClassifier } : {})
-      })
+      // Private chats are always addressed to the bot; the wake gate only
+      // guards group topics where members talk to each other.
+      const wake = target.isPrivate
+        ? ({ wake: true, reason: 'private_chat' } as const)
+        : await assessWake({
+            messageText: record.rawText,
+            topicRole: target.topicRole,
+            isExplicitMention: stripExplicitBotMention(ctx) !== null,
+            isReplyToBot: isReplyToCurrentBotMessage(ctx),
+            hasActiveWorkflow: await hasAgentRelevantWorkflow({
+              promptRepository: options.promptRepository,
+              record,
+              householdId: target.householdId,
+              topicRole: target.topicRole,
+              ...(options.purchaseRepository
+                ? { purchaseRepository: options.purchaseRepository }
+                : {})
+            }),
+            botUsername: ctx.me?.username ?? null,
+            recentMessages,
+            replyToText,
+            ...(options.wakeClassifier ? { classifier: options.wakeClassifier } : {})
+          })
 
       options.logger?.info(
         {
@@ -350,11 +424,15 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
       const memoryKey = conversationMemoryKey({
         telegramUserId: record.senderTelegramUserId,
         telegramChatId: record.chatId,
-        isPrivateChat: false
+        isPrivateChat: target.isPrivate
       })
       if (options.rateLimiter) {
         const rate = options.rateLimiter.consume(memoryKey)
         if (!rate.allowed) {
+          if (target.isPrivate) {
+            const t = getBotTranslations(target.locale).assistant
+            await ctx.reply(t.rateLimited(formatRetryDelay(target.locale, rate.retryAfterMs)))
+          }
           await persistIncoming()
           return
         }
@@ -386,13 +464,15 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
       const memoryTurns = options.memoryStore?.get(memoryKey).turns ?? []
       const commandCatalog = availableAssistantCommandCatalog({
         locale: target.locale,
-        chatType: 'group',
+        chatType: target.isPrivate ? 'private' : 'group',
         isMember: true,
         isAdmin: senderMember.isAdmin
       })
 
       const contextPrompt = [
-        `Topic role: ${target.topicRole}`,
+        target.isPrivate
+          ? 'Chat type: private chat between the bot and this member. Every message is addressed to you.'
+          : `Topic role: ${target.topicRole}`,
         `Household locale: ${target.locale}`,
         `Settlement currency: ${cachedContext?.defaultCurrency ?? 'GEL'}`,
         `Sender: ${senderMember.displayName} (memberId=${senderMember.id}${senderMember.isAdmin ? ', admin' : ''})`,

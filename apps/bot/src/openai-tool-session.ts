@@ -1,4 +1,8 @@
-import type { AssistantUsage } from './openai-chat-assistant'
+export interface AssistantUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
 
 const DEFAULT_MAX_ITERATIONS = 6
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
