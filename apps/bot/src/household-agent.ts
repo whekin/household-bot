@@ -175,15 +175,21 @@ async function hasAgentRelevantWorkflow(input: {
   householdId: string
   topicRole: WakeGateTopicRole
 }): Promise<boolean> {
-  const pending = await input.promptRepository.getPendingAction(
-    input.record.chatId,
-    input.record.senderTelegramUserId
-  )
-  if (
-    pending?.action === 'payment_topic_confirmation' ||
-    pending?.action === 'payment_topic_clarification' ||
-    pending?.action === 'agent_action'
-  ) {
+  const workflowActions = [
+    'payment_topic_confirmation',
+    'payment_topic_clarification',
+    'agent_action'
+  ] as const
+  for (const action of workflowActions) {
+    const pending = await input.promptRepository.getPendingAction(
+      input.record.chatId,
+      input.record.senderTelegramUserId,
+      action
+    )
+    if (!pending) {
+      continue
+    }
+
     const payloadThreadId =
       typeof pending.payload.telegramThreadId === 'string'
         ? pending.payload.telegramThreadId
@@ -519,6 +525,15 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
         },
         'Household agent failed'
       )
+      if (options.processedBotMessageRepository) {
+        await options.processedBotMessageRepository
+          .releaseMessage({
+            householdId: target.householdId,
+            source: 'household-agent',
+            sourceMessageKey: `${record.chatId}:${record.updateId}`
+          })
+          .catch(() => {})
+      }
       await persistIncoming().catch(() => {})
     }
   })

@@ -794,21 +794,32 @@ async function setPurchaseParticipantsTool(
 
 async function cancelPendingProposal(context: AgentToolContext): Promise<ToolSessionToolResult> {
   const t = getBotTranslations(context.locale).agent
-  const pending = await context.promptRepository.getPendingAction(
-    context.record.chatId,
-    context.record.senderTelegramUserId
-  )
-  const cancellable =
-    pending?.action === 'payment_topic_confirmation' ||
-    pending?.action === 'payment_topic_clarification' ||
-    pending?.action === 'agent_action'
-  if (!cancellable) {
+  const cancellableActions = [
+    'payment_topic_confirmation',
+    'payment_topic_clarification',
+    'agent_action'
+  ] as const
+  let cancelled: (typeof cancellableActions)[number] | null = null
+  for (const action of cancellableActions) {
+    const pending = await context.promptRepository.getPendingAction(
+      context.record.chatId,
+      context.record.senderTelegramUserId,
+      action
+    )
+    if (pending) {
+      cancelled = action
+      break
+    }
+  }
+
+  if (!cancelled) {
     return { result: { status: 'nothing_to_cancel' } }
   }
 
   await context.promptRepository.clearPendingAction(
     context.record.chatId,
-    context.record.senderTelegramUserId
+    context.record.senderTelegramUserId,
+    cancelled
   )
   await context.postCard(t.pendingProposalCancelled)
   return { result: { status: 'cancelled' }, cardPosted: true }

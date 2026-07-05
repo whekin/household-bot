@@ -870,7 +870,8 @@ export function createFinanceCommandsService(options: {
 
     const action = await options.promptRepository.getPendingAction(
       ctx.chat.id.toString(),
-      ctx.from.id.toString()
+      ctx.from.id.toString(),
+      BILL_SHOW_PENDING_ACTION
     )
     if (!action || action.action !== BILL_SHOW_PENDING_ACTION) {
       return null
@@ -3312,7 +3313,11 @@ export function createFinanceCommandsService(options: {
         const telegramUserId = ctx.from?.id?.toString()
         const telegramChatId = ctx.chat?.id?.toString()
         if (telegramUserId && telegramChatId && options.promptRepository) {
-          await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+          await options.promptRepository.clearPendingAction(
+            telegramChatId,
+            telegramUserId,
+            ASSISTANT_COMMAND_ACTION
+          )
         }
         await ctx.answerCallbackQuery({
           text: 'Cancelled'
@@ -3335,7 +3340,8 @@ export function createFinanceCommandsService(options: {
 
         const pending = await options.promptRepository.getPendingAction(
           telegramChatId,
-          telegramUserId
+          telegramUserId,
+          ASSISTANT_COMMAND_ACTION
         )
         const payload = pending?.action === ASSISTANT_COMMAND_ACTION ? pending.payload : null
         const command = payload?.command
@@ -3399,7 +3405,11 @@ export function createFinanceCommandsService(options: {
           resolvedHouseholdName = household?.householdName ?? householdId
         }
 
-        await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+        await options.promptRepository.clearPendingAction(
+          telegramChatId,
+          telegramUserId,
+          ASSISTANT_COMMAND_ACTION
+        )
         await ctx.answerCallbackQuery()
 
         if (command === 'household_status') {

@@ -185,9 +185,10 @@ export const telegramPendingActions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
-    chatUserUnique: uniqueIndex('telegram_pending_actions_chat_user_unique').on(
+    chatUserActionUnique: uniqueIndex('telegram_pending_actions_chat_user_action_unique').on(
       table.telegramChatId,
-      table.telegramUserId
+      table.telegramUserId,
+      table.action
     ),
     userActionIdx: index('telegram_pending_actions_user_action_idx').on(
       table.telegramUserId,

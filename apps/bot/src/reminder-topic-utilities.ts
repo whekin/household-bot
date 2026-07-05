@@ -648,7 +648,8 @@ export function registerReminderTopicUtilities(options: {
         )
       : await options.promptRepository.getPendingAction(
           messageChat.id.toString(),
-          actorTelegramUserId
+          actorTelegramUserId,
+          REMINDER_UTILITY_ACTION
         )
     const payload =
       pending?.action === REMINDER_UTILITY_ACTION
@@ -666,7 +667,8 @@ export function registerReminderTopicUtilities(options: {
     if (!options.promptRepository.consumePendingActionByPayloadValue) {
       await options.promptRepository.clearPendingAction(
         messageChat.id.toString(),
-        actorTelegramUserId
+        actorTelegramUserId,
+        REMINDER_UTILITY_ACTION
       )
     }
     await ctx.answerCallbackQuery({
@@ -717,7 +719,8 @@ export function registerReminderTopicUtilities(options: {
 
     const pending = await options.promptRepository.getPendingAction(
       candidate.chatId,
-      candidate.senderTelegramUserId
+      candidate.senderTelegramUserId,
+      REMINDER_UTILITY_ACTION
     )
     const payload =
       pending?.action === REMINDER_UTILITY_ACTION
@@ -778,7 +781,8 @@ export function registerReminderTopicUtilities(options: {
             if ((payload.entries?.length ?? 0) === 0) {
               await options.promptRepository.clearPendingAction(
                 candidate.chatId,
-                candidate.senderTelegramUserId
+                candidate.senderTelegramUserId,
+                REMINDER_UTILITY_ACTION
               )
               await replyInTopic(ctx, t.cancelled)
               return
@@ -888,7 +892,8 @@ export function registerReminderTopicUtilities(options: {
         if (isSkipValue(candidate.rawText) || candidate.rawText.trim().toLowerCase() === 'cancel') {
           await options.promptRepository.clearPendingAction(
             candidate.chatId,
-            candidate.senderTelegramUserId
+            candidate.senderTelegramUserId,
+            REMINDER_UTILITY_ACTION
           )
           await replyInTopic(ctx, t.cancelled)
           return

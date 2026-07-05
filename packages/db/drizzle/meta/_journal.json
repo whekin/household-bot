@@ -267,6 +267,13 @@
       "when": 1778316000000,
       "tag": "0037_close_payment_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783281629865,
+      "tag": "0038_pending_actions_per_action",
+      "breakpoints": true
     }
   ]
 }

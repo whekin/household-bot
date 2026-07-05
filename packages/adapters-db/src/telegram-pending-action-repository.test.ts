@@ -74,4 +74,57 @@ describe('createDbTelegramPendingActionRepository', () => {
     },
     10000
   )
+
+  testIfDatabase(
+    'keeps pending actions of different types side by side',
+    async () => {
+      const client = createDbTelegramPendingActionRepository(databaseUrl!)
+
+      await client.repository.upsertPendingAction({
+        telegramUserId,
+        telegramChatId,
+        action: 'payment_topic_confirmation',
+        payload: { proposalId: 'pay-1' },
+        expiresAt: nowInstant().add({ milliseconds: 30 * 60_000 })
+      })
+      await client.repository.upsertPendingAction({
+        telegramUserId,
+        telegramChatId,
+        action: 'agent_action',
+        payload: { actionId: 'act-1' },
+        expiresAt: nowInstant().add({ milliseconds: 30 * 60_000 })
+      })
+
+      const payment = await client.repository.getPendingAction(
+        telegramChatId,
+        telegramUserId,
+        'payment_topic_confirmation'
+      )
+      const agentAction = await client.repository.getPendingAction(
+        telegramChatId,
+        telegramUserId,
+        'agent_action'
+      )
+      expect(payment?.payload.proposalId).toBe('pay-1')
+      expect(agentAction?.payload.actionId).toBe('act-1')
+
+      await client.repository.clearPendingAction(telegramChatId, telegramUserId, 'agent_action')
+      expect(
+        await client.repository.getPendingAction(telegramChatId, telegramUserId, 'agent_action')
+      ).toBeNull()
+      expect(
+        await client.repository.getPendingAction(
+          telegramChatId,
+          telegramUserId,
+          'payment_topic_confirmation'
+        )
+      ).not.toBeNull()
+
+      await client.repository.clearPendingAction(telegramChatId, telegramUserId)
+      expect(await client.repository.getPendingAction(telegramChatId, telegramUserId)).toBeNull()
+
+      await client.close()
+    },
+    10000
+  )
 })

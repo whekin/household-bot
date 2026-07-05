@@ -816,7 +816,8 @@ export function registerDmAssistant(options: {
 
       const pending = await options.promptRepository.getPendingAction(
         telegramChatId,
-        telegramUserId
+        telegramUserId,
+        ASSISTANT_PAYMENT_ACTION
       )
       const locale = await resolveReplyLocale({
         ctx,
@@ -841,7 +842,11 @@ export function registerDmAssistant(options: {
         .financeServiceForHousehold(payload.householdId)
         .addPayment(payload.memberId, payload.kind, amount.toMajorString(), amount.currency)
 
-      await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+      await options.promptRepository.clearPendingAction(
+        telegramChatId,
+        telegramUserId,
+        ASSISTANT_PAYMENT_ACTION
+      )
 
       if (!result) {
         await ctx.answerCallbackQuery({
@@ -892,7 +897,8 @@ export function registerDmAssistant(options: {
 
       const pending = await options.promptRepository.getPendingAction(
         telegramChatId,
-        telegramUserId
+        telegramUserId,
+        ASSISTANT_PAYMENT_ACTION
       )
       const locale = await resolveReplyLocale({
         ctx,
@@ -912,7 +918,11 @@ export function registerDmAssistant(options: {
         return
       }
 
-      await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+      await options.promptRepository.clearPendingAction(
+        telegramChatId,
+        telegramUserId,
+        ASSISTANT_PAYMENT_ACTION
+      )
       await ctx.answerCallbackQuery({
         text: t.paymentCancelled
       })

@@ -529,7 +529,11 @@ async function loadDraft(
     return null
   }
 
-  const pending = await repository.getPendingAction(chatId, telegramUserId)
+  const pending = await repository.getPendingAction(
+    chatId,
+    telegramUserId,
+    AD_HOC_NOTIFICATION_ACTION
+  )
   return pending?.action === AD_HOC_NOTIFICATION_ACTION
     ? (pending.payload as NotificationDraftPayload)
     : null
@@ -733,7 +737,8 @@ export function registerAdHocNotifications(options: {
 
     const pendingAction = await options.promptRepository.getPendingAction(
       telegramChatId,
-      telegramUserId
+      telegramUserId,
+      REMINDER_UTILITY_ACTION
     )
     if (pendingAction?.action === REMINDER_UTILITY_ACTION) {
       await next()
@@ -869,7 +874,8 @@ export function registerAdHocNotifications(options: {
         if (interpretedEdit.decision === 'cancel') {
           await options.promptRepository.clearPendingAction(
             ctx.chat!.id.toString(),
-            ctx.from!.id.toString()
+            ctx.from!.id.toString(),
+            AD_HOC_NOTIFICATION_ACTION
           )
           await replyInTopic(ctx, cancelledDraftReply(reminderContext.locale))
           return
@@ -1149,7 +1155,8 @@ export function registerAdHocNotifications(options: {
 
       await options.promptRepository.clearPendingAction(
         ctx.chat!.id.toString(),
-        ctx.from!.id.toString()
+        ctx.from!.id.toString(),
+        AD_HOC_NOTIFICATION_ACTION
       )
 
       await ctx.answerCallbackQuery({
@@ -1193,7 +1200,8 @@ export function registerAdHocNotifications(options: {
 
       await options.promptRepository.clearPendingAction(
         ctx.chat.id.toString(),
-        ctx.from.id.toString()
+        ctx.from.id.toString(),
+        AD_HOC_NOTIFICATION_ACTION
       )
       await ctx.answerCallbackQuery({
         text: cancelledDraftReply(reminderContext.locale)

@@ -219,7 +219,8 @@ async function findAgentActionPayload(input: {
 }): Promise<AgentActionPayload | null> {
   const actorPending = await input.promptRepository.getPendingAction(
     input.telegramChatId,
-    input.actorTelegramUserId
+    input.actorTelegramUserId,
+    AGENT_ACTION
   )
   const actorPayload =
     actorPending?.action === AGENT_ACTION ? parseAgentActionPayload(actorPending.payload) : null
@@ -311,7 +312,8 @@ export function registerAgentActionCallbacks(
 
     await options.promptRepository.clearPendingAction(
       resolved.telegramChatId,
-      payload.requesterTelegramUserId
+      payload.requesterTelegramUserId,
+      AGENT_ACTION
     )
 
     const resultText = succeeded ? t.actionConfirmed(payload.summaryText) : t.actionFailed
@@ -357,7 +359,8 @@ export function registerAgentActionCallbacks(
 
     await options.promptRepository.clearPendingAction(
       resolved.telegramChatId,
-      payload.requesterTelegramUserId
+      payload.requesterTelegramUserId,
+      AGENT_ACTION
     )
     await ctx.answerCallbackQuery({ text: t.actionCancelled })
     await ctx.editMessageText(t.actionCancelled, {

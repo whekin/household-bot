@@ -1,52 +1,17 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import { instantFromDatabaseValue, instantToDate, nowInstant, Temporal } from '@household/domain'
-import type {
-  TelegramPendingActionRecord,
-  TelegramPendingActionRepository,
-  TelegramPendingActionType
+import {
+  TELEGRAM_PENDING_ACTION_TYPES,
+  type TelegramPendingActionRecord,
+  type TelegramPendingActionRepository,
+  type TelegramPendingActionType
 } from '@household/ports'
 
 function parsePendingActionType(raw: string): TelegramPendingActionType {
-  if (raw === 'ad_hoc_notification') {
-    return raw
-  }
-
-  if (raw === 'anonymous_feedback') {
-    return raw
-  }
-
-  if (raw === 'assistant_payment_confirmation') {
-    return raw
-  }
-
-  if (raw === 'bill_command') {
-    return raw
-  }
-
-  if (raw === 'household_group_invite') {
-    return raw
-  }
-
-  if (raw === 'payment_topic_clarification') {
-    return raw
-  }
-
-  if (raw === 'payment_topic_confirmation') {
-    return raw
-  }
-
-  if (raw === 'reminder_utility_entry') {
-    return raw
-  }
-
-  if (raw === 'setup_topic_binding') {
-    return raw
-  }
-
-  if (raw === 'setup_tracking') {
-    return raw
+  if ((TELEGRAM_PENDING_ACTION_TYPES as readonly string[]).includes(raw)) {
+    return raw as TelegramPendingActionType
   }
 
   throw new Error(`Unexpected telegram pending action type: ${raw}`)
@@ -95,10 +60,10 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
         .onConflictDoUpdate({
           target: [
             schema.telegramPendingActions.telegramChatId,
-            schema.telegramPendingActions.telegramUserId
+            schema.telegramPendingActions.telegramUserId,
+            schema.telegramPendingActions.action
           ],
           set: {
-            action: input.action,
             payload: input.payload,
             expiresAt: input.expiresAt ? instantToDate(input.expiresAt) : null,
             updatedAt: instantToDate(nowInstant())
@@ -120,7 +85,7 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
       return mapPendingAction(row)
     },
 
-    async getPendingAction(telegramChatId, telegramUserId) {
+    async getPendingAction(telegramChatId, telegramUserId, action) {
       const now = nowInstant()
       const rows = await db
         .select({
@@ -134,9 +99,11 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
         .where(
           and(
             eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
-            eq(schema.telegramPendingActions.telegramUserId, telegramUserId)
+            eq(schema.telegramPendingActions.telegramUserId, telegramUserId),
+            ...(action ? [eq(schema.telegramPendingActions.action, action)] : [])
           )
         )
+        .orderBy(desc(schema.telegramPendingActions.updatedAt))
         .limit(1)
 
       const row = rows[0]
@@ -151,7 +118,8 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
           .where(
             and(
               eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
-              eq(schema.telegramPendingActions.telegramUserId, telegramUserId)
+              eq(schema.telegramPendingActions.telegramUserId, telegramUserId),
+              eq(schema.telegramPendingActions.action, row.action)
             )
           )
 
@@ -251,13 +219,14 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
       }
     },
 
-    async clearPendingAction(telegramChatId, telegramUserId) {
+    async clearPendingAction(telegramChatId, telegramUserId, action) {
       await db
         .delete(schema.telegramPendingActions)
         .where(
           and(
             eq(schema.telegramPendingActions.telegramChatId, telegramChatId),
-            eq(schema.telegramPendingActions.telegramUserId, telegramUserId)
+            eq(schema.telegramPendingActions.telegramUserId, telegramUserId),
+            ...(action ? [eq(schema.telegramPendingActions.action, action)] : [])
           )
         )
     },

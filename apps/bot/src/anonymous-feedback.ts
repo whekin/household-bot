@@ -159,7 +159,7 @@ async function clearPendingAnonymousFeedbackPrompt(
     return
   }
 
-  await repository.clearPendingAction(telegramChatId, telegramUserId)
+  await repository.clearPendingAction(telegramChatId, telegramUserId, ANONYMOUS_FEEDBACK_ACTION)
 }
 
 async function startPendingAnonymousFeedbackPrompt(
@@ -224,13 +224,21 @@ async function submitAnonymousFeedback(options: {
     )
 
   if (memberships.length === 0) {
-    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.promptRepository.clearPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     await options.ctx.reply(getBotTranslations(fallbackLocale).anonymousFeedback.notMember)
     return
   }
 
   if (memberships.length > 1) {
-    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.promptRepository.clearPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     await options.ctx.reply(getBotTranslations(fallbackLocale).anonymousFeedback.multipleHouseholds)
     return
   }
@@ -246,7 +254,11 @@ async function submitAnonymousFeedback(options: {
   )
 
   if (!householdChat || !feedbackTopic) {
-    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.promptRepository.clearPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     await options.ctx.reply(t.feedbackTopicMissing)
     return
   }
@@ -262,14 +274,22 @@ async function submitAnonymousFeedback(options: {
   })
 
   if (result.status === 'duplicate') {
-    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.promptRepository.clearPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     await options.ctx.reply(t.duplicate)
     return
   }
 
   if (result.status === 'rejected') {
     if (!options.keepPromptOnValidationFailure || !shouldKeepPrompt(result.reason)) {
-      await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+      await options.promptRepository.clearPendingAction(
+        telegramChatId,
+        telegramUserId,
+        ANONYMOUS_FEEDBACK_ACTION
+      )
     }
 
     const rejectionText = rejectionMessage(
@@ -306,7 +326,11 @@ async function submitAnonymousFeedback(options: {
       postedMessageId: posted.message_id.toString()
     })
 
-    await options.promptRepository.clearPendingAction(telegramChatId, telegramUserId)
+    await options.promptRepository.clearPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     await options.ctx.reply(t.delivered)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Telegram send failure'
@@ -492,7 +516,11 @@ export function registerAnonymousFeedback(options: {
       return
     }
 
-    const pending = await options.promptRepository.getPendingAction(telegramChatId, telegramUserId)
+    const pending = await options.promptRepository.getPendingAction(
+      telegramChatId,
+      telegramUserId,
+      ANONYMOUS_FEEDBACK_ACTION
+    )
     if (!pending || pending.action !== ANONYMOUS_FEEDBACK_ACTION) {
       await next()
       return

@@ -662,6 +662,7 @@ export function createMiniAppUpdateSettingsHandler(options: {
   botToken: string
   onboardingService: HouseholdOnboardingService
   miniAppAdminService: MiniAppAdminService
+  onSettingsUpdated?: (householdId: string) => void
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -783,6 +784,8 @@ export function createMiniAppUpdateSettingsHandler(options: {
             origin
           )
         }
+
+        options.onSettingsUpdated?.(session.member.householdId)
 
         return miniAppJsonResponse(
           {

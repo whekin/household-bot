@@ -26,10 +26,13 @@ export interface TelegramPendingActionRecord {
 }
 
 export interface TelegramPendingActionRepository {
+  /** One pending action per (chat, user, action type); same-type upserts replace. */
   upsertPendingAction(input: TelegramPendingActionRecord): Promise<TelegramPendingActionRecord>
+  /** Without `action`, returns the most recently updated pending action. */
   getPendingAction(
     telegramChatId: string,
-    telegramUserId: string
+    telegramUserId: string,
+    action?: TelegramPendingActionType
   ): Promise<TelegramPendingActionRecord | null>
   consumePendingActionByPayloadValue?(
     telegramChatId: string,
@@ -44,7 +47,12 @@ export interface TelegramPendingActionRepository {
     key: string,
     value: string
   ): Promise<TelegramPendingActionRecord | null>
-  clearPendingAction(telegramChatId: string, telegramUserId: string): Promise<void>
+  /** Without `action`, clears every pending action for the user in the chat. */
+  clearPendingAction(
+    telegramChatId: string,
+    telegramUserId: string,
+    action?: TelegramPendingActionType
+  ): Promise<void>
   clearPendingActionsForChat(
     telegramChatId: string,
     action?: TelegramPendingActionType

@@ -361,14 +361,19 @@ async function clearPaymentProposalPendingActions(
   promptRepository: TelegramPendingActionRepository,
   payload: PaymentTopicConfirmationPayload
 ) {
-  await promptRepository.clearPendingAction(payload.telegramChatId, payload.senderTelegramUserId)
+  await promptRepository.clearPendingAction(
+    payload.telegramChatId,
+    payload.senderTelegramUserId,
+    PAYMENT_TOPIC_CONFIRMATION_ACTION
+  )
   if (
     payload.reportedTelegramUserId &&
     payload.reportedTelegramUserId !== payload.senderTelegramUserId
   ) {
     await promptRepository.clearPendingAction(
       payload.telegramChatId,
-      payload.reportedTelegramUserId
+      payload.reportedTelegramUserId,
+      PAYMENT_TOPIC_CONFIRMATION_ACTION
     )
   }
 }
@@ -568,7 +573,8 @@ async function getMultiPaymentPendingAction(input: {
 }): Promise<PaymentTopicMultiConfirmationPayload | null> {
   const actorPending = await input.promptRepository.getPendingAction(
     input.telegramChatId,
-    input.actorTelegramUserId
+    input.actorTelegramUserId,
+    PAYMENT_TOPIC_CONFIRMATION_ACTION
   )
   const actorPayload =
     actorPending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
@@ -739,7 +745,13 @@ export async function publishAgentPaymentProposal(input: {
 
   await input.promptRepository.clearPendingAction(
     input.record.chatId,
-    input.record.senderTelegramUserId
+    input.record.senderTelegramUserId,
+    PAYMENT_TOPIC_CLARIFICATION_ACTION
+  )
+  await input.promptRepository.clearPendingAction(
+    input.record.chatId,
+    input.record.senderTelegramUserId,
+    PAYMENT_TOPIC_CONFIRMATION_ACTION
   )
 
   if (proposal.status === 'multi_member_proposal') {
@@ -880,7 +892,8 @@ export function registerPaymentTopicCallbacks(
 
       const pending = await promptRepository.getPendingAction(
         ctx.chat.id.toString(),
-        ownerTelegramUserId
+        ownerTelegramUserId,
+        PAYMENT_TOPIC_CLARIFICATION_ACTION
       )
       const payload =
         pending?.action === PAYMENT_TOPIC_CLARIFICATION_ACTION
@@ -909,7 +922,11 @@ export function registerPaymentTopicCallbacks(
         return
       }
 
-      await promptRepository.clearPendingAction(ctx.chat.id.toString(), ownerTelegramUserId)
+      await promptRepository.clearPendingAction(
+        ctx.chat.id.toString(),
+        ownerTelegramUserId,
+        PAYMENT_TOPIC_CLARIFICATION_ACTION
+      )
       await ctx.answerCallbackQuery({
         text: t.cancelled
       })
@@ -1096,7 +1113,11 @@ export function registerPaymentTopicCallbacks(
         }
       }
 
-      await promptRepository.clearPendingAction(payload.telegramChatId, payload.ownerTelegramUserId)
+      await promptRepository.clearPendingAction(
+        payload.telegramChatId,
+        payload.ownerTelegramUserId,
+        PAYMENT_TOPIC_CONFIRMATION_ACTION
+      )
       const fullyHandled =
         handledMemberIds.size + alreadyPaidSelectedMemberIds.size === selectedMembers.length
       const fullyPaid = fullyHandled
@@ -1123,6 +1144,28 @@ export function registerPaymentTopicCallbacks(
         await ctx.editMessageText(recordedText, {
           reply_markup: {
             inline_keyboard: []
+          }
+        })
+      }
+
+      if (options.auditNotificationService && handledMemberIds.size > 0) {
+        const actorDisplayName = ctx.from?.first_name ?? 'Someone'
+        const recordedNames = payload.members
+          .filter((member) => handledMemberIds.has(member.memberId))
+          .map((member) => member.displayName)
+          .join(', ')
+        await options.auditNotificationService.recordEvent({
+          householdId: payload.householdId,
+          actorMemberId: null,
+          actorDisplayName,
+          eventType: 'payment.recorded',
+          category: 'payment_events',
+          summaryText: `${actorDisplayName} recorded ${payload.kind} payments for ${recordedNames}`,
+          metadata: {
+            proposalId: payload.proposalId,
+            kind: payload.kind,
+            period: payload.period,
+            memberIds: [...handledMemberIds]
           }
         })
       }
@@ -1178,7 +1221,11 @@ export function registerPaymentTopicCallbacks(
         return
       }
 
-      await promptRepository.clearPendingAction(payload.telegramChatId, payload.ownerTelegramUserId)
+      await promptRepository.clearPendingAction(
+        payload.telegramChatId,
+        payload.ownerTelegramUserId,
+        PAYMENT_TOPIC_CONFIRMATION_ACTION
+      )
       await ctx.answerCallbackQuery({
         text: t.cancelled
       })
@@ -1208,7 +1255,8 @@ export function registerPaymentTopicCallbacks(
 
       const pending = await promptRepository.getPendingAction(
         ctx.chat.id.toString(),
-        actorTelegramUserId
+        actorTelegramUserId,
+        PAYMENT_TOPIC_CONFIRMATION_ACTION
       )
       const payload =
         pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
@@ -1325,7 +1373,8 @@ export function registerPaymentTopicCallbacks(
 
     const pending = await promptRepository.getPendingAction(
       ctx.chat.id.toString(),
-      actorTelegramUserId
+      actorTelegramUserId,
+      PAYMENT_TOPIC_CONFIRMATION_ACTION
     )
     const actorPayload =
       pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION

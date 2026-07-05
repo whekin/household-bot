@@ -673,6 +673,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           miniAppAdminService: miniAppAdminService!,
+          onSettingsUpdated: (householdId) => householdContextCache.invalidate(householdId),
           logger: getLogger('miniapp-admin')
         })
       : undefined,
