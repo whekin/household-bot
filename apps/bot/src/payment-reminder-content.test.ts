@@ -219,9 +219,7 @@ describe('payment reminder content', () => {
       viewMode: 'details'
     })
 
-    expect(content.text).toContain('Все оплаты закрыты')
     expect(content.text).toContain('План коммуналки пока не готов.')
-    expect(content.text).not.toContain('Everyone is paid')
     expect(content.text).not.toContain('No utility plan is ready yet.')
   })
 
@@ -235,8 +233,11 @@ describe('payment reminder content', () => {
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('Provider assignments')
+    expect(content.text).toContain('Who pays what')
+    // Grouped by member: the assignee heading, then their bill nested beneath.
+    expect(content.text).toContain('Alice &lt;A&gt;')
     expect(content.text).toContain('Gas &lt;main&gt;')
+    expect(content.text).not.toContain('Gas &lt;main&gt; → ')
     expect(JSON.stringify(content.replyMarkup)).toContain('pr:p:utilities:2026-05')
   })
 

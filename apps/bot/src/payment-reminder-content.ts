@@ -162,27 +162,67 @@ function rentMemberAmountLines(dashboard: FinanceDashboard): string[] {
   })
 }
 
-function utilityAssignmentLines(
-  dashboard: FinanceDashboard,
-  locale: BotLocale,
-  details: boolean,
-  limit?: number | null
-): string[] {
-  const categories = dashboard.utilityBillingPlan?.categories ?? []
-  if (categories.length === 0) {
-    return ['• ' + escapeHtml(getBotTranslations(locale).reminders.noUtilityPlan)]
+// Group utility obligations by member so everyone finds their own block once,
+// instead of scanning a flat per-bill list to spot the lines that are theirs.
+function utilitiesByMemberLines(input: {
+  dashboard: FinanceDashboard
+  locale: BotLocale
+  period: string
+}): string[] {
+  const t = getBotTranslations(input.locale).reminders
+  const summary = paymentKindSummary(input.dashboard, input.period, 'utilities')
+  const categories = input.dashboard.utilityBillingPlan?.categories ?? []
+  const unresolvedById = new Map(
+    (summary?.unresolvedMembers ?? []).map((member) => [member.memberId, member])
+  )
+
+  const categoriesByMember = new Map<string, (typeof categories)[number][]>()
+  for (const category of categories) {
+    categoriesByMember.set(category.assignedMemberId, [
+      ...(categoriesByMember.get(category.assignedMemberId) ?? []),
+      category
+    ])
   }
 
-  const compactLimit = limit === undefined ? 4 : limit
-  const visible = details || compactLimit === null ? categories : categories.slice(0, compactLimit)
-  const lines = visible.map((category) => {
-    const paid =
-      category.paidAmount.amountMinor >= category.assignedAmount.amountMinor ? '✅' : '🔴'
-    return `${paid} ${escapeHtml(category.billName)} → ${escapeHtml(category.assignedDisplayName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
-  })
+  // Unresolved members first (in summary order), then any remaining assignees.
+  const orderedMemberIds: string[] = []
+  const nameById = new Map<string, string>()
+  for (const member of summary?.unresolvedMembers ?? []) {
+    orderedMemberIds.push(member.memberId)
+    nameById.set(member.memberId, member.displayName)
+  }
+  for (const category of categories) {
+    if (!orderedMemberIds.includes(category.assignedMemberId)) {
+      orderedMemberIds.push(category.assignedMemberId)
+      nameById.set(category.assignedMemberId, category.assignedDisplayName)
+    }
+  }
 
-  if (!details && compactLimit !== null && categories.length > visible.length) {
-    lines.push(`• +${categories.length - visible.length} more`)
+  if (orderedMemberIds.length === 0) {
+    return ['• ' + escapeHtml(t.noUtilityPlan)]
+  }
+
+  const lines: string[] = []
+  for (const memberId of orderedMemberIds) {
+    const memberCategories = categoriesByMember.get(memberId) ?? []
+    const unresolved = unresolvedById.get(memberId)
+    const emoji = unresolved ? '🔴' : '✅'
+    const displayName = nameById.get(memberId) ?? memberId
+    const total =
+      unresolved?.suggestedAmount ??
+      memberCategories
+        .slice(1)
+        .reduce(
+          (sum, category) => sum.add(category.assignedAmount),
+          memberCategories[0]!.assignedAmount
+        )
+    lines.push(`${emoji} <b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`)
+    for (const category of memberCategories) {
+      const billPaid = category.paidAmount.amountMinor >= category.assignedAmount.amountMinor
+      lines.push(
+        `${billPaid ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
+      )
+    }
   }
 
   return lines
@@ -258,12 +298,6 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
   return { inline_keyboard: rows }
 }
 
-function utilityAssignmentLimitForSurface(
-  surface: PaymentReminderRenderSurface
-): number | null | undefined {
-  return surface === 'payment-instruction' ? null : undefined
-}
-
 export function buildPaymentReminderMessageContentForSurface(
   input: PaymentReminderRenderInput
 ): PaymentReminderMessageContent {
@@ -294,17 +328,33 @@ export function buildPaymentReminderMessageContentForSurface(
   } else {
     lines.push(
       '',
-      `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`,
-      '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Статус' : 'Status')}</b>`,
-      ...statusLines({
-        dashboard: input.dashboard,
-        locale: input.locale,
-        period: input.period,
-        kind: input.kind,
-        details
-      })
+      `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`
     )
+
+    if (input.kind === 'utilities') {
+      // One block per member: name + total, then their bills underneath.
+      lines.push(
+        '',
+        `<b>${escapeHtml(input.locale === 'ru' ? 'Кто сколько платит' : 'Who pays what')}</b>`,
+        ...utilitiesByMemberLines({
+          dashboard: input.dashboard,
+          locale: input.locale,
+          period: input.period
+        })
+      )
+    } else {
+      lines.push(
+        '',
+        `<b>${escapeHtml(input.locale === 'ru' ? 'Статус' : 'Status')}</b>`,
+        ...statusLines({
+          dashboard: input.dashboard,
+          locale: input.locale,
+          period: input.period,
+          kind: input.kind,
+          details
+        })
+      )
+    }
   }
 
   if (input.kind === 'rent') {
@@ -315,17 +365,6 @@ export function buildPaymentReminderMessageContentForSurface(
       '',
       `<b>${escapeHtml(input.locale === 'ru' ? 'Куда платить' : 'Where to pay')}</b>`,
       ...rentDestinationLines(input.dashboard, input.locale)
-    )
-  } else {
-    lines.push(
-      '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Кто платит провайдерам' : 'Provider assignments')}</b>`,
-      ...utilityAssignmentLines(
-        input.dashboard,
-        input.locale,
-        details,
-        utilityAssignmentLimitForSurface(input.surface)
-      )
     )
   }
 
