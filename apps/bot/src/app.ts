@@ -69,16 +69,18 @@ import {
 import { createOpenAiChatAssistant } from './openai-chat-assistant'
 import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
 import { createOpenAiPurchaseInterpreter } from './openai-purchase-interpreter'
-import { registerConfiguredPurchaseTopicIngestion } from './purchase-topic-ingestion'
+import { registerAgentActionCallbacks } from './agent-confirmations'
+import { registerHouseholdAgent } from './household-agent'
+import { registerPurchaseTopicCallbacks } from './purchase-topic-ingestion'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
-import { registerConfiguredPaymentTopicIngestion } from './payment-topic-ingestion'
+import { registerPaymentTopicCallbacks } from './payment-topic-ingestion'
+import { createOpenAiWakeClassifier } from './wake-gate'
 import { createPaymentInstructionPublisher } from './payment-instruction-publisher'
 import { registerPaymentReminderActions } from './payment-reminder-actions'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
 import { createBotWebhookServer } from './server'
-import { createTopicProcessor } from './topic-processor'
 import { createTelegramTransport } from './runtime/telegram-transport'
 import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
 import { createBotRepositoryClients } from './runtime/repositories'
@@ -184,11 +186,11 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     runtime.assistantModel,
     runtime.assistantTimeoutMs
   )
-  const topicProcessor = createTopicProcessor(
+  const wakeClassifier = createOpenAiWakeClassifier(
     runtime.openaiApiKey,
-    runtime.topicProcessorModel,
-    runtime.topicProcessorTimeoutMs,
-    getLogger('topic-processor')
+    runtime.assistantModel,
+    runtime.assistantTimeoutMs,
+    getLogger('wake-gate')
   )
   const householdContextCache = new HouseholdContextCache()
   const anonymousFeedbackServiceRegistry = runtime.databaseUrl
@@ -273,26 +275,14 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       : null
 
   if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
-    registerConfiguredPurchaseTopicIngestion(
+    registerPurchaseTopicCallbacks(
       bot,
       householdConfigurationRepositoryClient.repository,
       purchaseRepositoryClient.repository,
       {
-        ...(topicProcessor
+        ...(topicMessageHistoryRepositoryClient
           ? {
-              topicProcessor,
-              contextCache: householdContextCache,
-              memoryStore: assistantMemoryStore,
-              ...(topicMessageHistoryRepositoryClient
-                ? {
-                    historyRepository: topicMessageHistoryRepositoryClient.repository
-                  }
-                : {})
-            }
-          : {}),
-        ...(purchaseInterpreter
-          ? {
-              interpreter: purchaseInterpreter
+              historyRepository: topicMessageHistoryRepositoryClient.repository
             }
           : {}),
         ...(auditNotificationService ? { auditNotificationService } : {}),
@@ -301,23 +291,17 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       }
     )
 
-    registerConfiguredPaymentTopicIngestion(
+    registerPaymentTopicCallbacks(
       bot,
       householdConfigurationRepositoryClient.repository,
       telegramPendingActionRepositoryClient!.repository,
       financeServiceForHousehold,
       paymentConfirmationServiceForHousehold,
       {
-        ...(topicProcessor
+        memoryStore: assistantMemoryStore,
+        ...(topicMessageHistoryRepositoryClient
           ? {
-              topicProcessor,
-              contextCache: householdContextCache,
-              memoryStore: assistantMemoryStore,
-              ...(topicMessageHistoryRepositoryClient
-                ? {
-                    historyRepository: topicMessageHistoryRepositoryClient.repository
-                  }
-                : {})
+              historyRepository: topicMessageHistoryRepositoryClient.repository
             }
           : {}),
         logger: getLogger('payment-ingestion'),
@@ -531,6 +515,52 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         : {}),
       logger: getLogger('dm-assistant')
     })
+  }
+
+  if (
+    runtime.assistantEnabled &&
+    runtime.openaiApiKey &&
+    householdConfigurationRepositoryClient &&
+    telegramPendingActionRepositoryClient
+  ) {
+    registerAgentActionCallbacks(bot, {
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      financeServiceForHousehold,
+      ...(auditNotificationService ? { auditNotificationService } : {}),
+      logger: getLogger('agent-actions')
+    })
+
+    registerHouseholdAgent(bot, {
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      financeServiceForHousehold,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      apiKey: runtime.openaiApiKey,
+      model: runtime.assistantModel,
+      timeoutMs: runtime.assistantTimeoutMs,
+      ...(purchaseRepositoryClient
+        ? { purchaseRepository: purchaseRepositoryClient.repository }
+        : {}),
+      ...(topicMessageHistoryRepositoryClient
+        ? { historyRepository: topicMessageHistoryRepositoryClient.repository }
+        : {}),
+      memoryStore: assistantMemoryStore,
+      rateLimiter: assistantRateLimiter,
+      usageTracker: assistantUsageTracker,
+      contextCache: householdContextCache,
+      ...(processedBotMessageRepositoryClient
+        ? { processedBotMessageRepository: processedBotMessageRepositoryClient.repository }
+        : {}),
+      ...(wakeClassifier ? { wakeClassifier } : {}),
+      logger: getLogger('household-agent')
+    })
+  } else {
+    logger.warn(
+      {
+        event: 'runtime.feature_disabled',
+        feature: 'household-agent'
+      },
+      'Household agent is disabled. Set DATABASE_URL and OPENAI_API_KEY to enable group chat handling.'
+    )
   }
 
   if (householdConfigurationRepositoryClient && telegramPendingActionRepositoryClient) {

@@ -5,7 +5,7 @@ import {
   type PaymentConfirmationService,
   type PaymentConfirmationSubmitResult
 } from '@household/application'
-import { instantFromEpochSeconds, Money, nowInstant, type Instant } from '@household/domain'
+import { Money, nowInstant, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -20,29 +20,17 @@ import type { AssistantConversationMemoryStore } from './assistant-state'
 import { conversationMemoryKey } from './assistant-state'
 
 import {
-  formatPaymentBalanceReplyText,
   formatPaymentProposalText,
+  type AgentPaymentProposalResult,
   type MultiMemberPaymentProposal,
-  type SemanticPaymentCandidate,
-  maybeCreatePaymentBalanceReply,
-  maybeCreatePaymentProposalFromCandidate,
   parsePaymentProposalPayload,
   synthesizePaymentConfirmationText
 } from './payment-proposals'
-import { cacheTopicMessageRoute, type TopicMessageRouter } from './topic-message-router'
-import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
-import {
-  hasExplicitBotMention,
-  isReplyToCurrentBotMessage,
-  readTelegramMessageTextWithoutBotMention,
-  telegramMessageAttachmentCount
-} from './topic-ingestion/topic-message-primitives'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
-import { buildConversationContext } from './conversation-orchestrator'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
@@ -53,7 +41,6 @@ const PAYMENT_TOPIC_CLARIFICATION_CANCEL_CALLBACK_PREFIX = 'pt:cc:'
 const PAYMENT_TOPIC_CLARIFICATION_ACTION = 'payment_topic_clarification' as const
 const PAYMENT_TOPIC_CONFIRMATION_ACTION = 'payment_topic_confirmation' as const
 const PAYMENT_TOPIC_ACTION_TTL_MS = 30 * 60_000
-const PAYMENT_TOPIC_MIN_PAYMENT_CONFIDENCE = 80
 
 export interface PaymentTopicCandidate {
   updateId: number
@@ -120,38 +107,6 @@ interface PaymentTopicMultiConfirmationPayload {
   }>
 }
 
-function toCandidateFromContext(ctx: Context): PaymentTopicCandidate | null {
-  const message = ctx.message
-  const rawText = readTelegramMessageTextWithoutBotMention(ctx)
-  if (!message || !rawText) {
-    return null
-  }
-
-  if (!('is_topic_message' in message) || message.is_topic_message !== true) {
-    return null
-  }
-
-  if (!('message_thread_id' in message) || message.message_thread_id === undefined) {
-    return null
-  }
-
-  const senderTelegramUserId = ctx.from?.id?.toString()
-  if (!senderTelegramUserId) {
-    return null
-  }
-
-  return {
-    updateId: ctx.update.update_id,
-    chatId: message.chat.id.toString(),
-    messageId: message.message_id.toString(),
-    threadId: message.message_thread_id.toString(),
-    senderTelegramUserId,
-    rawText,
-    attachmentCount: telegramMessageAttachmentCount(ctx),
-    messageSentAt: instantFromEpochSeconds(message.date)
-  }
-}
-
 export function resolveConfiguredPaymentTopicRecord(
   value: PaymentTopicCandidate,
   binding: HouseholdTopicBindingRecord
@@ -173,23 +128,6 @@ export function resolveConfiguredPaymentTopicRecord(
     ...value,
     rawText: normalizedText,
     householdId: binding.householdId
-  }
-}
-
-async function resolveAssistantConfig(
-  householdConfigurationRepository: HouseholdConfigurationRepository,
-  householdId: string
-): Promise<{
-  assistantContext: string | null
-  assistantTone: string | null
-}> {
-  const config = householdConfigurationRepository.getHouseholdAssistantConfig
-    ? await householdConfigurationRepository.getHouseholdAssistantConfig(householdId)
-    : null
-
-  return {
-    assistantContext: config?.assistantContext ?? null,
-    assistantTone: config?.assistantTone ?? null
   }
 }
 
@@ -219,25 +157,6 @@ function appendConversation(
   memoryStore.appendTurn(key, {
     role: 'assistant',
     text: assistantText
-  })
-}
-
-async function persistIncomingTopicMessage(
-  repository: TopicMessageHistoryRepository | undefined,
-  record: PaymentTopicRecord
-) {
-  await persistTopicHistoryMessage({
-    repository,
-    householdId: record.householdId,
-    telegramChatId: record.chatId,
-    telegramThreadId: record.threadId,
-    telegramMessageId: record.messageId,
-    telegramUpdateId: String(record.updateId),
-    senderTelegramUserId: record.senderTelegramUserId,
-    senderDisplayName: null,
-    isBot: false,
-    rawText: record.rawText,
-    messageSentAt: record.messageSentAt
   })
 }
 
@@ -288,19 +207,6 @@ function formatPeriodLabel(locale: BotLocale, period: string): string {
     year: 'numeric',
     timeZone: 'UTC'
   }).format(new Date(Date.UTC(year, month - 1, 1)))
-}
-
-function parsePaymentClarificationPayload(
-  payload: Record<string, unknown>
-): PaymentTopicClarificationPayload | null {
-  if (typeof payload.threadId !== 'string' || typeof payload.rawText !== 'string') {
-    return null
-  }
-
-  return {
-    threadId: payload.threadId,
-    rawText: payload.rawText
-  }
 }
 
 function parsePaymentTopicConfirmationPayload(
@@ -605,23 +511,6 @@ function isHandledPaymentSubmitResult(result: PaymentConfirmationSubmitResult): 
   )
 }
 
-function isLikelyUtilityTemplate(rawText: string): boolean {
-  const lines = rawText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-
-  if (lines.length < 2) {
-    return false
-  }
-
-  const templateLineCount = lines.filter((line) =>
-    /^[^:\n]{2,}:\s*(?:\d+(?:[.,]\d{1,2})?|0|skip|пропуск|нет|-)?(?:\s+(?:USD|GEL))?$/i.test(line)
-  ).length
-
-  return templateLineCount >= 2
-}
-
 function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   const t = getBotTranslations(locale).payments
 
@@ -759,91 +648,7 @@ async function resolveCurrentPayableMultiMemberAmounts(input: {
   return amounts
 }
 
-function isBareCompletionAcknowledgement(rawText: string): boolean {
-  return /^(готово|done|ок|ok|✅|✔️?)$/iu.test(rawText.trim())
-}
-
-function normalizePaymentEvidence(input: {
-  evidence?: 'explicit_text' | 'reply_context' | 'active_workflow' | undefined
-  isReplyToBot: boolean
-  activeWorkflow: string | null
-}): SemanticPaymentCandidate['evidence'] {
-  if (input.evidence === 'reply_context' && input.isReplyToBot) {
-    return 'reply_context'
-  }
-
-  if (
-    input.evidence === 'active_workflow' &&
-    (input.activeWorkflow === 'payment_confirmation' ||
-      input.activeWorkflow === 'payment_clarification')
-  ) {
-    return 'active_workflow'
-  }
-
-  if (
-    input.activeWorkflow === 'payment_confirmation' ||
-    input.activeWorkflow === 'payment_clarification'
-  ) {
-    return 'active_workflow'
-  }
-
-  return input.isReplyToBot ? 'reply_context' : 'explicit_text'
-}
-
-function semanticPaymentCandidateFromProcessor(input: {
-  result: Extract<import('./topic-processor').TopicProcessorResult, { route: 'payment' }>
-  rawText: string
-  isReplyToBot: boolean
-  activeWorkflow: string | null
-}): SemanticPaymentCandidate | null {
-  if (input.result.confidence < PAYMENT_TOPIC_MIN_PAYMENT_CONFIDENCE) {
-    return null
-  }
-
-  const evidence = normalizePaymentEvidence({
-    evidence: input.result.evidence,
-    isReplyToBot: input.isReplyToBot,
-    activeWorkflow: input.activeWorkflow
-  })
-  if (isBareCompletionAcknowledgement(input.rawText) && evidence === 'explicit_text') {
-    return null
-  }
-
-  return {
-    assertion: 'completed_payment',
-    kind: input.result.kind,
-    payerDisplayName: input.result.payerDisplayName,
-    amountMinor: input.result.amountMinor,
-    currency: input.result.currency,
-    confidence: input.result.confidence,
-    evidence
-  }
-}
-
-function validatedCurrentMessageAmount(input: {
-  rawText: string
-  amountMinor: string | null | undefined
-  currency: 'GEL' | 'USD' | null | undefined
-}): { amountMinor: string; currency: 'GEL' | 'USD' } | null {
-  if (!input.amountMinor || !input.currency || !/^[0-9]+$/.test(input.amountMinor)) {
-    return null
-  }
-
-  const expectedAmount = BigInt(input.amountMinor)
-  const detectedAmounts = parseCurrentMessageAmounts(input.rawText)
-  const hasExactCurrentMessageAmount = detectedAmounts.some(
-    (amount) => amount.currency === input.currency && amount.amountMinor === expectedAmount
-  )
-
-  return hasExactCurrentMessageAmount
-    ? {
-        amountMinor: input.amountMinor,
-        currency: input.currency
-      }
-    : null
-}
-
-function parseCurrentMessageAmounts(
+export function parseCurrentMessageAmounts(
   rawText: string
 ): readonly { amountMinor: bigint; currency: 'GEL' | 'USD' }[] {
   const results: { amountMinor: bigint; currency: 'GEL' | 'USD' }[] = []
@@ -874,33 +679,6 @@ function parseCurrentMessageAmounts(
   return results
 }
 
-function formatPaymentTopicBillingContext(input: {
-  dashboard: Awaited<ReturnType<FinanceCommandService['generateDashboard']>> | null
-}): string | null {
-  const dashboard = input.dashboard
-  if (!dashboard) {
-    return null
-  }
-
-  const currentPeriod = dashboard.paymentPeriods?.find(
-    (period) => period.isCurrentPeriod || period.period === dashboard.period
-  )
-  const kindLines =
-    currentPeriod?.kinds.map((kind) => {
-      const unresolved = kind.unresolvedMembers
-        .map((member) => `${member.displayName}(${member.memberId})`)
-        .join(', ')
-      return `${kind.kind}: remaining=${kind.totalRemaining.toMajorString()} ${kind.totalRemaining.currency}; unresolved=${unresolved || 'none'}`
-    }) ?? []
-
-  return [
-    'Payment billing context:',
-    `- active period: ${dashboard.period}`,
-    `- billing stage: ${dashboard.billingStage}`,
-    ...kindLines.map((line) => `- ${line}`)
-  ].join('\n')
-}
-
 async function isActorHouseholdAdmin(input: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   householdId: string
@@ -912,72 +690,30 @@ async function isActorHouseholdAdmin(input: {
   return actor?.isAdmin === true
 }
 
-async function replyWithPaymentBalanceQuestionIfPossible(input: {
+export type AgentPaymentProposalPublishStatus =
+  | 'card_posted'
+  | 'already_settled'
+  | 'unsupported_currency'
+  | 'no_action'
+
+export async function publishAgentPaymentProposal(input: {
   ctx: Context
   locale: BotLocale
   record: PaymentTopicRecord
-  rawText: string
-  financeService: FinanceCommandService
-  memberId: string
-  householdConfigurationRepository: HouseholdConfigurationRepository
-  memoryStore?: AssistantConversationMemoryStore
-  historyRepository?: TopicMessageHistoryRepository
-}): Promise<boolean> {
-  const balanceReply = await maybeCreatePaymentBalanceReply({
-    rawText: input.rawText,
-    householdId: input.record.householdId,
-    memberId: input.memberId,
-    financeService: input.financeService,
-    householdConfigurationRepository: input.householdConfigurationRepository
-  })
-
-  if (!balanceReply) {
-    return false
-  }
-
-  const helperText = formatPaymentBalanceReplyText(input.locale, balanceReply)
-  await replyToPaymentMessage(input.ctx, helperText, undefined, {
-    repository: input.historyRepository,
-    record: input.record
-  })
-  appendConversation(input.memoryStore, input.record, input.record.rawText, helperText)
-  return true
-}
-
-async function handleSemanticPaymentCandidate(input: {
-  ctx: Context
-  locale: BotLocale
-  record: PaymentTopicRecord
-  combinedText: string
-  candidate: SemanticPaymentCandidate
-  payerMemberId: string
+  proposal: AgentPaymentProposalResult
   payerTelegramUserId: string | null
   payerDisplayName: string | null
   isThirdParty: boolean
-  financeService: FinanceCommandService
-  householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
-  memoryStore?: AssistantConversationMemoryStore
   historyRepository?: TopicMessageHistoryRepository
-}): Promise<boolean> {
+  memoryStore?: AssistantConversationMemoryStore
+}): Promise<{ status: AgentPaymentProposalPublishStatus; reason?: string }> {
   const t = getBotTranslations(input.locale).payments
-  const proposal = await maybeCreatePaymentProposalFromCandidate({
-    rawText: input.combinedText,
-    householdId: input.record.householdId,
-    memberId: input.payerMemberId,
-    candidate: input.candidate,
-    financeService: input.financeService,
-    householdConfigurationRepository: input.householdConfigurationRepository
-  })
+  const proposal = input.proposal
 
   if (proposal.status === 'no_action') {
-    return false
+    return { status: 'no_action', reason: proposal.reason }
   }
-
-  await input.promptRepository.clearPendingAction(
-    input.record.chatId,
-    input.record.senderTelegramUserId
-  )
 
   if (proposal.status === 'unsupported_currency') {
     await replyToPaymentMessage(input.ctx, t.unsupportedCurrency, undefined, {
@@ -985,7 +721,7 @@ async function handleSemanticPaymentCandidate(input: {
       record: input.record
     })
     appendConversation(input.memoryStore, input.record, input.record.rawText, t.unsupportedCurrency)
-    return true
+    return { status: 'unsupported_currency' }
   }
 
   if (proposal.status === 'already_settled') {
@@ -998,13 +734,18 @@ async function handleSemanticPaymentCandidate(input: {
       record: input.record
     })
     appendConversation(input.memoryStore, input.record, input.record.rawText, alreadySettledText)
-    return true
+    return { status: 'already_settled' }
   }
+
+  await input.promptRepository.clearPendingAction(
+    input.record.chatId,
+    input.record.senderTelegramUserId
+  )
 
   if (proposal.status === 'multi_member_proposal') {
     const payload = buildMultiConfirmationPayload(
       input.record,
-      input.combinedText,
+      input.record.rawText,
       proposal.proposal
     )
     await input.promptRepository.upsertPendingAction({
@@ -1026,7 +767,7 @@ async function handleSemanticPaymentCandidate(input: {
       }
     )
     appendConversation(input.memoryStore, input.record, input.record.rawText, proposalText)
-    return true
+    return { status: 'card_posted' }
   }
 
   const confirmationPayload: PaymentTopicConfirmationPayload = {
@@ -1035,7 +776,7 @@ async function handleSemanticPaymentCandidate(input: {
     reportedTelegramUserId: input.payerTelegramUserId,
     reportedDisplayName: input.isThirdParty ? input.payerDisplayName : null,
     isThirdParty: input.isThirdParty,
-    rawText: input.combinedText,
+    rawText: input.record.rawText,
     telegramChatId: input.record.chatId,
     telegramMessageId: input.record.messageId,
     telegramThreadId: input.record.threadId,
@@ -1068,7 +809,7 @@ async function handleSemanticPaymentCandidate(input: {
     }
   )
   appendConversation(input.memoryStore, input.record, input.record.rawText, proposalText)
-  return true
+  return { status: 'card_posted' }
 }
 
 async function replyToPaymentMessage(
@@ -1111,16 +852,13 @@ async function replyToPaymentMessage(
   })
 }
 
-export function registerConfiguredPaymentTopicIngestion(
+export function registerPaymentTopicCallbacks(
   bot: Bot,
   householdConfigurationRepository: HouseholdConfigurationRepository,
   promptRepository: TelegramPendingActionRepository,
   financeServiceForHousehold: (householdId: string) => FinanceCommandService,
   paymentServiceForHousehold: (householdId: string) => PaymentConfirmationService,
   options: {
-    router?: TopicMessageRouter
-    topicProcessor?: import('./topic-processor').TopicProcessor
-    contextCache?: import('./household-context-cache').HouseholdContextCache
     memoryStore?: AssistantConversationMemoryStore
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
@@ -1646,479 +1384,6 @@ export function registerConfiguredPaymentTopicIngestion(
           inline_keyboard: []
         }
       })
-    }
-  })
-
-  bot.on('message', async (ctx, next) => {
-    const candidate = toCandidateFromContext(ctx)
-    if (!candidate) {
-      await next()
-      return
-    }
-
-    const binding = await householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-      telegramChatId: candidate.chatId,
-      telegramThreadId: candidate.threadId
-    })
-
-    if (!binding) {
-      await next()
-      return
-    }
-
-    const record = resolveConfiguredPaymentTopicRecord(candidate, binding)
-    if (!record) {
-      await next()
-      return
-    }
-
-    try {
-      const locale = await resolveTopicLocale(ctx, householdConfigurationRepository)
-      if (isLikelyUtilityTemplate(record.rawText)) {
-        await next()
-        return
-      }
-      const pending = await promptRepository.getPendingAction(
-        record.chatId,
-        record.senderTelegramUserId
-      )
-      const clarificationPayload =
-        pending?.action === PAYMENT_TOPIC_CLARIFICATION_ACTION
-          ? parsePaymentClarificationPayload(pending.payload)
-          : null
-      const combinedText =
-        clarificationPayload && clarificationPayload.threadId === record.threadId
-          ? `${clarificationPayload.rawText}\n${record.rawText}`
-          : record.rawText
-      const confirmationPayload =
-        pending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
-          ? parsePaymentTopicConfirmationPayload(pending.payload)
-          : null
-
-      // Load household context (cached)
-      const householdContext = options.contextCache
-        ? await options.contextCache.get(record.householdId, async () => {
-            const billingSettings =
-              await householdConfigurationRepository.getHouseholdBillingSettings(record.householdId)
-            const assistantConfig = await resolveAssistantConfig(
-              householdConfigurationRepository,
-              record.householdId
-            )
-            return {
-              householdContext: assistantConfig.assistantContext,
-              assistantTone: assistantConfig.assistantTone,
-              defaultCurrency: billingSettings.settlementCurrency,
-              locale: (await resolveTopicLocale(ctx, householdConfigurationRepository)) as
-                | 'en'
-                | 'ru',
-              cachedAt: Date.now()
-            }
-          })
-        : {
-            householdContext: null as string | null,
-            assistantTone: null as string | null,
-            defaultCurrency: 'GEL' as const,
-            locale: 'en' as const,
-            cachedAt: Date.now()
-          }
-
-      const activeWorkflow =
-        clarificationPayload && clarificationPayload.threadId === record.threadId
-          ? 'payment_clarification'
-          : confirmationPayload && confirmationPayload.telegramThreadId === record.threadId
-            ? 'payment_confirmation'
-            : null
-      const financeService = financeServiceForHousehold(record.householdId)
-      let senderMember: Awaited<ReturnType<FinanceCommandService['getMemberByTelegramUserId']>> =
-        null
-      let householdMembers: Awaited<ReturnType<FinanceCommandService['listMembers']>> = []
-      let dashboard: Awaited<ReturnType<FinanceCommandService['generateDashboard']>> | null = null
-      if (options.topicProcessor) {
-        const resolved = await Promise.all([
-          financeService.getMemberByTelegramUserId(record.senderTelegramUserId),
-          financeService.listMembers(),
-          financeService.generateDashboard()
-        ])
-        senderMember = resolved[0]
-        householdMembers = resolved[1]
-        dashboard = resolved[2]
-      }
-      const billingContext = formatPaymentTopicBillingContext({ dashboard })
-      const topicHouseholdContext = [householdContext.householdContext, billingContext]
-        .filter((value): value is string => typeof value === 'string' && value.length > 0)
-        .join('\n\n')
-
-      // Use topic processor if available
-      if (options.topicProcessor) {
-        const conversationContext = await buildConversationContext({
-          repository: options.historyRepository,
-          householdId: record.householdId,
-          telegramChatId: record.chatId,
-          telegramThreadId: record.threadId,
-          telegramUserId: record.senderTelegramUserId,
-          topicRole: 'payments',
-          activeWorkflow,
-          messageText: record.rawText,
-          explicitMention: hasExplicitBotMention(ctx),
-          replyToBot: isReplyToCurrentBotMessage(ctx),
-          directBotAddress: false,
-          memoryStore: options.memoryStore ?? {
-            get() {
-              return { summary: null, turns: [] }
-            },
-            appendTurn() {
-              return { summary: null, turns: [] }
-            }
-          }
-        })
-
-        const processorResult = await options.topicProcessor({
-          locale: locale === 'ru' ? 'ru' : 'en',
-          topicRole: 'payments',
-          messageText: combinedText,
-          isExplicitMention: conversationContext.explicitMention,
-          isReplyToBot: conversationContext.replyToBot,
-          activeWorkflow,
-          defaultCurrency: householdContext.defaultCurrency,
-          householdContext: topicHouseholdContext || null,
-          assistantTone: householdContext.assistantTone,
-          householdMembers: householdMembers.map((member) => ({
-            memberId: member.id,
-            displayName: member.displayName,
-            status: 'active'
-          })),
-          senderMemberId: senderMember?.id ?? null,
-          recentThreadMessages: conversationContext.recentThreadMessages.map((m) => ({
-            role: m.role,
-            speaker: m.speaker,
-            text: m.text
-          })),
-          recentChatMessages: conversationContext.recentSessionMessages.map((m) => ({
-            role: m.role,
-            speaker: m.speaker,
-            text: m.text
-          })),
-          recentTurns: conversationContext.recentTurns,
-          engagementAssessment: conversationContext.engagement
-        })
-
-        options.logger?.info(
-          { event: 'payment.topic_processor_result', result: processorResult },
-          'Topic processor finished'
-        )
-
-        // Handle processor failure through deterministic fallback routing.
-        if (!processorResult) {
-          cacheConfiguredTopicFallbackRoute({
-            topicRole: 'payments',
-            ctx,
-            locale,
-            messageText: combinedText,
-            isExplicitMention: conversationContext.explicitMention,
-            isReplyToBot: conversationContext.replyToBot,
-            activeWorkflow
-          })
-          await next()
-          return
-        }
-
-        // Handle different routes
-        switch (processorResult.route) {
-          case 'silent': {
-            if (conversationContext.explicitMention) {
-              options.logger?.info(
-                {
-                  event: 'payment.topic_processor_explicit_fallback',
-                  reason: processorResult.reason,
-                  messageText: record.rawText
-                },
-                'Using fallback route after topic processor stayed silent on an explicit mention'
-              )
-
-              cacheConfiguredTopicFallbackRoute({
-                topicRole: 'payments',
-                ctx,
-                locale,
-                messageText: combinedText,
-                isExplicitMention: conversationContext.explicitMention,
-                isReplyToBot: conversationContext.replyToBot,
-                activeWorkflow
-              })
-              await next()
-              return
-            }
-
-            cacheTopicMessageRoute(ctx, 'payments', {
-              route: 'silent',
-              replyText: null,
-              helperKind: null,
-              shouldStartTyping: false,
-              shouldClearWorkflow: false,
-              confidence: processorResult.reason === 'test' ? 0 : 80,
-              reason: processorResult.reason
-            })
-            await next()
-            return
-          }
-
-          case 'chat_reply': {
-            await replyToPaymentMessage(ctx, processorResult.replyText, undefined, {
-              repository: options.historyRepository,
-              record
-            })
-            appendConversation(
-              options.memoryStore,
-              record,
-              record.rawText,
-              processorResult.replyText
-            )
-            return
-          }
-
-          case 'dismiss_workflow': {
-            if (senderMember) {
-              const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
-                ctx,
-                locale,
-                record,
-                rawText: combinedText,
-                financeService,
-                memberId: senderMember.id,
-                householdConfigurationRepository,
-                ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
-                ...(options.historyRepository
-                  ? { historyRepository: options.historyRepository }
-                  : {})
-              })
-              if (handledQuestion) {
-                if (activeWorkflow !== null) {
-                  await promptRepository.clearPendingAction(
-                    record.chatId,
-                    record.senderTelegramUserId
-                  )
-                }
-                return
-              }
-            }
-
-            if (activeWorkflow !== null) {
-              await promptRepository.clearPendingAction(record.chatId, record.senderTelegramUserId)
-            }
-            if (processorResult.replyText) {
-              await replyToPaymentMessage(ctx, processorResult.replyText, undefined, {
-                repository: options.historyRepository,
-                record
-              })
-              appendConversation(
-                options.memoryStore,
-                record,
-                record.rawText,
-                processorResult.replyText
-              )
-            }
-            return
-          }
-
-          case 'topic_helper': {
-            const financeService = financeServiceForHousehold(record.householdId)
-            const member = await financeService.getMemberByTelegramUserId(
-              record.senderTelegramUserId
-            )
-            if (!member) {
-              await next()
-              return
-            }
-
-            const handled = await replyWithPaymentBalanceQuestionIfPossible({
-              ctx,
-              locale,
-              record,
-              rawText: combinedText,
-              financeService,
-              memberId: member.id,
-              householdConfigurationRepository,
-              ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
-              ...(options.historyRepository ? { historyRepository: options.historyRepository } : {})
-            })
-
-            if (!handled) {
-              await next()
-            }
-            return
-          }
-
-          case 'payment_clarification': {
-            if (senderMember) {
-              const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
-                ctx,
-                locale,
-                record,
-                rawText: combinedText,
-                financeService,
-                memberId: senderMember.id,
-                householdConfigurationRepository,
-                ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
-                ...(options.historyRepository
-                  ? { historyRepository: options.historyRepository }
-                  : {})
-              })
-              if (handledQuestion) {
-                return
-              }
-            }
-
-            options.logger?.info(
-              {
-                event: 'payment.topic_processor_clarification_silenced',
-                reason: processorResult.reason,
-                messageText: record.rawText
-              },
-              'Silencing ambiguous payment-topic clarification'
-            )
-            cacheTopicMessageRoute(ctx, 'payments', {
-              route: 'silent',
-              replyText: null,
-              helperKind: null,
-              shouldStartTyping: false,
-              shouldClearWorkflow: false,
-              confidence: 80,
-              reason: processorResult.reason
-            })
-            await next()
-            return
-          }
-
-          case 'payment': {
-            if (!senderMember) {
-              await next()
-              return
-            }
-
-            const handledQuestion = await replyWithPaymentBalanceQuestionIfPossible({
-              ctx,
-              locale,
-              record,
-              rawText: combinedText,
-              financeService,
-              memberId: senderMember.id,
-              householdConfigurationRepository,
-              ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
-              ...(options.historyRepository ? { historyRepository: options.historyRepository } : {})
-            })
-            if (handledQuestion) {
-              return
-            }
-
-            const semanticCandidate = semanticPaymentCandidateFromProcessor({
-              result: processorResult,
-              rawText: record.rawText,
-              isReplyToBot: conversationContext.replyToBot,
-              activeWorkflow
-            })
-            if (!semanticCandidate) {
-              cacheTopicMessageRoute(ctx, 'payments', {
-                route: 'silent',
-                replyText: null,
-                helperKind: null,
-                shouldStartTyping: false,
-                shouldClearWorkflow: false,
-                confidence: processorResult.confidence,
-                reason: processorResult.reason
-              })
-              await next()
-              return
-            }
-
-            let payerMember = senderMember
-            let isThirdParty = false
-            if (processorResult.payerDisplayName) {
-              const matchedMember = householdMembers.find(
-                (m) =>
-                  m.displayName.toLowerCase() === processorResult.payerDisplayName?.toLowerCase()
-              )
-              if (!matchedMember) {
-                await next()
-                return
-              }
-
-              payerMember = matchedMember
-              isThirdParty = matchedMember.id !== senderMember.id
-            }
-
-            // Only trust the AI-extracted amount when the exact amount and currency are present
-            // in the current message. The AI may hallucinate amounts from billing context/history.
-            const currentMessageAmount = validatedCurrentMessageAmount({
-              rawText: record.rawText,
-              amountMinor: semanticCandidate.amountMinor,
-              currency: semanticCandidate.currency
-            })
-            const handled = await handleSemanticPaymentCandidate({
-              ctx,
-              locale,
-              record,
-              combinedText,
-              candidate: {
-                ...semanticCandidate,
-                payerMemberId: payerMember.id,
-                amountMinor: currentMessageAmount?.amountMinor ?? null,
-                currency: currentMessageAmount?.currency ?? null
-              },
-              payerMemberId: payerMember.id,
-              payerTelegramUserId: payerMember.telegramUserId ?? null,
-              payerDisplayName: payerMember.displayName,
-              isThirdParty,
-              financeService,
-              householdConfigurationRepository,
-              promptRepository,
-              ...(options.memoryStore
-                ? {
-                    memoryStore: options.memoryStore
-                  }
-                : {}),
-              ...(options.historyRepository
-                ? {
-                    historyRepository: options.historyRepository
-                  }
-                : {})
-            })
-            if (!handled) {
-              await next()
-            }
-            return
-          }
-
-          default: {
-            await next()
-            return
-          }
-        }
-      }
-
-      // No topic processor available; hand off through deterministic fallback routing.
-      cacheConfiguredTopicFallbackRoute({
-        topicRole: 'payments',
-        ctx,
-        locale,
-        messageText: combinedText,
-        isExplicitMention: hasExplicitBotMention(ctx),
-        isReplyToBot: isReplyToCurrentBotMessage(ctx),
-        activeWorkflow
-      })
-      await next()
-    } catch (error) {
-      options.logger?.error(
-        {
-          event: 'payment.ingest_failed',
-          chatId: record.chatId,
-          threadId: record.threadId,
-          messageId: record.messageId,
-          updateId: record.updateId,
-          error
-        },
-        'Failed to ingest payment confirmation'
-      )
-    } finally {
-      await persistIncomingTopicMessage(options.historyRepository, record)
     }
   })
 }

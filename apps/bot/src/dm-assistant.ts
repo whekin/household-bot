@@ -1,8 +1,4 @@
-import {
-  buildMemberPaymentGuidance,
-  parsePaymentConfirmationMessage,
-  type FinanceCommandService
-} from '@household/application'
+import { buildMemberPaymentGuidance, type FinanceCommandService } from '@household/application'
 import { instantFromEpochSeconds, Money } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -14,7 +10,6 @@ import type {
 import type { Bot, Context } from 'grammy'
 
 import { resolveReplyLocale } from './bot-locale'
-import { composeAssistantReplyText } from './assistant-composer'
 import {
   ASSISTANT_COMMAND_ACTION,
   ASSISTANT_COMMAND_CANCEL_CALLBACK_PREFIX,
@@ -43,18 +38,11 @@ import type {
   PurchaseTopicRecord
 } from './purchase-topic-ingestion'
 import {
-  buildConversationContext,
-  type ConversationHistoryMessage
-} from './conversation-orchestrator'
-import type { TopicMessageRouter, TopicMessageRole } from './topic-message-router'
-import { fallbackTopicMessageRoute, getCachedTopicMessageRoute } from './topic-message-router'
-import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
 import { startTypingIndicator } from './telegram-chat-action'
-import { stripExplicitBotMention } from './telegram-mentions'
 import {
   filterTelegramCommandCatalog,
   formatAssistantCommandCatalog,
@@ -75,7 +63,6 @@ const ASSISTANT_PURCHASE_CONFIRM_CALLBACK_PREFIX = 'assistant_purchase:confirm:'
 const ASSISTANT_PURCHASE_CANCEL_CALLBACK_PREFIX = 'assistant_purchase:cancel:'
 const ASSISTANT_COMMAND_TTL_MS = 1000 * 60 * 15
 const DM_ASSISTANT_MESSAGE_SOURCE = 'telegram-dm-assistant'
-const GROUP_ASSISTANT_MESSAGE_SOURCE = 'telegram-group-assistant'
 const PURCHASE_VERB_PATTERN =
   /\b(?:bought|buy|got|picked up|spent|купил(?:а|и)?|взял(?:а|и)?|выложил(?:а|и)?|отдал(?:а|и)?|потратил(?:а|и)?)\b/iu
 const PURCHASE_MONEY_PATTERN =
@@ -115,21 +102,8 @@ function isPrivateChat(ctx: Context): boolean {
   return ctx.chat?.type === 'private'
 }
 
-function isGroupChat(ctx: Context): boolean {
-  return ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup'
-}
-
 function isCommandMessage(ctx: Context): boolean {
   return typeof ctx.msg?.text === 'string' && ctx.msg.text.trim().startsWith('/')
-}
-
-function isReplyToBotMessage(ctx: Context): boolean {
-  const replyAuthor = ctx.msg?.reply_to_message?.from
-  if (!replyAuthor) {
-    return false
-  }
-
-  return replyAuthor.id === ctx.me.id
 }
 
 function availableAssistantCommands(input: {
@@ -486,40 +460,6 @@ function looksLikePurchaseIntent(rawText: string): boolean {
   return PURCHASE_MONEY_PATTERN.test(normalized) && /\p{L}/u.test(normalized)
 }
 
-function detectGenericFinanceWriteIntent(
-  rawText: string,
-  defaultCurrency: 'GEL' | 'USD'
-): 'purchase' | 'payment' | null {
-  const payment = parsePaymentConfirmationMessage(rawText, defaultCurrency)
-  if (payment.kind) {
-    return 'payment'
-  }
-
-  if (looksLikePurchaseIntent(rawText)) {
-    return 'purchase'
-  }
-
-  return null
-}
-
-async function buildGenericTopicFinanceRedirect(input: {
-  locale: BotLocale
-  householdId: string
-  kind: 'purchase' | 'payment'
-  householdConfigurationRepository: HouseholdConfigurationRepository
-}): Promise<string> {
-  const topicBinding = await input.householdConfigurationRepository.getHouseholdTopicBinding(
-    input.householdId,
-    input.kind === 'purchase' ? 'purchase' : 'payments'
-  )
-  const topicName = topicBinding?.topicName ?? null
-  const t = getBotTranslations(input.locale).assistant
-
-  return input.kind === 'purchase'
-    ? t.purchaseTopicRedirect(topicName)
-    : t.paymentTopicRedirect(topicName)
-}
-
 async function resolveAssistantConfig(
   householdConfigurationRepository: HouseholdConfigurationRepository,
   householdId: string
@@ -531,61 +471,6 @@ async function resolveAssistantConfig(
         assistantContext: null,
         assistantTone: null
       }
-}
-
-function currentThreadId(ctx: Context): string | null {
-  return ctx.msg && 'message_thread_id' in ctx.msg && ctx.msg.message_thread_id !== undefined
-    ? ctx.msg.message_thread_id.toString()
-    : null
-}
-
-function currentMessageId(ctx: Context): string | null {
-  return ctx.msg?.message_id?.toString() ?? null
-}
-
-function currentMessageSentAt(ctx: Context) {
-  return typeof ctx.msg?.date === 'number' ? instantFromEpochSeconds(ctx.msg.date) : null
-}
-
-function toAssistantMessages(messages: readonly ConversationHistoryMessage[]): readonly {
-  role: 'user' | 'assistant'
-  speaker: string
-  text: string
-  threadId: string | null
-}[] {
-  return messages.map((message) => ({
-    role: message.role,
-    speaker: message.speaker,
-    text: message.text,
-    threadId: message.threadId
-  }))
-}
-
-async function persistIncomingTopicMessage(input: {
-  repository: TopicMessageHistoryRepository | undefined
-  householdId: string
-  telegramChatId: string
-  telegramThreadId: string | null
-  telegramMessageId: string | null
-  telegramUpdateId: string | null
-  senderTelegramUserId: string
-  senderDisplayName: string | null
-  rawText: string
-  messageSentAt: ReturnType<typeof currentMessageSentAt>
-}) {
-  await persistTopicHistoryMessage({
-    repository: input.repository,
-    householdId: input.householdId,
-    telegramChatId: input.telegramChatId,
-    telegramThreadId: input.telegramThreadId,
-    telegramMessageId: input.telegramMessageId,
-    telegramUpdateId: input.telegramUpdateId,
-    senderTelegramUserId: input.senderTelegramUserId,
-    senderDisplayName: input.senderDisplayName,
-    isBot: false,
-    rawText: input.rawText,
-    messageSentAt: input.messageSentAt
-  })
 }
 
 async function replyAndPersistTopicMessage(input: {
@@ -614,70 +499,6 @@ async function replyAndPersistTopicMessage(input: {
   })
 
   return reply
-}
-
-async function routeGroupAssistantMessage(input: {
-  router: TopicMessageRouter | undefined
-  locale: BotLocale
-  topicRole: TopicMessageRole
-  messageText: string
-  isExplicitMention: boolean
-  isReplyToBot: boolean
-  engagementAssessment: {
-    engaged: boolean
-    reason: string
-    strongReference: boolean
-    weakSessionActive: boolean
-    hasOpenBotQuestion: boolean
-  }
-  assistantContext: string | null
-  assistantTone: string | null
-  memoryStore: AssistantConversationMemoryStore
-  memoryKey: string
-  recentThreadMessages: readonly {
-    role: 'user' | 'assistant'
-    speaker: string
-    text: string
-    threadId: string | null
-  }[]
-  recentChatMessages: readonly {
-    role: 'user' | 'assistant'
-    speaker: string
-    text: string
-    threadId: string | null
-  }[]
-}) {
-  if (!input.router) {
-    return fallbackTopicMessageRoute({
-      locale: input.locale,
-      topicRole: input.topicRole,
-      messageText: input.messageText,
-      isExplicitMention: input.isExplicitMention,
-      isReplyToBot: input.isReplyToBot,
-      activeWorkflow: null,
-      engagementAssessment: input.engagementAssessment,
-      assistantContext: input.assistantContext,
-      assistantTone: input.assistantTone,
-      recentTurns: input.memoryStore.get(input.memoryKey).turns,
-      recentThreadMessages: input.recentThreadMessages,
-      recentChatMessages: input.recentChatMessages
-    })
-  }
-
-  return input.router({
-    locale: input.locale,
-    topicRole: input.topicRole,
-    messageText: input.messageText,
-    isExplicitMention: input.isExplicitMention,
-    isReplyToBot: input.isReplyToBot,
-    activeWorkflow: null,
-    engagementAssessment: input.engagementAssessment,
-    assistantContext: input.assistantContext,
-    assistantTone: input.assistantTone,
-    recentTurns: input.memoryStore.get(input.memoryKey).turns,
-    recentThreadMessages: input.recentThreadMessages,
-    recentChatMessages: input.recentChatMessages
-  })
 }
 
 function formatAssistantLedger(
@@ -791,7 +612,7 @@ async function buildHouseholdContext(input: {
 async function replyWithAssistant(input: {
   ctx: Context
   assistant: ConversationalAssistant | undefined
-  topicRole: TopicMessageRole
+  topicRole: 'generic'
   householdId: string
   memberId: string
   memberDisplayName: string
@@ -959,7 +780,6 @@ async function replyWithAssistant(input: {
 export function registerDmAssistant(options: {
   bot: Bot
   assistant?: ConversationalAssistant
-  topicRouter?: TopicMessageRouter
   topicMessageHistoryRepository?: TopicMessageHistoryRepository
   purchaseRepository?: PurchaseMessageIngestionRepository
   purchaseInterpreter?: PurchaseMessageInterpreter
@@ -1555,445 +1375,6 @@ export function registerDmAssistant(options: {
       }
 
       throw error
-    }
-  })
-
-  options.bot.on('message:text', async (ctx, next) => {
-    if (!isGroupChat(ctx) || isCommandMessage(ctx)) {
-      await next()
-      return
-    }
-
-    const mention = stripExplicitBotMention(ctx)
-    const isExplicitMention = Boolean(mention && mention.strippedText.length > 0)
-    const isReplyToBot = isReplyToBotMessage(ctx)
-
-    const telegramUserId = ctx.from?.id?.toString()
-    const telegramChatId = ctx.chat?.id?.toString()
-    if (!telegramUserId || !telegramChatId) {
-      await next()
-      return
-    }
-
-    const household =
-      await options.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
-    if (!household) {
-      await next()
-      return
-    }
-    const binding =
-      ctx.msg &&
-      'is_topic_message' in ctx.msg &&
-      ctx.msg.is_topic_message === true &&
-      'message_thread_id' in ctx.msg &&
-      ctx.msg.message_thread_id !== undefined
-        ? await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-            telegramChatId,
-            telegramThreadId: ctx.msg.message_thread_id.toString()
-          })
-        : null
-
-    const member = await options.householdConfigurationRepository.getHouseholdMember(
-      household.householdId,
-      telegramUserId
-    )
-    if (!member) {
-      await next()
-      return
-    }
-
-    const locale = member.preferredLocale ?? household.defaultLocale ?? 'en'
-
-    const updateId = ctx.update.update_id?.toString()
-    const dedupeClaim =
-      options.messageProcessingRepository && typeof updateId === 'string'
-        ? {
-            repository: options.messageProcessingRepository,
-            updateId
-          }
-        : null
-
-    if (dedupeClaim) {
-      const claim = await dedupeClaim.repository.claimMessage({
-        householdId: household.householdId,
-        source: GROUP_ASSISTANT_MESSAGE_SOURCE,
-        sourceMessageKey: dedupeClaim.updateId
-      })
-
-      if (!claim.claimed) {
-        options.logger?.info(
-          {
-            event: 'assistant.duplicate_update',
-            householdId: household.householdId,
-            telegramUserId,
-            updateId: dedupeClaim.updateId
-          },
-          'Duplicate group assistant mention ignored'
-        )
-        return
-      }
-    }
-
-    try {
-      const memoryKey = conversationMemoryKey({
-        telegramUserId,
-        telegramChatId,
-        isPrivateChat: false
-      })
-      const telegramThreadId = currentThreadId(ctx)
-      const messageText = mention?.strippedText ?? ctx.msg.text.trim()
-      const assistantConfig = await resolveAssistantConfig(
-        options.householdConfigurationRepository,
-        household.householdId
-      )
-      const topicRole: TopicMessageRole =
-        binding?.role === 'purchase' ||
-        binding?.role === 'payments' ||
-        binding?.role === 'reminders' ||
-        binding?.role === 'feedback'
-          ? binding.role
-          : 'generic'
-      const cachedRoute =
-        topicRole === 'purchase' || topicRole === 'payments'
-          ? getCachedTopicMessageRoute(ctx, topicRole)
-          : null
-      const conversationContext = await buildConversationContext({
-        repository: options.topicMessageHistoryRepository,
-        householdId: household.householdId,
-        telegramChatId,
-        telegramThreadId,
-        telegramUserId,
-        topicRole,
-        activeWorkflow: null,
-        messageText,
-        explicitMention: isExplicitMention,
-        replyToBot: isReplyToBot,
-        directBotAddress: false,
-        memoryStore: options.memoryStore
-      })
-      const route =
-        cachedRoute ??
-        (options.topicRouter
-          ? await routeGroupAssistantMessage({
-              router: options.topicRouter,
-              locale,
-              topicRole,
-              messageText,
-              isExplicitMention,
-              isReplyToBot,
-              engagementAssessment: conversationContext.engagement,
-              assistantContext: assistantConfig.assistantContext,
-              assistantTone: assistantConfig.assistantTone,
-              memoryStore: options.memoryStore,
-              memoryKey,
-              recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-              recentChatMessages: toAssistantMessages(
-                conversationContext.shouldLoadExpandedContext
-                  ? conversationContext.rollingChatMessages.slice(-40)
-                  : conversationContext.recentSessionMessages
-              )
-            })
-          : null)
-      const financeService = options.financeServiceForHousehold(household.householdId)
-      const settings = await options.householdConfigurationRepository.getHouseholdBillingSettings(
-        household.householdId
-      )
-      const isExplicitlyAddressed = isExplicitMention || isReplyToBot
-      const genericFinanceWriteIntent =
-        topicRole === 'generic'
-          ? detectGenericFinanceWriteIntent(messageText, settings.settlementCurrency)
-          : null
-
-      if (genericFinanceWriteIntent) {
-        if (!isExplicitlyAddressed) {
-          await next()
-          return
-        }
-
-        const replyText = await buildGenericTopicFinanceRedirect({
-          locale,
-          householdId: household.householdId,
-          kind: genericFinanceWriteIntent,
-          householdConfigurationRepository: options.householdConfigurationRepository
-        })
-
-        options.memoryStore.appendTurn(memoryKey, {
-          role: 'user',
-          text: messageText
-        })
-        options.memoryStore.appendTurn(memoryKey, {
-          role: 'assistant',
-          text: replyText
-        })
-        await replyAndPersistTopicMessage({
-          ctx,
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          telegramThreadId,
-          text: replyText
-        })
-        return
-      }
-
-      if (route) {
-        if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
-          if (route.replyText) {
-            options.memoryStore.appendTurn(memoryKey, {
-              role: 'user',
-              text: messageText
-            })
-            options.memoryStore.appendTurn(memoryKey, {
-              role: 'assistant',
-              text: route.replyText
-            })
-            await replyAndPersistTopicMessage({
-              ctx,
-              repository: options.topicMessageHistoryRepository,
-              householdId: household.householdId,
-              telegramChatId,
-              telegramThreadId,
-              text: route.replyText
-            })
-          }
-          return
-        }
-
-        if (route.route === 'silent') {
-          await next()
-          return
-        }
-      }
-
-      let householdContextPromise: Promise<string> | null = null
-      const householdContext = () =>
-        (householdContextPromise ??= buildHouseholdContext({
-          householdId: household.householdId,
-          memberId: member.id,
-          memberDisplayName: member.displayName,
-          locale,
-          householdConfigurationRepository: options.householdConfigurationRepository,
-          financeService
-        }))
-
-      const shouldRespond =
-        messageText.length > 0 &&
-        (isExplicitMention ||
-          isReplyToBot ||
-          conversationContext.engagement.reason === 'strong_reference' ||
-          Boolean(route && route.route !== 'silent'))
-
-      if (!shouldRespond) {
-        await next()
-        return
-      }
-
-      const rateLimit = options.rateLimiter.consume(`${household.householdId}:${telegramUserId}`)
-      const t = getBotTranslations(locale).assistant
-
-      if (!rateLimit.allowed) {
-        await replyAndPersistTopicMessage({
-          ctx,
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          telegramThreadId,
-          text: t.rateLimited(formatRetryDelay(locale, rateLimit.retryAfterMs))
-        })
-        return
-      }
-
-      const assistantCommands = availableAssistantCommands({
-        locale,
-        chatType: 'group',
-        isMember: true,
-        isAdmin: member.isAdmin
-      })
-      if (isCommandListQuestion(messageText)) {
-        await replyAndPersistTopicMessage({
-          ctx,
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          telegramThreadId,
-          text: formatAvailableCommandsReply({
-            locale,
-            entries: assistantCommands.entries
-          })
-        })
-        return
-      }
-      if (
-        await maybeReplyWithAssistantCommandSuggestion({
-          ctx,
-          rawText: messageText,
-          locale,
-          chatType: 'group',
-          householdId: household.householdId,
-          memberId: member.id,
-          isAdmin: member.isAdmin,
-          promptRepository: options.promptRepository,
-          reply: async (text, replyMarkup) => {
-            await replyAndPersistTopicMessage({
-              ctx,
-              repository: options.topicMessageHistoryRepository,
-              householdId: household.householdId,
-              telegramChatId,
-              telegramThreadId,
-              text,
-              replyOptions: { reply_markup: replyMarkup }
-            })
-          }
-        })
-      ) {
-        return
-      }
-
-      const paymentBalanceReply = await maybeCreatePaymentBalanceReply({
-        rawText: messageText,
-        householdId: household.householdId,
-        memberId: member.id,
-        financeService,
-        householdConfigurationRepository: options.householdConfigurationRepository
-      })
-
-      const prefersConversationHistory =
-        conversationContext.shouldLoadExpandedContext ||
-        conversationContext.engagement.strongReference
-
-      if (paymentBalanceReply && !prefersConversationHistory) {
-        const fallbackText = formatPaymentBalanceReplyText(locale, paymentBalanceReply)
-        const replyText = await composeAssistantReplyText({
-          assistant: options.assistant,
-          locale,
-          topicRole,
-          householdContext: await householdContext(),
-          userMessage: messageText,
-          recentTurns: options.memoryStore.get(memoryKey).turns,
-          recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-          recentChatMessages: toAssistantMessages(
-            conversationContext.rollingChatMessages.slice(-40)
-          ),
-          authoritativeFacts: fallbackText.split('\n').filter(Boolean),
-          responseInstructions:
-            'Write a short natural finance reply using only these payment guidance facts. Do not add unrelated chat summary or extra finance advice.',
-          fallbackText,
-          logger: options.logger,
-          logEvent: 'assistant.compose_payment_balance_failed'
-        })
-        await replyAndPersistTopicMessage({
-          ctx,
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          telegramThreadId,
-          text: replyText
-        })
-        return
-      }
-
-      const memberInsightReply = await maybeCreateMemberInsightReply({
-        rawText: messageText,
-        locale,
-        householdId: household.householdId,
-        currentMemberId: member.id,
-        householdConfigurationRepository: options.householdConfigurationRepository,
-        financeService,
-        recentTurns: options.memoryStore.get(memoryKey).turns
-      })
-
-      if (memberInsightReply && !prefersConversationHistory) {
-        const replyText = await composeAssistantReplyText({
-          assistant: options.assistant,
-          locale,
-          topicRole,
-          householdContext: await householdContext(),
-          userMessage: messageText,
-          recentTurns: options.memoryStore.get(memoryKey).turns,
-          recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-          recentChatMessages: toAssistantMessages(
-            conversationContext.rollingChatMessages.slice(-40)
-          ),
-          authoritativeFacts: [memberInsightReply],
-          responseInstructions:
-            'Rewrite these member finance facts as a short natural answer in the user language. Preserve the facts exactly.',
-          fallbackText: memberInsightReply,
-          logger: options.logger,
-          logEvent: 'assistant.compose_member_insight_failed'
-        })
-        options.memoryStore.appendTurn(memoryKey, {
-          role: 'user',
-          text: messageText
-        })
-        options.memoryStore.appendTurn(memoryKey, {
-          role: 'assistant',
-          text: replyText
-        })
-
-        await replyAndPersistTopicMessage({
-          ctx,
-          repository: options.topicMessageHistoryRepository,
-          householdId: household.householdId,
-          telegramChatId,
-          telegramThreadId,
-          text: replyText
-        })
-        return
-      }
-
-      await replyWithAssistant({
-        ctx,
-        assistant: options.assistant,
-        topicRole,
-        householdId: household.householdId,
-        memberId: member.id,
-        memberDisplayName: member.displayName,
-        telegramUserId,
-        telegramChatId,
-        locale,
-        userMessage: messageText,
-        commandCatalog: assistantCommands.catalogText,
-        householdConfigurationRepository: options.householdConfigurationRepository,
-        financeService,
-        memoryStore: options.memoryStore,
-        usageTracker: options.usageTracker,
-        logger: options.logger,
-        telegramThreadId,
-        ...(options.topicMessageHistoryRepository
-          ? {
-              topicMessageHistoryRepository: options.topicMessageHistoryRepository
-            }
-          : {}),
-        recentThreadMessages: toAssistantMessages(conversationContext.recentThreadMessages),
-        sameDayChatMessages: toAssistantMessages(
-          conversationContext.shouldLoadExpandedContext
-            ? conversationContext.rollingChatMessages.slice(-40)
-            : conversationContext.recentSessionMessages
-        )
-      })
-    } catch (error) {
-      if (dedupeClaim) {
-        await dedupeClaim.repository.releaseMessage({
-          householdId: household.householdId,
-          source: GROUP_ASSISTANT_MESSAGE_SOURCE,
-          sourceMessageKey: dedupeClaim.updateId
-        })
-      }
-
-      throw error
-    } finally {
-      await persistIncomingTopicMessage({
-        repository: options.topicMessageHistoryRepository,
-        householdId: household.householdId,
-        telegramChatId,
-        telegramThreadId: currentThreadId(ctx),
-        telegramMessageId: currentMessageId(ctx),
-        telegramUpdateId: ctx.update.update_id?.toString() ?? null,
-        senderTelegramUserId: telegramUserId,
-        senderDisplayName: ctx.from?.first_name ?? member.displayName ?? ctx.from?.username ?? null,
-        rawText: mention?.strippedText ?? ctx.msg.text.trim(),
-        messageSentAt: currentMessageSentAt(ctx)
-      })
     }
   })
 }

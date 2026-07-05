@@ -381,6 +381,8 @@ function createFinanceServiceStub(): FinanceCommandService & {
       currency: 'USD'
     }),
     deletePayment: async () => true,
+    getPayment: async () => null,
+    getPurchase: async () => null,
     generateCurrentBillPlan: async () => null,
     resolveUtilityBillAsPlanned: async function (input) {
       this.resolvedUtilityPlans.push(input)

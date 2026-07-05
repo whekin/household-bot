@@ -38,8 +38,6 @@ export interface BotRuntimeConfig {
   openaiApiKey?: string
   purchaseParserModel: string
   assistantModel: string
-  topicProcessorModel: string
-  topicProcessorTimeoutMs: number
   assistantTimeoutMs: number
   assistantMemoryMaxTurns: number
   assistantRateLimitBurst: number
@@ -211,12 +209,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     ),
     purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-5.4-mini',
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.4-mini',
-    topicProcessorModel: env.TOPIC_PROCESSOR_MODEL?.trim() || 'gpt-4.1-nano',
-    topicProcessorTimeoutMs: parsePositiveInteger(
-      env.TOPIC_PROCESSOR_TIMEOUT_MS,
-      10_000,
-      'TOPIC_PROCESSOR_TIMEOUT_MS'
-    ),
     assistantTimeoutMs: parsePositiveInteger(
       env.ASSISTANT_TIMEOUT_MS,
       20_000,

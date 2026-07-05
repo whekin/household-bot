@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 
 import { createFinanceCommandService } from '@household/application'
+import { instantFromEpochSeconds } from '@household/domain'
 import {
   createDbFinanceRepository,
   createDbHouseholdConfigurationRepository
@@ -13,7 +14,6 @@ import type { ExchangeRateProvider } from '@household/ports'
 
 import { createTelegramBot } from '../../apps/bot/src/bot'
 import { createFinanceCommandsService } from '../../apps/bot/src/finance-commands'
-import { registerPurchaseTopicIngestion } from '../../apps/bot/src/purchase-topic-ingestion'
 import { createPurchaseMessageRepository } from '../../apps/bot/src/adapters/purchase-message-repository'
 
 const chatId = '-100123456'
@@ -76,34 +76,6 @@ function commandUpdate(params: {
           type: 'bot_command'
         }
       ]
-    }
-  }
-}
-
-function topicPurchaseUpdate(params: {
-  updateId: number
-  fromUserId: string
-  fromName: string
-  text: string
-  unixTime: number
-}) {
-  return {
-    update_id: params.updateId,
-    message: {
-      message_id: params.updateId,
-      date: params.unixTime,
-      chat: {
-        id: commandChatIdNumber,
-        type: 'supergroup'
-      },
-      from: {
-        id: Number(params.fromUserId),
-        is_bot: false,
-        first_name: params.fromName
-      },
-      is_topic_message: true,
-      message_thread_id: purchaseTopicId,
-      text: params.text
     }
   }
 }
@@ -219,16 +191,6 @@ async function run(): Promise<void> {
       financeServiceForHousehold: () => financeService
     })
 
-    registerPurchaseTopicIngestion(
-      bot,
-      {
-        householdId: ids.household,
-        householdChatId: chatId,
-        purchaseTopicId
-      },
-      ingestionClient.repository
-    )
-
     financeCommands.register(bot)
 
     await coreClient.db.insert(schema.households).values({
@@ -289,15 +251,39 @@ async function run(): Promise<void> {
       }) as never
     )
 
-    await bot.handleUpdate(
-      topicPurchaseUpdate({
+    const purchaseSaveResult = await ingestionClient.repository.saveWithInterpretation(
+      {
         updateId: ++updateId,
-        fromUserId: telegram.bob,
-        fromName: 'Bob',
-        text: 'Bought soap 30 USD',
-        unixTime: march12
-      }) as never
+        householdId: ids.household,
+        chatId,
+        messageId: String(updateId),
+        threadId: String(purchaseTopicId),
+        senderTelegramUserId: telegram.bob,
+        senderDisplayName: 'Bob',
+        rawText: 'Bought soap 30 USD',
+        messageSentAt: instantFromEpochSeconds(march12)
+      },
+      {
+        decision: 'purchase',
+        amountMinor: 3000n,
+        currency: 'USD',
+        itemDescription: 'soap',
+        payerMemberId: ids.bob,
+        amountSource: 'explicit',
+        calculationExplanation: null,
+        participantMemberIds: null,
+        confidence: 95,
+        parserMode: 'llm',
+        clarificationQuestion: null
+      }
     )
+    assert.equal(purchaseSaveResult.status, 'pending_confirmation')
+    assert.ok('purchaseMessageId' in purchaseSaveResult)
+    const purchaseConfirmResult = await ingestionClient.repository.confirm(
+      purchaseSaveResult.purchaseMessageId,
+      telegram.bob
+    )
+    assert.equal(purchaseConfirmResult.status, 'confirmed')
 
     await bot.handleUpdate(
       commandUpdate({
@@ -365,7 +351,7 @@ async function run(): Promise<void> {
       .where(eq(schema.purchaseMessages.householdId, ids.household))
 
     assert.equal(purchaseRows.length, 1, 'Expected one ingested purchase message')
-    assert.equal(purchaseRows[0]?.status, 'parsed')
+    assert.equal(purchaseRows[0]?.status, 'confirmed')
     assert.equal(purchaseRows[0]?.amountMinor, 3000n)
     assert.equal(purchaseRows[0]?.senderMemberId, ids.bob)
 

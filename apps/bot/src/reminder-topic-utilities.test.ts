@@ -311,6 +311,8 @@ function createFinanceService(): FinanceCommandService & {
     }),
     updatePayment: async () => null,
     deletePayment: async () => false,
+    getPayment: async () => null,
+    getPurchase: async () => null,
     generateCurrentBillPlan: async () => null,
     resolveUtilityBillAsPlanned: async () => null,
     recordUtilityVendorPayment: async () => null,

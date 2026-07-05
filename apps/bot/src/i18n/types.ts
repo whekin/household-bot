@@ -345,6 +345,33 @@ export interface BotTranslationCatalog {
     proposalUnavailable: string
     parseFailed: string
   }
+  agent: {
+    confirmButton: string
+    cancelButton: string
+    actionPrompt: (summary: string) => string
+    actionConfirmed: (summary: string) => string
+    actionCancelled: string
+    actionUnavailable: string
+    notYourAction: string
+    actionFailed: string
+    pendingProposalCancelled: string
+    nothingToCancel: string
+    summarizeUpdatePayment: (
+      displayName: string,
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string
+    ) => string
+    summarizeDeletePayment: (
+      displayName: string,
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string
+    ) => string
+    summarizeUpdatePurchase: (description: string, amount: string, currency: string) => string
+    summarizeDeletePurchase: (description: string, amount: string, currency: string) => string
+    summarizeSetPurchaseParticipants: (description: string, names: string) => string
+  }
   payments: {
     topicMissing: string
     balanceReply: (kind: 'rent' | 'utilities') => string

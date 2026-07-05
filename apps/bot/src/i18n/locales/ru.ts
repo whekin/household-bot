@@ -388,6 +388,28 @@ export const ruBotTranslations: BotTranslationCatalog = {
     parseFailed:
       'Пока не удалось распознать это как общую покупку. Напишите предмет, сумму и валюту явно.'
   },
+  agent: {
+    confirmButton: 'Подтвердить',
+    cancelButton: 'Отмена',
+    actionPrompt: (summary) => `${summary}\nПодтвердите или отмените ниже.`,
+    actionConfirmed: (summary) => `Готово: ${summary}`,
+    actionCancelled: 'Действие отменено.',
+    actionUnavailable: 'Это действие уже недоступно.',
+    notYourAction: 'Подтвердить или отменить может только автор запроса или админ.',
+    actionFailed: 'Не удалось выполнить действие. Ничего не изменено.',
+    pendingProposalCancelled: 'Ожидающее предложение оплаты отменено.',
+    nothingToCancel: 'Сейчас нечего отменять.',
+    summarizeUpdatePayment: (displayName, kind, amount, currency) =>
+      `изменить оплату (${kind === 'rent' ? 'аренда' : 'коммуналка'}) участника ${displayName} на ${formatUserFacingMoney(amount, currency)}`,
+    summarizeDeletePayment: (displayName, kind, amount, currency) =>
+      `удалить оплату (${kind === 'rent' ? 'аренда' : 'коммуналка'}) участника ${displayName} на ${formatUserFacingMoney(amount, currency)}`,
+    summarizeUpdatePurchase: (description, amount, currency) =>
+      `изменить покупку «${description}» на ${formatUserFacingMoney(amount, currency)}`,
+    summarizeDeletePurchase: (description, amount, currency) =>
+      `удалить покупку «${description}» (${formatUserFacingMoney(amount, currency)})`,
+    summarizeSetPurchaseParticipants: (description, names) =>
+      `изменить участников покупки «${description}»: ${names}`
+  },
   payments: {
     topicMissing:
       'Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /setup и создать топик для оплат.',

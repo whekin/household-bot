@@ -4,10 +4,7 @@ import type { FinanceCommandService } from '@household/application'
 import { Money } from '@household/domain'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
-import {
-  formatPaymentProposalText,
-  maybeCreatePaymentProposalFromCandidate
-} from './payment-proposals'
+import { formatPaymentProposalText, createAgentPaymentProposal } from './payment-proposals'
 
 const settings = {
   householdId: 'household-1',
@@ -104,22 +101,27 @@ function financeServiceWithUtilityPlan(): FinanceCommandService {
       ],
       ledger: []
     }),
-    listMembers: async () => []
+    listMembers: async () => [
+      {
+        id: 'dima',
+        telegramUserId: '10001',
+        displayName: 'Dima',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
   } as unknown as FinanceCommandService
 }
 
 describe('payment proposals', () => {
   test('uses the active utility payment-period amount instead of recomputing from purchase offset', async () => {
-    const result = await maybeCreatePaymentProposalFromCandidate({
-      rawText: 'Оплатил',
+    const result = await createAgentPaymentProposal({
       householdId: 'household-1',
-      memberId: 'dima',
-      candidate: {
-        assertion: 'completed_payment',
-        kind: 'utilities',
-        confidence: 95,
-        evidence: 'explicit_text'
-      },
+      payerMemberId: 'dima',
+      additionalMemberIds: [],
+      kind: 'utilities',
+      explicitAmount: null,
+      perMemberAmount: null,
       financeService: financeServiceWithUtilityPlan(),
       householdConfigurationRepository
     })

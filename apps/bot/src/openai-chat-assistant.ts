@@ -1,5 +1,6 @@
 import { extractOpenAiResponseText, type OpenAiResponsePayload } from './openai-responses'
-import type { TopicMessageRole } from './topic-message-router'
+
+export type TopicMessageRole = 'generic' | 'purchase' | 'payments' | 'reminders' | 'feedback'
 
 const ASSISTANT_MAX_OUTPUT_TOKENS = 220
 

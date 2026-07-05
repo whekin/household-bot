@@ -384,6 +384,29 @@ export const enBotTranslations: BotTranslationCatalog = {
     parseFailed:
       "I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
   },
+  agent: {
+    confirmButton: 'Confirm',
+    cancelButton: 'Cancel',
+    actionPrompt: (summary) => `${summary}\nConfirm or cancel below.`,
+    actionConfirmed: (summary) => `Done: ${summary}`,
+    actionCancelled: 'Action cancelled.',
+    actionUnavailable: 'This action is no longer available.',
+    notYourAction:
+      'Only the person who requested this action or an admin can confirm or cancel it.',
+    actionFailed: 'Could not complete this action. Nothing was changed.',
+    pendingProposalCancelled: 'Pending payment proposal cancelled.',
+    nothingToCancel: 'There is nothing pending to cancel.',
+    summarizeUpdatePayment: (displayName, kind, amount, currency) =>
+      `update ${displayName}'s ${kind === 'rent' ? 'rent' : 'utilities'} payment to ${formatUserFacingMoney(amount, currency)}`,
+    summarizeDeletePayment: (displayName, kind, amount, currency) =>
+      `delete ${displayName}'s ${kind === 'rent' ? 'rent' : 'utilities'} payment of ${formatUserFacingMoney(amount, currency)}`,
+    summarizeUpdatePurchase: (description, amount, currency) =>
+      `update purchase "${description}" to ${formatUserFacingMoney(amount, currency)}`,
+    summarizeDeletePurchase: (description, amount, currency) =>
+      `delete purchase "${description}" (${formatUserFacingMoney(amount, currency)})`,
+    summarizeSetPurchaseParticipants: (description, names) =>
+      `set participants of "${description}" to: ${names}`
+  },
   payments: {
     topicMissing:
       'Payments topic is not configured for this household yet. Ask an admin to run /setup and create a payments topic.',

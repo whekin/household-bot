@@ -440,6 +440,24 @@ export function formatAssistantCommandCatalog(
     .join('\n')
 }
 
+export function availableAssistantCommandCatalog(input: {
+  locale: BotLocale
+  chatType: 'private' | 'group'
+  isMember: boolean
+  isAdmin: boolean
+}): string {
+  return formatAssistantCommandCatalog(
+    input.locale,
+    filterTelegramCommandCatalog({
+      chatType: input.chatType,
+      isMember: input.isMember,
+      isAdmin: input.isAdmin,
+      readOnlyOnly: true,
+      assistantExecutableOnly: true
+    })
+  )
+}
+
 function mapCommands(
   locale: BotLocale,
   names: readonly TelegramCommandName[]

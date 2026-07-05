@@ -8,6 +8,7 @@ import type {
   FinanceMemberOverduePaymentRecord,
   FinancePaymentKind,
   FinancePaymentPurchaseAllocationRecord,
+  FinancePaymentRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
@@ -3377,6 +3378,8 @@ export interface FinanceCommandService {
     currency: CurrencyCode
   } | null>
   deletePayment(paymentId: string): Promise<boolean>
+  getPayment(paymentId: string): Promise<FinancePaymentRecord | null>
+  getPurchase(purchaseId: string): Promise<FinanceParsedPurchaseRecord | null>
   generateCurrentBillPlan(periodArg?: string): Promise<FinanceCurrentBillPlan | null>
   resolveUtilityBillAsPlanned(input: {
     memberId?: string
@@ -4434,6 +4437,14 @@ export function createFinanceCommandService(
 
     deletePayment(paymentId) {
       return repository.deletePaymentRecord(paymentId)
+    },
+
+    getPayment(paymentId) {
+      return repository.getPaymentRecord(paymentId)
+    },
+
+    getPurchase(purchaseId) {
+      return repository.getParsedPurchase(purchaseId)
     },
 
     async generateCurrentBillPlan(periodArg) {

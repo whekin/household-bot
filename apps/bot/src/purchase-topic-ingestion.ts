@@ -8,34 +8,21 @@ import type {
   TopicMessageHistoryRepository
 } from '@household/ports'
 
-import { getBotTranslations, botLocaleFromContext, type BotLocale } from './i18n'
-import type { AssistantConversationMemoryStore } from './assistant-state'
-import { buildConversationContext } from './conversation-orchestrator'
+import { getBotTranslations, type BotLocale } from './i18n'
 import type {
   PurchaseInterpretationAmountSource,
   PurchaseInterpretation,
   PurchaseMessageInterpreter
 } from './openai-purchase-interpreter'
 import {
-  cacheTopicMessageRoute,
-  getCachedTopicMessageRoute,
-  type TopicMessageRouter,
-  type TopicMessageRoutingResult
-} from './topic-message-router'
-import { cacheConfiguredTopicFallbackRoute } from './topic-ingestion/configured-topic-fallback'
-import {
-  hasExplicitBotMention,
   hasTelegramMessageAttachment,
-  isReplyToCurrentBotMessage,
   readTelegramMessageTextWithoutBotMention
 } from './topic-ingestion/topic-message-primitives'
-import { asOptionalBigInt } from './topic-processor'
 import {
   persistTopicHistoryMessage,
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
-import { startTypingIndicator } from './telegram-chat-action'
 import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 
 const PURCHASE_CONFIRM_CALLBACK_PREFIX = 'purchase:confirm:'
@@ -44,19 +31,8 @@ const PURCHASE_PARTICIPANT_CALLBACK_PREFIX = 'purchase:participant:'
 const PURCHASE_PAYER_CALLBACK_PREFIX = 'purchase:payer:'
 const PURCHASE_FIX_AMOUNT_CALLBACK_PREFIX = 'purchase:fix_amount:'
 const PHOTO_ONLY_PURCHASE_PLACEHOLDER = '[photo]'
-const LIKELY_PURCHASE_VERB_PATTERN =
-  /\b(?:bought|purchased|paid|spent|ordered|picked up|grabbed|got)\b|(?:^|[^\p{L}])(?:купил(?:а|и)?|куплено|заказал(?:а|и)?|оплатил(?:а|и)?|потратил(?:а|и)?|взял(?:а|и)?)(?=$|[^\p{L}])/iu
-const PLANNING_PURCHASE_PATTERN =
-  /\b(?:should buy|should get|need to buy|need to get|want to buy|want to get|let'?s buy|let'?s get|going to buy|gonna buy|plan to buy|planning to buy|thinking about buying|thinking of buying|should we buy|should we get|can buy)\b|(?:^|[^\p{L}])(?:надо|нужно|хочу|хотим|давай(?:те)?|будем|планирую|планируем|может|стоит)\s+(?:купить|взять|заказать|оплатить)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:купим|возьмем|возьмём|закажем|оплатим)(?=$|[^\p{L}])/iu
-const MONEY_SIGNAL_PATTERN =
-  /\b\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|usd|\$)\b|\d+(?:[.,]\d{1,2})?\s*(?:лар(?:и|а|ов)?|лри|tetri|тетри|доллар(?:а|ов)?)(?=$|[^\p{L}])|\b(?:for|за|на|до)\s+\d+(?:[.,]\d{1,2})?\b|\b(?:paid|spent)\s+\d+(?:[.,]\d{1,2})?\b|(?:^|[^\p{L}])(?:заплатил(?:а|и)?|потратил(?:а|и)?|отдал(?:а|и)?|выложил(?:а|и)?|сторговался(?:\s+до)?)(?:\s+\d+(?:[.,]\d{1,2})?|\s+до\s+\d+(?:[.,]\d{1,2})?)(?=$|[^\p{L}])/iu
-const PRICE_CHATTER_PATTERN =
-  /\b(?:costs?|price|worth)\b|(?:^|[^\p{L}])(?:стоит|цена|ценник|стоимость)(?=$|[^\p{L}])/iu
-const RECEIPT_SHORTHAND_PURCHASE_PATTERN =
-  /(?:^|[\s"'“”«»])\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|лар(?:и|а|ов)?|ლარი|ლარ)\s+[^\d\s][^\n]{2,}/iu
 const EXPLICIT_PARTICIPANT_SUBSET_PATTERN =
   /\b(?:split\s+(?:with|between)|share\s+with|for\s+(?:me|us|myself)\s+and|for\s+me\s+only|only\s+for|just\s+for)\b|(?:^|[^\p{L}])(?:на\s+нас|для\s+(?:меня|нас|себя)\s+и|только\s+(?:для|на)|лишь\s+(?:для|на)|между\s+нами|делим\s+(?:с|между)|раздели(?:ть|м)?\s+(?:с|между))(?=$|[^\p{L}])/iu
-const STANDALONE_NUMBER_PATTERN = /\b\d+(?:[.,]\d{1,2})?\b/gu
 
 interface PurchaseProposalFields {
   parsedAmountMinor: bigint | null
@@ -119,12 +95,6 @@ export type PurchaseProposalPayerSelectionResult =
   | {
       status: 'not_found'
     }
-
-export interface PurchaseTopicIngestionConfig {
-  householdId: string
-  householdChatId: string
-  purchaseTopicId: number
-}
 
 export interface PurchaseTopicCandidate {
   updateId: number
@@ -284,44 +254,6 @@ export interface PurchasePersistenceDecision {
   needsReview: boolean
 }
 
-export function looksLikeLikelyCompletedPurchase(rawText: string): boolean {
-  if (PLANNING_PURCHASE_PATTERN.test(rawText)) {
-    return false
-  }
-
-  if (RECEIPT_SHORTHAND_PURCHASE_PATTERN.test(rawText) && !PRICE_CHATTER_PATTERN.test(rawText)) {
-    return true
-  }
-
-  if (!LIKELY_PURCHASE_VERB_PATTERN.test(rawText)) {
-    return false
-  }
-
-  if (MONEY_SIGNAL_PATTERN.test(rawText)) {
-    return true
-  }
-
-  return Array.from(rawText.matchAll(STANDALONE_NUMBER_PATTERN)).length === 1
-}
-
-export function toPurchaseInterpretation(
-  result: import('./topic-processor').TopicProcessorPurchaseResult
-): PurchaseInterpretation {
-  return {
-    decision: 'purchase',
-    amountMinor: asOptionalBigInt(result.amountMinor),
-    currency: result.currency,
-    itemDescription: result.itemDescription,
-    amountSource: result.amountSource,
-    calculationExplanation: result.calculationExplanation,
-    participantMemberIds: result.participantMemberIds,
-    payerMemberId: null,
-    confidence: result.confidence,
-    parserMode: 'llm',
-    clarificationQuestion: null
-  }
-}
-
 export function explicitPurchaseParticipantMemberIds(input: {
   rawText: string
   participantMemberIds: readonly string[] | null
@@ -331,21 +263,6 @@ export function explicitPurchaseParticipantMemberIds(input: {
   }
 
   return EXPLICIT_PARTICIPANT_SUBSET_PATTERN.test(input.rawText) ? input.participantMemberIds : null
-}
-
-export function toPurchaseClarificationInterpretation(
-  result: import('./topic-processor').TopicProcessorClarificationResult
-): PurchaseInterpretation {
-  return {
-    decision: 'clarification',
-    amountMinor: null,
-    currency: null,
-    itemDescription: null,
-    payerMemberId: null,
-    confidence: 0,
-    parserMode: 'llm',
-    clarificationQuestion: result.clarificationQuestion
-  }
 }
 
 export function resolveProposalParticipantSelection(input: {
@@ -786,34 +703,6 @@ function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
   return candidate
 }
 
-export function extractPurchaseTopicCandidate(
-  value: PurchaseTopicCandidate,
-  config: PurchaseTopicIngestionConfig
-): PurchaseTopicRecord | null {
-  if (value.rawText.trim().startsWith('/')) {
-    return null
-  }
-
-  if (value.chatId !== config.householdChatId) {
-    return null
-  }
-
-  if (value.threadId !== String(config.purchaseTopicId)) {
-    return null
-  }
-
-  const normalizedText = value.rawText.trim()
-  if (normalizedText.length === 0) {
-    return null
-  }
-
-  return {
-    ...value,
-    rawText: normalizedText,
-    householdId: config.householdId
-  }
-}
-
 export function resolveConfiguredPurchaseTopicRecord(
   value: PurchaseTopicCandidate,
   binding: HouseholdTopicBindingRecord
@@ -1010,194 +899,7 @@ async function resolveHouseholdLocale(
   return householdChat?.defaultLocale ?? 'en'
 }
 
-async function resolveAssistantConfig(
-  householdConfigurationRepository: HouseholdConfigurationRepository,
-  householdId: string
-): Promise<{
-  householdId: string
-  assistantContext: string | null
-  assistantTone: string | null
-}> {
-  return householdConfigurationRepository.getHouseholdAssistantConfig
-    ? await householdConfigurationRepository.getHouseholdAssistantConfig(householdId)
-    : {
-        householdId,
-        assistantContext: null,
-        assistantTone: null
-      }
-}
-
-function memoryKeyForRecord(record: PurchaseTopicRecord): string {
-  return `group:${record.chatId}:${record.senderTelegramUserId}:thread:${record.threadId}`
-}
-
-function rememberUserTurn(
-  memoryStore: AssistantConversationMemoryStore | undefined,
-  record: PurchaseTopicRecord
-): void {
-  if (!memoryStore) {
-    return
-  }
-
-  memoryStore.appendTurn(memoryKeyForRecord(record), {
-    role: 'user',
-    text: record.rawText
-  })
-}
-
-function rememberAssistantTurn(
-  memoryStore: AssistantConversationMemoryStore | undefined,
-  record: PurchaseTopicRecord,
-  assistantText: string | null
-): void {
-  if (!memoryStore || !assistantText) {
-    return
-  }
-
-  memoryStore.appendTurn(memoryKeyForRecord(record), {
-    role: 'assistant',
-    text: assistantText
-  })
-}
-
-async function persistIncomingTopicMessage(
-  repository: TopicMessageHistoryRepository | undefined,
-  record: PurchaseTopicRecord
-) {
-  await persistTopicHistoryMessage({
-    repository,
-    householdId: record.householdId,
-    telegramChatId: record.chatId,
-    telegramThreadId: record.threadId,
-    telegramMessageId: record.messageId,
-    telegramUpdateId: String(record.updateId),
-    senderTelegramUserId: record.senderTelegramUserId,
-    senderDisplayName: record.senderDisplayName ?? null,
-    isBot: false,
-    rawText: record.rawText,
-    messageSentAt: record.messageSentAt
-  })
-}
-
-async function routePurchaseTopicMessage(input: {
-  ctx: Pick<Context, 'msg' | 'me'>
-  record: PurchaseTopicRecord
-  locale: BotLocale
-  repository: Pick<
-    PurchaseMessageIngestionRepository,
-    'hasClarificationContext' | 'clearClarificationContext'
-  >
-  router: TopicMessageRouter | undefined
-  memoryStore: AssistantConversationMemoryStore | undefined
-  historyRepository: TopicMessageHistoryRepository | undefined
-  assistantContext?: string | null
-  assistantTone?: string | null
-}): Promise<TopicMessageRoutingResult> {
-  if (!input.router) {
-    const hasExplicitMention = hasExplicitBotMention(input.ctx)
-    const isReply = isReplyToCurrentBotMessage(input.ctx)
-    const hasClarificationContext = await input.repository.hasClarificationContext(input.record)
-
-    if (hasExplicitMention || isReply) {
-      return {
-        route: 'purchase_candidate',
-        replyText: null,
-        helperKind: 'purchase',
-        shouldStartTyping: true,
-        shouldClearWorkflow: false,
-        confidence: 75,
-        reason: 'legacy_direct'
-      }
-    }
-
-    if (hasClarificationContext) {
-      return {
-        route: 'purchase_followup',
-        replyText: null,
-        helperKind: 'purchase',
-        shouldStartTyping: true,
-        shouldClearWorkflow: false,
-        confidence: 75,
-        reason: 'legacy_clarification'
-      }
-    }
-
-    if (looksLikeLikelyCompletedPurchase(input.record.rawText)) {
-      return {
-        route: 'purchase_candidate',
-        replyText: null,
-        helperKind: 'purchase',
-        shouldStartTyping: true,
-        shouldClearWorkflow: false,
-        confidence: 75,
-        reason: 'legacy_likely_purchase'
-      }
-    }
-
-    return {
-      route: 'silent',
-      replyText: null,
-      helperKind: null,
-      shouldStartTyping: false,
-      shouldClearWorkflow: false,
-      confidence: 80,
-      reason: 'legacy_silent'
-    }
-  }
-
-  const key = memoryKeyForRecord(input.record)
-  const activeWorkflow = (await input.repository.hasClarificationContext(input.record))
-    ? 'purchase_clarification'
-    : null
-  const conversationContext = await buildConversationContext({
-    repository: input.historyRepository,
-    householdId: input.record.householdId,
-    telegramChatId: input.record.chatId,
-    telegramThreadId: input.record.threadId,
-    telegramUserId: input.record.senderTelegramUserId,
-    topicRole: 'purchase',
-    activeWorkflow,
-    messageText: input.record.rawText,
-    explicitMention: hasExplicitBotMention(input.ctx),
-    replyToBot: isReplyToCurrentBotMessage(input.ctx),
-    directBotAddress: false,
-    memoryStore: input.memoryStore ?? {
-      get() {
-        return { summary: null, turns: [] }
-      },
-      appendTurn() {
-        return { summary: null, turns: [] }
-      }
-    }
-  })
-
-  return input.router({
-    locale: input.locale,
-    topicRole: 'purchase',
-    messageText: input.record.rawText,
-    isExplicitMention: conversationContext.explicitMention,
-    isReplyToBot: conversationContext.replyToBot,
-    activeWorkflow,
-    engagementAssessment: conversationContext.engagement,
-    assistantContext: input.assistantContext ?? null,
-    assistantTone: input.assistantTone ?? null,
-    recentTurns: input.memoryStore?.get(key).turns ?? [],
-    recentThreadMessages: conversationContext.recentThreadMessages.map((message) => ({
-      role: message.role,
-      speaker: message.speaker,
-      text: message.text,
-      threadId: message.threadId
-    })),
-    recentChatMessages: conversationContext.recentSessionMessages.map((message) => ({
-      role: message.role,
-      speaker: message.speaker,
-      text: message.text,
-      threadId: message.threadId
-    }))
-  })
-}
-
-async function handlePurchaseMessageResult(
+export async function handlePurchaseMessageResult(
   ctx: Context,
   record: PurchaseTopicRecord,
   result: PurchaseMessageIngestionResult,
@@ -1693,166 +1395,11 @@ function registerPurchaseProposalCallbacks(
   })
 }
 
-export function registerPurchaseTopicIngestion(
-  bot: Bot,
-  config: PurchaseTopicIngestionConfig,
-  repository: PurchaseMessageIngestionRepository,
-  options: {
-    interpreter?: PurchaseMessageInterpreter
-    router?: TopicMessageRouter
-    memoryStore?: AssistantConversationMemoryStore
-    historyRepository?: TopicMessageHistoryRepository
-    logger?: Logger
-    auditNotificationService?: HouseholdAuditNotificationService
-    purchaseTopicNoticeService?: PurchaseTopicNoticeService
-  } = {}
-): void {
-  void registerPurchaseProposalCallbacks(
-    bot,
-    repository,
-    async () => 'en',
-    options.logger,
-    options.auditNotificationService,
-    options.purchaseTopicNoticeService
-  )
-
-  bot.on('message', async (ctx, next) => {
-    const candidate = toCandidateFromContext(ctx)
-    if (!candidate) {
-      await next()
-      return
-    }
-
-    const record = extractPurchaseTopicCandidate(candidate, config)
-    if (!record) {
-      await next()
-      return
-    }
-
-    let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
-
-    try {
-      if (
-        isPhotoOnlyPurchaseMessage(record) &&
-        !(await repository.hasClarificationContext(record))
-      ) {
-        rememberUserTurn(options.memoryStore, record)
-        const locale = botLocaleFromContext(ctx)
-        const result = await repository.saveWithInterpretation(
-          record,
-          photoOnlyPurchaseInterpretation(locale)
-        )
-        await handlePurchaseMessageResult(
-          ctx,
-          record,
-          result,
-          locale,
-          options.logger,
-          options.historyRepository
-        )
-        rememberAssistantTurn(
-          options.memoryStore,
-          record,
-          buildPurchaseAcknowledgement(result, locale)
-        )
-        return
-      }
-
-      const route =
-        getCachedTopicMessageRoute(ctx, 'purchase') ??
-        (await routePurchaseTopicMessage({
-          ctx,
-          record,
-          locale: 'en',
-          repository,
-          router: options.router,
-          memoryStore: options.memoryStore,
-          historyRepository: options.historyRepository
-        }))
-      cacheTopicMessageRoute(ctx, 'purchase', route)
-
-      if (route.route === 'silent') {
-        rememberUserTurn(options.memoryStore, record)
-        await next()
-        return
-      }
-
-      if (route.shouldClearWorkflow) {
-        await repository.clearClarificationContext?.(record)
-      }
-
-      if (route.route === 'chat_reply' || route.route === 'dismiss_workflow') {
-        rememberUserTurn(options.memoryStore, record)
-        if (route.replyText) {
-          await replyToPurchaseMessage(ctx, route.replyText, undefined, {
-            repository: options.historyRepository,
-            record
-          })
-          rememberAssistantTurn(options.memoryStore, record, route.replyText)
-        }
-        return
-      }
-
-      if (route.route === 'topic_helper') {
-        await next()
-        return
-      }
-
-      if (route.route !== 'purchase_candidate' && route.route !== 'purchase_followup') {
-        rememberUserTurn(options.memoryStore, record)
-        await next()
-        return
-      }
-
-      rememberUserTurn(options.memoryStore, record)
-      typingIndicator =
-        options.interpreter && route.shouldStartTyping ? startTypingIndicator(ctx) : null
-      const result = await repository.save(record, options.interpreter, 'GEL')
-
-      if (result.status === 'ignored_not_purchase') {
-        if (route.route === 'purchase_followup') {
-          await repository.clearClarificationContext?.(record)
-        }
-        return await next()
-      }
-      await handlePurchaseMessageResult(
-        ctx,
-        record,
-        result,
-        'en',
-        options.logger,
-        options.historyRepository
-      )
-      rememberAssistantTurn(options.memoryStore, record, buildPurchaseAcknowledgement(result, 'en'))
-    } catch (error) {
-      options.logger?.error(
-        {
-          event: 'purchase.ingest_failed',
-          chatId: record.chatId,
-          threadId: record.threadId,
-          messageId: record.messageId,
-          updateId: record.updateId,
-          error
-        },
-        'Failed to ingest purchase topic message'
-      )
-    } finally {
-      await persistIncomingTopicMessage(options.historyRepository, record)
-      typingIndicator?.stop()
-    }
-  })
-}
-
-export function registerConfiguredPurchaseTopicIngestion(
+export function registerPurchaseTopicCallbacks(
   bot: Bot,
   householdConfigurationRepository: HouseholdConfigurationRepository,
   repository: PurchaseMessageIngestionRepository,
   options: {
-    interpreter?: PurchaseMessageInterpreter
-    router?: TopicMessageRouter
-    topicProcessor?: import('./topic-processor').TopicProcessor
-    contextCache?: import('./household-context-cache').HouseholdContextCache
-    memoryStore?: AssistantConversationMemoryStore
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
     auditNotificationService?: HouseholdAuditNotificationService
@@ -1868,6 +1415,7 @@ export function registerConfiguredPurchaseTopicIngestion(
     options.purchaseTopicNoticeService
   )
 
+  // Photo-only receipts cannot be routed by the text agent; ask for details directly.
   bot.on('message', async (ctx, next) => {
     const candidate = toCandidateFromContext(ctx)
     if (!candidate) {
@@ -1879,352 +1427,50 @@ export function registerConfiguredPurchaseTopicIngestion(
       telegramChatId: candidate.chatId,
       telegramThreadId: candidate.threadId
     })
-
     if (!binding) {
       await next()
       return
     }
 
     const record = resolveConfiguredPurchaseTopicRecord(candidate, binding)
-    if (!record) {
+    if (!record || !isPhotoOnlyPurchaseMessage(record)) {
       await next()
       return
     }
 
-    let typingIndicator: ReturnType<typeof startTypingIndicator> | null = null
-
     try {
-      // Load household context (cached)
-      const householdContext = options.contextCache
-        ? await options.contextCache.get(record.householdId, async () => {
-            const [billingSettings, assistantConfig] = await Promise.all([
-              householdConfigurationRepository.getHouseholdBillingSettings(record.householdId),
-              resolveAssistantConfig(householdConfigurationRepository, record.householdId)
-            ])
-            const locale = await resolveHouseholdLocale(
-              householdConfigurationRepository,
-              record.householdId
-            )
-            return {
-              householdContext: assistantConfig.assistantContext,
-              assistantTone: assistantConfig.assistantTone,
-              defaultCurrency: billingSettings.settlementCurrency,
-              locale,
-              cachedAt: Date.now()
-            }
-          })
-        : {
-            householdContext: null as string | null,
-            assistantTone: null as string | null,
-            defaultCurrency: 'GEL' as const,
-            locale: 'en' as BotLocale,
-            cachedAt: Date.now()
-          }
-
-      const activeWorkflow = (await repository.hasClarificationContext(record))
-        ? 'purchase_clarification'
-        : null
-
-      if (isPhotoOnlyPurchaseMessage(record) && activeWorkflow === null) {
-        rememberUserTurn(options.memoryStore, record)
-        const result = await repository.saveWithInterpretation(
-          record,
-          photoOnlyPurchaseInterpretation(householdContext.locale)
-        )
-        await handlePurchaseMessageResult(
-          ctx,
-          record,
-          result,
-          householdContext.locale,
-          options.logger,
-          options.historyRepository
-        )
-        rememberAssistantTurn(
-          options.memoryStore,
-          record,
-          buildPurchaseAcknowledgement(result, householdContext.locale)
-        )
+      if (await repository.hasClarificationContext(record)) {
+        await next()
         return
       }
 
-      // Build conversation context
-      const conversationContext = await buildConversationContext({
-        repository: options.historyRepository,
-        householdId: record.householdId,
-        telegramChatId: record.chatId,
-        telegramThreadId: record.threadId,
-        telegramUserId: record.senderTelegramUserId,
-        topicRole: 'purchase',
-        activeWorkflow,
-        messageText: record.rawText,
-        explicitMention: hasExplicitBotMention(ctx),
-        replyToBot: isReplyToCurrentBotMessage(ctx),
-        directBotAddress: false,
-        memoryStore: options.memoryStore ?? {
-          get() {
-            return { summary: null, turns: [] }
-          },
-          appendTurn() {
-            return { summary: null, turns: [] }
-          }
-        }
-      })
-
-      const householdMembers =
-        options.topicProcessor &&
-        'listHouseholdMembers' in householdConfigurationRepository &&
-        typeof householdConfigurationRepository.listHouseholdMembers === 'function'
-          ? (await householdConfigurationRepository.listHouseholdMembers(record.householdId)).map(
-              (member) => ({
-                memberId: member.id,
-                displayName: member.displayName,
-                status: member.status
-              })
-            )
-          : []
-      const senderMemberId =
-        ('getHouseholdMember' in householdConfigurationRepository &&
-        typeof householdConfigurationRepository.getHouseholdMember === 'function'
-          ? await householdConfigurationRepository.getHouseholdMember(
-              record.householdId,
-              record.senderTelegramUserId
-            )
-          : null
-        )?.id ?? null
-
-      // Use topic processor if available, fall back to legacy router
-      if (options.topicProcessor) {
-        const processorResult = await options.topicProcessor({
-          locale: householdContext.locale === 'ru' ? 'ru' : 'en',
-          topicRole: 'purchase',
-          messageText: record.rawText,
-          isExplicitMention: conversationContext.explicitMention,
-          isReplyToBot: conversationContext.replyToBot,
-          activeWorkflow,
-          defaultCurrency: householdContext.defaultCurrency,
-          householdContext: householdContext.householdContext,
-          assistantTone: householdContext.assistantTone,
-          householdMembers,
-          senderMemberId,
-          recentThreadMessages: conversationContext.recentThreadMessages.map((m) => ({
-            role: m.role,
-            speaker: m.speaker,
-            text: m.text
-          })),
-          recentChatMessages: conversationContext.recentSessionMessages.map((m) => ({
-            role: m.role,
-            speaker: m.speaker,
-            text: m.text
-          })),
-          recentTurns: conversationContext.recentTurns,
-          engagementAssessment: conversationContext.engagement
-        })
-
-        options.logger?.info(
-          { event: 'purchase.topic_processor_result', result: processorResult },
-          'Topic processor finished'
-        )
-
-        // Handle processor failure through deterministic fallback routing.
-        if (!processorResult) {
-          cacheConfiguredTopicFallbackRoute({
-            topicRole: 'purchase',
-            ctx,
-            locale: householdContext.locale,
-            messageText: record.rawText,
-            isExplicitMention: conversationContext.explicitMention,
-            isReplyToBot: conversationContext.replyToBot,
-            activeWorkflow
-          })
-          await next()
-          return
-        }
-
-        rememberUserTurn(options.memoryStore, record)
-
-        // Handle different routes
-        switch (processorResult.route) {
-          case 'silent': {
-            if (options.interpreter && activeWorkflow === 'purchase_clarification') {
-              options.logger?.info(
-                {
-                  event: 'purchase.topic_processor_fallback',
-                  reason: processorResult.reason,
-                  messageText: record.rawText
-                },
-                'Falling back to purchase interpreter after topic processor stayed silent'
-              )
-
-              typingIndicator = startTypingIndicator(ctx)
-              const result = await repository.save(
-                record,
-                options.interpreter,
-                householdContext.defaultCurrency,
-                {
-                  householdContext: householdContext.householdContext,
-                  assistantTone: householdContext.assistantTone
-                }
-              )
-
-              if (result.status === 'ignored_not_purchase') {
-                cacheTopicMessageRoute(ctx, 'purchase', {
-                  route: 'silent',
-                  replyText: null,
-                  helperKind: null,
-                  shouldStartTyping: false,
-                  shouldClearWorkflow: false,
-                  confidence: 80,
-                  reason: processorResult.reason
-                })
-                await next()
-                return
-              }
-
-              await handlePurchaseMessageResult(
-                ctx,
-                record,
-                result,
-                householdContext.locale,
-                options.logger,
-                options.historyRepository
-              )
-              rememberAssistantTurn(
-                options.memoryStore,
-                record,
-                buildPurchaseAcknowledgement(result, householdContext.locale)
-              )
-              return
-            }
-
-            cacheTopicMessageRoute(ctx, 'purchase', {
-              route: 'silent',
-              replyText: null,
-              helperKind: null,
-              shouldStartTyping: false,
-              shouldClearWorkflow: false,
-              confidence: 80,
-              reason: processorResult.reason
-            })
-            await next()
-            return
-          }
-
-          case 'chat_reply': {
-            await replyToPurchaseMessage(ctx, processorResult.replyText, undefined, {
-              repository: options.historyRepository,
-              record
-            })
-            rememberAssistantTurn(options.memoryStore, record, processorResult.replyText)
-            return
-          }
-
-          case 'topic_helper': {
-            cacheTopicMessageRoute(ctx, 'purchase', {
-              route: 'silent',
-              replyText: null,
-              helperKind: null,
-              shouldStartTyping: false,
-              shouldClearWorkflow: false,
-              confidence: 80,
-              reason: processorResult.reason
-            })
-            await next()
-            return
-          }
-
-          case 'dismiss_workflow': {
-            await repository.clearClarificationContext?.(record)
-            if (processorResult.replyText) {
-              await replyToPurchaseMessage(ctx, processorResult.replyText, undefined, {
-                repository: options.historyRepository,
-                record
-              })
-              rememberAssistantTurn(options.memoryStore, record, processorResult.replyText)
-            }
-            return
-          }
-
-          case 'purchase_clarification': {
-            typingIndicator = startTypingIndicator(ctx)
-            const interpretation = toPurchaseClarificationInterpretation(processorResult)
-            const result = await repository.saveWithInterpretation(record, interpretation)
-            await handlePurchaseMessageResult(
-              ctx,
-              record,
-              result,
-              householdContext.locale,
-              options.logger,
-              options.historyRepository
-            )
-            rememberAssistantTurn(
-              options.memoryStore,
-              record,
-              buildPurchaseAcknowledgement(result, householdContext.locale)
-            )
-            return
-          }
-
-          case 'purchase': {
-            typingIndicator = startTypingIndicator(ctx)
-            const interpretation = toPurchaseInterpretation(processorResult)
-            const result = await repository.saveWithInterpretation(record, interpretation)
-
-            if (result.status === 'ignored_not_purchase') {
-              await repository.clearClarificationContext?.(record)
-              await next()
-              return
-            }
-
-            await handlePurchaseMessageResult(
-              ctx,
-              record,
-              result,
-              householdContext.locale,
-              options.logger,
-              options.historyRepository
-            )
-            rememberAssistantTurn(
-              options.memoryStore,
-              record,
-              buildPurchaseAcknowledgement(result, householdContext.locale)
-            )
-            return
-          }
-
-          default: {
-            await next()
-            return
-          }
-        }
-      }
-
-      // No topic processor available; hand off through deterministic fallback routing.
-      cacheConfiguredTopicFallbackRoute({
-        topicRole: 'purchase',
+      const locale = await resolveHouseholdLocale(
+        householdConfigurationRepository,
+        record.householdId
+      )
+      const result = await repository.saveWithInterpretation(
+        record,
+        photoOnlyPurchaseInterpretation(locale)
+      )
+      await handlePurchaseMessageResult(
         ctx,
-        locale: householdContext.locale,
-        messageText: record.rawText,
-        isExplicitMention: conversationContext.explicitMention,
-        isReplyToBot: conversationContext.replyToBot,
-        activeWorkflow
-      })
-      await next()
+        record,
+        result,
+        locale,
+        options.logger,
+        options.historyRepository
+      )
     } catch (error) {
       options.logger?.error(
         {
-          event: 'purchase.ingest_failed',
+          event: 'purchase.photo_intake_failed',
           householdId: record.householdId,
           chatId: record.chatId,
-          threadId: record.threadId,
           messageId: record.messageId,
-          updateId: record.updateId,
           error
         },
-        'Failed to ingest purchase topic message'
+        'Failed to ingest photo-only purchase message'
       )
-    } finally {
-      await persistIncomingTopicMessage(options.historyRepository, record)
-      typingIndicator?.stop()
     }
   })
 }

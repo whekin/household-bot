@@ -94,17 +94,6 @@ export interface MultiMemberPaymentProposal {
   members: readonly MultiMemberPaymentProposalMember[]
 }
 
-export interface SemanticPaymentCandidate {
-  assertion: 'completed_payment'
-  kind: FinancePaymentKind | null
-  payerMemberId?: string | null
-  payerDisplayName?: string | null
-  amountMinor?: string | null
-  currency?: 'GEL' | 'USD' | null
-  confidence: number
-  evidence: 'explicit_text' | 'reply_context' | 'active_workflow'
-}
-
 export function parsePaymentProposalPayload(
   payload: Record<string, unknown>
 ): PaymentProposalPayload | null {
@@ -267,15 +256,6 @@ function hasPerPersonAmount(rawText: string): boolean {
 
 function shortProposalId(): string {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 16)
-}
-
-function explicitAmountFromCandidate(candidate: SemanticPaymentCandidate): Money | null {
-  if (!candidate.amountMinor || !candidate.currency || !/^[0-9]+$/.test(candidate.amountMinor)) {
-    return null
-  }
-
-  const amountMinor = BigInt(candidate.amountMinor)
-  return amountMinor > 0n ? Money.fromMinor(amountMinor, candidate.currency) : null
 }
 
 function inferActivePaymentKind(input: {
@@ -819,16 +799,10 @@ export async function maybeCreatePaymentProposal(input: {
   }
 }
 
-export async function maybeCreatePaymentProposalFromCandidate(input: {
-  rawText: string
-  householdId: string
-  memberId: string
-  candidate: SemanticPaymentCandidate
-  financeService: FinanceCommandService
-  householdConfigurationRepository: HouseholdConfigurationRepository
-}): Promise<
+export type AgentPaymentProposalResult =
   | {
       status: 'no_action'
+      reason: string
     }
   | {
       status: 'unsupported_currency'
@@ -846,64 +820,53 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
       payload: PaymentProposalPayload
       breakdown: PaymentProposalBreakdown
     }
-> {
-  const [settings, dashboard] = await Promise.all([
+
+export async function createAgentPaymentProposal(input: {
+  householdId: string
+  payerMemberId: string
+  additionalMemberIds: readonly string[]
+  kind: FinancePaymentKind | null
+  explicitAmount: Money | null
+  perMemberAmount: Money | null
+  financeService: FinanceCommandService
+  householdConfigurationRepository: HouseholdConfigurationRepository
+}): Promise<AgentPaymentProposalResult> {
+  const [settings, dashboard, members] = await Promise.all([
     input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
-    input.financeService.generateDashboard()
+    input.financeService.generateDashboard(),
+    input.financeService.listMembers()
   ])
 
   if (!dashboard) {
-    return {
-      status: 'no_action'
-    }
+    return { status: 'no_action', reason: 'no_open_billing_cycle' }
   }
 
-  const memberLine = dashboard.members.find((line) => line.memberId === input.memberId)
-  if (!memberLine) {
-    return {
-      status: 'no_action'
-    }
+  const targetMemberIds = [...new Set([input.payerMemberId, ...input.additionalMemberIds])]
+  const targetMembers = targetMemberIds.map((memberId) =>
+    members.find((member) => member.id === memberId)
+  )
+  if (targetMembers.some((member) => member === undefined)) {
+    return { status: 'no_action', reason: 'unknown_member_id' }
   }
 
-  const explicitAmount = explicitAmountFromCandidate(input.candidate)
+  const kind =
+    input.kind ??
+    inferActivePaymentKind({
+      dashboard,
+      memberIds: targetMemberIds,
+      settings
+    })
+  if (!kind) {
+    return { status: 'no_action', reason: 'payment_kind_ambiguous' }
+  }
+
+  const explicitAmount = targetMemberIds.length > 1 ? input.perMemberAmount : input.explicitAmount
   if (explicitAmount && explicitAmount.currency !== dashboard.currency) {
-    return {
-      status: 'unsupported_currency'
-    }
+    return { status: 'unsupported_currency' }
   }
 
-  const members = await input.financeService.listMembers()
-  const mentionedMembers = resolveMentionedMembers({
-    rawText: input.rawText,
-    members,
-    senderMemberId: input.memberId
-  })
-
-  if (mentionedMembers) {
-    if (
-      (explicitAmount || /\d+(?:[.,]\d{1,2})?/.test(input.rawText)) &&
-      !hasPerPersonAmount(input.rawText)
-    ) {
-      return {
-        status: 'no_action'
-      }
-    }
-
-    const inferredKind =
-      input.candidate.kind ??
-      inferActivePaymentKind({
-        dashboard,
-        memberIds: mentionedMembers.map((member) => member.id),
-        settings
-      })
-
-    if (!inferredKind) {
-      return {
-        status: 'no_action'
-      }
-    }
-
-    const proposalMembers = mentionedMembers
+  if (targetMemberIds.length > 1) {
+    const proposalMembers = (targetMembers as FinanceMemberRecord[])
       .map((member): MultiMemberPaymentProposalMember | null => {
         const line = dashboard.members.find((candidate) => candidate.memberId === member.id)
         if (!line) {
@@ -911,21 +874,21 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
         }
 
         const guidance = buildMemberPaymentGuidance({
-          kind: inferredKind,
+          kind,
           period: dashboard.period,
           memberLine: line,
           settings,
           paymentKindSummary: currentKindSummary({
             dashboard,
             period: dashboard.period,
-            kind: inferredKind
+            kind
           })
         })
         const amount = explicitAmount ?? guidance.proposalAmount
         const unpaid = isMemberUnpaidForKind({
           dashboard,
           period: dashboard.period,
-          kind: inferredKind,
+          kind,
           memberId: member.id,
           fallbackAmount: guidance.proposalAmount
         })
@@ -943,16 +906,11 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
       .filter((member): member is MultiMemberPaymentProposalMember => member !== null)
 
     if (proposalMembers.length < 2) {
-      return {
-        status: 'no_action'
-      }
+      return { status: 'no_action', reason: 'members_missing_from_dashboard' }
     }
 
     if (!proposalMembers.some((member) => member.paymentStatus === 'unpaid')) {
-      return {
-        status: 'already_settled',
-        kind: inferredKind
-      }
+      return { status: 'already_settled', kind }
     }
 
     return {
@@ -960,32 +918,16 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
       proposal: {
         proposalId: shortProposalId(),
         householdId: input.householdId,
-        kind: inferredKind,
+        kind,
         period: dashboard.period,
         members: proposalMembers
       }
     }
   }
 
-  const kind =
-    input.candidate.kind ??
-    inferActivePaymentKind({
-      dashboard,
-      memberIds: [input.memberId],
-      settings
-    })
-
-  if (!kind) {
-    return {
-      status: 'no_action'
-    }
-  }
-
-  if (memberLine.remaining.amountMinor <= 0n) {
-    return {
-      status: 'already_settled',
-      kind
-    }
+  const memberLine = dashboard.members.find((line) => line.memberId === input.payerMemberId)
+  if (!memberLine) {
+    return { status: 'no_action', reason: 'members_missing_from_dashboard' }
   }
 
   const guidance = buildMemberPaymentGuidance({
@@ -1001,22 +943,16 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
       dashboard,
       period: dashboard.period,
       kind,
-      memberId: input.memberId,
+      memberId: input.payerMemberId,
       fallbackAmount: guidance.proposalAmount
     })
   ) {
-    return {
-      status: 'already_settled',
-      kind
-    }
+    return { status: 'already_settled', kind }
   }
 
   const amount = explicitAmount ?? guidance.proposalAmount
   if (amount.amountMinor <= 0n) {
-    return {
-      status: 'already_settled',
-      kind
-    }
+    return { status: 'already_settled', kind }
   }
 
   return {
@@ -1024,7 +960,7 @@ export async function maybeCreatePaymentProposalFromCandidate(input: {
     payload: {
       proposalId: crypto.randomUUID(),
       householdId: input.householdId,
-      memberId: input.memberId,
+      memberId: input.payerMemberId,
       kind,
       period: dashboard.period,
       amountMinor: amount.amountMinor.toString(),
