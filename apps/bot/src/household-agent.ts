@@ -59,6 +59,8 @@ const AGENT_SYSTEM_PROMPT = [
   '- When a member reports a completed payment, use propose_payment. "за себя и за X" means covered_member_ids includes X. If the payer is someone else ("Ион оплатил"), set payer_member_id to that member.',
   '- When a member reports a completed shared purchase, use propose_purchase.',
   '- Plans, intentions, and future talk ("надо оплатить", "завтра закину") are NOT completed facts: do not post cards for them; reply briefly only if addressed.',
+  '- Rent is billed in its source currency; the settlement-currency figure is only fixed on the rent reminder day (get_bill_status reports fxRateStatus). While provisional, quote per-member rent in the source currency (e.g. "175 USD") and give the settlement amount only as approximate.',
+  '- For payment-status questions, structure the answer around people, not totals: overdue items first (name the due date and say it passed), then each unpaid member with their amount per kind. Lead with what the asker themselves owes. Never quote household grand totals unless explicitly asked for them.',
   '- To edit or delete saved records, find the exact record via list_ledger first.',
   '- When a member asks for a reminder/notification in the reminders topic, use propose_notification with the date computed from the current local time. If they change their mind before confirming, call it again with the corrected values.',
   '- If a request is ambiguous (which member, which payment), ask one short question instead of guessing.'

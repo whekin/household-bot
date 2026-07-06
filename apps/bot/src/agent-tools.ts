@@ -3,7 +3,7 @@ import {
   type FinanceCommandService,
   type FinanceDashboard
 } from '@household/application'
-import { Money, type Instant } from '@household/domain'
+import { Money, nowInstant, type Instant } from '@household/domain'
 import type { Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -199,53 +199,152 @@ function memberSummaries(dashboard: FinanceDashboard) {
   }))
 }
 
+/** Largest-remainder split of an amount by member weights; deterministic by input order. */
+export function splitMoneyByWeights(
+  total: Money,
+  weights: readonly { memberId: string; weight: number }[]
+): ReadonlyMap<string, Money> {
+  const result = new Map<string, Money>()
+  const positive = weights.filter((entry) => entry.weight > 0)
+  const totalWeight = positive.reduce((sum, entry) => sum + entry.weight, 0)
+  if (totalWeight <= 0) {
+    return result
+  }
+
+  const scale = 1_000_000n
+  let allocated = 0n
+  const shares = positive.map((entry) => {
+    const exact =
+      (total.amountMinor * BigInt(Math.round(entry.weight * Number(scale)))) /
+      BigInt(Math.round(totalWeight * Number(scale)))
+    allocated += exact
+    return { memberId: entry.memberId, minor: exact }
+  })
+
+  let remainder = total.amountMinor - allocated
+  for (let index = 0; remainder > 0n && index < shares.length; index += 1) {
+    shares[index]!.minor += 1n
+    remainder -= 1n
+  }
+
+  for (const share of shares) {
+    result.set(share.memberId, Money.fromMinor(share.minor, total.currency))
+  }
+
+  return result
+}
+
+/** Due date of a payment kind within a period, clamped to the month length. */
+export function paymentKindDueDate(
+  period: string,
+  kind: FinancePaymentKind,
+  settings: { rentDueDay: number; utilitiesDueDay: number }
+): string | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  if (!match) {
+    return null
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const dueDay = kind === 'rent' ? settings.rentDueDay : settings.utilitiesDueDay
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return `${period}-${String(Math.min(dueDay, daysInMonth)).padStart(2, '0')}`
+}
+
 async function getBillStatus(context: AgentToolContext): Promise<unknown> {
-  const dashboard = await context.financeService.generateDashboard()
+  const [dashboard, settings] = await Promise.all([
+    context.financeService.generateDashboard(),
+    context.householdConfigurationRepository.getHouseholdBillingSettings(context.householdId)
+  ])
   if (!dashboard) {
     return { error: 'no_open_billing_cycle' }
   }
 
-  const period = currentPeriodSummary(dashboard)
+  const today = nowInstant().toZonedDateTimeISO(dashboard.timezone).toPlainDate().toString()
+  const paymentPeriods = (dashboard.paymentPeriods ?? [])
+    .map((period) => {
+      const kinds = period.kinds
+        .filter((kind) => period.isCurrentPeriod || kind.totalRemaining.amountMinor > 0n)
+        .map((kind) => {
+          const dueDate =
+            period.isCurrentPeriod && kind.kind === 'rent'
+              ? dashboard.rentBillingState.dueDate
+              : (period.isCurrentPeriod && dashboard.utilityBillingPlan?.dueDate) ||
+                paymentKindDueDate(period.period, kind.kind, settings)
+          const overdue =
+            kind.totalRemaining.amountMinor > 0n && dueDate !== null && dueDate < today
+
+          return {
+            kind: kind.kind,
+            dueDate,
+            overdue,
+            due: formatMoney(kind.totalDue),
+            paid: formatMoney(kind.totalPaid),
+            remaining: formatMoney(kind.totalRemaining),
+            unpaidMembers: kind.unresolvedMembers.map((member) => ({
+              memberId: member.memberId,
+              name: member.displayName,
+              amountToPay: formatMoney(member.suggestedAmount),
+              remaining: formatMoney(member.remaining)
+            }))
+          }
+        })
+
+      return {
+        period: period.period,
+        isCurrentPeriod: period.isCurrentPeriod,
+        hasOverdueBalance: kinds.some((kind) => kind.overdue),
+        kinds
+      }
+    })
+    .filter((period) => period.isCurrentPeriod || period.kinds.length > 0)
+
+  const rentInForeignCurrency = dashboard.rentSourceAmount.currency !== dashboard.currency
+  const rentFxLockDate = paymentKindDueDate(dashboard.period, 'rent', {
+    rentDueDay: settings.rentWarningDay,
+    utilitiesDueDay: settings.utilitiesDueDay
+  })
+  const rentFxFixed = !rentInForeignCurrency || (rentFxLockDate !== null && today >= rentFxLockDate)
+  const members = await context.financeService.listMembers()
+  const rentParticipantIds = new Set(
+    dashboard.members
+      .filter((member) => member.rentShare.amountMinor > 0n)
+      .map((member) => member.memberId)
+  )
+  const rentSourceShares = splitMoneyByWeights(
+    dashboard.rentSourceAmount,
+    members
+      .filter((member) => rentParticipantIds.has(member.id))
+      .map((member) => ({ memberId: member.id, weight: member.rentShareWeight }))
+  )
+
   return {
-    period: dashboard.period,
+    today,
+    currentPeriod: dashboard.period,
     billingStage: dashboard.billingStage,
     settlementCurrency: dashboard.currency,
-    totals: {
+    utilitiesPlanStatus: dashboard.utilityBillingPlan?.status ?? 'not_ready',
+    rent: {
+      sourceTotal: formatMoney(dashboard.rentSourceAmount),
+      settlementTotal: formatMoney(dashboard.rentDisplayAmount),
+      fxRateStatus: rentFxFixed
+        ? 'fixed'
+        : `provisional_until_${rentFxLockDate ?? 'unknown'} — quote per-member rent in the source currency until then`,
+      perMemberSource: [...rentSourceShares.entries()].map(([memberId, amount]) => ({
+        memberId,
+        name: members.find((member) => member.id === memberId)?.displayName ?? memberId,
+        amount: formatMoney(amount)
+      }))
+    },
+    paymentPeriods,
+    members: memberSummaries(dashboard),
+    householdTotals: {
+      note: 'aggregate across the household; members usually only care about their own share',
       due: formatMoney(dashboard.totalDue),
       paid: formatMoney(dashboard.totalPaid),
       remaining: formatMoney(dashboard.totalRemaining)
-    },
-    rent: {
-      amount: formatMoney(dashboard.rentDisplayAmount),
-      dueDate: dashboard.rentBillingState.dueDate,
-      perMember: dashboard.rentBillingState.memberSummaries.map((summary) => ({
-        memberId: summary.memberId,
-        name: summary.displayName,
-        due: formatMoney(summary.due),
-        paid: formatMoney(summary.paid),
-        remaining: formatMoney(summary.remaining)
-      }))
-    },
-    utilities: dashboard.utilityBillingPlan
-      ? {
-          dueDate: dashboard.utilityBillingPlan.dueDate,
-          planStatus: dashboard.utilityBillingPlan.status
-        }
-      : { planStatus: 'not_ready' },
-    paymentKinds:
-      period?.kinds.map((kind) => ({
-        kind: kind.kind,
-        due: formatMoney(kind.totalDue),
-        paid: formatMoney(kind.totalPaid),
-        remaining: formatMoney(kind.totalRemaining),
-        unresolvedMembers: kind.unresolvedMembers.map((member) => ({
-          memberId: member.memberId,
-          name: member.displayName,
-          suggestedAmount: formatMoney(member.suggestedAmount),
-          remaining: formatMoney(member.remaining)
-        }))
-      })) ?? [],
-    members: memberSummaries(dashboard)
+    }
   }
 }
 
@@ -881,7 +980,7 @@ export function agentToolDefinitions(input: {
     {
       name: 'get_bill_status',
       description:
-        'Current household bill: period, totals, rent/utilities due dates, per-member remaining amounts. Use for any question about who owes what.',
+        'Payment status per billing period: rent/utilities due dates, overdue flags, and which members still owe what. Includes overdue past periods, not just the current one. Use for any question about who owes what or payment status.',
       parameters: { type: 'object', properties: {}, additionalProperties: false }
     },
     {
