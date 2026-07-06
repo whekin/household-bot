@@ -293,8 +293,12 @@ function createMultiMemberRentFinanceService(
     settleAfterFirstDashboard?: boolean
     paidMemberIds?: readonly string[]
     payMemberAfterFirstDashboard?: string
+    kind?: 'rent' | 'utilities'
   } = {}
 ): FinanceCommandService {
+  const activeKind = options.kind ?? 'rent'
+  const shareMajor = activeKind === 'rent' ? '469.00' : '40.00'
+  const shareMinor = activeKind === 'rent' ? 46900n : 4000n
   const base = createFinanceService()
   let dashboardCalls = 0
   const initiallyPaidMemberIds = new Set(options.paidMemberIds ?? [])
@@ -342,9 +346,9 @@ function createMultiMemberRentFinanceService(
           rentShare: Money.fromMajor('469.00', 'GEL'),
           utilityShare: Money.fromMajor('40.00', 'GEL'),
           purchaseOffset: Money.zero('GEL'),
-          netDue: Money.fromMajor('469.00', 'GEL'),
-          paid: memberSettled ? Money.fromMajor('469.00', 'GEL') : Money.zero('GEL'),
-          remaining: memberSettled ? Money.zero('GEL') : Money.fromMajor('469.00', 'GEL'),
+          netDue: Money.fromMajor(shareMajor, 'GEL'),
+          paid: memberSettled ? Money.fromMajor(shareMajor, 'GEL') : Money.zero('GEL'),
+          remaining: memberSettled ? Money.zero('GEL') : Money.fromMajor(shareMajor, 'GEL'),
           overduePayments: [],
           explanations: []
         }
@@ -385,30 +389,37 @@ function createMultiMemberRentFinanceService(
             utilityTotal: Money.zero('GEL'),
             hasOverdueBalance: false,
             isCurrentPeriod: true,
-            kinds: [
-              {
-                kind: 'rent',
-                totalDue: Money.fromMajor('1407.00', 'GEL'),
-                totalPaid: Money.fromMinor(BigInt(3 - unresolvedMembers.length) * 46900n, 'GEL'),
-                totalRemaining: Money.fromMinor(BigInt(unresolvedMembers.length) * 46900n, 'GEL'),
-                unresolvedMembers: unresolvedMembers.map((member) => ({
-                  memberId: member.memberId,
-                  displayName: member.displayName,
-                  suggestedAmount: Money.fromMajor('469.00', 'GEL'),
-                  baseDue: Money.fromMajor('469.00', 'GEL'),
-                  paid: Money.zero('GEL'),
-                  remaining: Money.fromMajor('469.00', 'GEL'),
-                  effectivelySettled: false
-                }))
-              },
-              {
-                kind: 'utilities',
-                totalDue: Money.zero('GEL'),
-                totalPaid: Money.zero('GEL'),
-                totalRemaining: Money.zero('GEL'),
-                unresolvedMembers: []
-              }
-            ]
+            kinds: (['rent', 'utilities'] as const).map((kind) =>
+              kind === activeKind
+                ? {
+                    kind,
+                    totalDue: Money.fromMinor(3n * shareMinor, 'GEL'),
+                    totalPaid: Money.fromMinor(
+                      BigInt(3 - unresolvedMembers.length) * shareMinor,
+                      'GEL'
+                    ),
+                    totalRemaining: Money.fromMinor(
+                      BigInt(unresolvedMembers.length) * shareMinor,
+                      'GEL'
+                    ),
+                    unresolvedMembers: unresolvedMembers.map((member) => ({
+                      memberId: member.memberId,
+                      displayName: member.displayName,
+                      suggestedAmount: Money.fromMajor(shareMajor, 'GEL'),
+                      baseDue: Money.fromMajor(shareMajor, 'GEL'),
+                      paid: Money.zero('GEL'),
+                      remaining: Money.fromMajor(shareMajor, 'GEL'),
+                      effectivelySettled: false
+                    }))
+                  }
+                : {
+                    kind,
+                    totalDue: Money.zero('GEL'),
+                    totalPaid: Money.zero('GEL'),
+                    totalRemaining: Money.zero('GEL'),
+                    unresolvedMembers: []
+                  }
+            )
           }
         ],
         ledger: []
@@ -681,6 +692,78 @@ describe('publishAgentPaymentProposal', () => {
     expect(
       paymentService.submitted.every((entry) => entry.parseText === 'paid rent 469.00 GEL')
     ).toBe(true)
+  })
+
+  test('multi-confirm marks planned utilities paid for recorded members', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentTestBot(calls)
+    const promptRepository = createPromptRepository()
+    const resolvedMemberIds: string[] = []
+    const financeService: FinanceCommandService = {
+      ...createMultiMemberRentFinanceService({
+        kind: 'utilities',
+        settleAfterFirstDashboard: true
+      }),
+      resolveUtilityBillAsPlanned: async (input) => {
+        resolvedMemberIds.push(input.memberId ?? '')
+        return {
+          period: '2026-05',
+          resolvedBillIds: ['bill-1'],
+          resolvedAssignments: [],
+          settledJustNow: resolvedMemberIds.length === 2,
+          plan: null
+        }
+      }
+    }
+    const paymentService = createPaymentConfirmationService(() => ({
+      status: 'recorded',
+      kind: 'utilities',
+      amount: Money.fromMajor('40.00', 'GEL')
+    }))
+    const householdRepository = createHouseholdRepository() as never
+
+    const proposal = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'member-1',
+      additionalMemberIds: ['member-2'],
+      kind: 'utilities',
+      explicitAmount: null,
+      perMemberAmount: null,
+      financeService,
+      householdConfigurationRepository: householdRepository
+    })
+    expect(proposal.status).toBe('multi_member_proposal')
+    const proposalId =
+      proposal.status === 'multi_member_proposal' ? proposal.proposal.proposalId : ''
+
+    bot.on('message', async (ctx) => {
+      await publishAgentPaymentProposal({
+        ctx,
+        locale: 'ru',
+        record: agentPaymentRecord('Оплатил коммуналку за себя и за Диму'),
+        proposal,
+        payerTelegramUserId: '10002',
+        payerDisplayName: 'Stas',
+        isThirdParty: false,
+        promptRepository
+      })
+    })
+    registerPaymentTopicCallbacks(
+      bot,
+      householdRepository,
+      promptRepository,
+      () => financeService,
+      () => paymentService
+    )
+
+    await bot.handleUpdate(paymentUpdate('Оплатил коммуналку за себя и за Диму') as never)
+    await bot.handleUpdate(paymentCallbackUpdate(`pt:mc:${proposalId}`, 10002) as never)
+
+    expect(paymentService.submitted.map((entry) => entry.memberId).sort()).toEqual([
+      'member-1',
+      'member-2'
+    ])
+    expect(resolvedMemberIds.sort()).toEqual(['member-1', 'member-2'])
   })
 
   test('posts a third-person card that the reported payer can confirm', async () => {

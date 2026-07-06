@@ -864,6 +864,62 @@ async function replyToPaymentMessage(
   })
 }
 
+// Recorded utilities payments only create payment records; the utility billing
+// plan settles through vendor payment facts. Reconcile the two here so the
+// miniapp and /bill stop showing the plan as open after everyone has paid.
+async function resolvePlannedUtilitiesForRecordedPayments(input: {
+  financeService: FinanceCommandService
+  period: string | undefined
+  memberIds: Iterable<string>
+  actorTelegramUserId: string
+  logger?: Logger | undefined
+}): Promise<{ settledJustNow: boolean; period: string | null }> {
+  let settledJustNow = false
+  let period: string | null = null
+
+  const actorMemberId = await input.financeService
+    .getMemberByTelegramUserId(input.actorTelegramUserId)
+    .then((member) => member?.id)
+    .catch(() => undefined)
+
+  // A partial payment (explicit amount below the planned share) must not mark
+  // the member's planned bills as covered, so only settled members qualify.
+  const dashboard = await input.financeService.generateDashboard(input.period)
+  if (!dashboard) {
+    return { settledJustNow, period }
+  }
+  const unresolvedMemberIds = new Set(
+    dashboard.paymentPeriods
+      ?.find((candidate) => candidate.period === dashboard.period)
+      ?.kinds.find((candidate) => candidate.kind === 'utilities')
+      ?.unresolvedMembers.map((member) => member.memberId) ?? []
+  )
+
+  for (const memberId of input.memberIds) {
+    if (unresolvedMemberIds.has(memberId)) {
+      continue
+    }
+    try {
+      const result = await input.financeService.resolveUtilityBillAsPlanned({
+        memberId,
+        ...(input.period ? { periodArg: input.period } : {}),
+        ...(actorMemberId ? { actorMemberId } : {})
+      })
+      if (result) {
+        period = result.period
+        settledJustNow = settledJustNow || result.settledJustNow
+      }
+    } catch (error) {
+      input.logger?.warn(
+        { memberId, error: String(error) },
+        'payment topic: failed to resolve planned utilities after recorded payment'
+      )
+    }
+  }
+
+  return { settledJustNow, period }
+}
+
 export function registerPaymentTopicCallbacks(
   bot: Bot,
   householdConfigurationRepository: HouseholdConfigurationRepository,
@@ -1090,6 +1146,7 @@ export function registerPaymentTopicCallbacks(
         members: selectedMembers
       })
       const handledMemberIds = new Set<string>()
+      const recordedAmountByMemberId = new Map<string, Money>()
       const alreadyPaidMemberIds = new Set(
         payload.members
           .filter((member) => member.paymentStatus === 'paid')
@@ -1122,8 +1179,20 @@ export function registerPaymentTopicCallbacks(
           alreadyPaidSelectedMemberIds.add(member.memberId)
         } else if (isHandledPaymentSubmitResult(result)) {
           handledMemberIds.add(member.memberId)
+          recordedAmountByMemberId.set(member.memberId, currentAmount)
         }
       }
+
+      const planResolution =
+        payload.kind === 'utilities' && handledMemberIds.size > 0
+          ? await resolvePlannedUtilitiesForRecordedPayments({
+              financeService,
+              period: payload.period,
+              memberIds: handledMemberIds,
+              actorTelegramUserId,
+              logger: options.logger
+            })
+          : null
 
       await promptRepository.clearPendingAction(
         payload.telegramChatId,
@@ -1162,10 +1231,10 @@ export function registerPaymentTopicCallbacks(
 
       if (options.auditNotificationService && handledMemberIds.size > 0) {
         const actorDisplayName = ctx.from?.first_name ?? 'Someone'
-        const recordedNames = payload.members
-          .filter((member) => handledMemberIds.has(member.memberId))
-          .map((member) => member.displayName)
-          .join(', ')
+        const recordedMembers = payload.members.filter((member) =>
+          handledMemberIds.has(member.memberId)
+        )
+        const recordedNames = recordedMembers.map((member) => member.displayName).join(', ')
         await options.auditNotificationService.recordEvent({
           householdId: payload.householdId,
           actorMemberId: null,
@@ -1177,8 +1246,41 @@ export function registerPaymentTopicCallbacks(
             proposalId: payload.proposalId,
             kind: payload.kind,
             period: payload.period,
-            memberIds: [...handledMemberIds]
+            description: recordedNames,
+            closedMembers: recordedMembers.map((member) => {
+              const amount = recordedAmountByMemberId.get(member.memberId)
+              return {
+                memberId: member.memberId,
+                displayName: member.displayName,
+                ...(amount
+                  ? {
+                      amountMinor: amount.amountMinor.toString(),
+                      currency: amount.currency
+                    }
+                  : {})
+              }
+            }),
+            skippedMembers: payload.members
+              .filter((member) => alreadyPaidSelectedMemberIds.has(member.memberId))
+              .map((member) => ({
+                memberId: member.memberId,
+                displayName: member.displayName,
+                reason: 'already_settled'
+              }))
           }
+        })
+      }
+
+      if (options.auditNotificationService && planResolution?.settledJustNow) {
+        const settledPeriod = planResolution.period ?? payload.period
+        await options.auditNotificationService.recordEvent({
+          householdId: payload.householdId,
+          actorMemberId: null,
+          actorDisplayName: ctx.from?.first_name ?? 'Someone',
+          eventType: 'utility_plan.fully_paid',
+          category: 'plan_events',
+          summaryText: `Utilities for ${settledPeriod} are fully settled`,
+          metadata: { period: settledPeriod }
         })
       }
     }
@@ -1335,6 +1437,17 @@ export function registerPaymentTopicCallbacks(
         return
       }
 
+      const planResolution =
+        result.kind === 'utilities'
+          ? await resolvePlannedUtilitiesForRecordedPayments({
+              financeService: financeServiceForHousehold(payload.householdId),
+              period: payload.period,
+              memberIds: [payload.memberId],
+              actorTelegramUserId,
+              logger: options.logger
+            })
+          : null
+
       const fullyPaid =
         payload.period === undefined
           ? false
@@ -1362,20 +1475,36 @@ export function registerPaymentTopicCallbacks(
       }
 
       if (options.auditNotificationService) {
+        const memberDisplayName = payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'
         await options.auditNotificationService.recordEvent({
           householdId: payload.householdId,
           actorMemberId: payload.memberId,
-          actorDisplayName: payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone',
+          actorDisplayName: memberDisplayName,
           eventType: 'payment.recorded',
           category: 'payment_events',
-          summaryText: `${payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'} recorded ${result.kind} payment: ${result.amount.toMajorString()} ${result.amount.currency}`,
+          summaryText: `${memberDisplayName} recorded ${result.kind} payment: ${result.amount.toMajorString()} ${result.amount.currency}`,
           metadata: {
             memberId: payload.memberId,
+            memberDisplayName,
             kind: result.kind,
             amountMinor: result.amount.amountMinor.toString(),
-            currency: result.amount.currency
+            currency: result.amount.currency,
+            ...(payload.period ? { period: payload.period } : {})
           }
         })
+
+        if (planResolution?.settledJustNow) {
+          const settledPeriod = planResolution.period ?? payload.period ?? null
+          await options.auditNotificationService.recordEvent({
+            householdId: payload.householdId,
+            actorMemberId: payload.memberId,
+            actorDisplayName: memberDisplayName,
+            eventType: 'utility_plan.fully_paid',
+            category: 'plan_events',
+            summaryText: `Utilities${settledPeriod ? ` for ${settledPeriod}` : ''} are fully settled`,
+            metadata: settledPeriod ? { period: settledPeriod } : {}
+          })
+        }
       }
     }
   )

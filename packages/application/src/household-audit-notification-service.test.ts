@@ -281,6 +281,34 @@ describe('renderAuditNotification', () => {
     expect(rendered.details?.expandedText).toContain('Period: May 2026')
   })
 
+  test('renders multi-member recorded payment names and amounts', () => {
+    const rendered = renderAuditNotification({
+      locale: 'ru',
+      actorDisplayName: 'Stas',
+      eventType: 'payment.recorded',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        kind: 'utilities',
+        period: '2026-07',
+        description: 'Stas, Alisa, Ion',
+        closedMembers: [
+          { memberId: 'stas', displayName: 'Stas', amountMinor: '2000', currency: 'GEL' },
+          { memberId: 'alisa', displayName: 'Alisa', amountMinor: '2000', currency: 'GEL' },
+          { memberId: 'ion', displayName: 'Ion', amountMinor: '2000', currency: 'GEL' }
+        ],
+        skippedMembers: [{ memberId: 'dima', displayName: 'Dima', reason: 'already_settled' }]
+      }
+    })
+
+    expect(rendered.compactText).toBe(
+      'Stas: запись платежа Stas, Alisa, Ion коммуналка (июль 2026 г.)'
+    )
+    expect(rendered.details?.expandedText).toContain(
+      'Закрыто для: Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
+    )
+    expect(rendered.details?.expandedText).toContain('Пропущены: Dima (already_settled)')
+  })
+
   test('renders planned utility payment target and bills', () => {
     const rendered = renderAuditNotification({
       locale: 'ru',
