@@ -1013,7 +1013,7 @@ export function agentToolDefinitions(input: {
       description: [
         'Post a confirmation card for a completed rent/utilities payment. Nothing is recorded until a person presses Confirm.',
         'Use when a member reports having paid. payer_member_id: who the payment belongs to (defaults to the sender; set it when the sender reports someone else paid, e.g. "Ion paid the rent").',
-        'covered_member_ids: additional members whose shares the payer covered (e.g. "paid for me and Alisa" → sender is payer, Alisa in covered_member_ids). Amounts default to each member\'s billed share.',
+        'covered_member_ids: additional members whose shares the payer covered (e.g. "paid for me and Alisa" → sender is payer, Alisa in covered_member_ids; "paid for everyone" / "за всех" → every other member id here). Amounts default to each member\'s billed share.',
         'amount_major: only if the sender explicitly wrote the amount in THIS message.',
         MEMBER_ID_NOTE
       ].join(' '),
