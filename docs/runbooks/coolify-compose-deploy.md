@@ -101,9 +101,7 @@ Core bot/runtime:
 Optional AI/runtime:
 
 - `OPENAI_API_KEY`
-- `PURCHASE_PARSER_MODEL`
 - `ASSISTANT_MODEL`
-- `TOPIC_PROCESSOR_MODEL`
 - assistant timeout/rate-limit variables
 
 Miniapp:

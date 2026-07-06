@@ -32,7 +32,6 @@ const server = {
     .transform((value) => parseOptionalCsv(value)),
   OPENAI_API_KEY: z.string().min(1).optional(),
   ASSISTANT_MODEL: z.string().min(1).default('gpt-4o-mini'),
-  ASSISTANT_ROUTER_MODEL: z.string().min(1).default('gpt-5-nano'),
   ASSISTANT_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
   ASSISTANT_MEMORY_MAX_TURNS: z.coerce.number().int().positive().default(12),
   ASSISTANT_RATE_LIMIT_BURST: z.coerce.number().int().positive().default(5),

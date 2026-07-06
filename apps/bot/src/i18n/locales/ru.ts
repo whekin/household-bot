@@ -216,34 +216,17 @@ export const ruBotTranslations: BotTranslationCatalog = {
     minute: (count) => `${count} ${count === 1 ? 'минуту' : count < 5 ? 'минуты' : 'минут'}`
   },
   assistant: {
-    unavailable: 'Ассистент сейчас недоступен. Попробуйте ещё раз чуть позже.',
     noHousehold:
       'Я смогу помочь после того, как ваш Telegram-профиль будет привязан к дому. Сначала откройте группу дома и завершите вступление.',
     multipleHouseholds:
       'Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока прямой выбор дома ещё не добавлен.',
-    purchaseTopicRedirect: (topicName) =>
-      `Это похоже на общую покупку. Закиньте сообщение в ${topicName ? `топик «${topicName}»` : 'топик покупок'}, и я там всё оформлю.`,
-    paymentTopicRedirect: (topicName) =>
-      `Это похоже на сообщение про оплату. Отправьте его в ${topicName ? `топик «${topicName}»` : 'топик оплат'}, и я там всё подтвержу.`,
     rateLimited: (retryDelay) => `Лимит сообщений ассистенту исчерпан. Попробуйте ${retryDelay}.`,
     retryInLessThanMinute: 'меньше чем через минуту',
     retryIn: (parts) => `через ${parts}`,
     hour: (count) => `${count} ${count === 1 ? 'час' : count < 5 ? 'часа' : 'часов'}`,
     minute: (count) => `${count} ${count === 1 ? 'минуту' : count < 5 ? 'минуты' : 'минут'}`,
     paymentProposal: (kind, amount, currency) =>
-      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`,
-    paymentClarification:
-      'Я могу помочь записать эту оплату, но сообщение нужно уточнить. Укажите, это аренда или коммуналка, и добавьте сумму, если вы оплатили не весь текущий остаток.',
-    paymentUnsupportedCurrency:
-      'Пока я могу автоматически подтверждать оплаты только в текущей валюте дома. Для другой валюты используйте /payment_add.',
-    paymentNoBalance: 'Сейчас для этого типа оплаты нет суммы к подтверждению.',
-    paymentConfirmButton: 'Подтвердить оплату',
-    paymentCancelButton: 'Отменить',
-    paymentConfirmed: (kind, amount, currency) =>
-      `Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} сохранена: ${formatUserFacingMoney(amount, currency)}`,
-    paymentCancelled: 'Предложение оплаты отменено.',
-    paymentAlreadyHandled: 'Это предложение оплаты уже было обработано.',
-    paymentUnavailable: 'Это предложение оплаты уже недоступно.'
+      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`
   },
   finance: {
     useInGroup: 'Используйте эту команду внутри группы дома.',

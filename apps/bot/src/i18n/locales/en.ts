@@ -212,34 +212,17 @@ export const enBotTranslations: BotTranslationCatalog = {
     minute: (count) => `${count} minute${count === 1 ? '' : 's'}`
   },
   assistant: {
-    unavailable: 'The assistant is temporarily unavailable. Try again in a moment.',
     noHousehold:
       'I can help after your Telegram account is linked to a household. Open the household group and complete the join flow first.',
     multipleHouseholds:
       'You belong to multiple households. Open the target household from its group until direct household selection is added.',
-    purchaseTopicRedirect: (topicName) =>
-      `That sounds like a shared purchase. Drop it in ${topicName ? `"${topicName}"` : 'the purchases topic'} and I will handle it there.`,
-    paymentTopicRedirect: (topicName) =>
-      `That sounds like a payment update. Send it in ${topicName ? `"${topicName}"` : 'the payments topic'} and I will confirm it there.`,
     rateLimited: (retryDelay) => `Assistant rate limit reached. Try again ${retryDelay}.`,
     retryInLessThanMinute: 'in less than a minute',
     retryIn: (parts) => `in ${parts}`,
     hour: (count) => `${count} hour${count === 1 ? '' : 's'}`,
     minute: (count) => `${count} minute${count === 1 ? '' : 's'}`,
     paymentProposal: (kind, amount, currency) =>
-      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`,
-    paymentClarification:
-      'I can help record that payment, but I need a clearer message. Mention whether it was rent or utilities, and include the amount if you did not pay the full current balance.',
-    paymentUnsupportedCurrency:
-      'I can only auto-confirm payment proposals in the current household billing currency for now. Use /payment_add if you need a different currency.',
-    paymentNoBalance: 'There is no payable balance to confirm for that payment type right now.',
-    paymentConfirmButton: 'Confirm payment',
-    paymentCancelButton: 'Cancel',
-    paymentConfirmed: (kind, amount, currency) =>
-      `Recorded ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}`,
-    paymentCancelled: 'Payment proposal cancelled.',
-    paymentAlreadyHandled: 'That payment proposal was already handled.',
-    paymentUnavailable: 'That payment proposal is no longer available.'
+      `I can record this ${kind === 'rent' ? 'rent' : 'utilities'} payment: ${formatUserFacingMoney(amount, currency)}. Confirm or cancel below.`
   },
   finance: {
     useInGroup: 'Use this command inside a household group.',

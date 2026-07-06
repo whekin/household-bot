@@ -28,9 +28,10 @@ edit, and cancel payments and purchases via confirmation cards.
 
 ## Non-goals
 
-- DM assistant rework (follow-up; DM flow keeps its current pipeline).
-- Reminders-topic utility entry and ad-hoc notification flows (kept as-is; agent
-  is the fallback chat surface in those topics).
+- DM assistant rework (done in a follow-up: DMs now run through the agent).
+- Reminders-topic utility entry (kept; guided button flow) and ad-hoc
+  notification parsing (done in a follow-up: replaced by the
+  propose_notification tool; draft cards and buttons kept).
 - Anonymous feedback flow (kept).
 - New persistence layer; memory stays in-process.
 

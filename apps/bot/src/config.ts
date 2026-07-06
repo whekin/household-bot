@@ -5,7 +5,6 @@ export interface BotRuntimeConfig {
   telegramWebhookSecret: string
   telegramWebhookPath: string
   databaseUrl?: string
-  purchaseTopicIngestionEnabled: boolean
   financeCommandsEnabled: boolean
   anonymousFeedbackEnabled: boolean
   assistantEnabled: boolean
@@ -181,8 +180,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
   const miniAppUrl = parseOptionalValue(env.MINI_APP_URL)
   const scheduledDispatch = parseScheduledDispatchConfig(env)
 
-  const purchaseTopicIngestionEnabled = databaseUrl !== undefined
-
   const financeCommandsEnabled = databaseUrl !== undefined
   const anonymousFeedbackEnabled = databaseUrl !== undefined
   const assistantEnabled = databaseUrl !== undefined
@@ -194,7 +191,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
     telegramBotToken: requireValue(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
     telegramWebhookSecret: requireValue(env.TELEGRAM_WEBHOOK_SECRET, 'TELEGRAM_WEBHOOK_SECRET'),
     telegramWebhookPath: env.TELEGRAM_WEBHOOK_PATH ?? '/webhook/telegram',
-    purchaseTopicIngestionEnabled,
     financeCommandsEnabled,
     anonymousFeedbackEnabled,
     assistantEnabled,
