@@ -14,12 +14,6 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 import { parseAdHocNotificationSchedule } from './ad-hoc-notification-parser'
 import { resolveReplyLocale } from './bot-locale'
 import type { BotLocale } from './i18n'
-import type {
-  AdHocNotificationInterpreter,
-  AdHocNotificationInterpreterMember
-} from './openai-ad-hoc-notification-interpreter'
-import { REMINDER_UTILITY_ACTION } from './reminder-topic-utilities'
-import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
 
 const AD_HOC_NOTIFICATION_ACTION = 'ad_hoc_notification' as const
 const AD_HOC_NOTIFICATION_ACTION_TTL_MS = 30 * 60_000
@@ -74,36 +68,12 @@ interface ReminderTopicContext {
   assistantTone: string | null
 }
 
-function unavailableReply(locale: BotLocale): string {
-  return locale === 'ru'
-    ? 'Сейчас не могу создать напоминание: модуль ИИ временно недоступен.'
-    : 'I cannot create reminders right now because the AI module is temporarily unavailable.'
-}
-
 function cancelledDraftReply(locale: BotLocale): string {
   return locale === 'ru' ? 'Окей, тогда не напоминаю.' : 'Okay, I will drop this reminder.'
 }
 
 function cancelledSavedReply(locale: BotLocale): string {
   return locale === 'ru' ? 'Окей, это напоминание убираю.' : 'Okay, I will drop this reminder.'
-}
-
-function localNowText(timezone: string, now = nowInstant()): string {
-  const local = now.toZonedDateTimeISO(timezone)
-  return [
-    local.toPlainDate().toString(),
-    `${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}`
-  ].join(' ')
-}
-
-function interpreterMembers(
-  members: readonly HouseholdMemberRecord[]
-): readonly AdHocNotificationInterpreterMember[] {
-  return members.map((member) => ({
-    memberId: member.id,
-    displayName: member.displayName,
-    status: member.status
-  }))
 }
 
 function createProposalId(): string {
@@ -539,16 +509,136 @@ async function loadDraft(
     : null
 }
 
-function draftLocalSchedule(payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>): {
-  date: string
-  hour: number
-  minute: number
-} {
-  const zdt = Temporal.Instant.from(payload.scheduledForIso).toZonedDateTimeISO(payload.timezone)
+async function showDraftConfirmationCard(
+  deps: {
+    householdConfigurationRepository: HouseholdConfigurationRepository
+    promptRepository: TelegramPendingActionRepository
+  },
+  ctx: Context,
+  draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
+  previousConfirmationMessageId?: number | null
+): Promise<void> {
+  const reminderContext = await resolveReminderTopicContext(
+    ctx,
+    deps.householdConfigurationRepository
+  )
+  if (!reminderContext) {
+    return
+  }
+
+  const confirmationMessageId = await replyInTopic(
+    ctx,
+    notificationSummaryText({
+      locale: reminderContext.locale,
+      payload: draft,
+      members: reminderContext.members
+    }),
+    notificationDraftReplyMarkup(reminderContext.locale, draft, reminderContext.members)
+  )
+
+  if (
+    previousConfirmationMessageId &&
+    ctx.chat &&
+    previousConfirmationMessageId !== confirmationMessageId
+  ) {
+    await ctx.api.editMessageReplyMarkup(ctx.chat.id, previousConfirmationMessageId, {
+      reply_markup: {
+        inline_keyboard: []
+      }
+    })
+  }
+
+  await saveDraft(deps.promptRepository, ctx, {
+    ...draft,
+    confirmationMessageId
+  })
+}
+
+export type NotificationDraftPublishStatus =
+  | 'card_posted'
+  | 'missing_schedule'
+  | 'invalid_past'
+  | 'not_in_reminders_topic'
+  | 'unknown_assignee'
+
+export interface NotificationDraftPublisher {
+  publish(input: {
+    ctx: Context
+    text: string
+    localDate: string
+    hour: number | null
+    minute: number | null
+    assigneeMemberId: string | null
+  }): Promise<{ status: NotificationDraftPublishStatus }>
+}
+
+export function createNotificationDraftPublisher(deps: {
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  promptRepository: TelegramPendingActionRepository
+}): NotificationDraftPublisher {
   return {
-    date: zdt.toPlainDate().toString(),
-    hour: zdt.hour,
-    minute: zdt.minute
+    async publish(input) {
+      const reminderContext = await resolveReminderTopicContext(
+        input.ctx,
+        deps.householdConfigurationRepository
+      )
+      if (!reminderContext) {
+        return { status: 'not_in_reminders_topic' }
+      }
+
+      if (
+        input.assigneeMemberId &&
+        !reminderContext.members.some((member) => member.id === input.assigneeMemberId)
+      ) {
+        return { status: 'unknown_assignee' }
+      }
+
+      const schedule = parseAdHocNotificationSchedule({
+        timezone: reminderContext.timezone,
+        resolvedLocalDate: input.localDate,
+        resolvedHour: input.hour,
+        resolvedMinute: input.hour !== null ? (input.minute ?? 0) : null,
+        relativeOffsetMinutes: null,
+        dateReferenceMode: 'calendar',
+        resolutionMode: input.hour !== null ? 'exact' : 'date_only'
+      })
+
+      if (schedule.kind === 'missing_schedule') {
+        return { status: 'missing_schedule' }
+      }
+      if (schedule.kind === 'invalid_past') {
+        return { status: 'invalid_past' }
+      }
+
+      const existingDraft = await loadDraft(deps.promptRepository, input.ctx)
+      const previousConfirmationMessageId =
+        existingDraft?.stage === 'confirm' ? existingDraft.confirmationMessageId : null
+
+      // Re-proposing over an existing draft is an edit: keep the fields that are
+      // only set through the card buttons (delivery mode, DM recipients) and the
+      // assignee unless the new request names one.
+      const draft: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
+        stage: 'confirm',
+        proposalId: createProposalId(),
+        confirmationMessageId: null,
+        householdId: reminderContext.householdId,
+        threadId: reminderContext.threadId,
+        creatorMemberId: reminderContext.member.id,
+        timezone: reminderContext.timezone,
+        originalRequestText: input.text,
+        normalizedNotificationText: input.text,
+        renderedNotificationText: input.text,
+        assigneeMemberId: input.assigneeMemberId ?? existingDraft?.assigneeMemberId ?? null,
+        scheduledForIso: schedule.scheduledFor!.toString(),
+        timePrecision: schedule.timePrecision!,
+        deliveryMode: existingDraft?.deliveryMode ?? 'topic',
+        dmRecipientMemberIds: existingDraft?.dmRecipientMemberIds ?? [],
+        viewMode: 'compact'
+      }
+
+      await showDraftConfirmationCard(deps, input.ctx, draft, previousConfirmationMessageId)
+      return { status: 'card_posted' }
+    }
   }
 }
 
@@ -557,73 +647,8 @@ export function registerAdHocNotifications(options: {
   householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
   notificationService: AdHocNotificationService
-  reminderInterpreter: AdHocNotificationInterpreter | undefined
   logger?: Logger
 }): void {
-  async function renderNotificationText(input: {
-    reminderContext: ReminderTopicContext
-    originalRequestText: string
-    normalizedNotificationText: string
-    assigneeMemberId: string | null
-  }): Promise<string | null> {
-    const assignee = input.assigneeMemberId
-      ? input.reminderContext.members.find((member) => member.id === input.assigneeMemberId)
-      : null
-
-    return (
-      options.reminderInterpreter?.renderDeliveryText({
-        locale: input.reminderContext.locale,
-        originalRequestText: input.originalRequestText,
-        notificationText: input.normalizedNotificationText,
-        requesterDisplayName: input.reminderContext.member.displayName,
-        assigneeDisplayName: assignee?.displayName ?? null,
-        assistantContext: input.reminderContext.assistantContext,
-        assistantTone: input.reminderContext.assistantTone
-      }) ?? null
-    )
-  }
-
-  async function showDraftConfirmation(
-    ctx: Context,
-    draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
-    previousConfirmationMessageId?: number | null
-  ) {
-    const reminderContext = await resolveReminderTopicContext(
-      ctx,
-      options.householdConfigurationRepository
-    )
-    if (!reminderContext) {
-      return
-    }
-
-    const confirmationMessageId = await replyInTopic(
-      ctx,
-      notificationSummaryText({
-        locale: reminderContext.locale,
-        payload: draft,
-        members: reminderContext.members
-      }),
-      notificationDraftReplyMarkup(reminderContext.locale, draft, reminderContext.members)
-    )
-
-    if (
-      previousConfirmationMessageId &&
-      ctx.chat &&
-      previousConfirmationMessageId !== confirmationMessageId
-    ) {
-      await ctx.api.editMessageReplyMarkup(ctx.chat.id, previousConfirmationMessageId, {
-        reply_markup: {
-          inline_keyboard: []
-        }
-      })
-    }
-
-    await saveDraft(options.promptRepository, ctx, {
-      ...draft,
-      confirmationMessageId
-    })
-  }
-
   async function refreshConfirmationMessage(
     ctx: Context,
     payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>
@@ -710,396 +735,6 @@ export function registerAdHocNotifications(options: {
       ),
       keyboard.inline_keyboard.length > 0 ? keyboard : undefined
     )
-  })
-
-  options.bot.on('message', async (ctx, next) => {
-    const messageText = readTelegramMessageText(ctx)?.trim() ?? null
-    if (!messageText || messageText.startsWith('/')) {
-      await next()
-      return
-    }
-
-    const reminderContext = await resolveReminderTopicContext(
-      ctx,
-      options.householdConfigurationRepository
-    )
-    if (!reminderContext) {
-      await next()
-      return
-    }
-
-    const telegramChatId = ctx.chat?.id.toString()
-    const telegramUserId = ctx.from?.id.toString()
-    if (!telegramChatId || !telegramUserId) {
-      await next()
-      return
-    }
-
-    const pendingAction = await options.promptRepository.getPendingAction(
-      telegramChatId,
-      telegramUserId,
-      REMINDER_UTILITY_ACTION
-    )
-    if (pendingAction?.action === REMINDER_UTILITY_ACTION) {
-      await next()
-      return
-    }
-
-    const existingDraft = await loadDraft(options.promptRepository, ctx)
-    if (existingDraft && existingDraft.threadId === reminderContext.threadId) {
-      if (existingDraft.stage === 'await_schedule') {
-        if (!options.reminderInterpreter) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        const interpretedSchedule = await options.reminderInterpreter.interpretSchedule({
-          locale: reminderContext.locale,
-          timezone: existingDraft.timezone,
-          localNow: localNowText(existingDraft.timezone),
-          text: messageText
-        })
-
-        if (!interpretedSchedule) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        if (interpretedSchedule.decision === 'clarification') {
-          await replyInTopic(
-            ctx,
-            interpretedSchedule.clarificationQuestion ??
-              (reminderContext.locale === 'ru'
-                ? 'Когда напомнить? Напишите день, дату или время.'
-                : 'When should I remind? Please send a day, date, or time.')
-          )
-          return
-        }
-
-        const schedule = parseAdHocNotificationSchedule({
-          timezone: existingDraft.timezone,
-          resolvedLocalDate: interpretedSchedule.resolvedLocalDate,
-          resolvedHour: interpretedSchedule.resolvedHour,
-          resolvedMinute: interpretedSchedule.resolvedMinute,
-          relativeOffsetMinutes: interpretedSchedule.relativeOffsetMinutes,
-          dateReferenceMode: interpretedSchedule.dateReferenceMode,
-          resolutionMode: interpretedSchedule.resolutionMode
-        })
-
-        if (schedule.kind === 'missing_schedule') {
-          await replyInTopic(
-            ctx,
-            reminderContext.locale === 'ru'
-              ? 'Нужны дата или понятное время. Например: «завтра утром», «24.03», «2026-03-24 18:30».'
-              : 'I still need a date or a clear time. For example: "tomorrow morning", "2026-03-24", or "2026-03-24 18:30".'
-          )
-          return
-        }
-
-        if (schedule.kind === 'invalid_past') {
-          await replyInTopic(
-            ctx,
-            reminderContext.locale === 'ru'
-              ? 'Это время уже в прошлом. Пришлите будущую дату или время.'
-              : 'That time is already in the past. Send a future date or time.'
-          )
-          return
-        }
-
-        const renderedNotificationText = await renderNotificationText({
-          reminderContext,
-          originalRequestText: existingDraft.originalRequestText,
-          normalizedNotificationText: existingDraft.normalizedNotificationText,
-          assigneeMemberId: existingDraft.assigneeMemberId
-        })
-        if (!renderedNotificationText) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        const confirmPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
-          ...existingDraft,
-          stage: 'confirm',
-          confirmationMessageId: null,
-          renderedNotificationText,
-          scheduledForIso: schedule.scheduledFor!.toString(),
-          timePrecision: schedule.timePrecision!,
-          viewMode: 'compact'
-        }
-        await showDraftConfirmation(ctx, confirmPayload)
-        return
-      }
-
-      if (existingDraft.stage === 'confirm') {
-        if (!options.reminderInterpreter) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        const currentSchedule = draftLocalSchedule(existingDraft)
-        const interpretedEdit = await options.reminderInterpreter.interpretDraftEdit({
-          locale: reminderContext.locale,
-          timezone: existingDraft.timezone,
-          localNow: localNowText(existingDraft.timezone),
-          text: messageText,
-          members: interpreterMembers(reminderContext.members),
-          senderMemberId: reminderContext.member.id,
-          currentNotificationText: existingDraft.normalizedNotificationText,
-          currentAssigneeMemberId: existingDraft.assigneeMemberId,
-          currentScheduledLocalDate: currentSchedule.date,
-          currentScheduledHour: currentSchedule.hour,
-          currentScheduledMinute: currentSchedule.minute,
-          currentDeliveryMode: existingDraft.deliveryMode,
-          currentDmRecipientMemberIds: existingDraft.dmRecipientMemberIds,
-          assistantContext: reminderContext.assistantContext,
-          assistantTone: reminderContext.assistantTone
-        })
-
-        if (!interpretedEdit) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        if (interpretedEdit.decision === 'clarification') {
-          await replyInTopic(
-            ctx,
-            interpretedEdit.clarificationQuestion ??
-              (reminderContext.locale === 'ru'
-                ? 'Что именно поправить в напоминании?'
-                : 'What should I adjust in the reminder?')
-          )
-          return
-        }
-
-        if (interpretedEdit.decision === 'cancel') {
-          await options.promptRepository.clearPendingAction(
-            ctx.chat!.id.toString(),
-            ctx.from!.id.toString(),
-            AD_HOC_NOTIFICATION_ACTION
-          )
-          await replyInTopic(ctx, cancelledDraftReply(reminderContext.locale))
-          return
-        }
-
-        const scheduleChanged =
-          interpretedEdit.resolvedLocalDate !== null ||
-          interpretedEdit.resolvedHour !== null ||
-          interpretedEdit.resolvedMinute !== null ||
-          interpretedEdit.relativeOffsetMinutes !== null ||
-          interpretedEdit.resolutionMode !== null
-
-        let nextSchedule = {
-          scheduledForIso: existingDraft.scheduledForIso,
-          timePrecision: existingDraft.timePrecision
-        }
-
-        if (scheduleChanged) {
-          const parsedSchedule = parseAdHocNotificationSchedule({
-            timezone: existingDraft.timezone,
-            resolvedLocalDate: interpretedEdit.resolvedLocalDate ?? currentSchedule.date,
-            resolvedHour: interpretedEdit.resolvedHour ?? currentSchedule.hour,
-            resolvedMinute: interpretedEdit.resolvedMinute ?? currentSchedule.minute,
-            relativeOffsetMinutes: interpretedEdit.relativeOffsetMinutes,
-            dateReferenceMode: interpretedEdit.dateReferenceMode,
-            resolutionMode: interpretedEdit.resolutionMode ?? 'exact'
-          })
-
-          if (parsedSchedule.kind === 'missing_schedule') {
-            await replyInTopic(
-              ctx,
-              reminderContext.locale === 'ru'
-                ? 'Нужны понятные дата или время, чтобы обновить напоминание.'
-                : 'I need a clear date or time to update the reminder.'
-            )
-            return
-          }
-
-          if (parsedSchedule.kind === 'invalid_past') {
-            await replyInTopic(
-              ctx,
-              reminderContext.locale === 'ru'
-                ? 'Это время уже в прошлом. Пришлите будущую дату или время.'
-                : 'That time is already in the past. Send a future date or time.'
-            )
-            return
-          }
-
-          nextSchedule = {
-            scheduledForIso: parsedSchedule.scheduledFor!.toString(),
-            timePrecision: parsedSchedule.timePrecision!
-          }
-        }
-
-        const nextNormalizedNotificationText =
-          interpretedEdit.notificationText ?? existingDraft.normalizedNotificationText
-        const nextOriginalRequestText =
-          interpretedEdit.notificationText !== null
-            ? messageText
-            : existingDraft.originalRequestText
-        const nextAssigneeMemberId = interpretedEdit.assigneeChanged
-          ? interpretedEdit.assigneeMemberId
-          : existingDraft.assigneeMemberId
-        const nextDeliveryMode = interpretedEdit.deliveryMode ?? existingDraft.deliveryMode
-        const nextDmRecipientMemberIds =
-          interpretedEdit.dmRecipientMemberIds ??
-          (nextDeliveryMode === existingDraft.deliveryMode
-            ? existingDraft.dmRecipientMemberIds
-            : [])
-
-        const renderedNotificationText = await renderNotificationText({
-          reminderContext,
-          originalRequestText: nextOriginalRequestText,
-          normalizedNotificationText: nextNormalizedNotificationText,
-          assigneeMemberId: nextAssigneeMemberId
-        })
-        if (!renderedNotificationText) {
-          await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-          return
-        }
-
-        const nextPayload: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
-          ...existingDraft,
-          originalRequestText: nextOriginalRequestText,
-          normalizedNotificationText: nextNormalizedNotificationText,
-          renderedNotificationText,
-          assigneeMemberId: nextAssigneeMemberId,
-          scheduledForIso: nextSchedule.scheduledForIso,
-          timePrecision: nextSchedule.timePrecision,
-          deliveryMode: nextDeliveryMode,
-          dmRecipientMemberIds: nextDmRecipientMemberIds,
-          viewMode: 'compact'
-        }
-
-        await showDraftConfirmation(ctx, nextPayload, existingDraft.confirmationMessageId)
-        return
-      }
-    }
-
-    if (!options.reminderInterpreter) {
-      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-      return
-    }
-
-    const interpretedRequest = await options.reminderInterpreter.interpretRequest({
-      text: messageText,
-      timezone: reminderContext.timezone,
-      locale: reminderContext.locale,
-      localNow: localNowText(reminderContext.timezone),
-      members: interpreterMembers(reminderContext.members),
-      senderMemberId: reminderContext.member.id,
-      assistantContext: reminderContext.assistantContext,
-      assistantTone: reminderContext.assistantTone
-    })
-
-    if (!interpretedRequest) {
-      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-      return
-    }
-
-    if (interpretedRequest.decision === 'not_notification') {
-      await next()
-      return
-    }
-
-    if (!interpretedRequest.notificationText || interpretedRequest.notificationText.length === 0) {
-      await replyInTopic(
-        ctx,
-        reminderContext.locale === 'ru'
-          ? 'Не понял текст напоминания. Сформулируйте, что именно нужно напомнить.'
-          : 'I could not extract the notification text. Please restate what should be reminded.'
-      )
-      return
-    }
-
-    if (interpretedRequest.decision === 'clarification') {
-      if (interpretedRequest.notificationText) {
-        await saveDraft(options.promptRepository, ctx, {
-          stage: 'await_schedule',
-          proposalId: createProposalId(),
-          householdId: reminderContext.householdId,
-          threadId: reminderContext.threadId,
-          creatorMemberId: reminderContext.member.id,
-          timezone: reminderContext.timezone,
-          originalRequestText: messageText,
-          normalizedNotificationText: interpretedRequest.notificationText,
-          assigneeMemberId: interpretedRequest.assigneeMemberId,
-          deliveryMode: 'topic',
-          dmRecipientMemberIds: []
-        })
-      }
-
-      await replyInTopic(
-        ctx,
-        interpretedRequest.clarificationQuestion ??
-          (reminderContext.locale === 'ru'
-            ? 'Когда напомнить? Подойдёт свободная форма, например: «завтра утром», «завтра в 15:00», «24.03 18:30».'
-            : 'When should I remind? Free-form is fine, for example: "tomorrow morning", "tomorrow 15:00", or "2026-03-24 18:30".')
-      )
-      return
-    }
-
-    const parsedSchedule = parseAdHocNotificationSchedule({
-      timezone: reminderContext.timezone,
-      resolvedLocalDate: interpretedRequest.resolvedLocalDate,
-      resolvedHour: interpretedRequest.resolvedHour,
-      resolvedMinute: interpretedRequest.resolvedMinute,
-      relativeOffsetMinutes: interpretedRequest.relativeOffsetMinutes,
-      dateReferenceMode: interpretedRequest.dateReferenceMode,
-      resolutionMode: interpretedRequest.resolutionMode
-    })
-
-    if (parsedSchedule.kind === 'invalid_past') {
-      await replyInTopic(
-        ctx,
-        reminderContext.locale === 'ru'
-          ? 'Это время уже в прошлом. Пришлите будущую дату или время.'
-          : 'That time is already in the past. Send a future date or time.'
-      )
-      return
-    }
-
-    if (parsedSchedule.kind !== 'parsed') {
-      await replyInTopic(
-        ctx,
-        interpretedRequest.clarificationQuestion ??
-          (reminderContext.locale === 'ru'
-            ? 'Когда напомнить? Подойдёт свободная форма, например: «завтра утром», «завтра в 15:00», «24.03 18:30».'
-            : 'When should I remind? Free-form is fine, for example: "tomorrow morning", "tomorrow 15:00", or "2026-03-24 18:30".')
-      )
-      return
-    }
-
-    const renderedNotificationText = await renderNotificationText({
-      reminderContext,
-      originalRequestText: messageText,
-      normalizedNotificationText: interpretedRequest.notificationText,
-      assigneeMemberId: interpretedRequest.assigneeMemberId
-    })
-    if (!renderedNotificationText) {
-      await replyInTopic(ctx, unavailableReply(reminderContext.locale))
-      return
-    }
-
-    const draft: Extract<NotificationDraftPayload, { stage: 'confirm' }> = {
-      stage: 'confirm',
-      proposalId: createProposalId(),
-      confirmationMessageId: null,
-      householdId: reminderContext.householdId,
-      threadId: reminderContext.threadId,
-      creatorMemberId: reminderContext.member.id,
-      timezone: reminderContext.timezone,
-      originalRequestText: messageText,
-      normalizedNotificationText: interpretedRequest.notificationText,
-      renderedNotificationText,
-      assigneeMemberId: interpretedRequest.assigneeMemberId,
-      scheduledForIso: parsedSchedule.scheduledFor!.toString(),
-      timePrecision: parsedSchedule.timePrecision!,
-      deliveryMode: 'topic',
-      dmRecipientMemberIds: [],
-      viewMode: 'compact'
-    }
-
-    await showDraftConfirmation(ctx, draft)
   })
 
   options.bot.on('callback_query:data', async (ctx, next) => {

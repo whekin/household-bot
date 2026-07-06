@@ -60,6 +60,7 @@ const AGENT_SYSTEM_PROMPT = [
   '- When a member reports a completed shared purchase, use propose_purchase.',
   '- Plans, intentions, and future talk ("надо оплатить", "завтра закину") are NOT completed facts: do not post cards for them; reply briefly only if addressed.',
   '- To edit or delete saved records, find the exact record via list_ledger first.',
+  '- When a member asks for a reminder/notification in the reminders topic, use propose_notification with the date computed from the current local time. If they change their mind before confirming, call it again with the corrected values.',
   '- If a request is ambiguous (which member, which payment), ask one short question instead of guessing.'
 ].join('\n')
 
@@ -71,6 +72,7 @@ export interface HouseholdAgentOptions {
   model: string
   timeoutMs: number
   purchaseRepository?: PurchaseMessageIngestionRepository
+  notificationDraftPublisher?: import('./ad-hoc-notifications').NotificationDraftPublisher
   historyRepository?: TopicMessageHistoryRepository
   memoryStore?: AssistantConversationMemoryStore
   rateLimiter?: AssistantRateLimiter
@@ -239,7 +241,8 @@ async function hasAgentRelevantWorkflow(input: {
   const workflowActions = [
     'payment_topic_confirmation',
     'payment_topic_clarification',
-    'agent_action'
+    'agent_action',
+    'ad_hoc_notification'
   ] as const
   for (const action of workflowActions) {
     const pending = await input.promptRepository.getPendingAction(
@@ -454,6 +457,7 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
               householdContext: assistantConfig?.assistantContext ?? null,
               assistantTone: assistantConfig?.assistantTone ?? null,
               defaultCurrency: settings.settlementCurrency === 'USD' ? 'USD' : ('GEL' as const),
+              timezone: settings.timezone,
               locale: target.locale,
               cachedAt: Date.now()
             }
@@ -469,10 +473,13 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
         isAdmin: senderMember.isAdmin
       })
 
+      const timezone = cachedContext?.timezone ?? 'Asia/Tbilisi'
+      const localNow = nowInstant().toZonedDateTimeISO(timezone)
       const contextPrompt = [
         target.isPrivate
           ? 'Chat type: private chat between the bot and this member. Every message is addressed to you.'
           : `Topic role: ${target.topicRole}`,
+        `Current local date and time (${timezone}): ${localNow.toPlainDate().toString()} ${localNow.toPlainTime().toString({ smallestUnit: 'minute' })} (${localNow.dayOfWeek === 7 ? 'Sunday' : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][localNow.dayOfWeek - 1]})`,
         `Household locale: ${target.locale}`,
         `Settlement currency: ${cachedContext?.defaultCurrency ?? 'GEL'}`,
         `Sender: ${senderMember.displayName} (memberId=${senderMember.id}${senderMember.isAdmin ? ', admin' : ''})`,

@@ -21,6 +21,7 @@ import {
   type AgentActionPayload,
   type AgentActionType
 } from './agent-confirmations'
+import type { NotificationDraftPublisher } from './ad-hoc-notifications'
 import type { AssistantConversationMemoryStore } from './assistant-state'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { createAgentPaymentProposal } from './payment-proposals'
@@ -60,6 +61,7 @@ export interface AgentToolContext {
   householdConfigurationRepository: HouseholdConfigurationRepository
   promptRepository: TelegramPendingActionRepository
   purchaseRepository?: PurchaseMessageIngestionRepository
+  notificationDraftPublisher?: NotificationDraftPublisher
   historyRepository?: TopicMessageHistoryRepository
   memoryStore?: AssistantConversationMemoryStore
   commandCatalog: string | null
@@ -327,8 +329,9 @@ const AGENT_CAPABILITIES = [
   'Record rent/utilities payments as confirmation cards (including payments made for several members or reported for another member).',
   'Record shared purchases as confirmation cards.',
   'Edit or delete saved payments and purchases and change purchase participants — always via a confirmation card.',
+  'Schedule one-off household notifications in the reminders topic (as confirmation cards).',
   'Cancel a pending proposal.',
-  'Cannot: change household settings, schedule arbitrary reminders, send money, or confirm cards on behalf of members.'
+  'Cannot: change household settings, send money, or confirm cards on behalf of members.'
 ].join('\n')
 
 async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
@@ -825,6 +828,49 @@ async function cancelPendingProposal(context: AgentToolContext): Promise<ToolSes
   return { result: { status: 'cancelled' }, cardPosted: true }
 }
 
+async function proposeNotification(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<ToolSessionToolResult> {
+  if (!context.notificationDraftPublisher) {
+    return { result: { error: 'notifications_unavailable' } }
+  }
+
+  const text = readStringArgument(args, 'text')
+  const localDate = readStringArgument(args, 'local_date')
+  if (!text || !localDate || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+    return { result: { error: 'text_and_local_date_required' } }
+  }
+
+  const hour = typeof args.hour === 'number' && Number.isInteger(args.hour) ? args.hour : null
+  const minute =
+    typeof args.minute === 'number' && Number.isInteger(args.minute) ? args.minute : null
+  if (hour !== null && (hour < 0 || hour > 23)) {
+    return { result: { error: 'invalid_hour' } }
+  }
+  if (minute !== null && (minute < 0 || minute > 59)) {
+    return { result: { error: 'invalid_minute' } }
+  }
+
+  const assigneeMemberId = readStringArgument(args, 'assignee_member_id')
+  const published = await context.notificationDraftPublisher.publish({
+    ctx: context.ctx,
+    text,
+    localDate,
+    hour,
+    minute,
+    assigneeMemberId
+  })
+
+  return {
+    result: {
+      status: published.status,
+      nothingScheduledYet: published.status === 'card_posted'
+    },
+    cardPosted: published.status === 'card_posted'
+  }
+}
+
 const MEMBER_ID_NOTE =
   'Member ids come from get_household_info / get_bill_status. Never invent ids.'
 
@@ -919,6 +965,27 @@ export function agentToolDefinitions(input: {
       description:
         "Cancel the sender's own pending payment proposal or pending confirmation card in this chat.",
       parameters: { type: 'object', properties: {}, additionalProperties: false }
+    },
+    {
+      name: 'propose_notification',
+      description: [
+        'Post a confirmation card for a one-off scheduled household notification. Only works in the reminders topic; nothing is scheduled until a person confirms the card.',
+        'Use when a member asks to be reminded about something. text: the notification message to deliver, written out fully.',
+        'local_date: YYYY-MM-DD in the household timezone, computed from the current local time in the context. hour/minute: 24h local time; omit both when the member gave only a day.',
+        MEMBER_ID_NOTE
+      ].join(' '),
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          local_date: { type: 'string' },
+          hour: { type: 'number' },
+          minute: { type: 'number' },
+          assignee_member_id: { type: 'string' }
+        },
+        required: ['text', 'local_date'],
+        additionalProperties: false
+      }
     }
   ]
 
@@ -1029,6 +1096,8 @@ export async function executeAgentTool(
       return setPurchaseParticipantsTool(context, call.arguments)
     case 'cancel_pending_proposal':
       return cancelPendingProposal(context)
+    case 'propose_notification':
+      return proposeNotification(context, call.arguments)
     default:
       return { result: { error: 'unknown_tool' } }
   }

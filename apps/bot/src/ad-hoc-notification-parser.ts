@@ -1,6 +1,6 @@
 import { Temporal, nowInstant, type Instant } from '@household/domain'
 
-import type { AdHocNotificationResolutionMode } from './openai-ad-hoc-notification-interpreter'
+export type AdHocNotificationResolutionMode = 'exact' | 'fuzzy_window' | 'date_only' | 'ambiguous'
 
 export interface ParsedAdHocNotificationSchedule {
   kind: 'parsed' | 'missing_schedule' | 'invalid_past'

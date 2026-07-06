@@ -36,7 +36,6 @@ export interface BotRuntimeConfig {
       }
     | undefined
   openaiApiKey?: string
-  purchaseParserModel: string
   assistantModel: string
   assistantTimeoutMs: number
   assistantMemoryMaxTurns: number
@@ -207,7 +206,6 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
       60_000,
       'SCHEDULER_POLL_INTERVAL_MS'
     ),
-    purchaseParserModel: env.PURCHASE_PARSER_MODEL?.trim() || 'gpt-5.4-mini',
     assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.4-mini',
     assistantTimeoutMs: parsePositiveInteger(
       env.ASSISTANT_TIMEOUT_MS,

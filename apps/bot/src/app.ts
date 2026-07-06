@@ -65,7 +65,7 @@ import {
   createMiniAppCancelNotificationHandler,
   createMiniAppUpdateNotificationHandler
 } from './miniapp-notifications'
-import { createOpenAiAdHocNotificationInterpreter } from './openai-ad-hoc-notification-interpreter'
+import { createNotificationDraftPublisher } from './ad-hoc-notifications'
 import { registerAgentActionCallbacks } from './agent-confirmations'
 import { registerHouseholdAgent } from './household-agent'
 import { registerPurchaseTopicCallbacks } from './purchase-topic-ingestion'
@@ -158,12 +158,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   const localePreferenceService = householdConfigurationRepositoryClient
     ? createLocalePreferenceService(householdConfigurationRepositoryClient.repository)
     : null
-  const adHocNotificationInterpreter = createOpenAiAdHocNotificationInterpreter({
-    apiKey: runtime.openaiApiKey,
-    parserModel: runtime.purchaseParserModel,
-    rendererModel: runtime.assistantModel,
-    timeoutMs: runtime.assistantTimeoutMs
-  })
   const assistantMemoryStore = createInMemoryAssistantConversationMemoryStore(
     runtime.assistantMemoryMaxTurns
   )
@@ -391,7 +385,6 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       promptRepository: telegramPendingActionRepositoryClient.repository,
       notificationService: adHocNotificationService,
-      reminderInterpreter: adHocNotificationInterpreter,
       logger: getLogger('ad-hoc-notifications')
     })
   }
@@ -486,6 +479,10 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       ...(purchaseRepositoryClient
         ? { purchaseRepository: purchaseRepositoryClient.repository }
         : {}),
+      notificationDraftPublisher: createNotificationDraftPublisher({
+        householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+        promptRepository: telegramPendingActionRepositoryClient.repository
+      }),
       ...(topicMessageHistoryRepositoryClient
         ? { historyRepository: topicMessageHistoryRepositoryClient.repository }
         : {}),

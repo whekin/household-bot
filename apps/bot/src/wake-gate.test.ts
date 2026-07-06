@@ -7,6 +7,7 @@ function classifierStub(
     addressedToBot?: boolean
     completedPaymentFact?: boolean
     completedPurchaseFact?: boolean
+    notificationRequest?: boolean
   } | null
 ): { classifier: WakeClassifier; calls: number[] } {
   const calls: number[] = []
@@ -19,7 +20,8 @@ function classifierStub(
         : {
             addressedToBot: verdict.addressedToBot ?? false,
             completedPaymentFact: verdict.completedPaymentFact ?? false,
-            completedPurchaseFact: verdict.completedPurchaseFact ?? false
+            completedPurchaseFact: verdict.completedPurchaseFact ?? false,
+            notificationRequest: verdict.notificationRequest ?? false
           }
     }
   }
@@ -148,6 +150,19 @@ describe('assessWake', () => {
     })
 
     expect(decision.wake).toBe(false)
+  })
+
+  test('a notification request in the reminders topic wakes', async () => {
+    const { classifier } = classifierStub({ notificationRequest: true })
+
+    const decision = await assessWake({
+      ...baseInput,
+      topicRole: 'reminders',
+      messageText: 'напомни завтра вынести мусор',
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'notification_request' })
   })
 
   test('classifier failure means silence', async () => {

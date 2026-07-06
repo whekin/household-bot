@@ -11,6 +11,7 @@ export interface WakeGateDecision {
     | 'addressed'
     | 'payment_fact'
     | 'purchase_fact'
+    | 'notification_request'
     | 'silent'
 }
 
@@ -18,6 +19,7 @@ export interface WakeClassifierVerdict {
   addressedToBot: boolean
   completedPaymentFact: boolean
   completedPurchaseFact: boolean
+  notificationRequest: boolean
 }
 
 export interface WakeClassifierMessage {
@@ -51,6 +53,8 @@ const WAKE_CLASSIFIER_SYSTEM_PROMPT = `You watch one message in a shared househo
 2. completedPaymentFact — the message states a household member has COMPLETED a rent or utilities payment (e.g. "оплатил коммуналку", "закинул за себя и за Иона", "paid rent"). Future intent ("надо оплатить", "завтра закину", "могу оплатить"), offers, requests to others, and questions are NOT payment facts. When unsure, answer false.
 
 3. completedPurchaseFact — the message states a COMPLETED shared household purchase with an item (e.g. "купил корм 12 лари"). Plans, wishes, and price chatter are NOT purchase facts. When unsure, answer false.
+
+4. notificationRequest — the message asks to schedule, set, move, or cancel a household reminder/notification (e.g. "напомни завтра про уборку", "напомни оплатить свет 24-го"). Ordinary chatter about plans is NOT a request. When unsure, answer false.
 
 Answer strictly from the message and short context. Return JSON only.`
 
@@ -114,9 +118,15 @@ export function createOpenAiWakeClassifier(
                 properties: {
                   addressedToBot: { type: 'boolean' },
                   completedPaymentFact: { type: 'boolean' },
-                  completedPurchaseFact: { type: 'boolean' }
+                  completedPurchaseFact: { type: 'boolean' },
+                  notificationRequest: { type: 'boolean' }
                 },
-                required: ['addressedToBot', 'completedPaymentFact', 'completedPurchaseFact']
+                required: [
+                  'addressedToBot',
+                  'completedPaymentFact',
+                  'completedPurchaseFact',
+                  'notificationRequest'
+                ]
               }
             }
           }
@@ -141,7 +151,8 @@ export function createOpenAiWakeClassifier(
       return {
         addressedToBot: parsed.addressedToBot === true,
         completedPaymentFact: parsed.completedPaymentFact === true,
-        completedPurchaseFact: parsed.completedPurchaseFact === true
+        completedPurchaseFact: parsed.completedPurchaseFact === true,
+        notificationRequest: parsed.notificationRequest === true
       }
     } catch (error) {
       logger?.error({ event: 'wake_classifier.failed', error }, 'Wake classifier failed')
@@ -176,7 +187,10 @@ export async function assessWake(input: {
   }
 
   const namePresent = mentionsBotName(input.messageText, input.botUsername)
-  const factCheckNeeded = input.topicRole === 'payments' || input.topicRole === 'purchase'
+  const factCheckNeeded =
+    input.topicRole === 'payments' ||
+    input.topicRole === 'purchase' ||
+    input.topicRole === 'reminders'
 
   if ((!namePresent && !factCheckNeeded) || !input.classifier) {
     return { wake: false, reason: 'silent' }
@@ -203,6 +217,10 @@ export async function assessWake(input: {
 
   if (input.topicRole === 'purchase' && verdict.completedPurchaseFact) {
     return { wake: true, reason: 'purchase_fact' }
+  }
+
+  if (input.topicRole === 'reminders' && verdict.notificationRequest) {
+    return { wake: true, reason: 'notification_request' }
   }
 
   return { wake: false, reason: 'silent' }

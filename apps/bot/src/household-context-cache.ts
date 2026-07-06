@@ -4,6 +4,7 @@ export interface CachedHouseholdContext {
   householdContext: string | null
   assistantTone: string | null
   defaultCurrency: 'GEL' | 'USD'
+  timezone: string
   locale: BotLocale
   cachedAt: number
 }
