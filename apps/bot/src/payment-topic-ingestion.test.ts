@@ -520,7 +520,10 @@ describe('buildPaymentAcknowledgement', () => {
   })
 })
 
-function createAgentTestBot(calls: Array<{ method: string; payload: unknown }>) {
+function createAgentTestBot(
+  calls: Array<{ method: string; payload: unknown }>,
+  options: { throwOnAnswerCallback?: boolean } = {}
+) {
   const bot = createTelegramBot('000000:test-token')
 
   bot.botInfo = {
@@ -539,6 +542,9 @@ function createAgentTestBot(calls: Array<{ method: string; payload: unknown }>) 
 
   bot.api.config.use(async (_prev, method, payload) => {
     calls.push({ method, payload })
+    if (options.throwOnAnswerCallback && method === 'answerCallbackQuery') {
+      throw new Error('Bad Request: query is too old and response timeout expired')
+    }
 
     return {
       ok: true,
@@ -764,6 +770,69 @@ describe('publishAgentPaymentProposal', () => {
       'member-2'
     ])
     expect(resolvedMemberIds.sort()).toEqual(['member-1', 'member-2'])
+  })
+
+  test('multi-confirm still records and edits when the callback answer is stale', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentTestBot(calls, { throwOnAnswerCallback: true })
+    const promptRepository = createPromptRepository()
+    const financeService = createMultiMemberRentFinanceService({
+      kind: 'utilities',
+      settleAfterFirstDashboard: true
+    })
+    const paymentService = createPaymentConfirmationService(() => ({
+      status: 'recorded',
+      kind: 'utilities',
+      amount: Money.fromMajor('40.00', 'GEL')
+    }))
+    const householdRepository = createHouseholdRepository() as never
+
+    const proposal = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'member-1',
+      additionalMemberIds: ['member-2'],
+      kind: 'utilities',
+      explicitAmount: null,
+      perMemberAmount: null,
+      financeService,
+      householdConfigurationRepository: householdRepository
+    })
+    expect(proposal.status).toBe('multi_member_proposal')
+    const proposalId =
+      proposal.status === 'multi_member_proposal' ? proposal.proposal.proposalId : ''
+
+    bot.on('message', async (ctx) => {
+      await publishAgentPaymentProposal({
+        ctx,
+        locale: 'ru',
+        record: agentPaymentRecord('Оплатил коммуналку за себя и за Диму'),
+        proposal,
+        payerTelegramUserId: '10002',
+        payerDisplayName: 'Stas',
+        isThirdParty: false,
+        promptRepository
+      })
+    })
+    registerPaymentTopicCallbacks(
+      bot,
+      householdRepository,
+      promptRepository,
+      () => financeService,
+      () => paymentService
+    )
+
+    await bot.handleUpdate(paymentUpdate('Оплатил коммуналку за себя и за Диму') as never)
+    await bot.handleUpdate(paymentCallbackUpdate(`pt:mc:${proposalId}`, 10002) as never)
+
+    expect(paymentService.submitted.map((entry) => entry.memberId).sort()).toEqual([
+      'member-1',
+      'member-2'
+    ])
+    expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
+    const edit = calls.findLast((call) => call.method === 'editMessageText')
+    expect((edit?.payload as { text?: string } | undefined)?.text).toBe(
+      'Коммуналка за май 2026 г. полностью закрыта.'
+    )
   })
 
   test('posts a third-person card that the reported payer can confirm', async () => {

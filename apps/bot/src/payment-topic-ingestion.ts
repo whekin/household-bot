@@ -516,6 +516,45 @@ function isHandledPaymentSubmitResult(result: PaymentConfirmationSubmitResult): 
   )
 }
 
+async function safeAnswerPaymentCallback(
+  ctx: Context,
+  options?: Parameters<Context['answerCallbackQuery']>[0],
+  logger?: Logger
+): Promise<void> {
+  try {
+    await ctx.answerCallbackQuery(options)
+  } catch (error) {
+    logger?.warn(
+      { event: 'payment_topic.callback_answer_failed', error },
+      'Failed to answer payment topic callback'
+    )
+  }
+}
+
+async function safeEditPaymentCallbackMessage(
+  ctx: Context,
+  text: string,
+  options?: Parameters<Context['editMessageText']>[1],
+  logger?: Logger
+): Promise<void> {
+  if (!ctx.msg) {
+    return
+  }
+
+  try {
+    await ctx.editMessageText(text, options)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/message is not modified/i.test(message)) {
+      return
+    }
+    logger?.warn(
+      { event: 'payment_topic.callback_edit_failed', error },
+      'Failed to edit payment topic callback message'
+    )
+  }
+}
+
 function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   const t = getBotTranslations(locale).payments
 
@@ -975,10 +1014,14 @@ export function registerPaymentTopicCallbacks(
           : false
 
       if (actorTelegramUserId !== ownerTelegramUserId && !actorIsAdmin) {
-        await ctx.answerCallbackQuery({
-          text: t.multiNotYourProposal,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.multiNotYourProposal,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
@@ -987,17 +1030,23 @@ export function registerPaymentTopicCallbacks(
         ownerTelegramUserId,
         PAYMENT_TOPIC_CLARIFICATION_ACTION
       )
-      await ctx.answerCallbackQuery({
-        text: t.cancelled
-      })
-
-      if (ctx.msg) {
-        await ctx.editMessageText(t.cancelled, {
+      await safeAnswerPaymentCallback(
+        ctx,
+        {
+          text: t.cancelled
+        },
+        options.logger
+      )
+      await safeEditPaymentCallbackMessage(
+        ctx,
+        t.cancelled,
+        {
           reply_markup: {
             inline_keyboard: []
           }
-        })
-      }
+        },
+        options.logger
+      )
     }
   )
 
@@ -1032,26 +1081,38 @@ export function registerPaymentTopicCallbacks(
       const t = getBotTranslations(locale).payments
 
       if (payload && actorTelegramUserId !== payload.ownerTelegramUserId) {
-        await ctx.answerCallbackQuery({
-          text: t.multiNotYourProposal,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.multiNotYourProposal,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
       const memberIndex = payload?.members.findIndex((member) => member.memberId === memberId) ?? -1
       if (!payload || payload.proposalId !== proposalId || memberIndex < 0) {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.proposalUnavailable,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
       if (payload.members[memberIndex]?.paymentStatus === 'paid') {
-        await ctx.answerCallbackQuery({
-          text: t.alreadySettled(payload.kind, payload.members[memberIndex]?.displayName),
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.alreadySettled(payload.kind, payload.members[memberIndex]?.displayName),
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
@@ -1070,12 +1131,15 @@ export function registerPaymentTopicCallbacks(
         expiresAt: nowInstant().add({ milliseconds: PAYMENT_TOPIC_ACTION_TTL_MS })
       })
 
-      await ctx.answerCallbackQuery()
-      if (ctx.msg) {
-        await ctx.editMessageText(formatMultiPaymentProposalText(locale, nextPayload), {
+      await safeAnswerPaymentCallback(ctx, undefined, options.logger)
+      await safeEditPaymentCallbackMessage(
+        ctx,
+        formatMultiPaymentProposalText(locale, nextPayload),
+        {
           reply_markup: multiPaymentProposalReplyMarkup(locale, nextPayload)
-        })
-      }
+        },
+        options.logger
+      )
     }
   )
 
@@ -1109,18 +1173,26 @@ export function registerPaymentTopicCallbacks(
       const t = getBotTranslations(locale).payments
 
       if (payload && actorTelegramUserId !== payload.ownerTelegramUserId) {
-        await ctx.answerCallbackQuery({
-          text: t.multiNotYourProposal,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.multiNotYourProposal,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
       if (!payload || payload.proposalId !== proposalId) {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.proposalUnavailable,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
@@ -1128,12 +1200,18 @@ export function registerPaymentTopicCallbacks(
         (member) => member.selected && member.paymentStatus === 'unpaid'
       )
       if (selectedMembers.length === 0) {
-        await ctx.answerCallbackQuery({
-          text: t.noMembersSelected,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.noMembersSelected,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
+
+      await safeAnswerPaymentCallback(ctx, undefined, options.logger)
 
       const paymentService = paymentServiceForHousehold(payload.householdId)
       const financeService = financeServiceForHousehold(payload.householdId)
@@ -1218,16 +1296,16 @@ export function registerPaymentTopicCallbacks(
           )
         : formatMultiPartialRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
 
-      await ctx.answerCallbackQuery({
-        text: recordedText
-      })
-      if (ctx.msg) {
-        await ctx.editMessageText(recordedText, {
+      await safeEditPaymentCallbackMessage(
+        ctx,
+        recordedText,
+        {
           reply_markup: {
             inline_keyboard: []
           }
-        })
-      }
+        },
+        options.logger
+      )
 
       if (options.auditNotificationService && handledMemberIds.size > 0) {
         const actorDisplayName = ctx.from?.first_name ?? 'Someone'
@@ -1324,18 +1402,26 @@ export function registerPaymentTopicCallbacks(
         : false
 
       if (payload && actorTelegramUserId !== payload.ownerTelegramUserId && !actorIsAdmin) {
-        await ctx.answerCallbackQuery({
-          text: t.multiNotYourProposal,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.multiNotYourProposal,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
       if (!payload || payload.proposalId !== proposalId) {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.proposalUnavailable,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
@@ -1344,17 +1430,23 @@ export function registerPaymentTopicCallbacks(
         payload.ownerTelegramUserId,
         PAYMENT_TOPIC_CONFIRMATION_ACTION
       )
-      await ctx.answerCallbackQuery({
-        text: t.cancelled
-      })
-
-      if (ctx.msg) {
-        await ctx.editMessageText(t.cancelled, {
+      await safeAnswerPaymentCallback(
+        ctx,
+        {
+          text: t.cancelled
+        },
+        options.logger
+      )
+      await safeEditPaymentCallbackMessage(
+        ctx,
+        t.cancelled,
+        {
           reply_markup: {
             inline_keyboard: []
           }
-        })
-      }
+        },
+        options.logger
+      )
     }
   )
 
@@ -1390,20 +1482,30 @@ export function registerPaymentTopicCallbacks(
       const t = getBotTranslations(locale).payments
 
       if (!payload || payload.proposalId !== proposalId) {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.proposalUnavailable,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
 
       if (!actorCanManagePaymentProposal(actorTelegramUserId, payload)) {
-        await ctx.answerCallbackQuery({
-          text: t.notYourProposal,
-          show_alert: true
-        })
+        await safeAnswerPaymentCallback(
+          ctx,
+          {
+            text: t.notYourProposal,
+            show_alert: true
+          },
+          options.logger
+        )
         return
       }
+
+      await safeAnswerPaymentCallback(ctx, undefined, options.logger)
 
       const paymentService = paymentServiceForHousehold(payload.householdId)
       const result = await paymentService.submit({
@@ -1415,25 +1517,30 @@ export function registerPaymentTopicCallbacks(
       await clearPaymentProposalPendingActions(promptRepository, payload)
 
       if (result.status === 'already_settled') {
-        await ctx.answerCallbackQuery({
-          text: t.alreadySettled(result.kind, payload.reportedDisplayName),
-          show_alert: true
-        })
-        if (ctx.msg) {
-          await ctx.editMessageText(t.alreadySettled(result.kind, payload.reportedDisplayName), {
+        await safeEditPaymentCallbackMessage(
+          ctx,
+          t.alreadySettled(result.kind, payload.reportedDisplayName),
+          {
             reply_markup: {
               inline_keyboard: []
             }
-          })
-        }
+          },
+          options.logger
+        )
         return
       }
 
       if (result.status !== 'recorded') {
-        await ctx.answerCallbackQuery({
-          text: t.proposalUnavailable,
-          show_alert: true
-        })
+        await safeEditPaymentCallbackMessage(
+          ctx,
+          t.proposalUnavailable,
+          {
+            reply_markup: {
+              inline_keyboard: []
+            }
+          },
+          options.logger
+        )
         return
       }
 
@@ -1462,17 +1569,16 @@ export function registerPaymentTopicCallbacks(
             formatPeriodLabel(locale, payload.period!)
           )
         : formatRecordedPaymentText(locale, payload, result.amount)
-      await ctx.answerCallbackQuery({
-        text: recordedText
-      })
-
-      if (ctx.msg) {
-        await ctx.editMessageText(recordedText, {
+      await safeEditPaymentCallbackMessage(
+        ctx,
+        recordedText,
+        {
           reply_markup: {
             inline_keyboard: []
           }
-        })
-      }
+        },
+        options.logger
+      )
 
       if (options.auditNotificationService) {
         const memberDisplayName = payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'
@@ -1554,10 +1660,14 @@ export function registerPaymentTopicCallbacks(
     const t = getBotTranslations(locale).payments
 
     if (!payload || payload.proposalId !== proposalId) {
-      await ctx.answerCallbackQuery({
-        text: t.proposalUnavailable,
-        show_alert: true
-      })
+      await safeAnswerPaymentCallback(
+        ctx,
+        {
+          text: t.proposalUnavailable,
+          show_alert: true
+        },
+        options.logger
+      )
       return
     }
 
@@ -1568,25 +1678,35 @@ export function registerPaymentTopicCallbacks(
     })
 
     if (!actorCanManagePaymentProposal(actorTelegramUserId, payload) && !actorIsAdmin) {
-      await ctx.answerCallbackQuery({
-        text: t.notYourProposal,
-        show_alert: true
-      })
+      await safeAnswerPaymentCallback(
+        ctx,
+        {
+          text: t.notYourProposal,
+          show_alert: true
+        },
+        options.logger
+      )
       return
     }
 
     await clearPaymentProposalPendingActions(promptRepository, payload)
-    await ctx.answerCallbackQuery({
-      text: t.cancelled
-    })
-
-    if (ctx.msg) {
-      await ctx.editMessageText(t.cancelled, {
+    await safeAnswerPaymentCallback(
+      ctx,
+      {
+        text: t.cancelled
+      },
+      options.logger
+    )
+    await safeEditPaymentCallbackMessage(
+      ctx,
+      t.cancelled,
+      {
         reply_markup: {
           inline_keyboard: []
         }
-      })
-    }
+      },
+      options.logger
+    )
   })
 }
 
