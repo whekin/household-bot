@@ -1,5 +1,5 @@
 import { majorStringToMinor, minorToMajorString } from './money'
-import type { MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppDashboard } from '../api'
 import { formatAbsoluteMoneyLabel } from './ledger-helpers'
 
 export type UtilityBillingPlan = NonNullable<MiniAppDashboard['utilityBillingPlan']>
@@ -53,9 +53,9 @@ export function formatUtilityPlanShareDeltaLabel(
 ): string {
   const amountMinor = majorStringToMinor(amountMajor)
   const resolvedLabels: UtilityPlanShareDeltaLabels = {
-    overShare: locale === 'ru' ? 'Сверх доли' : 'Over share',
-    underShare: locale === 'ru' ? 'Меньше доли' : 'Under share',
-    neutral: locale === 'ru' ? 'По доле' : 'Matches share',
+    overShare: locale === 'ru' ? 'Переплачено' : 'Over share',
+    underShare: locale === 'ru' ? 'Недоплачено' : 'Under share',
+    neutral: locale === 'ru' ? 'Ровно по доле' : 'Matches share',
     ...labels
   }
 

@@ -9,7 +9,7 @@ import {
   type QuickPurchasePreviewMember
 } from './purchase-draft'
 import type { PurchaseDraft } from './ledger-helpers'
-import type { MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppDashboard } from '../api'
 
 const members: QuickPurchasePreviewMember[] = [
   {

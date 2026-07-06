@@ -12,7 +12,7 @@ import {
   utilityPlanTotals,
   type UtilityBillingPlan
 } from './billing-ui-helpers'
-import type { MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppDashboard } from '../api'
 
 const settledPlan: UtilityBillingPlan = {
   version: 1,
@@ -150,9 +150,9 @@ function dashboard(input: {
 
 describe('billing UI helpers', () => {
   test('formats utility plan deltas as share comparison, not payment due', () => {
-    expect(formatUtilityPlanShareDeltaLabel('13.55', 'GEL', 'ru')).toBe('Сверх доли: 13.55 ₾')
-    expect(formatUtilityPlanShareDeltaLabel('-22.93', 'GEL', 'ru')).toBe('Меньше доли: 22.93 ₾')
-    expect(formatUtilityPlanShareDeltaLabel('0.00', 'GEL', 'ru')).toBe('По доле')
+    expect(formatUtilityPlanShareDeltaLabel('13.55', 'GEL', 'ru')).toBe('Переплачено: 13.55 ₾')
+    expect(formatUtilityPlanShareDeltaLabel('-22.93', 'GEL', 'ru')).toBe('Недоплачено: 22.93 ₾')
+    expect(formatUtilityPlanShareDeltaLabel('0.00', 'GEL', 'ru')).toBe('Ровно по доле')
   })
 
   test('detects settled quiet utility plans for snapshot rendering', () => {

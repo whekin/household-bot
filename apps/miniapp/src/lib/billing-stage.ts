@@ -1,4 +1,4 @@
-import type { MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppDashboard } from '../api'
 import type { CalendarDateParts } from './dates'
 import { compareTodayToPeriodDay, parsePeriod } from './dates'
 import { majorStringToMinor } from './money'

@@ -1,36 +1,34 @@
-import * as CheckboxPrimitive from '@kobalte/core/checkbox'
-import { Check } from 'lucide-solid'
-import type { ParentProps } from 'solid-js'
+import { Check } from 'lucide-react'
 
-import { cn } from '../../lib/cn'
+import { cn } from '@/lib/cn'
 
-type CheckboxProps = ParentProps<{
+export function Checkbox({
+  checked,
+  onCheckedChange,
+  disabled,
+  'aria-label': ariaLabel
+}: {
   checked: boolean
+  onCheckedChange: (checked: boolean) => void
   disabled?: boolean
-  class?: string
-  labelClass?: string
-  onChange: (checked: boolean) => void
-}>
-
-export function Checkbox(props: CheckboxProps) {
+  'aria-label'?: string
+}) {
   return (
-    <CheckboxPrimitive.Root
-      checked={props.checked}
-      {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
-      onChange={props.onChange}
-      class={cn('ui-checkbox', props.class)}
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        'flex size-5 shrink-0 items-center justify-center rounded border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+        checked
+          ? 'border-primary-border bg-primary text-primary-foreground'
+          : 'border-border bg-field'
+      )}
     >
-      <CheckboxPrimitive.Input />
-      <CheckboxPrimitive.Control class="ui-checkbox__control">
-        <CheckboxPrimitive.Indicator class="ui-checkbox__indicator">
-          <Check size={13} stroke-width={3} />
-        </CheckboxPrimitive.Indicator>
-      </CheckboxPrimitive.Control>
-      {props.children ? (
-        <CheckboxPrimitive.Label class={cn('ui-checkbox__label', props.labelClass)}>
-          {props.children}
-        </CheckboxPrimitive.Label>
-      ) : null}
-    </CheckboxPrimitive.Root>
+      {checked ? <Check className="size-3.5" strokeWidth={3} /> : null}
+    </button>
   )
 }

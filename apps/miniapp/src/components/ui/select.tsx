@@ -1,66 +1,25 @@
-import * as SelectPrimitive from '@kobalte/core/select'
-import { Check, ChevronDown } from 'lucide-solid'
+import { ChevronDown } from 'lucide-react'
+import type { SelectHTMLAttributes } from 'react'
 
-import { cn } from '../../lib/cn'
+import { cn } from '@/lib/cn'
 
-export type SelectOption = {
-  value: string
-  label: string
-}
-
-type SelectProps = {
-  value?: string
-  options: readonly SelectOption[]
-  disabled?: boolean
-  class?: string
-  id?: string
-  ariaLabel: string
-  placeholder?: string
-  onChange?: (value: string) => void
-}
-
-export function Select(props: SelectProps) {
-  const selectedOption = () =>
-    props.options.find((option) => option.value === (props.value ?? '')) ?? null
-  const optionalRootProps = {
-    ...(props.disabled !== undefined ? { disabled: props.disabled } : {}),
-    ...(props.id !== undefined ? { id: props.id } : {}),
-    ...(props.placeholder !== undefined ? { placeholder: props.placeholder } : {})
-  }
-
+/**
+ * Styled native select — native pickers beat custom dropdowns inside the
+ * Telegram mobile webview.
+ */
+export function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <SelectPrimitive.Root<SelectOption>
-      value={selectedOption()}
-      options={[...props.options]}
-      optionValue="value"
-      optionTextValue="label"
-      onChange={(option) => props.onChange?.(option?.value ?? '')}
-      itemComponent={(itemProps) => (
-        <SelectPrimitive.Item item={itemProps.item} class="ui-select__item">
-          <SelectPrimitive.ItemLabel class="ui-select__item-label">
-            {itemProps.item.rawValue.label}
-          </SelectPrimitive.ItemLabel>
-          <SelectPrimitive.ItemIndicator class="ui-select__item-indicator">
-            <Check size={14} />
-          </SelectPrimitive.ItemIndicator>
-        </SelectPrimitive.Item>
-      )}
-      {...optionalRootProps}
-    >
-      <SelectPrimitive.HiddenSelect />
-      <SelectPrimitive.Trigger class={cn('ui-select', props.class)} aria-label={props.ariaLabel}>
-        <SelectPrimitive.Value<SelectOption> class="ui-select__value">
-          {(state) => state.selectedOption()?.label ?? props.placeholder ?? ''}
-        </SelectPrimitive.Value>
-        <SelectPrimitive.Icon class="ui-select__icon">
-          <ChevronDown size={16} />
-        </SelectPrimitive.Icon>
-      </SelectPrimitive.Trigger>
-      <SelectPrimitive.Portal>
-        <SelectPrimitive.Content class="ui-select__content">
-          <SelectPrimitive.Listbox class="ui-select__listbox" />
-        </SelectPrimitive.Content>
-      </SelectPrimitive.Portal>
-    </SelectPrimitive.Root>
+    <div className={cn('relative', className)}>
+      <select
+        className="h-10 w-full appearance-none rounded-lg border border-border bg-field px-3 pr-9 text-sm text-foreground outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-ring disabled:opacity-50 [&>option]:bg-elevated [&>option]:text-foreground"
+        {...props}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint"
+        aria-hidden
+      />
+    </div>
   )
 }

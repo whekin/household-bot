@@ -1,69 +1,65 @@
+import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
-import type { JSX, ParentProps } from 'solid-js'
+import { Loader2 } from 'lucide-react'
+import type { ButtonHTMLAttributes } from 'react'
 
-import { cn } from '../../lib/cn'
+import { cn } from '@/lib/cn'
 
-const buttonVariants = cva('ui-button', {
-  variants: {
-    variant: {
-      primary: 'ui-button--primary',
-      secondary: 'ui-button--secondary',
-      danger: 'ui-button--danger',
-      ghost: 'ui-button--ghost',
-      icon: 'ui-button--icon'
+const buttonVariants = cva(
+  'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 select-none whitespace-nowrap',
+  {
+    variants: {
+      variant: {
+        primary: 'bg-primary text-primary-foreground active:bg-primary-hover',
+        secondary: 'bg-elevated text-foreground border border-border active:border-border-hover',
+        ghost: 'text-muted-foreground active:bg-field-hover',
+        soft: 'bg-primary-soft text-primary active:bg-primary-softer',
+        destructive:
+          'bg-destructive-soft text-destructive border border-destructive-border active:opacity-80',
+        outline: 'border border-border text-foreground active:border-border-hover'
+      },
+      size: {
+        sm: 'h-8 px-3 text-xs',
+        md: 'h-10 px-4 text-sm',
+        lg: 'h-12 px-5 text-base',
+        icon: 'h-9 w-9'
+      }
     },
-    size: {
-      sm: 'ui-button--sm',
-      md: '',
-      lg: 'ui-button--lg'
+    defaultVariants: {
+      variant: 'secondary',
+      size: 'md'
     }
-  },
-  defaultVariants: {
-    variant: 'secondary',
-    size: 'md'
   }
-})
+)
 
-type ButtonProps = ParentProps<{
-  type?: 'button' | 'submit' | 'reset'
-  class?: string
-  disabled?: boolean
-  loading?: boolean
-  onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>
-}> &
-  VariantProps<typeof buttonVariants>
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean
+    loading?: boolean
+  }
 
-export function Button(props: ButtonProps) {
+export function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  loading = false,
+  disabled,
+  children,
+  ...props
+}: ButtonProps) {
+  const Comp = asChild ? Slot : 'button'
   return (
-    <button
-      type={props.type ?? 'button'}
-      class={cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)}
-      data-loading={props.loading ? 'true' : undefined}
-      aria-busy={props.loading ? 'true' : 'false'}
-      disabled={props.disabled || props.loading}
-      onClick={props.onClick}
+    <Comp
+      type={asChild ? undefined : 'button'}
+      className={cn(buttonVariants({ variant, size }), className)}
+      disabled={disabled || loading}
+      {...props}
     >
-      {props.children}
-    </button>
+      {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+      {children}
+    </Comp>
   )
 }
 
-export function IconButton(
-  props: ParentProps<{
-    label: string
-    class?: string
-    disabled?: boolean
-    onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>
-  }>
-) {
-  const maybeClass = props.class ? { class: props.class } : {}
-  const maybeDisabled = props.disabled !== undefined ? { disabled: props.disabled } : {}
-  const maybeOnClick = props.onClick ? { onClick: props.onClick } : {}
-
-  return (
-    <Button variant="icon" {...maybeClass} {...maybeDisabled} {...maybeOnClick}>
-      <span aria-hidden="true">{props.children}</span>
-      <span class="sr-only">{props.label}</span>
-    </Button>
-  )
-}
+export { buttonVariants }

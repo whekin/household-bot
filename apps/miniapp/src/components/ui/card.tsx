@@ -1,34 +1,31 @@
-import type { ParentProps } from 'solid-js'
+import type { HTMLAttributes, ReactNode } from 'react'
 
-import { cn } from '../../lib/cn'
+import { cn } from '@/lib/cn'
 
-export function Card(
-  props: ParentProps<{ class?: string; accent?: boolean; muted?: boolean; wide?: boolean }>
-) {
+export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <article
-      class={cn(
-        'ui-card',
-        props.accent && 'ui-card--accent',
-        props.muted && 'ui-card--muted',
-        props.wide && 'ui-card--wide',
-        props.class
-      )}
-    >
-      {props.children}
-    </article>
+    <div className={cn('rounded-2xl border border-border bg-card p-4', className)} {...props} />
   )
 }
 
-export function StatCard(props: ParentProps<{ class?: string }>) {
-  return <article class={cn('stat-card', props.class)}>{props.children}</article>
-}
-
-/** @deprecated Use Badge component instead */
-export function MiniChip(props: ParentProps<{ muted?: boolean; class?: string }>) {
+export function CardHeader({
+  title,
+  hint,
+  action,
+  className
+}: {
+  title: ReactNode
+  hint?: ReactNode
+  action?: ReactNode
+  className?: string
+}) {
   return (
-    <span class={cn('mini-chip', props.muted && 'mini-chip--muted', props.class)}>
-      {props.children}
-    </span>
+    <div className={cn('mb-3 flex items-start justify-between gap-3', className)}>
+      <div className="min-w-0">
+        <h2 className="font-display text-base font-semibold text-foreground">{title}</h2>
+        {hint ? <p className="mt-0.5 text-xs text-faint">{hint}</p> : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
   )
 }

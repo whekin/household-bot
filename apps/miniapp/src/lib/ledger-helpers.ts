@@ -5,7 +5,7 @@
 
 import { majorStringToMinor, minorToMajorString } from './money'
 import { calendarDateInputValue } from './dates'
-import type { MiniAppAdminCycleState, MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppAdminCycleState, MiniAppDashboard } from '../api'
 
 /* ── Draft types ────────────────────────────────────── */
 

@@ -4,7 +4,7 @@ import type {
   MiniAppDashboard,
   MiniAppPendingMember,
   MiniAppSession
-} from '../miniapp-api'
+} from '../api'
 
 export type DemoScenarioId = 'current-cycle' | 'overdue-utilities' | 'overdue-rent-and-utilities'
 

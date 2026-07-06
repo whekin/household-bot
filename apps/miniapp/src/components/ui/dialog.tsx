@@ -1,45 +1,54 @@
-import * as Dialog from '@kobalte/core/dialog'
-import { Show, type JSX, type ParentProps } from 'solid-js'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import { X } from 'lucide-react'
+import type { ReactNode } from 'react'
 
-import { cn } from '../../lib/cn'
-import { XIcon } from './icons'
+import { cn } from '@/lib/cn'
 
-export function Modal(
-  props: ParentProps<{
-    open: boolean
-    title: string
-    description?: string
-    closeLabel: string
-    footer?: JSX.Element
-    onClose: () => void
-    class?: string
-  }>
-) {
+/**
+ * Bottom-sheet style dialog — slides from the bottom edge, the natural modal
+ * shape inside a Telegram mini app.
+ */
+export function Sheet({
+  open,
+  onOpenChange,
+  title,
+  children,
+  footer
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: ReactNode
+  children: ReactNode
+  footer?: ReactNode
+}) {
   return (
-    <Dialog.Root open={props.open} onOpenChange={(open) => !open && props.onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay class="modal-backdrop" />
-        <div class="modal-backdrop">
-          <Dialog.Content class={cn('modal-sheet', props.class)} aria-label={props.title}>
-            <header class="modal-sheet__header">
-              <div>
-                <Dialog.Title>{props.title}</Dialog.Title>
-                <Show when={props.description}>
-                  {(description) => <Dialog.Description>{description()}</Dialog.Description>}
-                </Show>
-              </div>
-              <Dialog.CloseButton class="ui-button ui-button--icon modal-close-button">
-                <XIcon />
-                <span class="sr-only">{props.closeLabel}</span>
-              </Dialog.CloseButton>
-            </header>
-            <div class="modal-sheet__body">{props.children}</div>
-            <Show when={props.footer}>
-              {(footer) => <footer class="modal-sheet__footer">{footer()}</footer>}
-            </Show>
-          </Dialog.Content>
-        </div>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <DialogPrimitive.Content
+          className={cn(
+            'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl border-t border-border bg-card shadow-modal outline-none'
+          )}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <DialogPrimitive.Title className="font-display text-base font-semibold text-foreground">
+              {title}
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Close
+              className="rounded-full p-1.5 text-faint transition-colors active:bg-field-hover"
+              aria-label="Close"
+            >
+              <X className="size-4" />
+            </DialogPrimitive.Close>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+          {footer ? (
+            <div className="border-t border-border px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+              {footer}
+            </div>
+          ) : null}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }

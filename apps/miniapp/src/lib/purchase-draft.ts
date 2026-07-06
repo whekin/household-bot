@@ -1,4 +1,4 @@
-import type { MiniAppDashboard } from '../miniapp-api'
+import type { MiniAppDashboard } from '../api'
 import { todayCalendarInputValue } from './dates'
 import { type PurchaseDraft } from './ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from './money'
