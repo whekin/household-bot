@@ -3,6 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  dueNowMemberRows,
   formatUtilityPlanShareDeltaLabel,
   hasUtilityPlanAssignments,
   isSettledQuietPlan,
@@ -267,6 +268,138 @@ describe('billing UI helpers', () => {
     expect(groups.map((group) => `${group.period}:${group.kind}`)).toEqual([
       '2026-04:utilities',
       '2026-05:rent'
+    ])
+  })
+
+  test('due-now rows use actionable payment queues instead of full cycle balance', () => {
+    const data = dashboard({
+      billingStage: 'idle',
+      utilityBillingPlan: settledPlan,
+      paymentPeriods: [
+        {
+          period: '2026-05',
+          utilityTotalMajor: '0.00',
+          hasOverdueBalance: false,
+          isCurrentPeriod: true,
+          kinds: [
+            {
+              kind: 'rent',
+              totalDueMajor: '467.00',
+              totalPaidMajor: '0.00',
+              totalRemainingMajor: '467.00',
+              unresolvedMembers: []
+            },
+            {
+              kind: 'utilities',
+              totalDueMajor: '0.00',
+              totalPaidMajor: '0.00',
+              totalRemainingMajor: '0.00',
+              unresolvedMembers: []
+            }
+          ]
+        }
+      ]
+    })
+    data.members = data.members.map((member) => ({
+      ...member,
+      remainingMajor: member.memberId === 'stas' ? '467.00' : '120.00'
+    }))
+
+    expect(
+      dueNowMemberRows({
+        members: data.members,
+        periods: data.paymentPeriods,
+        currentMemberId: 'stas'
+      }).map((row) => ({
+        memberId: row.memberId,
+        amountMajor: row.amountMajor,
+        isCurrent: row.isCurrent
+      }))
+    ).toEqual([
+      { memberId: 'stas', amountMajor: '0.00', isCurrent: true },
+      { memberId: 'alice', amountMajor: '0.00', isCurrent: false }
+    ])
+  })
+
+  test('due-now rows aggregate open overdue and current obligations by member', () => {
+    const data = dashboard({
+      billingStage: 'rent',
+      utilityBillingPlan: null,
+      paymentPeriods: [
+        {
+          period: '2026-04',
+          utilityTotalMajor: '0.00',
+          hasOverdueBalance: true,
+          isCurrentPeriod: false,
+          kinds: [
+            {
+              kind: 'utilities',
+              totalDueMajor: '40.00',
+              totalPaidMajor: '10.00',
+              totalRemainingMajor: '30.00',
+              unresolvedMembers: [
+                {
+                  memberId: 'alice',
+                  displayName: 'Alice',
+                  suggestedAmountMajor: '30.00',
+                  baseDueMajor: '40.00',
+                  paidMajor: '10.00',
+                  remainingMajor: '30.00',
+                  effectivelySettled: false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          period: '2026-05',
+          utilityTotalMajor: '0.00',
+          hasOverdueBalance: false,
+          isCurrentPeriod: true,
+          kinds: [
+            {
+              kind: 'rent',
+              totalDueMajor: '100.00',
+              totalPaidMajor: '0.00',
+              totalRemainingMajor: '100.00',
+              unresolvedMembers: [
+                {
+                  memberId: 'stas',
+                  displayName: 'Stas',
+                  suggestedAmountMajor: '100.00',
+                  baseDueMajor: '100.00',
+                  paidMajor: '0.00',
+                  remainingMajor: '100.00',
+                  effectivelySettled: false
+                },
+                {
+                  memberId: 'alice',
+                  displayName: 'Alice',
+                  suggestedAmountMajor: '12.50',
+                  baseDueMajor: '12.50',
+                  paidMajor: '0.00',
+                  remainingMajor: '12.50',
+                  effectivelySettled: false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    })
+
+    expect(
+      dueNowMemberRows({
+        members: data.members,
+        periods: data.paymentPeriods,
+        currentMemberId: 'stas'
+      }).map((row) => ({
+        memberId: row.memberId,
+        amountMajor: row.amountMajor
+      }))
+    ).toEqual([
+      { memberId: 'stas', amountMajor: '100.00' },
+      { memberId: 'alice', amountMajor: '42.50' }
     ])
   })
 })

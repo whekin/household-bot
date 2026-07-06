@@ -39,6 +39,14 @@ export interface PaymentQueueGroup {
   unresolvedMembers: PaymentPeriodSummary['kinds'][number]['unresolvedMembers']
 }
 
+export interface DueNowMemberRow {
+  memberId: string
+  displayName: string
+  amountMajor: string
+  amountMinor: bigint
+  isCurrent: boolean
+}
+
 export interface UtilityPlanShareDeltaLabels {
   overShare: string
   underShare: string
@@ -232,4 +240,45 @@ export function paymentQueueGroups(
 
     return left.kind.localeCompare(right.kind)
   })
+}
+
+export function dueNowMemberRows(input: {
+  members: readonly MiniAppDashboard['members'][number][]
+  periods: readonly PaymentPeriodSummary[] | undefined
+  currentMemberId: string | null
+}): DueNowMemberRow[] {
+  const dueMinorByMemberId = new Map<string, bigint>()
+
+  for (const group of paymentQueueGroups(input.periods)) {
+    for (const member of group.unresolvedMembers) {
+      dueMinorByMemberId.set(
+        member.memberId,
+        (dueMinorByMemberId.get(member.memberId) ?? 0n) + majorStringToMinor(member.remainingMajor)
+      )
+    }
+  }
+
+  return input.members
+    .map((member) => {
+      const amountMinor = dueMinorByMemberId.get(member.memberId) ?? 0n
+
+      return {
+        memberId: member.memberId,
+        displayName: member.displayName,
+        amountMajor: minorToMajorString(amountMinor),
+        amountMinor,
+        isCurrent: member.memberId === input.currentMemberId
+      }
+    })
+    .sort((left, right) => {
+      if (left.isCurrent !== right.isCurrent) {
+        return left.isCurrent ? -1 : 1
+      }
+
+      if (left.amountMinor !== right.amountMinor) {
+        return right.amountMinor > left.amountMinor ? 1 : -1
+      }
+
+      return left.displayName.localeCompare(right.displayName)
+    })
 }

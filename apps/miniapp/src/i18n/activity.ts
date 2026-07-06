@@ -10,9 +10,21 @@ export const en = {
   balancesYourBalanceBody:
     'This section shows what is due for you right now and the full balance behind it.',
   balancesDueNowLabel: 'Due now',
+  balancesDueNowBody:
+    'Open and overdue payments only. Future rent stays out until its payment window opens.',
+  balancesNothingDueLabel: 'Nothing due now',
+  balancesNothingDueBody: 'Nothing needs to be paid right now.',
+  balancesNextRentWindowBody: 'Rent opens on {date}.',
   balancesFullDueLabel: 'Full due',
   balancesPaidLabel: 'Already paid',
   balancesRemainingLabel: 'Remaining',
+  balancesFullPeriodTitle: 'Period balance',
+  balancesFullPeriodBody:
+    'Full current-cycle accounting: rent, utilities, purchases, and recorded payments. This is not necessarily due today.',
+  balancesPeriodResultLabel: 'Period result',
+  balancesPeriodCreditLabel: 'In credit',
+  balancesPurchaseCreditLabel: 'Covered more',
+  balancesPurchaseDebitLabel: 'Covered by others',
   balancesCurrentUtilitiesTitle: 'Utilities right now',
   balancesCurrentUtilitiesBodyRentMode:
     'Purchase balance will be settled through rent. This block shows only current utility work.',
@@ -75,8 +87,8 @@ export const en = {
     'This screen only explains your current cycle balance. Older purchase and billing activity stays in history.',
   householdBalancesTitle: 'Who owes now',
   householdBalancesBody: 'See who still owes, who is settled, and who carries credit this cycle.',
-  balancesTitle: 'Current balance',
-  balancesSubtitle: 'All categories',
+  balancesTitle: 'Due now',
+  balancesSubtitle: 'Open or overdue payments only',
   purchasesBalanceTitle: 'Purchases',
   purchasesBalanceBody:
     'See who paid for shared purchases and how that changes each member balance.',
@@ -212,9 +224,21 @@ export const ru: Record<keyof typeof en, string> = {
   balancesYourBalanceBody:
     'Здесь видно, что нужно оплатить сейчас и как из этого собирается полный баланс.',
   balancesDueNowLabel: 'К оплате сейчас',
+  balancesDueNowBody:
+    'Только открытые и просроченные оплаты. Будущая аренда появится здесь, когда откроется окно оплаты.',
+  balancesNothingDueLabel: 'Сейчас не нужно',
+  balancesNothingDueBody: 'Сейчас ничего платить не нужно.',
+  balancesNextRentWindowBody: 'Аренда откроется {date}.',
   balancesFullDueLabel: 'Полная сумма',
   balancesPaidLabel: 'Уже оплачено',
   balancesRemainingLabel: 'Осталось',
+  balancesFullPeriodTitle: 'Баланс периода',
+  balancesFullPeriodBody:
+    'Полный расчёт текущего цикла: аренда, коммуналка, покупки и записанные оплаты. Это не обязательно сумма к оплате сегодня.',
+  balancesPeriodResultLabel: 'Итог периода',
+  balancesPeriodCreditLabel: 'В плюсе',
+  balancesPurchaseCreditLabel: 'Покрыл больше',
+  balancesPurchaseDebitLabel: 'За него покрыли',
   balancesCurrentUtilitiesTitle: 'Коммуналка сейчас',
   balancesCurrentUtilitiesBodyRentMode:
     'Баланс покупок зачтётся через аренду. Здесь только текущая коммуналка.',
@@ -276,8 +300,8 @@ export const ru: Record<keyof typeof en, string> = {
     'На этом экране только разбор твоего текущего баланса. Старая активность по покупкам и оплатам остаётся в истории.',
   householdBalancesTitle: 'Кто должен сейчас',
   householdBalancesBody: 'Кто ещё должен, кто уже рассчитался и у кого переплата в этом цикле.',
-  balancesTitle: 'Текущий баланс',
-  balancesSubtitle: 'Все категории',
+  balancesTitle: 'Сейчас к оплате',
+  balancesSubtitle: 'Только открытые или просроченные оплаты',
   purchasesBalanceTitle: 'Покупки',
   purchasesBalanceBody: 'Кто платил за общие покупки и как это меняет баланс каждого участника.',
   utilitiesBalanceTitle: 'Коммуналка',

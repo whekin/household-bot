@@ -10,8 +10,8 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
-import { paymentQueueGroups } from '@/lib/billing-ui-helpers'
-import { formatCyclePeriod } from '@/lib/dates'
+import { dueNowMemberRows, paymentQueueGroups } from '@/lib/billing-ui-helpers'
+import { formatCyclePeriod, formatPeriodDay } from '@/lib/dates'
 import {
   formatAbsoluteMoneyLabel,
   formatMoneyLabel,
@@ -19,7 +19,7 @@ import {
   memberEffectivePurchaseBalanceMajor,
   semanticMoneyTone
 } from '@/lib/ledger-helpers'
-import { majorStringToMinor } from '@/lib/money'
+import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 import { haptics } from '@/telegram/webapp'
 import type { PaymentPrefill } from './types'
 
@@ -61,6 +61,29 @@ export function BalancesSection({
   const settledLabel = locale === 'ru' ? 'Закрыто' : 'Settled'
 
   const paymentQueue = useMemo(() => paymentQueueGroups(dashboard?.paymentPeriods), [dashboard])
+  const dueNowRows = useMemo(
+    () =>
+      dueNowMemberRows({
+        members: dashboard?.members ?? [],
+        periods: dashboard?.paymentPeriods,
+        currentMemberId: currentMemberLine?.memberId ?? null
+      }),
+    [dashboard, currentMemberLine]
+  )
+  const dueNowTotalMinor = dueNowRows.reduce((sum, row) => sum + row.amountMinor, 0n)
+  const dueNowTotalMajor = minorToMajorString(dueNowTotalMinor)
+  const currentRentQueueOpen = dashboard
+    ? paymentQueue.some((group) => group.period === dashboard.period && group.kind === 'rent')
+    : false
+  const pendingCurrentRentMinor =
+    dashboard?.rentBillingState.memberSummaries.reduce(
+      (sum, summary) => sum + majorStringToMinor(summary.remainingMajor),
+      0n
+    ) ?? 0n
+  const nextRentWindowDate =
+    dashboard && pendingCurrentRentMinor > 0n && !currentRentQueueOpen
+      ? formatPeriodDay(dashboard.period, dashboard.rentWarningDay, locale)
+      : null
   const actionableUtilityPlanMembers = useMemo(() => {
     const plan = dashboard?.utilityBillingPlan
     if (!plan) return new Set<string>()
@@ -176,64 +199,56 @@ export function BalancesSection({
         }
       />
 
-      {/* Collapsed summary: each member's remaining amount */}
+      <div className="mb-3 rounded-xl bg-elevated p-3">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
+          {copy.balancesDueNowLabel}
+        </p>
+        <p
+          className={cn(
+            'mt-1 font-mono text-2xl',
+            dueNowTotalMinor > 0n ? 'text-status-due' : 'text-foreground'
+          )}
+        >
+          {formatMoneyLabel(dueNowTotalMajor, currency, locale)}
+        </p>
+        <p className="mt-1 text-xs text-faint">
+          {dueNowTotalMinor > 0n
+            ? copy.balancesDueNowBody
+            : [
+                copy.balancesNothingDueBody,
+                nextRentWindowDate
+                  ? copy.balancesNextRentWindowBody.replace('{date}', nextRentWindowDate)
+                  : null
+              ]
+                .filter(Boolean)
+                .join(' ')}
+        </p>
+      </div>
+
+      {/* Collapsed summary: only actionable payments due now */}
       <div className="divide-y divide-border">
-        {memberBalanceVisuals.map((item) => {
-          const remainingLabel =
-            formatSemanticMoneyLabel(item.member.remainingMajor, currency, locale) ?? settledLabel
-          const tone = semanticMoneyTone(item.member.remainingMajor)
-          const isCurrent = currentMemberLine?.memberId === item.member.memberId
+        {dueNowRows.map((row) => {
+          const amountLabel =
+            row.amountMinor > 0n
+              ? (formatSemanticMoneyLabel(row.amountMajor, currency, locale, {
+                  debit: copy.balancesDueNowLabel
+                }) ?? formatMoneyLabel(row.amountMajor, currency, locale))
+              : copy.balancesNothingDueLabel
+          const tone = semanticMoneyTone(row.amountMajor)
 
           return (
-            <div key={item.member.memberId} className="space-y-1.5 py-2">
+            <div key={row.memberId} className="space-y-1.5 py-2">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-foreground">{item.member.displayName}</span>
-                  {isCurrent ? (
+                  <span className="truncate text-foreground">{row.displayName}</span>
+                  {row.isCurrent ? (
                     <Badge tone="primary">{copy.purchaseBalanceCurrentLabel}</Badge>
                   ) : null}
                 </span>
                 <span className={cn('shrink-0 font-mono text-xs', toneClass(tone))}>
-                  {remainingLabel}
+                  {amountLabel}
                 </span>
               </div>
-
-              {expanded ? (
-                <>
-                  <div className="h-2 overflow-hidden rounded-full bg-field">
-                    <div className="flex h-full" style={{ width: `${item.barWidthPercent}%` }}>
-                      {item.segments
-                        .filter((segment) => segment.widthPercent > 0)
-                        .map((segment) => (
-                          <div
-                            key={segment.key}
-                            style={{
-                              width: `${segment.widthPercent}%`,
-                              backgroundColor: segmentColors[segment.key]
-                            }}
-                          />
-                        ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-faint">
-                    {item.segments
-                      .filter((segment) => segment.amountMinor > 0n)
-                      .map((segment) => (
-                        <span key={segment.key} className="inline-flex items-center gap-1">
-                          <span
-                            className="size-2 rounded-full"
-                            style={{ backgroundColor: segmentColors[segment.key] }}
-                            aria-hidden
-                          />
-                          {segment.label}{' '}
-                          <span className="font-mono">
-                            {formatAbsoluteMoneyLabel(segment.amountMajor, currency, locale)}
-                          </span>
-                        </span>
-                      ))}
-                  </div>
-                </>
-              ) : null}
             </div>
           )
         })}
@@ -241,6 +256,77 @@ export function BalancesSection({
 
       {expanded ? (
         <div className="mt-4 space-y-5">
+          {/* Full current-cycle accounting context */}
+          <div>
+            <p className="text-sm font-medium text-foreground">{copy.balancesFullPeriodTitle}</p>
+            <p className="mt-0.5 text-xs text-faint">{copy.balancesFullPeriodBody}</p>
+            <div className="mt-3 divide-y divide-border rounded-xl bg-elevated px-3">
+              {memberBalanceVisuals.map((item) => {
+                const remainingLabel =
+                  formatSemanticMoneyLabel(item.member.remainingMajor, currency, locale, {
+                    credit: copy.balancesPeriodCreditLabel,
+                    debit: copy.balancesPeriodResultLabel
+                  }) ?? settledLabel
+                const remainingMinor = majorStringToMinor(item.member.remainingMajor)
+                const isCurrent = currentMemberLine?.memberId === item.member.memberId
+
+                return (
+                  <div key={item.member.memberId} className="space-y-1.5 py-3">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-foreground">{item.member.displayName}</span>
+                        {isCurrent ? (
+                          <Badge tone="primary">{copy.purchaseBalanceCurrentLabel}</Badge>
+                        ) : null}
+                      </span>
+                      <span
+                        className={cn(
+                          'shrink-0 font-mono text-xs',
+                          remainingMinor < 0n ? 'text-status-credit' : 'text-muted-foreground'
+                        )}
+                      >
+                        {remainingLabel}
+                      </span>
+                    </div>
+
+                    <div className="h-2 overflow-hidden rounded-full bg-field">
+                      <div className="flex h-full" style={{ width: `${item.barWidthPercent}%` }}>
+                        {item.segments
+                          .filter((segment) => segment.widthPercent > 0)
+                          .map((segment) => (
+                            <div
+                              key={segment.key}
+                              style={{
+                                width: `${segment.widthPercent}%`,
+                                backgroundColor: segmentColors[segment.key]
+                              }}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-faint">
+                      {item.segments
+                        .filter((segment) => segment.amountMinor > 0n)
+                        .map((segment) => (
+                          <span key={segment.key} className="inline-flex items-center gap-1">
+                            <span
+                              className="size-2 rounded-full"
+                              style={{ backgroundColor: segmentColors[segment.key] }}
+                              aria-hidden
+                            />
+                            {segment.label}{' '}
+                            <span className="font-mono">
+                              {formatAbsoluteMoneyLabel(segment.amountMajor, currency, locale)}
+                            </span>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Purchase balance rail */}
           <div>
             <p className="text-sm font-medium text-foreground">{copy.balancesComparisonTitle}</p>
@@ -256,7 +342,10 @@ export function BalancesSection({
                       ) : null}
                     </span>
                     <span className="shrink-0 font-mono text-faint">
-                      {formatSemanticMoneyLabel(row.balanceMajor, currency, locale) ?? settledLabel}
+                      {formatSemanticMoneyLabel(row.balanceMajor, currency, locale, {
+                        credit: copy.balancesPurchaseCreditLabel,
+                        debit: copy.balancesPurchaseDebitLabel
+                      }) ?? settledLabel}
                     </span>
                   </div>
                   <div className="relative h-1.5 overflow-hidden rounded-full bg-field">
