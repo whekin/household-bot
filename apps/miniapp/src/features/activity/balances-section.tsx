@@ -30,9 +30,11 @@ const segmentColors: Record<string, string> = {
   'purchase-debit': 'var(--color-chart-3)'
 }
 
-function normalizedRailWidth(valueMinor: bigint, maxMinor: bigint): string {
+function normalizedRailSideWidth(valueMinor: bigint, maxMinor: bigint): string {
   if (maxMinor <= 0n) return '0%'
-  return `${Math.max((Number(valueMinor) / Number(maxMinor)) * 100, 6)}%`
+
+  const widthPercent = (Number(valueMinor) / Number(maxMinor)) * 50
+  return `${Math.min(50, Math.max(widthPercent, 4))}%`
 }
 
 function toneClass(tone: 'is-credit' | 'is-debit' | 'is-neutral'): string {
@@ -102,7 +104,7 @@ export function BalancesSection({
       })
       .map((row) => ({
         ...row,
-        width: normalizedRailWidth(row.absoluteMinor, maxMinor),
+        width: normalizedRailSideWidth(row.absoluteMinor, maxMinor),
         side:
           row.balanceMinor < 0n
             ? ('left' as const)
@@ -257,7 +259,7 @@ export function BalancesSection({
                       {formatSemanticMoneyLabel(row.balanceMajor, currency, locale) ?? settledLabel}
                     </span>
                   </div>
-                  <div className="relative h-1.5 rounded-full bg-field">
+                  <div className="relative h-1.5 overflow-hidden rounded-full bg-field">
                     <div className="absolute inset-y-0 left-1/2 w-px bg-border-hover" aria-hidden />
                     {row.side !== 'none' ? (
                       <div
