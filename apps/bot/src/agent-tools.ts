@@ -503,6 +503,13 @@ async function listLedger(
   }
 }
 
+function messageCoversAllMembers(rawText: string): boolean {
+  return (
+    /(^|[^\p{L}\p{N}_])за\s+(?:нас\s+)?вс[её]х(?:\s+нас)?($|[^\p{L}\p{N}_])/iu.test(rawText) ||
+    /\b(?:for\s+(?:everyone|everybody|all)|all\s+of\s+us)\b/iu.test(rawText)
+  )
+}
+
 async function proposePayment(
   context: AgentToolContext,
   args: Record<string, unknown>
@@ -517,9 +524,15 @@ async function proposePayment(
     return { result: { error: 'unknown_payer_member_id' } }
   }
 
-  const coveredMemberIds = (readStringArrayArgument(args, 'covered_member_ids') ?? []).filter(
-    (memberId) => memberId !== payerMemberId
-  )
+  const explicitCoveredMemberIds = readStringArrayArgument(args, 'covered_member_ids') ?? []
+  const coveredMemberIds = [
+    ...new Set([
+      ...explicitCoveredMemberIds,
+      ...(messageCoversAllMembers(context.record.rawText)
+        ? members.map((member) => member.id).filter((memberId) => memberId !== payerMemberId)
+        : [])
+    ])
+  ].filter((memberId) => memberId !== payerMemberId)
   if (coveredMemberIds.some((memberId) => !members.some((member) => member.id === memberId))) {
     return { result: { error: 'unknown_covered_member_id' } }
   }
