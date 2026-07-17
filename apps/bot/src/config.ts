@@ -202,7 +202,7 @@ export function getBotRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BotRu
       60_000,
       'SCHEDULER_POLL_INTERVAL_MS'
     ),
-    assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.4-mini',
+    assistantModel: env.ASSISTANT_MODEL?.trim() || 'gpt-5.6-terra',
     assistantTimeoutMs: parsePositiveInteger(
       env.ASSISTANT_TIMEOUT_MS,
       20_000,

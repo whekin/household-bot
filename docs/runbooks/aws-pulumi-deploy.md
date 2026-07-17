@@ -49,9 +49,7 @@ Optional:
 pulumi config set environment "prod"
 pulumi config set appName "household"
 pulumi config set logLevel "info"
-pulumi config set purchaseParserModel "gpt-4o-mini"
-pulumi config set assistantModel "gpt-4o-mini"
-pulumi config set topicProcessorModel "gpt-4o-mini"
+pulumi config set assistantModel "gpt-5.6-terra"
 pulumi config set memorySize "1024"
 pulumi config set timeout "30"
 ```

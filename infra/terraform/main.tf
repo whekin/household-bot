@@ -141,17 +141,8 @@ module "bot_api_service" {
       NODE_ENV  = var.environment
       DB_SCHEMA = var.db_schema
     },
-    var.bot_purchase_parser_model == null ? {} : {
-      PURCHASE_PARSER_MODEL = var.bot_purchase_parser_model
-    },
     var.bot_assistant_model == null ? {} : {
       ASSISTANT_MODEL = var.bot_assistant_model
-    },
-    var.bot_topic_processor_model == null ? {} : {
-      TOPIC_PROCESSOR_MODEL = var.bot_topic_processor_model
-    },
-    var.bot_topic_processor_timeout_ms == null ? {} : {
-      TOPIC_PROCESSOR_TIMEOUT_MS = tostring(var.bot_topic_processor_timeout_ms)
     },
     var.bot_assistant_timeout_ms == null ? {} : {
       ASSISTANT_TIMEOUT_MS = tostring(var.bot_assistant_timeout_ms)

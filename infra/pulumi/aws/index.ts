@@ -22,9 +22,7 @@ const miniAppAllowedOrigins = config.getObject<string[]>('miniAppAllowedOrigins'
 ]
 const miniAppUrl = config.get('miniAppUrl') ?? `https://${publicMiniappHostname}`
 const logLevel = config.get('logLevel') ?? 'info'
-const purchaseParserModel = config.get('purchaseParserModel') ?? 'gpt-4o-mini'
-const assistantModel = config.get('assistantModel') ?? 'gpt-4o-mini'
-const topicProcessorModel = config.get('topicProcessorModel') ?? 'gpt-4o-mini'
+const assistantModel = config.get('assistantModel') ?? 'gpt-5.6-terra'
 const scheduledDispatchGroupName =
   config.get('scheduledDispatchGroupName') ?? 'scheduled-dispatches'
 const lambdaFunctionName = `${appName}-${environment}-bot`
@@ -202,9 +200,7 @@ const lambda = new aws.lambda.Function(`${appName}-${environment}-bot`, {
       OPENAI_API_KEY: openaiApiKey ?? '',
       MINI_APP_URL: miniAppUrl,
       MINI_APP_ALLOWED_ORIGINS: miniAppAllowedOrigins.join(','),
-      PURCHASE_PARSER_MODEL: purchaseParserModel,
-      ASSISTANT_MODEL: assistantModel,
-      TOPIC_PROCESSOR_MODEL: topicProcessorModel
+      ASSISTANT_MODEL: assistantModel
     }
   },
   tags

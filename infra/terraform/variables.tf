@@ -69,30 +69,9 @@ variable "telegram_bot_token_secret_id" {
   default     = "telegram-bot-token"
 }
 
-variable "bot_purchase_parser_model" {
-  description = "Optional PURCHASE_PARSER_MODEL override for bot runtime"
-  type        = string
-  default     = null
-  nullable    = true
-}
-
 variable "bot_assistant_model" {
   description = "Optional ASSISTANT_MODEL override for bot runtime"
   type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "bot_topic_processor_model" {
-  description = "Optional TOPIC_PROCESSOR_MODEL override for bot runtime"
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "bot_topic_processor_timeout_ms" {
-  description = "Optional TOPIC_PROCESSOR_TIMEOUT_MS override for bot runtime"
-  type        = number
   default     = null
   nullable    = true
 }
