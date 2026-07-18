@@ -436,7 +436,7 @@ export function createMiniAppAdminService(
       }
 
       const assistantContext = normalizeAssistantText(input.assistantContext, 1200)
-      const assistantTone = normalizeAssistantText(input.assistantTone, 160)
+      const assistantTone = normalizeAssistantText(input.assistantTone, 1200)
       const householdName = normalizeHouseholdName(input.householdName)
       const nextHouseholdName = householdName ?? undefined
 

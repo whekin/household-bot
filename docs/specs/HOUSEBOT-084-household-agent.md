@@ -111,6 +111,13 @@ locale strings, emits audit events.
 - The agent never asserts completed actions; only callback handlers report
   saved/cancelled state.
 - The agent never consents/commits on behalf of members.
+- Free-form Russian replies use a relaxed, positive contemporary chat tone with
+  occasional mild slang, light jokes, text emoticons, or a fitting emoji. The
+  style stays restrained for serious financial matters and does not end a
+  conversational reply with a full stop.
+- Admins may add multiline household custom instructions to refine personality
+  and in-jokes. These instructions are optional and cannot override tool use,
+  accounting rules, confirmation gates, or factual safeguards.
 
 ## Security and Privacy
 

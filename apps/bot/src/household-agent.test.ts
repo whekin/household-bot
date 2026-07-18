@@ -10,6 +10,7 @@ import type {
 
 import { createTelegramBot } from './bot'
 import { registerHouseholdAgent } from './household-agent'
+import { HouseholdContextCache } from './household-context-cache'
 
 const originalFetch = globalThis.fetch
 
@@ -17,10 +18,13 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-function mockAgentModel(replyText: string): { calls: number[] } {
-  const calls: number[] = []
-  globalThis.fetch = (async () => {
-    calls.push(1)
+function mockAgentModel(replyText: string): { calls: Array<{ body: string }> } {
+  const calls: Array<{ body: string }> = []
+  globalThis.fetch = (async (
+    _input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1]
+  ) => {
+    calls.push({ body: String(init?.body ?? '') })
     return new Response(
       JSON.stringify({
         output: [{ type: 'message', content: [{ type: 'output_text', text: replyText }] }],
@@ -209,8 +213,16 @@ describe('registerHouseholdAgent in private chats', () => {
 
     registerHouseholdAgent(bot, {
       ...agentOptions,
-      householdConfigurationRepository: createHouseholdRepositoryFake(1),
-      financeServiceForHousehold: () => createFinanceServiceFake()
+      householdConfigurationRepository: {
+        ...createHouseholdRepositoryFake(1),
+        getHouseholdAssistantConfig: async () => ({
+          householdId: 'household-1',
+          assistantContext: null,
+          assistantTone: 'Call the household cat the financial director.'
+        })
+      },
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      contextCache: new HouseholdContextCache()
     })
 
     await bot.handleUpdate(dmUpdate('привет'))
@@ -218,6 +230,20 @@ describe('registerHouseholdAgent in private chats', () => {
     const reply = calls.find((call) => call.method === 'sendMessage')
     expect((reply?.payload as { text: string } | undefined)?.text).toBe('Привет, Мия!')
     expect(model.calls.length).toBe(1)
+
+    const requestBody = JSON.parse(model.calls[0]?.body ?? '{}') as {
+      input?: Array<{ role?: string; content?: string }>
+    }
+    const systemPrompt = requestBody.input?.find((message) => message.role === 'system')?.content
+    expect(systemPrompt).toContain('relaxed, positive contemporary Russian group chat')
+    expect(systemPrompt).toContain('Occasionally add one light chat marker')
+    expect(systemPrompt).toContain('Do not end a Russian conversational reply with a full stop')
+    expect(systemPrompt).toContain('custom instructions may refine your personality')
+
+    const contextPrompt = requestBody.input?.filter((message) => message.role === 'system')[1]
+      ?.content
+    expect(contextPrompt).toContain('Household custom instructions:')
+    expect(contextPrompt).toContain('Call the household cat the financial director.')
   })
 
   test('tells non-members there is no household', async () => {

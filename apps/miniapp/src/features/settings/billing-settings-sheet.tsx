@@ -352,9 +352,11 @@ export function BillingSettingsSheet({
         <section className="space-y-3">
           <SectionTitle>{copy.assistantSettingsTitle}</SectionTitle>
           <p className="text-xs text-faint">{copy.assistantSettingsBody}</p>
-          <Field label={copy.assistantToneLabel} hint={copy.assistantTonePlaceholder}>
-            <Input
+          <Field label={copy.assistantToneLabel} hint={copy.assistantToneDefault}>
+            <Textarea
               value={form.assistantTone}
+              maxLength={1200}
+              placeholder={copy.assistantTonePlaceholder}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, assistantTone: event.target.value }))
               }

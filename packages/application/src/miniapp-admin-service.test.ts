@@ -450,6 +450,30 @@ describe('createMiniAppAdminService', () => {
     })
   })
 
+  test('accepts multiline custom assistant instructions', async () => {
+    const service = createMiniAppAdminService(repository())
+    const assistantTone = [
+      'Пиши как в дружеском чате, иногда используй скобочки)',
+      'Кота называй финансовым директором.'
+    ].join('\n')
+
+    const result = await service.updateSettings({
+      householdId: 'household-1',
+      actorIsAdmin: true,
+      rentDueDay: 20,
+      rentWarningDay: 17,
+      utilitiesDueDay: 4,
+      utilitiesReminderDay: 3,
+      timezone: 'Asia/Tbilisi',
+      assistantTone
+    })
+
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect(result.assistantConfig.assistantTone).toBe(assistantTone)
+    }
+  })
+
   test('updates notification category settings for admins', async () => {
     const auditRepository = auditNotificationRepository()
     const service = createMiniAppAdminService(repository(), undefined, undefined, auditRepository)

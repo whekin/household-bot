@@ -31,10 +31,11 @@ export const en = {
   billingSettingsTitle: 'Billing settings',
   assistantSettingsTitle: 'Bot personality',
   assistantSettingsBody:
-    'Give the bot household context and a tone so replies feel grounded without getting intrusive.',
-  assistantToneLabel: 'Bot mood',
-  assistantTonePlaceholder: 'Playful, dry, concise, slightly sarcastic',
-  assistantToneDefault: 'Default',
+    'The default personality is already relaxed and friendly. Add optional instructions or household in-jokes here.',
+  assistantToneLabel: 'Custom instructions',
+  assistantTonePlaceholder:
+    'For example: call the cat the financial director; use dry humor; avoid English words.',
+  assistantToneDefault: 'Optional · up to 1,200 characters · core accounting rules always win',
   assistantContextLabel: 'Household context',
   assistantContextPlaceholder:
     'The household is a house in Kojori with a backyard and pine forest nearby.',
@@ -220,10 +221,11 @@ export const ru: Record<keyof typeof en, string> = {
   billingSettingsTitle: 'Настройки биллинга',
   assistantSettingsTitle: 'Характер бота',
   assistantSettingsBody:
-    'Расскажи боту про дом и задай тон, чтобы его ответы звучали в тему, но без навязчивости.',
-  assistantToneLabel: 'Настроение бота',
-  assistantTonePlaceholder: 'Игривый, сухой, короткий, слегка саркастичный',
-  assistantToneDefault: 'По умолчанию',
+    'По умолчанию бот уже общается расслабленно и дружелюбно. Здесь можно добавить свои правила или локальные приколы.',
+  assistantToneLabel: 'Свои инструкции',
+  assistantTonePlaceholder:
+    'Например: кота называй финансовым директором; шути сухо; не используй английские слова.',
+  assistantToneDefault: 'Необязательно · до 1200 символов · правила учёта всегда важнее',
   assistantContextLabel: 'Контекст дома',
   assistantContextPlaceholder: 'Это дом в Коджори, рядом двор и сосновый лес.',
   assistantContextEmpty: 'Контекст не задан',
