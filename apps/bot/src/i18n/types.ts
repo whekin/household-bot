@@ -201,6 +201,7 @@ export interface BotTranslationCatalog {
   assistant: {
     noHousehold: string
     multipleHouseholds: string
+    temporarilyUnavailable: string
     rateLimited: (retryDelay: string) => string
     retryInLessThanMinute: string
     retryIn: (parts: string) => string

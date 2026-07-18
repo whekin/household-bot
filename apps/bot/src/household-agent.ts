@@ -610,7 +610,7 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           chatId: record.chatId,
           threadId: record.threadId,
           updateId: record.updateId,
-          error
+          err: error
         },
         'Household agent failed'
       )
@@ -624,6 +624,23 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           .catch(() => {})
       }
       await persistIncoming().catch(() => {})
+      if (target.isPrivate) {
+        await ctx
+          .reply(getBotTranslations(target.locale).assistant.temporarilyUnavailable, {
+            reply_parameters: { message_id: Number(record.messageId) }
+          })
+          .catch((replyError) => {
+            options.logger?.error(
+              {
+                event: 'agent.failure_reply_failed',
+                chatId: record.chatId,
+                updateId: record.updateId,
+                err: replyError
+              },
+              'Failed to send household agent fallback reply'
+            )
+          })
+      }
     }
   })
 }

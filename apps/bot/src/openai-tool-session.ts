@@ -6,6 +6,24 @@ export interface AssistantUsage {
 
 const DEFAULT_MAX_ITERATIONS = 6
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
+const MAX_API_ERROR_MESSAGE_LENGTH = 2_000
+
+function openAiApiErrorMessage(body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) {
+    return 'OpenAI API returned an empty error body'
+  }
+
+  try {
+    const payload = JSON.parse(trimmed) as { error?: { message?: unknown } }
+    const message = payload.error?.message
+    if (typeof message === 'string' && message.trim().length > 0) {
+      return message.trim().slice(0, MAX_API_ERROR_MESSAGE_LENGTH)
+    }
+  } catch {}
+
+  return trimmed.slice(0, MAX_API_ERROR_MESSAGE_LENGTH)
+}
 
 export interface ToolSessionToolDefinition {
   name: string
@@ -140,7 +158,22 @@ export async function runToolSession(input: {
 
       if (!response.ok) {
         const errorBody = await response.text()
-        throw new Error(`Tool session request failed with status ${response.status}: ${errorBody}`)
+        const requestId = response.headers.get('x-request-id')
+        const errorMessage = openAiApiErrorMessage(errorBody)
+        input.logger?.error(
+          {
+            event: 'tool_session.api_error',
+            status: response.status,
+            requestId,
+            errorMessage
+          },
+          'OpenAI tool session request failed'
+        )
+        throw new Error(
+          `Tool session request failed with status ${response.status}${
+            requestId ? ` (request ${requestId})` : ''
+          }: ${errorMessage}`
+        )
       }
 
       payload = (await response.json()) as OpenAiToolResponsePayload
@@ -188,7 +221,7 @@ export async function runToolSession(input: {
           cardPosted = cardPosted || executed.cardPosted === true
         } catch (error) {
           input.logger?.error(
-            { event: 'tool_session.tool_failed', tool: call.name, error },
+            { event: 'tool_session.tool_failed', tool: call.name, err: error },
             'Agent tool execution failed'
           )
           output = { error: 'tool_execution_failed' }

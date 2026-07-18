@@ -216,6 +216,7 @@ export const enBotTranslations: BotTranslationCatalog = {
       'I can help after your Telegram account is linked to a household. Open the household group and complete the join flow first.',
     multipleHouseholds:
       'You belong to multiple households. Open the target household from its group until direct household selection is added.',
+    temporarilyUnavailable: 'I cannot answer right now. Please try again in a minute.',
     rateLimited: (retryDelay) => `Assistant rate limit reached. Try again ${retryDelay}.`,
     retryInLessThanMinute: 'in less than a minute',
     retryIn: (parts) => `in ${parts}`,

@@ -151,6 +151,48 @@ describe('runToolSession', () => {
     expect(toolOutput?.output).toBe(JSON.stringify({ error: 'invalid_arguments_json' }))
   })
 
+  test('logs the status and request id for failed API requests', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'Incorrect API key provided'
+          }
+        }),
+        {
+          status: 401,
+          headers: {
+            'x-request-id': 'req_test_123'
+          }
+        }
+      )) as unknown as typeof fetch
+    const errors: unknown[] = []
+
+    const request = runToolSession({
+      ...baseInput,
+      executeTool: async () => ({ result: {} }),
+      logger: {
+        info() {},
+        warn() {},
+        error(obj) {
+          errors.push(obj)
+        }
+      }
+    })
+
+    await expect(request).rejects.toThrow(
+      'Tool session request failed with status 401 (request req_test_123): Incorrect API key provided'
+    )
+    expect(errors).toEqual([
+      {
+        event: 'tool_session.api_error',
+        status: 401,
+        requestId: 'req_test_123',
+        errorMessage: 'Incorrect API key provided'
+      }
+    ])
+  })
+
   test('stops at the iteration limit and returns no text', async () => {
     mockOpenAi([
       {

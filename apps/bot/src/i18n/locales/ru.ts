@@ -220,6 +220,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
       'Я смогу помочь после того, как ваш Telegram-профиль будет привязан к дому. Сначала откройте группу дома и завершите вступление.',
     multipleHouseholds:
       'Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока прямой выбор дома ещё не добавлен.',
+    temporarilyUnavailable: 'Сейчас не могу ответить. Попробуйте ещё раз через минуту.',
     rateLimited: (retryDelay) => `Лимит сообщений ассистенту исчерпан. Попробуйте ${retryDelay}.`,
     retryInLessThanMinute: 'меньше чем через минуту',
     retryIn: (parts) => `через ${parts}`,

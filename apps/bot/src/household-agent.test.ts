@@ -238,6 +238,29 @@ describe('registerHouseholdAgent in private chats', () => {
     expect(model.calls.length).toBe(0)
   })
 
+  test('sends a fixed fallback when a DM agent request fails', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), {
+        status: 401,
+        headers: { 'x-request-id': 'req_dm_failure' }
+      })) as unknown as typeof fetch
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: createHouseholdRepositoryFake(1),
+      financeServiceForHousehold: () => createFinanceServiceFake()
+    })
+
+    await bot.handleUpdate(dmUpdate('привет'))
+
+    const reply = calls.find((call) => call.method === 'sendMessage')
+    expect((reply?.payload as { text: string } | undefined)?.text).toBe(
+      'Сейчас не могу ответить. Попробуйте ещё раз через минуту.'
+    )
+  })
+
   test('stays silent in groups without an addressing signal', async () => {
     const model = mockAgentModel('unused')
     const calls: Array<{ method: string; payload: unknown }> = []

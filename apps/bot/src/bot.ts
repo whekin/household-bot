@@ -128,7 +128,7 @@ export function createTelegramBot(
       {
         event: 'telegram.bot_error',
         updateId: error.ctx?.update.update_id,
-        error: error.error
+        err: error.error
       },
       'Telegram bot error'
     )

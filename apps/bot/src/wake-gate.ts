@@ -155,7 +155,7 @@ export function createOpenAiWakeClassifier(
         notificationRequest: parsed.notificationRequest === true
       }
     } catch (error) {
-      logger?.error({ event: 'wake_classifier.failed', error }, 'Wake classifier failed')
+      logger?.error({ event: 'wake_classifier.failed', err: error }, 'Wake classifier failed')
       return null
     } finally {
       clearTimeout(timeout)
