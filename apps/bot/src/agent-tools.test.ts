@@ -381,6 +381,8 @@ describe('admin rent agent tool', () => {
 
     expect(adminTools.some((tool) => tool.name === 'propose_period_rent')).toBe(true)
     expect(memberTools.some((tool) => tool.name === 'propose_period_rent')).toBe(false)
+    expect(adminTools.some((tool) => tool.name === 'get_rent_settings')).toBe(true)
+    expect(memberTools.some((tool) => tool.name === 'get_rent_settings')).toBe(true)
   })
 
   test('creates one confirmation-gated action for multiple periods', async () => {
@@ -455,5 +457,133 @@ describe('admin rent agent tool', () => {
         actorIsAdmin: true
       })
     ).toBe(true)
+  })
+})
+
+describe('rent settings agent context', () => {
+  function contextWithRentSchedule(): AgentToolContext {
+    const context = createAllMembersPaymentToolContext({ rawText: '', replies: [], pending: [] })
+    const baseFinanceService = context.financeService
+    context.financeService = {
+      ...baseFinanceService,
+      generateDashboard: async () => {
+        const dashboard = await baseFinanceService.generateDashboard()
+        return dashboard
+          ? {
+              ...dashboard,
+              rentSourceAmount: Money.fromMajor('800', 'USD'),
+              rentDisplayAmount: Money.fromMajor('2160', 'GEL')
+            }
+          : null
+      },
+      getAdminCycleState: async (period: string) => ({
+        cycle: null,
+        rentRule:
+          period === '2026-07' || period === '2026-08'
+            ? { amountMinor: 80000n, currency: 'USD' as const }
+            : null,
+        utilityBills: []
+      })
+    } as FinanceCommandService
+    return context
+  }
+
+  test('separates the household default from current and next period overrides', async () => {
+    const result = await executeAgentTool(contextWithRentSchedule(), {
+      name: 'get_rent_settings',
+      arguments: {}
+    })
+
+    expect(result.result).toEqual({
+      defaultAmount: '700.00 USD',
+      periods: [
+        { period: '2026-07', amount: '800.00 USD', source: 'period_override' },
+        { period: '2026-08', amount: '800.00 USD', source: 'period_override' }
+      ]
+    })
+  })
+
+  test('uses the default for an unconfigured requested period and rejects malformed periods', async () => {
+    const context = contextWithRentSchedule()
+    const configured = await executeAgentTool(context, {
+      name: 'get_rent_settings',
+      arguments: { periods: ['2026-09'] }
+    })
+    const malformed = await executeAgentTool(context, {
+      name: 'get_rent_settings',
+      arguments: { periods: ['September'] }
+    })
+    const wrongShape = await executeAgentTool(context, {
+      name: 'get_rent_settings',
+      arguments: { periods: '2026-09' }
+    })
+
+    expect(configured.result).toEqual({
+      defaultAmount: '700.00 USD',
+      periods: [{ period: '2026-09', amount: '700.00 USD', source: 'household_default' }]
+    })
+    expect(malformed.result).toEqual({ error: 'invalid_period_use_yyyy_mm' })
+    expect(wrongShape.result).toEqual({ error: 'periods_must_be_an_array' })
+  })
+
+  test('labels rent as a default in household info instead of presenting it as current rent', async () => {
+    const result = await executeAgentTool(contextWithRentSchedule(), {
+      name: 'get_household_info',
+      arguments: {}
+    })
+    const payload = result.result as {
+      settings: Record<string, unknown>
+      rentSettings: { periods: Array<Record<string, unknown>> }
+      botCapabilities: string
+    }
+
+    expect(payload.settings.defaultRentAmount).toBe('700.00 USD')
+    expect(payload.settings.rentAmount).toBeUndefined()
+    expect(payload.botCapabilities).not.toContain('Cannot:')
+    expect(payload.rentSettings.periods[0]).toEqual({
+      period: '2026-07',
+      amount: '800.00 USD',
+      source: 'period_override'
+    })
+  })
+
+  test('reports missing rent as unconfigured instead of a zero-value override', async () => {
+    const context = createAllMembersPaymentToolContext({ rawText: '', replies: [], pending: [] })
+    const baseRepository = context.householdConfigurationRepository
+    const baseFinanceService = context.financeService
+    context.householdConfigurationRepository = {
+      ...baseRepository,
+      getHouseholdBillingSettings: async (householdId: string) => ({
+        ...(await baseRepository.getHouseholdBillingSettings(householdId)),
+        rentAmountMinor: null
+      })
+    } as HouseholdConfigurationRepository
+    context.financeService = {
+      ...baseFinanceService,
+      generateDashboard: async () => {
+        const dashboard = await baseFinanceService.generateDashboard()
+        return dashboard
+          ? {
+              ...dashboard,
+              rentSourceAmount: Money.zero('USD'),
+              rentDisplayAmount: Money.zero('GEL')
+            }
+          : null
+      },
+      getAdminCycleState: async () => ({ cycle: null, rentRule: null, utilityBills: [] })
+    } as FinanceCommandService
+
+    const result = await executeAgentTool(context, {
+      name: 'get_rent_settings',
+      arguments: {}
+    })
+
+    expect(result.result).toEqual({
+      defaultAmount: null,
+      periods: [
+        { period: '2026-07', amount: null, source: 'unconfigured' },
+        { period: '2026-08', amount: null, source: 'unconfigured' }
+      ]
+    })
   })
 })

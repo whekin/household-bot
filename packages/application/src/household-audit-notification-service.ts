@@ -176,7 +176,7 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
   const ru: Record<string, string> = {
     'cycle.opened': 'открытие периода',
     'cycle.closed': 'закрытие периода',
-    'rent.updated': 'обновление аренды',
+    'rent.updated': 'аренда обновлена:',
     'utility_bill.added': 'добавление коммунального счёта',
     'utility_bill.updated': 'обновление коммунального счёта',
     'utility_bill.deleted': 'удаление коммунального счёта',

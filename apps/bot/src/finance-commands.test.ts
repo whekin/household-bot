@@ -2363,11 +2363,11 @@ describe('createFinanceCommandsService', () => {
           ],
           paymentDestinations: [
             {
-              label: 'Landlord',
-              recipientName: 'Nino',
+              label: 'Landlord & Co',
+              recipientName: 'Nino <Owner>',
               bankName: 'TBC',
               account: 'GE00TB123',
-              note: 'April rent',
+              note: 'April <rent>',
               link: null
             }
           ]
@@ -2413,12 +2413,32 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(billUpdate('/my_bill rent', 'ru') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('Аренда')
-    expect(text).toContain('Осталось оплатить: 500.00 ₾')
-    expect(text).toContain('- Landlord')
-    expect(text).toContain('получатель: Nino')
-    expect(text).toContain('счёт: GE00TB123')
+    const payload = calls[0]?.payload as
+      | {
+          text?: string
+          parse_mode?: string
+          reply_markup?: {
+            inline_keyboard?: Array<
+              Array<{ text: string; copy_text?: { text: string }; callback_data?: string }>
+            >
+          }
+        }
+      | undefined
+    const text = payload?.text ?? ''
+    expect(payload?.parse_mode).toBe('HTML')
+    expect(text).toContain('🏠 <b>Аренда · апрель 2026</b>')
+    expect(text).toContain('💰 <b>К оплате:</b> 500.00 ₾')
+    expect(text).toContain('💳 <b>Куда переводить</b>')
+    expect(text).toContain('🏦 <b>TBC · Landlord &amp; Co</b>')
+    expect(text).toContain('Получатель: Nino &lt;Owner&gt;')
+    expect(text).toContain('Счёт: <code>GE00TB123</code>')
+    expect(text).toContain('Примечание: April &lt;rent&gt;')
+    expect(text).not.toContain('Nino <Owner>')
+    expect(text).not.toContain('Осталось оплатить')
+    expect(payload?.reply_markup?.inline_keyboard?.[0]?.[0]).toEqual({
+      text: '📋 Скопировать счёт · TBC',
+      copy_text: { text: 'GE00TB123' }
+    })
   })
 
   test('renders /bill rent with shared payment details once and natural settled wording', async () => {
@@ -2547,12 +2567,16 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(billUpdate('/bill rent', 'ru') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('Реквизиты для оплаты:')
-    expect(text.match(/получатель: Magda C\./g)?.length ?? 0).toBe(1)
-    expect(text).toContain('Стас\nУже оплачено.')
-    expect(text).not.toContain('Стас\nК оплате')
-    expect(text).toContain('Алиса\nОсталось оплатить: 472.00 ₾')
+    const payload = calls[0]?.payload as { text?: string; parse_mode?: string } | undefined
+    const text = payload?.text ?? ''
+    expect(payload?.parse_mode).toBe('HTML')
+    expect(text).toContain('<b>К оплате</b>')
+    expect(text).toContain('✅ <b>Стас</b> — оплачено')
+    expect(text).toContain('👤 <b>Алиса</b> — 472.00 ₾')
+    expect(text).toContain('💳 <b>Куда переводить</b>')
+    expect(text.match(/Получатель: Magda C\./g)?.length ?? 0).toBe(1)
+    expect(text).toContain('Счёт: <code>GE86TB7298445064300062</code>')
+    expect(text).not.toContain('Осталось оплатить')
   })
 
   test('uses short callback data for /bill quick actions with long ids', async () => {

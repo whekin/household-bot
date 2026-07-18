@@ -378,7 +378,7 @@ export function registerAgentActionCallbacks(
             : payload.actionType.endsWith('payment')
               ? 'payment_events'
               : 'purchase_events',
-        summaryText: payload.summaryText,
+        summaryText: resultText,
         metadata: { actionId: payload.actionId, params: payload.params }
       })
     }

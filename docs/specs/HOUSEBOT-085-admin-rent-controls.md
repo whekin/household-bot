@@ -22,6 +22,7 @@ Make temporary rent changes easy to discover in Mini app Billing settings and sa
 - `POST /api/miniapp/admin/billing-cycle` accepts optional `period: YYYY-MM` and returns an exact rent rule even if no cycle exists yet.
 - `FinanceRepository.getRentRuleStartingAtPeriod(period)` reads only a rule that starts in that period; it does not return an inherited earlier rule.
 - Admin agent tool: `propose_period_rent { amount_major, currency, periods[] }`.
+- Rent read tool: `get_rent_settings { periods? }` returns the household default separately from effective period amounts and labels each period as `household_default`, `period_override`, or `unconfigured`.
 - Confirmation payload: `set_period_rent { amountMajor, currency, periods[] }`.
 
 ## Domain Rules
@@ -35,6 +36,8 @@ Make temporary rent changes easy to discover in Mini app Billing settings and sa
 
 - Mini app endpoints retain Telegram init-data authentication and household admin authorization.
 - Model output can only create a pending proposal; mutation happens in the callback handler after authorization is re-checked.
+- Rent-change audit notifications are emitted only after persistence and use completed-action wording; confirmation cards remain explicitly pending with Confirm/Cancel buttons. Confirmed generic agent actions also publish their completed result text instead of reusing the pending infinitive summary.
+- Agent replies distinguish a saved configuration fact from an external human agreement. They lead with verified values and refer unresolved agreement context to the named actor instead of volunteering capability disclaimers.
 
 ## Edge Cases and Failure Modes
 
@@ -55,6 +58,7 @@ Make temporary rent changes easy to discover in Mini app Billing settings and sa
 - [x] Future explicit rules are readable without opening a cycle.
 - [x] Admin natural-language rent requests create confirmation cards only.
 - [x] Confirmation re-checks admin privileges.
+- [x] Agent reads distinguish default rent from effective current and scheduled rent.
 - [x] Full quality gates pass.
 
 ## Follow-up design

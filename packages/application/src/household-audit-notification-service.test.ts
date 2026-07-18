@@ -364,6 +364,7 @@ describe('renderAuditNotification', () => {
         period: '2026-07'
       }
     })
+    expect(rent.compactText).toBe('Стас: аренда обновлена: 2415.00 ₾ (июль 2026 г.)')
     expect(rent.details).toBeNull()
   })
 

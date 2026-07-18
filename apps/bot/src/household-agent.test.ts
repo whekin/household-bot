@@ -239,6 +239,11 @@ describe('registerHouseholdAgent in private chats', () => {
     expect(systemPrompt).toContain('Occasionally add one light chat marker')
     expect(systemPrompt).toContain('Do not end a Russian conversational reply with a full stop')
     expect(systemPrompt).toContain('custom instructions may refine your personality')
+    expect(systemPrompt).toContain('always call get_rent_settings')
+    expect(systemPrompt).toContain('Action notifications')
+    expect(systemPrompt).toContain('Do not volunteer capability disclaimers')
+    expect(systemPrompt).toContain('facts saved in the household system from real-world agreements')
+    expect(systemPrompt).toContain('use that person as the owner')
 
     const contextPrompt = requestBody.input?.filter((message) => message.role === 'system')[1]
       ?.content

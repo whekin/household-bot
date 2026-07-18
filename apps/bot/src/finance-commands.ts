@@ -12,6 +12,7 @@ import { InputFile, type Bot, type Context } from 'grammy'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 import { formatUserFacingMoney } from './i18n/money'
+import { escapeHtml } from './html'
 import { resolveReplyLocale } from './bot-locale'
 import {
   buildTemplateText,
@@ -795,23 +796,23 @@ function formatRentDestinationLines(input: {
   }[]
 }): readonly string[] {
   return input.destinations.flatMap((destination) => {
+    const destinationTitle = [destination.bankName, destination.label]
+      .filter((value): value is string => Boolean(value))
+      .join(' · ')
     const detailLines = [
       destination.recipientName
-        ? `${input.locale === 'ru' ? 'получатель' : 'recipient'}: ${destination.recipientName}`
+        ? `${input.locale === 'ru' ? 'Получатель' : 'Recipient'}: ${escapeHtml(destination.recipientName)}`
         : null,
-      destination.bankName
-        ? `${input.locale === 'ru' ? 'банк' : 'bank'}: ${destination.bankName}`
+      `${input.locale === 'ru' ? 'Счёт' : 'Account'}: <code>${escapeHtml(destination.account)}</code>`,
+      destination.link
+        ? `${input.locale === 'ru' ? 'Ссылка' : 'Link'}: ${escapeHtml(destination.link)}`
         : null,
-      `${input.locale === 'ru' ? 'счёт' : 'account'}: ${destination.account}`,
-      destination.link ? `${input.locale === 'ru' ? 'ссылка' : 'link'}: ${destination.link}` : null,
       destination.note
-        ? `${input.locale === 'ru' ? 'примечание' : 'note'}: ${destination.note}`
+        ? `${input.locale === 'ru' ? 'Примечание' : 'Note'}: ${escapeHtml(destination.note)}`
         : null
-    ].filter(Boolean)
+    ].filter((line): line is string => line !== null)
 
-    return detailLines.length > 0
-      ? [`- ${destination.label}`, `  ${detailLines.join('\n  ')}`]
-      : [`- ${destination.label}`]
+    return [`🏦 <b>${escapeHtml(destinationTitle)}</b>`, ...detailLines, '']
   })
 }
 
@@ -831,9 +832,37 @@ function formatRentDestinationSection(input: {
   }
 
   return [
-    input.locale === 'ru' ? 'Реквизиты для оплаты:' : 'Payment details:',
+    input.locale === 'ru' ? '💳 <b>Куда переводить</b>' : '💳 <b>Where to pay</b>',
     ...formatRentDestinationLines(input)
   ]
+}
+
+function buildRentAccountCopyButtonRows(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  destinations: readonly {
+    label: string
+    bankName: string | null
+    account: string
+  }[]
+}): Array<Array<{ text: string; copy_text: { text: string } }>> {
+  return input.destinations.flatMap((destination) => {
+    if (destination.account.length === 0 || destination.account.length > 256) {
+      return []
+    }
+
+    const destinationName = (destination.bankName ?? destination.label).slice(0, 40)
+    return [
+      [
+        {
+          text:
+            input.locale === 'ru'
+              ? `📋 Скопировать счёт · ${destinationName}`
+              : `📋 Copy account · ${destinationName}`,
+          copy_text: { text: destination.account }
+        }
+      ]
+    ]
+  })
 }
 
 export function createFinanceCommandsService(options: {
@@ -1612,34 +1641,33 @@ export function createFinanceCommandsService(options: {
         })
       : []
 
+    const memberLines = visibleMembers.map((member) => {
+      if (input.viewerMemberId) {
+        return member.remaining.amountMinor > 0n
+          ? `💰 <b>${input.locale === 'ru' ? 'К оплате' : 'Amount due'}:</b> ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+          : input.locale === 'ru'
+            ? '✅ <b>Уже оплачено</b>'
+            : '✅ <b>Already paid</b>'
+      }
+
+      return member.remaining.amountMinor > 0n
+        ? `👤 <b>${escapeHtml(member.displayName)}</b> — ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
+        : `✅ <b>${escapeHtml(member.displayName)}</b> — ${input.locale === 'ru' ? 'оплачено' : 'paid'}`
+    })
+
     return [
-      `${input.locale === 'ru' ? 'Аренда' : 'Rent state'} · ${formatBillingPeriodLabel(input.locale, input.period)}`,
-      ...(input.householdName ? [input.householdName] : []),
-      `${input.locale === 'ru' ? 'Срок' : 'Due'}: ${formatAbsoluteDate(input.locale, input.state.dueDate)}`,
-      ...(destinationLines.length > 0 ? ['', ...destinationLines] : []),
+      `🏠 <b>${input.locale === 'ru' ? 'Аренда' : 'Rent'} · ${escapeHtml(formatBillingPeriodLabel(input.locale, input.period))}</b>`,
+      ...(input.householdName ? [escapeHtml(input.householdName)] : []),
+      `📅 ${input.locale === 'ru' ? 'Оплатить до' : 'Pay by'} ${escapeHtml(formatAbsoluteDate(input.locale, input.state.dueDate))}`,
       '',
-      visibleMembers
-        .map((member) =>
-          (input.viewerMemberId
-            ? [
-                member.remaining.amountMinor > 0n
-                  ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
-                  : input.locale === 'ru'
-                    ? 'Уже оплачено.'
-                    : 'Already paid.'
-              ]
-            : [
-                member.displayName,
-                member.remaining.amountMinor > 0n
-                  ? `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(member.remaining.toMajorString(), input.currency)}`
-                  : input.locale === 'ru'
-                    ? 'Уже оплачено.'
-                    : 'Already paid.'
-              ]
-          ).join('\n')
-        )
-        .join('\n\n')
-    ].join('\n')
+      ...(input.viewerMemberId
+        ? memberLines
+        : [input.locale === 'ru' ? '<b>К оплате</b>' : '<b>Amount due</b>', ...memberLines]),
+      ...(destinationLines.length > 0 ? ['', ...destinationLines] : [])
+    ]
+      .filter((line, index, lines) => line !== '' || lines[index - 1] !== '')
+      .join('\n')
+      .trim()
   }
 
   function formatIdleBillState(input: {
@@ -1671,58 +1699,73 @@ export function createFinanceCommandsService(options: {
     viewerMemberId?: string | null
     orderMemberId?: string | null
     detailMode: 'compact' | 'full'
-  }): string {
+  }): {
+    text: string
+    parseMode?: 'HTML'
+    copyButtonRows?: Array<Array<{ text: string; copy_text: { text: string } }>>
+  } {
     const mode = input.forcedMode ?? input.plan.billingStage
 
     if (mode === 'utilities' && input.plan.utilityBillingPlan) {
-      return formatUtilityBillPlan({
-        locale: input.locale,
-        householdName: input.householdName,
-        period: input.plan.period,
-        plan: input.plan.utilityBillingPlan,
-        currency: input.plan.currency,
-        utilityCategories: input.utilityCategories,
-        memberBalances: input.plan.members ?? [],
-        detailMode: input.detailMode,
-        ...(input.orderMemberId === undefined
-          ? {}
-          : {
-              orderMemberId: input.orderMemberId
-            }),
-        ...(input.viewerMemberId === undefined
-          ? {}
-          : {
-              viewerMemberId: input.viewerMemberId
-            })
-      })
+      return {
+        text: formatUtilityBillPlan({
+          locale: input.locale,
+          householdName: input.householdName,
+          period: input.plan.period,
+          plan: input.plan.utilityBillingPlan,
+          currency: input.plan.currency,
+          utilityCategories: input.utilityCategories,
+          memberBalances: input.plan.members ?? [],
+          detailMode: input.detailMode,
+          ...(input.orderMemberId === undefined
+            ? {}
+            : {
+                orderMemberId: input.orderMemberId
+              }),
+          ...(input.viewerMemberId === undefined
+            ? {}
+            : {
+                viewerMemberId: input.viewerMemberId
+              })
+        })
+      }
     }
 
     if (mode === 'rent') {
-      return formatRentBillState({
-        locale: input.locale,
-        householdName: input.householdName,
-        period: input.plan.period,
-        state: input.plan.rentBillingState,
-        currency: input.plan.currency,
-        adjustmentPolicy: input.adjustmentPolicy,
-        ...(input.orderMemberId === undefined
-          ? {}
-          : {
-              orderMemberId: input.orderMemberId
-            }),
-        ...(input.viewerMemberId === undefined
-          ? {}
-          : {
-              viewerMemberId: input.viewerMemberId
-            })
-      })
+      return {
+        text: formatRentBillState({
+          locale: input.locale,
+          householdName: input.householdName,
+          period: input.plan.period,
+          state: input.plan.rentBillingState,
+          currency: input.plan.currency,
+          adjustmentPolicy: input.adjustmentPolicy,
+          ...(input.orderMemberId === undefined
+            ? {}
+            : {
+                orderMemberId: input.orderMemberId
+              }),
+          ...(input.viewerMemberId === undefined
+            ? {}
+            : {
+                viewerMemberId: input.viewerMemberId
+              })
+        }),
+        parseMode: 'HTML',
+        copyButtonRows: buildRentAccountCopyButtonRows({
+          locale: input.locale,
+          destinations: input.plan.rentBillingState.paymentDestinations ?? []
+        })
+      }
     }
 
-    return formatIdleBillState({
-      locale: input.locale,
-      householdName: input.householdName,
-      plan: input.plan
-    })
+    return {
+      text: formatIdleBillState({
+        locale: input.locale,
+        householdName: input.householdName,
+        plan: input.plan
+      })
+    }
   }
 
   function formatPersonalBillSummary(input: {
@@ -1918,7 +1961,7 @@ export function createFinanceCommandsService(options: {
       ])
     }
 
-    const text = buildBillReply({
+    const reply = buildBillReply({
       locale,
       householdName: input.householdName,
       plan,
@@ -1951,10 +1994,11 @@ export function createFinanceCommandsService(options: {
     })
     await replyOrEditText({
       ctx: input.ctx,
-      text,
+      text: reply.text,
       options: {
+        ...(reply.parseMode ? { parse_mode: reply.parseMode } : {}),
         reply_markup: {
-          inline_keyboard: appendHomeMenuRow(locale, keyboard)
+          inline_keyboard: [...(reply.copyButtonRows ?? []), ...appendHomeMenuRow(locale, keyboard)]
         }
       },
       editMessage: input.editMessage
@@ -2776,35 +2820,37 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        const reply = buildBillReply({
+          locale,
+          householdName: household?.householdName ?? householdId,
+          plan,
+          utilityCategories: utilityCategories
+            .filter((category) => category.isActive)
+            .map((category) => ({
+              name: category.name,
+              providerName: category.providerName ?? null,
+              customerNumber: category.customerNumber ?? null,
+              paymentLink: category.paymentLink ?? null,
+              note: category.note ?? null
+            })),
+          adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+          forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
+          detailMode,
+          ...(showMode === 'household'
+            ? {
+                orderMemberId: memberId
+              }
+            : {
+                viewerMemberId: memberId
+              })
+        })
         await replyOrEditText({
           ctx,
-          text: buildBillReply({
-            locale,
-            householdName: household?.householdName ?? householdId,
-            plan,
-            utilityCategories: utilityCategories
-              .filter((category) => category.isActive)
-              .map((category) => ({
-                name: category.name,
-                providerName: category.providerName ?? null,
-                customerNumber: category.customerNumber ?? null,
-                paymentLink: category.paymentLink ?? null,
-                note: category.note ?? null
-              })),
-            adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
-            forcedMode: modeRaw === 'auto' ? null : parseBillMode(modeRaw),
-            detailMode,
-            ...(showMode === 'household'
-              ? {
-                  orderMemberId: memberId
-                }
-              : {
-                  viewerMemberId: memberId
-                })
-          }),
+          text: reply.text,
           options: {
+            ...(reply.parseMode ? { parse_mode: reply.parseMode } : {}),
             reply_markup: {
-              inline_keyboard: [homeMenuRow(locale)]
+              inline_keyboard: [...(reply.copyButtonRows ?? []), homeMenuRow(locale)]
             }
           },
           editMessage: true
@@ -2988,29 +3034,31 @@ export function createFinanceCommandsService(options: {
             options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId),
             options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
           ])
+          const reply = buildBillReply({
+            locale,
+            householdName: household?.householdName ?? householdId,
+            plan: beforePlan!,
+            utilityCategories: utilityCategories
+              .filter((category) => category.isActive)
+              .map((category) => ({
+                name: category.name,
+                providerName: category.providerName ?? null,
+                customerNumber: category.customerNumber ?? null,
+                paymentLink: category.paymentLink ?? null,
+                note: category.note ?? null
+              })),
+            adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+            forcedMode: 'utilities',
+            viewerMemberId: actingMember.id,
+            detailMode: 'compact'
+          })
           await replyOrEditText({
             ctx,
-            text: buildBillReply({
-              locale,
-              householdName: household?.householdName ?? householdId,
-              plan: beforePlan!,
-              utilityCategories: utilityCategories
-                .filter((category) => category.isActive)
-                .map((category) => ({
-                  name: category.name,
-                  providerName: category.providerName ?? null,
-                  customerNumber: category.customerNumber ?? null,
-                  paymentLink: category.paymentLink ?? null,
-                  note: category.note ?? null
-                })),
-              adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
-              forcedMode: 'utilities',
-              viewerMemberId: actingMember.id,
-              detailMode: 'compact'
-            }),
+            text: reply.text,
             options: {
+              ...(reply.parseMode ? { parse_mode: reply.parseMode } : {}),
               reply_markup: {
-                inline_keyboard: [homeMenuRow(locale)]
+                inline_keyboard: [...(reply.copyButtonRows ?? []), homeMenuRow(locale)]
               }
             },
             editMessage: true
@@ -3051,29 +3099,31 @@ export function createFinanceCommandsService(options: {
           return
         }
 
+        const reply = buildBillReply({
+          locale,
+          householdName: household?.householdName ?? householdId,
+          plan,
+          utilityCategories: utilityCategories
+            .filter((category) => category.isActive)
+            .map((category) => ({
+              name: category.name,
+              providerName: category.providerName ?? null,
+              customerNumber: category.customerNumber ?? null,
+              paymentLink: category.paymentLink ?? null,
+              note: category.note ?? null
+            })),
+          adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
+          forcedMode: 'utilities',
+          viewerMemberId: actingMember.id,
+          detailMode: 'compact'
+        })
         await replyOrEditText({
           ctx,
-          text: buildBillReply({
-            locale,
-            householdName: household?.householdName ?? householdId,
-            plan,
-            utilityCategories: utilityCategories
-              .filter((category) => category.isActive)
-              .map((category) => ({
-                name: category.name,
-                providerName: category.providerName ?? null,
-                customerNumber: category.customerNumber ?? null,
-                paymentLink: category.paymentLink ?? null,
-                note: category.note ?? null
-              })),
-            adjustmentPolicy: billingSettings.paymentBalanceAdjustmentPolicy,
-            forcedMode: 'utilities',
-            viewerMemberId: actingMember.id,
-            detailMode: 'compact'
-          }),
+          text: reply.text,
           options: {
+            ...(reply.parseMode ? { parse_mode: reply.parseMode } : {}),
             reply_markup: {
-              inline_keyboard: [homeMenuRow(locale)]
+              inline_keyboard: [...(reply.copyButtonRows ?? []), homeMenuRow(locale)]
             }
           },
           editMessage: true

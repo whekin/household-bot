@@ -9,6 +9,7 @@ import type { Logger } from '@household/observability'
 import type {
   FinanceMemberRecord,
   FinancePaymentKind,
+  HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   TelegramPendingActionRepository,
   TopicMessageHistoryRepository
@@ -436,8 +437,94 @@ function agentCapabilities(isAdmin: boolean): string {
           'Admins can propose period-specific rent changes; an admin confirmation is always required.'
         ]
       : []),
-    'Cannot: change other household settings, send money, or confirm cards on behalf of members.'
+    'Supported changes are limited to the listed tools; household members make agreements and press confirmation buttons themselves.'
   ].join('\n')
+}
+
+type RentSettingsContext = {
+  defaultAmount: string | null
+  periods: readonly {
+    period: string
+    amount: string | null
+    source: 'household_default' | 'period_override' | 'unconfigured'
+  }[]
+}
+
+function rentPeriodSource(
+  amount: Money | null,
+  defaultAmount: Money | null
+): RentSettingsContext['periods'][number]['source'] {
+  if (!amount) return 'unconfigured'
+  if (
+    defaultAmount &&
+    amount.amountMinor === defaultAmount.amountMinor &&
+    amount.currency === defaultAmount.currency
+  ) {
+    return 'household_default'
+  }
+  return 'period_override'
+}
+
+async function getRentSettings(
+  context: AgentToolContext,
+  args: Record<string, unknown>,
+  preloaded?: {
+    settings: HouseholdBillingSettingsRecord
+    dashboard: FinanceDashboard | null
+  }
+): Promise<RentSettingsContext | { error: string }> {
+  const [settings, dashboard] = preloaded
+    ? [preloaded.settings, preloaded.dashboard]
+    : await Promise.all([
+        context.householdConfigurationRepository.getHouseholdBillingSettings(context.householdId),
+        context.financeService.generateDashboard()
+      ])
+  const defaultAmount =
+    settings.rentAmountMinor !== null
+      ? Money.fromMinor(settings.rentAmountMinor, settings.rentCurrency)
+      : null
+
+  if (args.periods !== undefined && !Array.isArray(args.periods)) {
+    return { error: 'periods_must_be_an_array' }
+  }
+  const requestedPeriods = readStringArrayArgument(args, 'periods')
+  let periods: string[]
+  try {
+    periods = requestedPeriods
+      ? [...new Set(requestedPeriods.map((period) => BillingPeriod.fromString(period).toString()))]
+      : dashboard
+        ? [dashboard.period, BillingPeriod.fromString(dashboard.period).next().toString()]
+        : []
+  } catch {
+    return { error: 'invalid_period_use_yyyy_mm' }
+  }
+  if (periods.length > 12) {
+    return { error: 'too_many_periods' }
+  }
+
+  const states = await Promise.all(
+    periods.map((period) => context.financeService.getAdminCycleState(period))
+  )
+  return {
+    defaultAmount: defaultAmount ? formatMoney(defaultAmount) : null,
+    periods: periods.map((period, index) => {
+      const state = states[index]
+      const exactRule = state?.rentRule
+        ? Money.fromMinor(state.rentRule.amountMinor, state.rentRule.currency)
+        : null
+      const amount =
+        period === dashboard?.period
+          ? exactRule || defaultAmount || dashboard.rentSourceAmount.amountMinor > 0n
+            ? dashboard.rentSourceAmount
+            : null
+          : (exactRule ?? defaultAmount)
+      return {
+        period,
+        amount: amount ? formatMoney(amount) : null,
+        source: rentPeriodSource(amount, defaultAmount)
+      }
+    })
+  }
 }
 
 async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
@@ -446,13 +533,15 @@ async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
     context.financeService.listMembers(),
     context.financeService.generateDashboard()
   ])
+  const rentSettings = await getRentSettings(context, {}, { settings, dashboard })
 
   return {
     settings: {
       settlementCurrency: settings.settlementCurrency,
-      rentAmount: settings.rentAmountMinor
-        ? formatMoney(Money.fromMinor(settings.rentAmountMinor, settings.rentCurrency))
-        : null,
+      defaultRentAmount:
+        settings.rentAmountMinor !== null
+          ? formatMoney(Money.fromMinor(settings.rentAmountMinor, settings.rentCurrency))
+          : null,
       rentDueDay: settings.rentDueDay,
       rentWarningDay: settings.rentWarningDay,
       utilitiesDueDay: settings.utilitiesDueDay,
@@ -462,6 +551,7 @@ async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
     },
     currentPeriod: dashboard?.period ?? null,
     billingStage: dashboard?.billingStage ?? null,
+    rentSettings,
     members: members.map((member) => ({
       memberId: member.id,
       name: member.displayName,
@@ -1063,8 +1153,20 @@ export function agentToolDefinitions(input: {
     {
       name: 'get_household_info',
       description:
-        'Household settings (currency, rent amount, due days, timezone), member list with ids and statuses, bot capabilities, and available commands.',
+        'Household settings (currency, default rent, current/next effective rent, due days, timezone), member list with ids and statuses, bot capabilities, and available commands. The default rent is not necessarily the current-period rent.',
       parameters: { type: 'object', properties: {}, additionalProperties: false }
+    },
+    {
+      name: 'get_rent_settings',
+      description:
+        'Default rent plus effective rent for exact billing periods, with source household_default or period_override. Always use for questions about whether a rent change was applied, current rent, scheduled future rent, or a quoted rent-update notification. Omit periods for current and next; otherwise pass explicit YYYY-MM periods.',
+      parameters: {
+        type: 'object',
+        properties: {
+          periods: { type: 'array', items: { type: 'string' } }
+        },
+        additionalProperties: false
+      }
     },
     {
       name: 'list_ledger',
@@ -1268,6 +1370,8 @@ export async function executeAgentTool(
       return { result: await getPaymentInstructions(context) }
     case 'get_household_info':
       return { result: await getHouseholdInfo(context) }
+    case 'get_rent_settings':
+      return { result: await getRentSettings(context, call.arguments) }
     case 'list_ledger':
       return { result: await listLedger(context, call.arguments) }
     case 'propose_payment':
