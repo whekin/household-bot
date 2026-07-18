@@ -50,6 +50,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   latestCycleRecord: FinanceCycleRecord | null = null
   cycles: readonly FinanceCycleRecord[] = []
   rentRule: FinanceRentRuleRecord | null = null
+  rentRulesByPeriod = new Map<string, FinanceRentRuleRecord>()
   purchases: readonly FinanceParsedPurchaseRecord[] = []
   utilityBills: readonly {
     id: string
@@ -164,12 +165,23 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async closeCycle(): Promise<void> {}
 
-  async saveRentRule(period: string, amountMinor: bigint, currency: 'USD' | 'GEL'): Promise<void> {
+  async saveRentRule(
+    period: string,
+    amountMinor: bigint,
+    currency: 'USD' | 'GEL',
+    options?: { overwriteExisting?: boolean }
+  ): Promise<void> {
     this.lastSavedRentRule = {
       period,
       amountMinor,
       currency
     }
+
+    if (options?.overwriteExisting === false && this.rentRulesByPeriod.has(period)) {
+      return
+    }
+
+    this.rentRulesByPeriod.set(period, { amountMinor, currency })
   }
 
   async getCycleExchangeRate(
@@ -409,8 +421,8 @@ class FinanceRepositoryStub implements FinanceRepository {
     return false
   }
 
-  async getRentRuleForPeriod(): Promise<FinanceRentRuleRecord | null> {
-    return this.rentRule
+  async getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null> {
+    return this.rentRulesByPeriod.get(period) ?? this.rentRule
   }
 
   async getUtilityTotalForCycle(): Promise<bigint> {
@@ -888,6 +900,43 @@ describe('createFinanceCommandService', () => {
     expect(result?.amount.amountMinor).toBe(70000n)
     expect(repository.lastSavedRentRule).toEqual({
       period: currentPeriod,
+      amountMinor: 70000n,
+      currency: 'USD'
+    })
+  })
+
+  test('expected-cycle materialization preserves an explicit rent override', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    repository.openCycleRecord = {
+      id: 'cycle-1',
+      period: currentPeriod,
+      currency: 'GEL'
+    }
+
+    const service = createService(repository)
+    await service.setRent('800', 'USD', currentPeriod)
+    await service.ensureExpectedCycle()
+
+    expect(repository.rentRulesByPeriod.get(currentPeriod)).toEqual({
+      amountMinor: 80000n,
+      currency: 'USD'
+    })
+  })
+
+  test('expected-cycle materialization creates the household default when rent is unset', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    repository.openCycleRecord = {
+      id: 'cycle-1',
+      period: currentPeriod,
+      currency: 'GEL'
+    }
+
+    const service = createService(repository)
+    await service.ensureExpectedCycle()
+
+    expect(repository.rentRulesByPeriod.get(currentPeriod)).toEqual({
       amountMinor: 70000n,
       currency: 'USD'
     })

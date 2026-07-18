@@ -180,7 +180,7 @@ export function createScheduledDispatchService(input: {
       return
     }
 
-    if (!inputValue.existing) {
+    if (!inputValue.existing || inputValue.existing.status !== 'scheduled') {
       const created = await createDispatchRecord({
         householdId: inputValue.householdId,
         kind: inputValue.kind,

@@ -305,4 +305,49 @@ describe('createScheduledDispatchService', () => {
     expect(scheduler.scheduled).toHaveLength(3)
     expect(scheduled.every((dispatch) => dispatch.period === '2026-04')).toBe(true)
   })
+
+  test('creates a fresh built-in dispatch after the previous occurrence is sent', async () => {
+    const repository = new ScheduledDispatchRepositoryStub()
+    const scheduler = createSchedulerStub()
+    const service = createScheduledDispatchService({
+      repository,
+      scheduler,
+      householdConfigurationRepository: {
+        async getHouseholdBillingSettings() {
+          return billingSettings()
+        },
+        async getHouseholdChatByHouseholdId() {
+          return householdChat()
+        },
+        async listReminderTargets(): Promise<readonly ReminderTarget[]> {
+          return []
+        }
+      }
+    })
+
+    await service.reconcileHouseholdBuiltInDispatches(
+      'household-1',
+      Temporal.Instant.from('2026-03-01T00:00:00Z')
+    )
+    const firstWarning = [...repository.dispatches.values()].find(
+      (dispatch) => dispatch.kind === 'rent_warning'
+    )!
+    await repository.markScheduledDispatchSent(
+      firstWarning.id,
+      Temporal.Instant.from('2026-03-03T05:00:00Z')
+    )
+
+    await service.reconcileHouseholdBuiltInDispatches(
+      'household-1',
+      Temporal.Instant.from('2026-03-03T05:01:00Z')
+    )
+
+    const warnings = [...repository.dispatches.values()].filter(
+      (dispatch) => dispatch.kind === 'rent_warning'
+    )
+    expect(warnings).toHaveLength(2)
+    expect(warnings.find((dispatch) => dispatch.id === firstWarning.id)?.status).toBe('sent')
+    expect(warnings.find((dispatch) => dispatch.status === 'scheduled')?.period).toBe('2026-04')
+    expect(scheduler.scheduled).toHaveLength(4)
+  })
 })

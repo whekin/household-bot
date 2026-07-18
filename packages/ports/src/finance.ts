@@ -317,7 +317,12 @@ export interface FinanceRepository {
   getLatestCycle(): Promise<FinanceCycleRecord | null>
   openCycle(period: string, currency: CurrencyCode): Promise<void>
   closeCycle(cycleId: string, closedAt: Instant): Promise<void>
-  saveRentRule(period: string, amountMinor: bigint, currency: CurrencyCode): Promise<void>
+  saveRentRule(
+    period: string,
+    amountMinor: bigint,
+    currency: CurrencyCode,
+    options?: { overwriteExisting?: boolean }
+  ): Promise<void>
   getCycleExchangeRate(
     cycleId: string,
     sourceCurrency: CurrencyCode,

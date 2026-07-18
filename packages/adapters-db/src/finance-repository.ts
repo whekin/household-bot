@@ -463,22 +463,28 @@ export function createDbFinanceRepository(
         .where(eq(schema.billingCycles.id, cycleId))
     },
 
-    async saveRentRule(period, amountMinor, currency) {
-      await db
-        .insert(schema.rentRules)
-        .values({
-          householdId,
+    async saveRentRule(period, amountMinor, currency, options) {
+      const insert = db.insert(schema.rentRules).values({
+        householdId,
+        amountMinor,
+        currency,
+        effectiveFromPeriod: period
+      })
+
+      if (options?.overwriteExisting === false) {
+        await insert.onConflictDoNothing({
+          target: [schema.rentRules.householdId, schema.rentRules.effectiveFromPeriod]
+        })
+        return
+      }
+
+      await insert.onConflictDoUpdate({
+        target: [schema.rentRules.householdId, schema.rentRules.effectiveFromPeriod],
+        set: {
           amountMinor,
-          currency,
-          effectiveFromPeriod: period
-        })
-        .onConflictDoUpdate({
-          target: [schema.rentRules.householdId, schema.rentRules.effectiveFromPeriod],
-          set: {
-            amountMinor,
-            currency
-          }
-        })
+          currency
+        }
+      })
     },
 
     async getCycleExchangeRate(cycleId, sourceCurrency, targetCurrency) {

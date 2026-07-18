@@ -3476,7 +3476,9 @@ export function createFinanceCommandService(
     }
 
     if (settings.rentAmountMinor !== null) {
-      await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency)
+      await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency, {
+        overwriteExisting: false
+      })
     }
 
     return cycle
