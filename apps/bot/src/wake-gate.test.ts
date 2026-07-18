@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
-import { assessWake, mentionsBotName, type WakeClassifier } from './wake-gate'
+import {
+  assessWake,
+  isRecentBotConversationFollowUp,
+  mentionsBotName,
+  type WakeClassifier
+} from './wake-gate'
 
 function classifierStub(
   verdict: {
@@ -32,9 +37,27 @@ const baseInput = {
   isExplicitMention: false,
   isReplyToBot: false,
   hasActiveWorkflow: false,
+  hasRecentBotConversation: false,
   botUsername: 'kojori_bot',
   recentMessages: []
 }
+
+const recentAgentExchange = [
+  {
+    speaker: 'Стас',
+    isBot: false,
+    text: 'А почему это смешно?',
+    senderTelegramUserId: '10002',
+    sentAtEpochMilliseconds: 1_000
+  },
+  {
+    speaker: 'BOT',
+    isBot: true,
+    text: 'Потому что коммуналка приходит без жалости ))',
+    senderTelegramUserId: '999000',
+    sentAtEpochMilliseconds: 2_000
+  }
+]
 
 describe('mentionsBotName', () => {
   test('detects Russian bot names and username', () => {
@@ -72,6 +95,32 @@ describe('assessWake', () => {
         .reason
     ).toBe('active_workflow')
     expect(calls).toHaveLength(0)
+  })
+
+  test('wakes for a verified continuation of a recent bot conversation', async () => {
+    const { classifier, calls } = classifierStub({ addressedToBot: true })
+    const decision = await assessWake({
+      ...baseInput,
+      messageText: 'Давай другой анекдот',
+      hasRecentBotConversation: true,
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'conversation_followup' })
+    expect(calls).toHaveLength(1)
+  })
+
+  test('stays silent when a likely continuation is actually addressed to a housemate', async () => {
+    const { classifier, calls } = classifierStub({ addressedToBot: false })
+    const decision = await assessWake({
+      ...baseInput,
+      messageText: 'Ион, давай лучше другой анекдот',
+      hasRecentBotConversation: true,
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: false, reason: 'silent' })
+    expect(calls).toHaveLength(1)
   })
 
   test('stays silent for human-to-human coordination without calling the classifier', async () => {
@@ -186,5 +235,61 @@ describe('assessWake', () => {
     })
 
     expect(decision.wake).toBe(false)
+
+    const followUpDecision = await assessWake({
+      ...baseInput,
+      messageText: 'Давай другой анекдот',
+      hasRecentBotConversation: true
+    })
+    expect(followUpDecision).toEqual({ wake: false, reason: 'silent' })
+  })
+})
+
+describe('isRecentBotConversationFollowUp', () => {
+  test('continues a fresh exchange between the same member and the bot', () => {
+    expect(
+      isRecentBotConversationFollowUp({
+        senderTelegramUserId: '10002',
+        messageSentAtEpochMilliseconds: 60_000,
+        recentMessages: recentAgentExchange
+      })
+    ).toBe(true)
+  })
+
+  test('stays silent after another housemate joins the conversation', () => {
+    expect(
+      isRecentBotConversationFollowUp({
+        senderTelegramUserId: '10002',
+        messageSentAtEpochMilliseconds: 60_000,
+        recentMessages: [
+          ...recentAgentExchange,
+          {
+            speaker: 'Ион',
+            isBot: false,
+            text: 'Стас, давай лучше без анекдотов',
+            senderTelegramUserId: '10003',
+            sentAtEpochMilliseconds: 30_000
+          }
+        ]
+      })
+    ).toBe(false)
+  })
+
+  test('does not reuse a stale or unrelated bot message', () => {
+    expect(
+      isRecentBotConversationFollowUp({
+        senderTelegramUserId: '10002',
+        messageSentAtEpochMilliseconds: 5 * 60_000 + 2_001,
+        recentMessages: recentAgentExchange
+      })
+    ).toBe(false)
+
+    expect(
+      isRecentBotConversationFollowUp({
+        senderTelegramUserId: '10003',
+        messageSentAtEpochMilliseconds: 60_000,
+        recentMessages: recentAgentExchange
+      })
+    ).toBe(false)
   })
 })

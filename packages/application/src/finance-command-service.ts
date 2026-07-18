@@ -474,6 +474,12 @@ export interface FinanceCurrentBillPlan {
   currency: CurrencyCode
   timezone: string
   billingStage: 'utilities' | 'rent' | 'idle'
+  rentConversion: {
+    sourceAmount: Money
+    settlementAmount: Money
+    rateMicros: bigint | null
+    effectiveDate: string | null
+  }
   utilityBillingPlan: FinanceDashboardUtilityBillingPlan | null
   rentBillingState: FinanceDashboardRentBillingState
   members?: readonly {
@@ -4463,6 +4469,12 @@ export function createFinanceCommandService(
         currency: dashboard.currency,
         timezone: dashboard.timezone,
         billingStage: dashboard.billingStage,
+        rentConversion: {
+          sourceAmount: dashboard.rentSourceAmount,
+          settlementAmount: dashboard.rentDisplayAmount,
+          rateMicros: dashboard.rentFxRateMicros,
+          effectiveDate: dashboard.rentFxEffectiveDate
+        },
         utilityBillingPlan: dashboard.utilityBillingPlan,
         rentBillingState: dashboard.rentBillingState,
         members: dashboard.members.map((member) => ({

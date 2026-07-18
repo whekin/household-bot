@@ -5,12 +5,15 @@ import { Money } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   TelegramPendingActionRecord,
-  TelegramPendingActionRepository
+  TelegramPendingActionRepository,
+  TopicMessageHistoryRecord,
+  TopicMessageHistoryRepository
 } from '@household/ports'
 
 import { createTelegramBot } from './bot'
 import { registerHouseholdAgent } from './household-agent'
 import { HouseholdContextCache } from './household-context-cache'
+import type { WakeClassifier } from './wake-gate'
 
 const originalFetch = globalThis.fetch
 
@@ -82,17 +85,50 @@ function dmUpdate(text: string, fromId = 10002) {
   } as never
 }
 
-function groupUpdate(text: string, fromId = 10002) {
+function groupUpdate(text: string, fromId = 10002, sequence = 0) {
   return {
-    update_id: 9002,
+    update_id: 9002 + sequence,
     message: {
-      message_id: 72,
-      date: Math.floor(Date.now() / 1000),
+      message_id: 72 + sequence,
+      date: Math.floor(Date.now() / 1000) + sequence,
       chat: { id: -10012345, type: 'supergroup' },
       from: { id: fromId, is_bot: false, first_name: 'Mia' },
       text
     }
   } as never
+}
+
+function createHistoryRepositoryFake(): TopicMessageHistoryRepository & {
+  records: TopicMessageHistoryRecord[]
+} {
+  const records: TopicMessageHistoryRecord[] = []
+  return {
+    records,
+    async saveMessage(input) {
+      records.push(input)
+    },
+    async listRecentThreadMessages(input) {
+      return records
+        .filter(
+          (record) =>
+            record.householdId === input.householdId &&
+            record.telegramChatId === input.telegramChatId &&
+            record.telegramThreadId === input.telegramThreadId
+        )
+        .slice(-input.limit)
+    },
+    async listRecentChatMessages(input) {
+      return records
+        .filter(
+          (record) =>
+            record.householdId === input.householdId &&
+            record.telegramChatId === input.telegramChatId &&
+            record.messageSentAt !== null &&
+            record.messageSentAt.epochMilliseconds >= input.sentAtOrAfter.epochMilliseconds
+        )
+        .slice(-input.limit)
+    }
+  }
 }
 
 function createPromptRepositoryFake(): TelegramPendingActionRepository {
@@ -168,6 +204,20 @@ function createHouseholdRepositoryFake(memberships: number): HouseholdConfigurat
   } as unknown as HouseholdConfigurationRepository
 }
 
+function createGroupHouseholdRepositoryFake(): HouseholdConfigurationRepository {
+  return {
+    ...createHouseholdRepositoryFake(1),
+    getTelegramHouseholdChat: async () => ({
+      householdId: 'household-1',
+      householdName: 'Test',
+      telegramChatId: '-10012345',
+      telegramChatType: 'supergroup',
+      title: 'Test',
+      defaultLocale: 'ru'
+    })
+  } as unknown as HouseholdConfigurationRepository
+}
+
 function createFinanceServiceFake(): FinanceCommandService {
   return {
     getMemberByTelegramUserId: async () => ({
@@ -204,6 +254,13 @@ const agentOptions = {
   model: 'test-model',
   timeoutMs: 5000
 }
+
+const followUpWakeClassifier: WakeClassifier = async (input) => ({
+  addressedToBot: input.messageText === 'Давай другой анекдот',
+  completedPaymentFact: false,
+  completedPurchaseFact: false,
+  notificationRequest: false
+})
 
 describe('registerHouseholdAgent in private chats', () => {
   test('answers DM messages without a wake gate', async () => {
@@ -244,6 +301,10 @@ describe('registerHouseholdAgent in private chats', () => {
     expect(systemPrompt).toContain('Do not volunteer capability disclaimers')
     expect(systemPrompt).toContain('facts saved in the household system from real-world agreements')
     expect(systemPrompt).toContain('use that person as the owner')
+    expect(systemPrompt).toContain('prefer a fresh, specific observational or situational joke')
+    expect(systemPrompt).toContain('Treat “не смешно”, “давай другой”')
+    expect(systemPrompt).toContain('change both the premise and the joke structure')
+    expect(systemPrompt).toContain('Never claim that a joke will definitely make someone laugh')
 
     const contextPrompt = requestBody.input?.filter((message) => message.role === 'system')[1]
       ?.content
@@ -299,17 +360,7 @@ describe('registerHouseholdAgent in private chats', () => {
 
     registerHouseholdAgent(bot, {
       ...agentOptions,
-      householdConfigurationRepository: {
-        ...createHouseholdRepositoryFake(1),
-        getTelegramHouseholdChat: async () => ({
-          householdId: 'household-1',
-          householdName: 'Test',
-          telegramChatId: '-10012345',
-          telegramChatType: 'supergroup',
-          title: 'Test',
-          defaultLocale: 'ru'
-        })
-      } as unknown as HouseholdConfigurationRepository,
+      householdConfigurationRepository: createGroupHouseholdRepositoryFake(),
       financeServiceForHousehold: () => createFinanceServiceFake()
     })
 
@@ -317,5 +368,83 @@ describe('registerHouseholdAgent in private chats', () => {
 
     expect(calls.find((call) => call.method === 'sendMessage')).toBeUndefined()
     expect(model.calls.length).toBe(0)
+  })
+
+  test('continues a fresh same-member bot conversation without another mention', async () => {
+    const model = mockAgentModel('Вот ещё один анекдот ))')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+    const historyRepository = createHistoryRepositoryFake()
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: createGroupHouseholdRepositoryFake(),
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      historyRepository,
+      wakeClassifier: followUpWakeClassifier
+    })
+
+    await bot.handleUpdate(groupUpdate('@household_test_bot расскажи анекдот'))
+    await bot.handleUpdate(groupUpdate('Давай другой анекдот', 10002, 1))
+
+    expect(model.calls).toHaveLength(2)
+    expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(2)
+    expect(historyRepository.records.map((record) => record.isBot)).toEqual([
+      false,
+      true,
+      false,
+      true
+    ])
+
+    const secondRequest = JSON.parse(model.calls[1]?.body ?? '{}') as {
+      input?: Array<{ role?: string; content?: string }>
+    }
+    const secondContext = secondRequest.input?.filter((message) => message.role === 'system')[1]
+      ?.content
+    expect(secondContext).toContain('BOT: Вот ещё один анекдот ))')
+    expect(secondRequest.input?.at(-1)?.content).toBe('Давай другой анекдот')
+  })
+
+  test('does not continue after another housemate interrupts the exchange', async () => {
+    const model = mockAgentModel('Вот ещё один анекдот ))')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+    const historyRepository = createHistoryRepositoryFake()
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: createGroupHouseholdRepositoryFake(),
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      historyRepository,
+      wakeClassifier: followUpWakeClassifier
+    })
+
+    await bot.handleUpdate(groupUpdate('@household_test_bot расскажи анекдот'))
+    await bot.handleUpdate(groupUpdate('Стас, давай лучше без анекдотов', 10003, 1))
+    await bot.handleUpdate(groupUpdate('Давай другой анекдот', 10002, 2))
+
+    expect(model.calls).toHaveLength(1)
+    expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1)
+  })
+
+  test('does not join a same-member message addressed to a housemate', async () => {
+    const model = mockAgentModel('Вот ещё один анекдот ))')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+    const historyRepository = createHistoryRepositoryFake()
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: createGroupHouseholdRepositoryFake(),
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      historyRepository,
+      wakeClassifier: followUpWakeClassifier
+    })
+
+    await bot.handleUpdate(groupUpdate('@household_test_bot расскажи анекдот'))
+    await bot.handleUpdate(groupUpdate('Ион, давай лучше другой анекдот', 10002, 1))
+
+    expect(model.calls).toHaveLength(1)
+    expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1)
   })
 })

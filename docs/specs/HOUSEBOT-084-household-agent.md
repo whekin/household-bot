@@ -15,6 +15,9 @@ edit, and cancel payments and purchases via confirmation cards.
 - Silent by default in group topics; wakes on explicit mention, reply-to-bot,
   active workflow, text address ("бот", "Кожур"), or a completed payment/purchase
   fact in the matching workflow topic.
+- Continues a fresh same-member conversation after the bot replies without requiring
+  another mention, while staying silent if another housemate intervenes or the next
+  message is addressed to a person.
 - Answers everything `/bill`-family commands can answer, from live dashboard data.
 - Understands "оплатил за себя и за Алису" (multi-member payment proposal with
   per-member amounts) and "Ион оплатил аренду" (third-person payer).
@@ -59,6 +62,14 @@ Deterministic first (mention/reply/workflow). Otherwise one binary LLM call
 `{ addressedToBot: boolean, householdFact: 'payment' | 'purchase' | null }`.
 `householdFact` wakes only in the matching workflow topic. Messages between
 humans → silent; no weak sessions, no regex triggers.
+
+A no-mention conversational follow-up is considered only when persisted history
+ends with the same member followed immediately by the bot, within five minutes.
+The wake classifier must still confirm that the new message is addressed to the
+bot. An intervening housemate, stale exchange, classifier failure, or explicit
+address to another member keeps the agent silent. Addressed incoming messages are
+persisted before outgoing replies so equal-second Telegram timestamps retain the
+correct user → bot order.
 
 ### Agent loop
 
@@ -115,6 +126,10 @@ locale strings, emits audit events.
   occasional mild slang, light jokes, text emoticons, or a fitting emoji. The
   style stays restrained for serious financial matters and does not end a
   conversational reply with a full stop.
+- Direct joke requests favor fresh observational or situational humor over
+  stock riddles and well-known classics. Negative feedback or “another joke”
+  changes both the premise and the joke structure; the bot does not promise a
+  guaranteed reaction.
 - Admins may add multiline household custom instructions to refine personality
   and in-jokes. These instructions are optional and cannot override tool use,
   accounting rules, confirmation gates, or factual safeguards.
@@ -133,6 +148,7 @@ locale strings, emits audit events.
 ## Edge Cases and Failure Modes
 
 - OpenAI failure/timeouts → stay silent in group (no error spam); log.
+- Missing or failed wake classification → do not infer a conversational follow-up.
 - Tool throwing → tool returns error status to the model; model apologizes briefly.
 - Ambiguous member names → tool returns candidate list; model asks one short question.
 - Unsupported currency stays a fixed-string reply (existing behavior).
@@ -146,6 +162,10 @@ locale strings, emits audit events.
   - "Оплатил за себя и за иона" → multi-member proposal card (never "отменено").
   - "Так, сегодня надо бы дооплатить" → no proposal, no save.
   - Human-to-human "Давай я твою долю оплачу…" → silent.
+  - Bot joke exchange, then same member says "Давай другой анекдот" → continue.
+  - The follow-up request includes the previous bot attempt in model context;
+    joke policy requires a different premise and structure after negative feedback.
+  - Another housemate intervenes, or the same member addresses a housemate → silent.
   - "А как мне оплачивать и что?" (mention) → instructions from
     `get_payment_instructions`, no invented facts.
   - "Ион оплатил аренду" → third-person proposal for Ion.

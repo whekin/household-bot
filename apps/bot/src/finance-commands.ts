@@ -214,6 +214,36 @@ function formatAbsoluteDate(
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
+function formatFxRateMicros(rateMicros: bigint): string {
+  const whole = rateMicros / 1_000_000n
+  const fraction = (rateMicros % 1_000_000n).toString().padStart(6, '0')
+  const significantFraction = fraction.replace(/0+$/u, '').padEnd(4, '0')
+  return `${whole.toString()}.${significantFraction}`
+}
+
+function formatRentConversionLine(input: {
+  locale: Parameters<typeof getBotTranslations>[0]
+  conversion: NonNullable<
+    Awaited<ReturnType<FinanceCommandService['generateCurrentBillPlan']>>
+  >['rentConversion']
+}): string | null {
+  if (
+    input.conversion.sourceAmount.currency === input.conversion.settlementAmount.currency ||
+    input.conversion.rateMicros === null ||
+    input.conversion.rateMicros <= 0n
+  ) {
+    return null
+  }
+
+  const effectiveDate = input.conversion.effectiveDate
+    ? ` · ${input.locale === 'ru' ? 'на' : 'as of'} ${escapeHtml(
+        formatAbsoluteDate(input.locale, input.conversion.effectiveDate)
+      )}`
+    : ''
+
+  return `💱 ${input.locale === 'ru' ? 'Курс' : 'Rate'}: 1 ${input.conversion.sourceAmount.currency} = ${formatFxRateMicros(input.conversion.rateMicros)} ${input.conversion.settlementAmount.currency}${effectiveDate}`
+}
+
 function formatAbsoluteMoney(amount: Money, currency: 'USD' | 'GEL'): string {
   const absoluteMinor = amount.amountMinor < 0n ? -amount.amountMinor : amount.amountMinor
   return formatUserFacingMoney(
@@ -1623,6 +1653,9 @@ export function createFinanceCommandsService(options: {
     state: NonNullable<
       Awaited<ReturnType<FinanceCommandService['generateCurrentBillPlan']>>
     >['rentBillingState']
+    conversion: NonNullable<
+      Awaited<ReturnType<FinanceCommandService['generateCurrentBillPlan']>>
+    >['rentConversion']
     currency: 'USD' | 'GEL'
     adjustmentPolicy: HouseholdBillingSettingsRecord['paymentBalanceAdjustmentPolicy']
     viewerMemberId?: string | null
@@ -1640,6 +1673,10 @@ export function createFinanceCommandsService(options: {
           destinations: input.state.paymentDestinations
         })
       : []
+    const conversionLine = formatRentConversionLine({
+      locale: input.locale,
+      conversion: input.conversion
+    })
 
     const memberLines = visibleMembers.map((member) => {
       if (input.viewerMemberId) {
@@ -1659,6 +1696,7 @@ export function createFinanceCommandsService(options: {
       `🏠 <b>${input.locale === 'ru' ? 'Аренда' : 'Rent'} · ${escapeHtml(formatBillingPeriodLabel(input.locale, input.period))}</b>`,
       ...(input.householdName ? [escapeHtml(input.householdName)] : []),
       `📅 ${input.locale === 'ru' ? 'Оплатить до' : 'Pay by'} ${escapeHtml(formatAbsoluteDate(input.locale, input.state.dueDate))}`,
+      ...(conversionLine ? [conversionLine] : []),
       '',
       ...(input.viewerMemberId
         ? memberLines
@@ -1738,6 +1776,7 @@ export function createFinanceCommandsService(options: {
           householdName: input.householdName,
           period: input.plan.period,
           state: input.plan.rentBillingState,
+          conversion: input.plan.rentConversion,
           currency: input.plan.currency,
           adjustmentPolicy: input.adjustmentPolicy,
           ...(input.orderMemberId === undefined

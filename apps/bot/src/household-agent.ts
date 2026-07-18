@@ -38,7 +38,12 @@ import {
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
-import { assessWake, type WakeClassifier, type WakeGateTopicRole } from './wake-gate'
+import {
+  assessWake,
+  isRecentBotConversationFollowUp,
+  type WakeClassifier,
+  type WakeGateTopicRole
+} from './wake-gate'
 
 const AGENT_HISTORY_LIMIT = 12
 
@@ -63,7 +68,9 @@ const AGENT_SYSTEM_PROMPT = [
   '- Occasionally add one light chat marker such as ")", "))", ":)", or ":D", or one fitting emoji. Do not stack several markers, spam brackets, or decorate every reply.',
   '- Do not end a Russian conversational reply with a full stop. A question mark, exclamation mark, text emoticon, or no punctuation is fine.',
   '- Keep financial answers clear and jokes harmless. If the user is upset or the subject is serious, dial the slang and jokes down.',
-  '- Playful banter is fine when someone chats with you; keep it to one sentence.',
+  '- Playful banter is fine when someone chats with you; keep ordinary banter to one sentence. A directly requested joke may use a compact setup and punchline.',
+  '- When asked for a joke, prefer a fresh, specific observational or situational joke over a generic riddle or a well-known stock joke. Avoid stale templates such as “Почему X? Потому что…” and the doctor/patient memory-loss joke unless the user explicitly asks for dad jokes or classics.',
+  '- Treat “не смешно”, “давай другой”, or a request for something funnier as feedback on the previous attempt: acknowledge it briefly if useful, then change both the premise and the joke structure instead of producing the same template with different nouns. Never claim that a joke will definitely make someone laugh.',
   '- When a member reports a completed payment, use propose_payment. "за себя и за X" means covered_member_ids includes X. "за всех" / "for everyone" / "for all" means covered_member_ids includes every other member id (whether or not each has already paid separately — the tool figures out who still needs recording). If the payer is someone else ("Ион оплатил"), set payer_member_id to that member.',
   '- When a member reports a completed shared purchase, use propose_purchase.',
   '- Plans, intentions, and future talk ("надо оплатить", "завтра закину") are NOT completed facts: do not post cards for them; reply briefly only if addressed.',
@@ -325,7 +332,12 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
       return
     }
 
+    let incomingPersisted = false
     const persistIncoming = async () => {
+      if (incomingPersisted) {
+        return
+      }
+
       await persistTopicHistoryMessage({
         repository: options.historyRepository,
         householdId: target.householdId,
@@ -339,6 +351,7 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
         rawText: record.rawText,
         messageSentAt: record.messageSentAt
       })
+      incomingPersisted = true
     }
 
     try {
@@ -386,8 +399,16 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
       const recentMessages = historyRecords.map((message) => ({
         speaker: message.senderDisplayName ?? (message.isBot ? 'BOT' : 'member'),
         isBot: message.isBot,
-        text: message.rawText
+        text: message.rawText,
+        senderTelegramUserId: message.senderTelegramUserId,
+        sentAtEpochMilliseconds: message.messageSentAt?.epochMilliseconds ?? null
       }))
+      const memoryKey = conversationMemoryKey({
+        telegramUserId: record.senderTelegramUserId,
+        telegramChatId: record.chatId,
+        isPrivateChat: target.isPrivate
+      })
+      const memoryTurns = options.memoryStore?.get(memoryKey).turns ?? []
 
       const replyToMessage = ctx.msg?.reply_to_message
       const replyToText =
@@ -413,6 +434,11 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
                 ? { purchaseRepository: options.purchaseRepository }
                 : {})
             }),
+            hasRecentBotConversation: isRecentBotConversationFollowUp({
+              senderTelegramUserId: record.senderTelegramUserId,
+              messageSentAtEpochMilliseconds: record.messageSentAt.epochMilliseconds,
+              recentMessages
+            }),
             botUsername: ctx.me?.username ?? null,
             recentMessages,
             replyToText,
@@ -436,11 +462,10 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
         return
       }
 
-      const memoryKey = conversationMemoryKey({
-        telegramUserId: record.senderTelegramUserId,
-        telegramChatId: record.chatId,
-        isPrivateChat: target.isPrivate
-      })
+      // Store the addressed message before the bot reply so equal-second
+      // Telegram timestamps still retain the actual user → bot ordering.
+      await persistIncoming()
+
       if (options.rateLimiter) {
         const rate = options.rateLimiter.consume(memoryKey)
         if (!rate.allowed) {
@@ -477,7 +502,6 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
         : null
 
       const members = await financeService.listMembers()
-      const memoryTurns = options.memoryStore?.get(memoryKey).turns ?? []
       const commandCatalog = availableAssistantCommandCatalog({
         locale: target.locale,
         chatType: target.isPrivate ? 'private' : 'group',

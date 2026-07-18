@@ -446,6 +446,15 @@ function createDashboard(): NonNullable<
   }
 }
 
+function sameCurrencyRentConversion() {
+  return {
+    sourceAmount: Money.zero('GEL'),
+    settlementAmount: Money.zero('GEL'),
+    rateMicros: null,
+    effectiveDate: null
+  }
+}
+
 function createFinanceService(): FinanceCommandService {
   return {
     getMemberByTelegramUserId: async (telegramUserId) =>
@@ -1190,6 +1199,7 @@ describe('createFinanceCommandsService', () => {
           currency: 'GEL',
           timezone: 'Asia/Tbilisi',
           billingStage: 'rent',
+          rentConversion: sameCurrencyRentConversion(),
           utilityBillingPlan: null,
           rentBillingState: {
             dueDate: '2026-05-20',
@@ -1442,6 +1452,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         utilityBillingPlan: {
           id: 'utility-plan-1',
           version: 1,
@@ -1758,6 +1769,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         utilityBillingPlan: {
           id: 'utility-plan-1',
           version: 1,
@@ -1873,6 +1885,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         members: [
           {
             memberId: 'member-1',
@@ -2109,6 +2122,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         members: [
           {
             memberId: 'member-1',
@@ -2221,6 +2235,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         members: [
           {
             memberId: 'member-1',
@@ -2349,6 +2364,12 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'rent',
+        rentConversion: {
+          sourceAmount: Money.fromMajor('700', 'USD'),
+          settlementAmount: Money.fromMajor('1890', 'GEL'),
+          rateMicros: 2_700_000n,
+          effectiveDate: '2026-04-17'
+        },
         utilityBillingPlan: null,
         rentBillingState: {
           dueDate: '2026-04-20',
@@ -2427,6 +2448,7 @@ describe('createFinanceCommandsService', () => {
     const text = payload?.text ?? ''
     expect(payload?.parse_mode).toBe('HTML')
     expect(text).toContain('🏠 <b>Аренда · апрель 2026</b>')
+    expect(text).toContain('💱 Курс: 1 USD = 2.7000 GEL · на 17 апреля')
     expect(text).toContain('💰 <b>К оплате:</b> 500.00 ₾')
     expect(text).toContain('💳 <b>Куда переводить</b>')
     expect(text).toContain('🏦 <b>TBC · Landlord &amp; Co</b>')
@@ -2496,6 +2518,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'rent',
+        rentConversion: sameCurrencyRentConversion(),
         utilityBillingPlan: null,
         rentBillingState: {
           dueDate: '2026-04-20',
@@ -2577,6 +2600,7 @@ describe('createFinanceCommandsService', () => {
     expect(text.match(/Получатель: Magda C\./g)?.length ?? 0).toBe(1)
     expect(text).toContain('Счёт: <code>GE86TB7298445064300062</code>')
     expect(text).not.toContain('Осталось оплатить')
+    expect(text).not.toContain('💱')
   })
 
   test('uses short callback data for /bill quick actions with long ids', async () => {
@@ -2609,6 +2633,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         utilityBillingPlan: {
           id: 'utility-plan-1',
           version: 1,
@@ -2704,6 +2729,7 @@ describe('createFinanceCommandsService', () => {
         currency: 'GEL',
         timezone: 'Asia/Tbilisi',
         billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
         utilityBillingPlan: {
           id: 'utility-plan-1',
           version: 1,

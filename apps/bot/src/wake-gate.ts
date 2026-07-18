@@ -8,6 +8,7 @@ export interface WakeGateDecision {
     | 'mention'
     | 'reply_to_bot'
     | 'active_workflow'
+    | 'conversation_followup'
     | 'addressed'
     | 'payment_fact'
     | 'purchase_fact'
@@ -28,6 +29,11 @@ export interface WakeClassifierMessage {
   text: string
 }
 
+export interface WakeConversationMessage extends WakeClassifierMessage {
+  senderTelegramUserId: string | null
+  sentAtEpochMilliseconds: number | null
+}
+
 export type WakeClassifier = (input: {
   messageText: string
   topicRole: WakeGateTopicRole
@@ -37,6 +43,31 @@ export type WakeClassifier = (input: {
 
 const BOT_NAME_PATTERN =
   /(?:^|[^\p{L}\p{N}])(?:бот[а-яё]{0,3}|кожур[а-яё]{0,3}|кожор[а-яё]{0,3}|bot|kojori)(?=$|[^\p{L}\p{N}])/iu
+
+const CONVERSATION_FOLLOW_UP_WINDOW_MS = 5 * 60_000
+
+export function isRecentBotConversationFollowUp(input: {
+  senderTelegramUserId: string
+  messageSentAtEpochMilliseconds: number
+  recentMessages: readonly WakeConversationMessage[]
+}): boolean {
+  const previousMessage = input.recentMessages.at(-2)
+  const botMessage = input.recentMessages.at(-1)
+
+  if (
+    !previousMessage ||
+    !botMessage ||
+    previousMessage.isBot ||
+    !botMessage.isBot ||
+    previousMessage.senderTelegramUserId !== input.senderTelegramUserId ||
+    botMessage.sentAtEpochMilliseconds === null
+  ) {
+    return false
+  }
+
+  const ageMs = input.messageSentAtEpochMilliseconds - botMessage.sentAtEpochMilliseconds
+  return ageMs >= 0 && ageMs <= CONVERSATION_FOLLOW_UP_WINDOW_MS
+}
 
 export function mentionsBotName(messageText: string, botUsername?: string | null): boolean {
   if (BOT_NAME_PATTERN.test(messageText)) {
@@ -169,6 +200,7 @@ export async function assessWake(input: {
   isExplicitMention: boolean
   isReplyToBot: boolean
   hasActiveWorkflow: boolean
+  hasRecentBotConversation: boolean
   botUsername?: string | null
   recentMessages: readonly WakeClassifierMessage[]
   replyToText?: string | null
@@ -192,7 +224,7 @@ export async function assessWake(input: {
     input.topicRole === 'purchase' ||
     input.topicRole === 'reminders'
 
-  if ((!namePresent && !factCheckNeeded) || !input.classifier) {
+  if ((!namePresent && !input.hasRecentBotConversation && !factCheckNeeded) || !input.classifier) {
     return { wake: false, reason: 'silent' }
   }
 
@@ -205,6 +237,10 @@ export async function assessWake(input: {
 
   if (!verdict) {
     return { wake: false, reason: 'silent' }
+  }
+
+  if (input.hasRecentBotConversation && verdict.addressedToBot) {
+    return { wake: true, reason: 'conversation_followup' }
   }
 
   if (namePresent && verdict.addressedToBot) {

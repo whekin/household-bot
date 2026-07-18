@@ -1976,7 +1976,7 @@ describe('createFinanceCommandService', () => {
     expect(repository.utilityBillingPlans[1]?.payload.preferredUtilityPayerMemberId).toBe('bob')
   })
 
-  test('generateCurrentBillPlan exposes compact purchase drivers for utility adjustments', async () => {
+  test('generateCurrentBillPlan exposes purchase drivers and the exact rent conversion', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -2001,6 +2001,10 @@ describe('createFinanceCommandService', () => {
     }
     repository.latestCycleRecord = repository.openCycleRecord
     repository.cycles = [repository.openCycleRecord]
+    repository.rentRule = {
+      amountMinor: 70000n,
+      currency: 'USD'
+    }
     repository.purchases = [
       {
         id: 'purchase-groceries',
@@ -2017,6 +2021,13 @@ describe('createFinanceCommandService', () => {
 
     const service = createService(repository)
     const plan = await service.generateCurrentBillPlan('2026-04')
+
+    expect(plan?.rentConversion).toEqual({
+      sourceAmount: Money.fromMajor('700', 'USD'),
+      settlementAmount: Money.fromMajor('1890', 'GEL'),
+      rateMicros: 2_700_000n,
+      effectiveDate: '2026-04-17'
+    })
 
     expect(
       plan?.members?.map((member) => ({
