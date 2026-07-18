@@ -11,15 +11,20 @@ import { useToast } from '@/components/toast'
 import { useDashboard } from '@/app/dashboard-context'
 import { useReadySession, useSession } from '@/app/session-context'
 import { useI18n } from '@/i18n/context'
+import { nextCyclePeriod } from '@/lib/dates'
 import { minorToMajorString } from '@/lib/money'
 import { searchTimezones } from '@/lib/timezones'
 import {
   updateMiniAppBillingSettings,
+  fetchMiniAppBillingCycle,
+  updateMiniAppCycleRent,
   type MiniAppAdminSettingsPayload,
+  type MiniAppAdminCycleState,
   type MiniAppRentPaymentDestination
 } from '@/api'
 
 import { CurrencyToggle, LocaleToggle } from './toggles'
+import { RentPeriodSettings, type RentPeriodDraft } from './rent-period-settings'
 
 export type BillingFormState = {
   householdName: string
@@ -41,6 +46,25 @@ export type BillingFormState = {
     planEvents: boolean
     purchaseEvents: boolean
     paymentEvents: boolean
+  }
+}
+
+function buildRentPeriodDraft(
+  period: string,
+  cycleState: MiniAppAdminCycleState | null,
+  defaults: Pick<BillingFormState, 'rentAmountMajor' | 'rentCurrency'>
+): RentPeriodDraft {
+  const rule = cycleState?.rentRule
+  const amountMajor = rule ? minorToMajorString(BigInt(rule.amountMinor)) : defaults.rentAmountMajor
+  const currency = rule?.currency ?? defaults.rentCurrency
+
+  return {
+    period,
+    amountMajor,
+    currency,
+    hasExplicitRule: rule !== null && rule !== undefined,
+    isOverride: amountMajor !== defaults.rentAmountMajor || currency !== defaults.rentCurrency,
+    dirty: false
   }
 }
 
@@ -89,11 +113,13 @@ export function BillingSettingsSheet({
 }) {
   const session = useReadySession()
   const { initData, handleHouseholdLocaleChange, handleMiniAppRequestError } = useSession()
-  const { adminSettings, refresh } = useDashboard()
+  const { adminSettings, cycleState, dashboard, refresh } = useDashboard()
   const { copy, locale } = useI18n()
   const { showToast } = useToast()
 
   const [form, setForm] = useState<BillingFormState>(() => buildBillingFormValue(adminSettings))
+  const [rentPeriods, setRentPeriods] = useState<RentPeriodDraft[]>([])
+  const [loadingRentPeriods, setLoadingRentPeriods] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const adminSettingsRef = useRef(adminSettings)
@@ -104,8 +130,45 @@ export function BillingSettingsSheet({
     // Reset the draft from saved settings every time the sheet opens; while
     // the sheet stays open the draft must survive background refreshes,
     // matching the legacy editor behaviour.
-    setForm(buildBillingFormValue(adminSettingsRef.current))
-  }, [open])
+    const defaults = buildBillingFormValue(adminSettingsRef.current)
+    setForm(defaults)
+
+    const currentPeriod = dashboard?.period ?? cycleState?.cycle?.period ?? null
+    const followingPeriod = currentPeriod ? nextCyclePeriod(currentPeriod) : null
+    setRentPeriods([
+      ...(currentPeriod ? [buildRentPeriodDraft(currentPeriod, cycleState, defaults)] : []),
+      ...(followingPeriod ? [buildRentPeriodDraft(followingPeriod, null, defaults)] : [])
+    ])
+    setLoadingRentPeriods(false)
+
+    if (!followingPeriod || !initData) return
+
+    let cancelled = false
+    setLoadingRentPeriods(true)
+    void fetchMiniAppBillingCycle(initData, followingPeriod)
+      .then((nextState) => {
+        if (cancelled) return
+        setRentPeriods((periods) =>
+          periods.map((draft) =>
+            draft.period === followingPeriod && !draft.dirty
+              ? buildRentPeriodDraft(followingPeriod, nextState, defaults)
+              : draft
+          )
+        )
+      })
+      .catch((error) => {
+        if (!handleMiniAppRequestError(error)) {
+          showToast(copy.rentPeriodsLoadError, 'error')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRentPeriods(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, dashboard?.period, cycleState, initData, handleMiniAppRequestError, showToast, copy])
 
   const members = adminSettings?.members ?? []
 
@@ -129,11 +192,65 @@ export function BillingSettingsSheet({
     })
   }
 
+  function updateDefaultRent(
+    patch: Partial<Pick<BillingFormState, 'rentAmountMajor' | 'rentCurrency'>>
+  ) {
+    const nextAmount = patch.rentAmountMajor ?? form.rentAmountMajor
+    const nextCurrency = patch.rentCurrency ?? form.rentCurrency
+    setForm((previous) => ({ ...previous, ...patch }))
+    setRentPeriods((periods) =>
+      periods.map((draft) => {
+        if (!draft.hasExplicitRule) {
+          return { ...draft, amountMajor: nextAmount, currency: nextCurrency, isOverride: false }
+        }
+        return {
+          ...draft,
+          isOverride: draft.amountMajor !== nextAmount || draft.currency !== nextCurrency
+        }
+      })
+    )
+  }
+
+  function updateRentPeriod(
+    period: string,
+    patch: Partial<Pick<RentPeriodDraft, 'amountMajor' | 'currency'>>
+  ) {
+    setRentPeriods((periods) =>
+      periods.map((draft) => {
+        if (draft.period !== period) return draft
+        const next = { ...draft, ...patch, hasExplicitRule: true, dirty: true }
+        return {
+          ...next,
+          isOverride:
+            next.amountMajor !== form.rentAmountMajor || next.currency !== form.rentCurrency
+        }
+      })
+    )
+  }
+
+  function useDefaultRent(period: string) {
+    updateRentPeriod(period, {
+      amountMajor: form.rentAmountMajor,
+      currency: form.rentCurrency
+    })
+  }
+
   async function handleSave() {
     if (!initData || saving) return
     setSaving(true)
     try {
       await updateMiniAppBillingSettings(initData, form)
+      await Promise.all(
+        rentPeriods
+          .filter((draft) => draft.dirty)
+          .map((draft) =>
+            updateMiniAppCycleRent(initData, {
+              period: draft.period,
+              amountMajor: draft.amountMajor,
+              currency: draft.currency
+            })
+          )
+      )
       await refresh()
       onOpenChange(false)
     } catch (error) {
@@ -217,16 +334,14 @@ export function BillingSettingsSheet({
                 type="number"
                 inputMode="decimal"
                 value={form.rentAmountMajor}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, rentAmountMajor: event.target.value }))
-                }
+                onChange={(event) => updateDefaultRent({ rentAmountMajor: event.target.value })}
               />
             </Field>
             <Field label={copy.rentCurrencyLabel}>
               <CurrencyToggle
                 value={form.rentCurrency}
                 ariaLabel={copy.rentCurrencyLabel}
-                onChange={(value) => setForm((prev) => ({ ...prev, rentCurrency: value }))}
+                onChange={(value) => updateDefaultRent({ rentCurrency: value })}
               />
             </Field>
             <Field label={copy.rentWarningDay}>
@@ -251,6 +366,14 @@ export function BillingSettingsSheet({
               />
             </Field>
           </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">{copy.defaultRentHint}</p>
+
+          <RentPeriodSettings
+            drafts={rentPeriods}
+            loading={loadingRentPeriods}
+            onChange={updateRentPeriod}
+            onUseDefault={useDefaultRent}
+          />
         </section>
 
         <section className="space-y-3">

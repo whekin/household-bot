@@ -427,6 +427,7 @@ export interface FinanceRepository {
   }): Promise<FinancePaymentRecord | null>
   deletePaymentRecord(paymentId: string): Promise<boolean>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
+  getRentRuleStartingAtPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
   getActiveUtilityBillingPlan(cycleId: string): Promise<FinanceUtilityBillingPlanRecord | null>

@@ -18,7 +18,8 @@ export const miniAppQueryKeys = {
     ['miniapp', 'dashboard', initData, periodOverride ?? null, todayOverride ?? null] as const,
   pendingMembers: (initData: string) => ['miniapp', 'pending-members', initData] as const,
   adminSettings: (initData: string) => ['miniapp', 'admin-settings', initData] as const,
-  billingCycle: (initData: string) => ['miniapp', 'billing-cycle', initData] as const
+  billingCycle: (initData: string, period?: string) =>
+    ['miniapp', 'billing-cycle', initData, period ?? null] as const
 }
 
 export function fetchSessionQuery(initData: string, joinToken?: string): Promise<MiniAppSession> {
@@ -61,10 +62,13 @@ export function fetchAdminSettingsQuery(initData: string): Promise<MiniAppAdminS
   })
 }
 
-export function fetchBillingCycleQuery(initData: string): Promise<MiniAppAdminCycleState> {
+export function fetchBillingCycleQuery(
+  initData: string,
+  period?: string
+): Promise<MiniAppAdminCycleState> {
   return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.billingCycle(initData),
-    queryFn: () => fetchMiniAppBillingCycle(initData)
+    queryKey: miniAppQueryKeys.billingCycle(initData, period),
+    queryFn: () => fetchMiniAppBillingCycle(initData, period)
   })
 }
 

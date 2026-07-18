@@ -2,7 +2,7 @@ import type {
   FinanceCommandService,
   HouseholdAuditNotificationService
 } from '@household/application'
-import { nowInstant } from '@household/domain'
+import { BillingPeriod, Money, nowInstant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type { TelegramPendingActionRepository } from '@household/ports'
@@ -20,6 +20,7 @@ export type AgentActionType =
   | 'update_purchase'
   | 'delete_purchase'
   | 'set_purchase_participants'
+  | 'set_period_rent'
 
 export interface AgentActionPayload {
   actionId: string
@@ -29,6 +30,17 @@ export interface AgentActionPayload {
   locale: BotLocale
   summaryText: string
   params: Record<string, unknown>
+}
+
+export function canResolveAgentAction(input: {
+  payload: AgentActionPayload
+  actorTelegramUserId: string
+  actorIsAdmin: boolean
+}): boolean {
+  if (input.payload.actionType === 'set_period_rent') {
+    return input.actorIsAdmin
+  }
+  return input.actorTelegramUserId === input.payload.requesterTelegramUserId || input.actorIsAdmin
 }
 
 export function agentActionReplyMarkup(locale: BotLocale, actionId: string) {
@@ -81,7 +93,8 @@ export function parseAgentActionPayload(
       payload.actionType !== 'delete_payment' &&
       payload.actionType !== 'update_purchase' &&
       payload.actionType !== 'delete_purchase' &&
-      payload.actionType !== 'set_purchase_participants') ||
+      payload.actionType !== 'set_purchase_participants' &&
+      payload.actionType !== 'set_period_rent') ||
     !payload.params ||
     typeof payload.params !== 'object' ||
     Array.isArray(payload.params)
@@ -115,7 +128,7 @@ function readStringArray(params: Record<string, unknown>, key: string): readonly
   return entries.length === value.length ? entries : null
 }
 
-async function executeAgentAction(
+export async function executeAgentAction(
   financeService: FinanceCommandService,
   payload: AgentActionPayload
 ): Promise<boolean> {
@@ -208,6 +221,30 @@ async function executeAgentAction(
       )
       return updated !== null
     }
+
+    case 'set_period_rent': {
+      const amountMajor = readString(params, 'amountMajor')
+      const currency = readString(params, 'currency')
+      const periods = readStringArray(params, 'periods')
+      if (!amountMajor || (currency !== 'USD' && currency !== 'GEL') || !periods?.length) {
+        return false
+      }
+
+      let normalizedPeriods: readonly string[]
+      try {
+        const amount = Money.fromMajor(amountMajor, currency)
+        if (amount.amountMinor <= 0n) return false
+        normalizedPeriods = periods.map((period) => BillingPeriod.fromString(period).toString())
+      } catch {
+        return false
+      }
+
+      for (const period of normalizedPeriods) {
+        const updated = await financeService.setRent(amountMajor, currency, period)
+        if (!updated) return false
+      }
+      return true
+    }
   }
 }
 
@@ -294,8 +331,11 @@ export function registerAgentActionCallbacks(
     const payload = resolved.payload
     const t = getBotTranslations(payload.locale).agent
     const actor = await actorMember(payload.householdId, resolved.actorTelegramUserId)
-    const allowed =
-      resolved.actorTelegramUserId === payload.requesterTelegramUserId || actor?.isAdmin === true
+    const allowed = canResolveAgentAction({
+      payload,
+      actorTelegramUserId: resolved.actorTelegramUserId,
+      actorIsAdmin: actor?.isAdmin === true
+    })
     if (!allowed) {
       await ctx.answerCallbackQuery({ text: t.notYourAction, show_alert: true })
       return
@@ -332,7 +372,12 @@ export function registerAgentActionCallbacks(
         actorMemberId: actor.id,
         actorDisplayName: actor.displayName,
         eventType: `agent.${payload.actionType}`,
-        category: payload.actionType.endsWith('payment') ? 'payment_events' : 'purchase_events',
+        category:
+          payload.actionType === 'set_period_rent'
+            ? 'period_events'
+            : payload.actionType.endsWith('payment')
+              ? 'payment_events'
+              : 'purchase_events',
         summaryText: payload.summaryText,
         metadata: { actionId: payload.actionId, params: payload.params }
       })
@@ -354,8 +399,11 @@ export function registerAgentActionCallbacks(
     const payload = resolved.payload
     const t = getBotTranslations(payload.locale).agent
     const actor = await actorMember(payload.householdId, resolved.actorTelegramUserId)
-    const allowed =
-      resolved.actorTelegramUserId === payload.requesterTelegramUserId || actor?.isAdmin === true
+    const allowed = canResolveAgentAction({
+      payload,
+      actorTelegramUserId: resolved.actorTelegramUserId,
+      actorIsAdmin: actor?.isAdmin === true
+    })
     if (!allowed) {
       await ctx.answerCallbackQuery({ text: t.notYourAction, show_alert: true })
       return

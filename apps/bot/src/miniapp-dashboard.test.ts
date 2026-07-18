@@ -119,6 +119,10 @@ function repository(
       amountMinor: 70000n,
       currency: 'USD'
     }),
+    getRentRuleStartingAtPeriod: async () => ({
+      amountMinor: 70000n,
+      currency: 'USD'
+    }),
     getUtilityTotalForCycle: async () => 12000n,
     listUtilityBillsForCycle: async () => [
       {

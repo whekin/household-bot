@@ -1304,6 +1304,25 @@ export function createDbFinanceRepository(
       }
     },
 
+    async getRentRuleStartingAtPeriod(period) {
+      const rows = await db
+        .select({
+          amountMinor: schema.rentRules.amountMinor,
+          currency: schema.rentRules.currency
+        })
+        .from(schema.rentRules)
+        .where(
+          and(
+            eq(schema.rentRules.householdId, householdId),
+            eq(schema.rentRules.effectiveFromPeriod, period)
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      return row ? { ...row, currency: toCurrencyCode(row.currency) } : null
+    },
+
     async getUtilityTotalForCycle(cycleId) {
       const rows = await db
         .select({

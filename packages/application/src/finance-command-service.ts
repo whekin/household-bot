@@ -3717,11 +3717,11 @@ export function createFinanceCommandService(
     },
 
     async getAdminCycleState(periodArg) {
-      const cycle = periodArg
-        ? await repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
-        : await ensureExpectedCycle()
+      const period = periodArg ? BillingPeriod.fromString(periodArg).toString() : null
+      const cycle = period ? await repository.getCycleByPeriod(period) : await ensureExpectedCycle()
+      const requestedPeriod = period ?? cycle?.period ?? null
 
-      if (!cycle) {
+      if (!requestedPeriod) {
         return {
           cycle: null,
           rentRule: null,
@@ -3730,8 +3730,8 @@ export function createFinanceCommandService(
       }
 
       const [rentRule, utilityBills] = await Promise.all([
-        repository.getRentRuleForPeriod(cycle.period),
-        repository.listUtilityBillsForCycle(cycle.id)
+        repository.getRentRuleStartingAtPeriod(requestedPeriod),
+        cycle ? repository.listUtilityBillsForCycle(cycle.id) : Promise.resolve([])
       ])
 
       return {

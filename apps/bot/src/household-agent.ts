@@ -562,7 +562,8 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           contextPrompt,
           userMessage: record.rawText,
           tools: agentToolDefinitions({
-            purchaseToolsAvailable: options.purchaseRepository !== undefined
+            purchaseToolsAvailable: options.purchaseRepository !== undefined,
+            adminToolsAvailable: senderMember.isAdmin
           }),
           executeTool: (call) => executeAgentTool(toolContext, call),
           ...(options.logger ? { logger: options.logger } : {})

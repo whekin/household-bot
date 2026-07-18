@@ -1,14 +1,18 @@
 import { miniAppApiError, postMiniApp } from './client'
 import type { MiniAppAdminCycleState, MiniAppDashboard } from './types'
 
-export async function fetchMiniAppBillingCycle(initData: string): Promise<MiniAppAdminCycleState> {
+export async function fetchMiniAppBillingCycle(
+  initData: string,
+  period?: string
+): Promise<MiniAppAdminCycleState> {
   const { response, payload } = await postMiniApp<{
     ok: boolean
     authorized?: boolean
     cycleState?: MiniAppAdminCycleState
     error?: string
   }>('/api/miniapp/admin/billing-cycle', {
-    initData
+    initData,
+    ...(period ? { period } : {})
   })
 
   if (!response.ok || !payload.authorized || !payload.cycleState) {

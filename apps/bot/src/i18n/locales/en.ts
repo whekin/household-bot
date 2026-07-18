@@ -389,7 +389,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     summarizeDeletePurchase: (description, amount, currency) =>
       `delete purchase "${description}" (${formatUserFacingMoney(amount, currency)})`,
     summarizeSetPurchaseParticipants: (description, names) =>
-      `set participants of "${description}" to: ${names}`
+      `set participants of "${description}" to: ${names}`,
+    summarizeSetPeriodRent: (amount, currency, periods) =>
+      `set rent to ${formatUserFacingMoney(amount, currency)} for ${periods.join(', ')}`
   },
   payments: {
     topicMissing:

@@ -12,12 +12,14 @@ import type {
 
 import {
   executeAgentTool,
+  agentToolDefinitions,
   explicitAmountFromMessage,
   paymentKindDueDate,
   splitMoneyByWeights,
   type AgentMessageRecord,
   type AgentToolContext
 } from './agent-tools'
+import { canResolveAgentAction, type AgentActionPayload } from './agent-confirmations'
 
 describe('explicitAmountFromMessage', () => {
   test('accepts an amount with currency written in the message', () => {
@@ -363,5 +365,95 @@ describe('executeAgentTool propose_payment', () => {
       'ion',
       'stas'
     ])
+  })
+})
+
+describe('admin rent agent tool', () => {
+  test('is only exposed to admins', () => {
+    const adminTools = agentToolDefinitions({
+      purchaseToolsAvailable: false,
+      adminToolsAvailable: true
+    })
+    const memberTools = agentToolDefinitions({
+      purchaseToolsAvailable: false,
+      adminToolsAvailable: false
+    })
+
+    expect(adminTools.some((tool) => tool.name === 'propose_period_rent')).toBe(true)
+    expect(memberTools.some((tool) => tool.name === 'propose_period_rent')).toBe(false)
+  })
+
+  test('creates one confirmation-gated action for multiple periods', async () => {
+    const pending: TelegramPendingActionRecord[] = []
+    const context = createAllMembersPaymentToolContext({
+      rawText: 'Поставь аренду 800 долларов за июль и август',
+      replies: [],
+      pending
+    })
+    const cards: string[] = []
+    context.postCard = async (text) => {
+      cards.push(text)
+    }
+
+    const result = await executeAgentTool(context, {
+      name: 'propose_period_rent',
+      arguments: {
+        amount_major: '800',
+        currency: 'USD',
+        periods: ['2026-07', '2026-08']
+      }
+    })
+
+    expect(result.cardPosted).toBe(true)
+    expect((result.result as { nothingChangedYet?: boolean }).nothingChangedYet).toBe(true)
+    expect(cards[0]).toContain('$800.00')
+    expect(pending[0]?.action).toBe('agent_action')
+    expect(pending[0]?.payload).toMatchObject({
+      actionType: 'set_period_rent',
+      params: {
+        amountMajor: '800.00',
+        currency: 'USD',
+        periods: ['2026-07', '2026-08']
+      }
+    })
+  })
+
+  test('rejects direct invocation for a non-admin', async () => {
+    const context = createAllMembersPaymentToolContext({ rawText: '', replies: [], pending: [] })
+    context.senderMember = { ...context.senderMember, isAdmin: false }
+
+    const result = await executeAgentTool(context, {
+      name: 'propose_period_rent',
+      arguments: { amount_major: '800', currency: 'USD', periods: ['2026-07'] }
+    })
+
+    expect(result.result).toEqual({ error: 'admin_required' })
+  })
+
+  test('requires the confirming actor to still be an admin', () => {
+    const payload: AgentActionPayload = {
+      actionId: 'action-1',
+      actionType: 'set_period_rent',
+      householdId: 'household-1',
+      requesterTelegramUserId: '10004',
+      locale: 'en',
+      summaryText: 'set rent',
+      params: {}
+    }
+
+    expect(
+      canResolveAgentAction({
+        payload,
+        actorTelegramUserId: '10004',
+        actorIsAdmin: false
+      })
+    ).toBe(false)
+    expect(
+      canResolveAgentAction({
+        payload,
+        actorTelegramUserId: '10005',
+        actorIsAdmin: true
+      })
+    ).toBe(true)
   })
 })

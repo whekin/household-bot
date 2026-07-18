@@ -3,7 +3,7 @@ import {
   type FinanceCommandService,
   type FinanceDashboard
 } from '@household/application'
-import { Money, nowInstant, type Instant } from '@household/domain'
+import { BillingPeriod, Money, nowInstant, type Instant } from '@household/domain'
 import type { Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -423,15 +423,22 @@ async function getPaymentInstructions(context: AgentToolContext): Promise<unknow
   }
 }
 
-const AGENT_CAPABILITIES = [
-  'Answer questions about the household bill, balances, due dates, and payment instructions.',
-  'Record rent/utilities payments as confirmation cards (including payments made for several members or reported for another member).',
-  'Record shared purchases as confirmation cards.',
-  'Edit or delete saved payments and purchases and change purchase participants — always via a confirmation card.',
-  'Schedule one-off household notifications in the reminders topic (as confirmation cards).',
-  'Cancel a pending proposal.',
-  'Cannot: change household settings, send money, or confirm cards on behalf of members.'
-].join('\n')
+function agentCapabilities(isAdmin: boolean): string {
+  return [
+    'Answer questions about the household bill, balances, due dates, and payment instructions.',
+    'Record rent/utilities payments as confirmation cards (including payments made for several members or reported for another member).',
+    'Record shared purchases as confirmation cards.',
+    'Edit or delete saved payments and purchases and change purchase participants — always via a confirmation card.',
+    'Schedule one-off household notifications in the reminders topic (as confirmation cards).',
+    'Cancel a pending proposal.',
+    ...(isAdmin
+      ? [
+          'Admins can propose period-specific rent changes; an admin confirmation is always required.'
+        ]
+      : []),
+    'Cannot: change other household settings, send money, or confirm cards on behalf of members.'
+  ].join('\n')
+}
 
 async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
   const [settings, members, dashboard] = await Promise.all([
@@ -462,7 +469,7 @@ async function getHouseholdInfo(context: AgentToolContext): Promise<unknown> {
       status: dashboard?.members.find((line) => line.memberId === member.id)?.status ?? 'active',
       isSender: member.id === context.senderMember.id
     })),
-    botCapabilities: AGENT_CAPABILITIES,
+    botCapabilities: agentCapabilities(context.senderMember.isAdmin),
     availableCommands: context.commandCatalog
   }
 }
@@ -705,6 +712,56 @@ async function requestConfirmedAction(
     result: { status: 'confirmation_card_posted', nothingChangedYet: true },
     cardPosted: true
   }
+}
+
+async function proposePeriodRent(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<ToolSessionToolResult> {
+  if (!context.senderMember.isAdmin) {
+    return { result: { error: 'admin_required' } }
+  }
+
+  const amountMajor = readStringArgument(args, 'amount_major')
+  const currency = readCurrencyArgument(args, 'currency')
+  const requestedPeriods = readStringArrayArgument(args, 'periods')
+  if (!amountMajor || !currency || !requestedPeriods) {
+    return { result: { error: 'amount_currency_and_periods_required' } }
+  }
+
+  let amount: Money
+  try {
+    amount = Money.fromMajor(amountMajor.replace(',', '.'), currency)
+  } catch {
+    return { result: { error: 'invalid_amount' } }
+  }
+  if (amount.amountMinor <= 0n) {
+    return { result: { error: 'amount_must_be_positive' } }
+  }
+
+  let periods: string[]
+  try {
+    periods = [
+      ...new Set(requestedPeriods.map((period) => BillingPeriod.fromString(period).toString()))
+    ]
+  } catch {
+    return { result: { error: 'invalid_period_use_yyyy_mm' } }
+  }
+  if (periods.length > 12) {
+    return { result: { error: 'too_many_periods' } }
+  }
+
+  const normalizedAmount = amount.toMajorString()
+  const summary = getBotTranslations(context.locale).agent.summarizeSetPeriodRent(
+    normalizedAmount,
+    currency,
+    periods
+  )
+  return requestConfirmedAction(context, 'set_period_rent', summary, {
+    amountMajor: normalizedAmount,
+    currency,
+    periods
+  })
 }
 
 async function updatePaymentTool(
@@ -988,6 +1045,7 @@ const MEMBER_ID_NOTE =
 
 export function agentToolDefinitions(input: {
   purchaseToolsAvailable: boolean
+  adminToolsAvailable: boolean
 }): readonly ToolSessionToolDefinition[] {
   const definitions: ToolSessionToolDefinition[] = [
     {
@@ -1171,6 +1229,26 @@ export function agentToolDefinitions(input: {
     )
   }
 
+  if (input.adminToolsAvailable) {
+    definitions.push({
+      name: 'propose_period_rent',
+      description: [
+        'Admin only. Propose a rent amount for one or more specific billing periods. Posts one confirmation card; nothing changes until an admin confirms it.',
+        'Use this for temporary monthly rent changes. periods must contain explicit YYYY-MM values. Use get_household_info to identify the current period.'
+      ].join(' '),
+      parameters: {
+        type: 'object',
+        properties: {
+          amount_major: { type: 'string' },
+          currency: { type: 'string', enum: ['GEL', 'USD'] },
+          periods: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['amount_major', 'currency', 'periods'],
+        additionalProperties: false
+      }
+    })
+  }
+
   return definitions
 }
 
@@ -1210,6 +1288,8 @@ export async function executeAgentTool(
       return cancelPendingProposal(context)
     case 'propose_notification':
       return proposeNotification(context, call.arguments)
+    case 'propose_period_rent':
+      return proposePeriodRent(context, call.arguments)
     default:
       return { result: { error: 'unknown_tool' } }
   }

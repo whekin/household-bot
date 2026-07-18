@@ -425,6 +425,10 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.rentRulesByPeriod.get(period) ?? this.rentRule
   }
 
+  async getRentRuleStartingAtPeriod(period: string): Promise<FinanceRentRuleRecord | null> {
+    return this.rentRulesByPeriod.get(period) ?? this.rentRule
+  }
+
   async getUtilityTotalForCycle(): Promise<bigint> {
     return this.utilityBills.reduce((sum, bill) => sum + bill.amountMinor, 0n)
   }
@@ -996,6 +1000,26 @@ describe('createFinanceCommandService', () => {
           createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
         }
       ]
+    })
+  })
+
+  test('getAdminCycleState returns an explicit future rent rule without opening a cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.rentRulesByPeriod.set('2026-08', {
+      amountMinor: 80000n,
+      currency: 'USD'
+    })
+
+    const service = createService(repository)
+    const result = await service.getAdminCycleState('2026-08')
+
+    expect(result).toEqual({
+      cycle: null,
+      rentRule: {
+        amountMinor: 80000n,
+        currency: 'USD'
+      },
+      utilityBills: []
     })
   })
 

@@ -392,7 +392,9 @@ export const ruBotTranslations: BotTranslationCatalog = {
     summarizeDeletePurchase: (description, amount, currency) =>
       `удалить покупку «${description}» (${formatUserFacingMoney(amount, currency)})`,
     summarizeSetPurchaseParticipants: (description, names) =>
-      `изменить участников покупки «${description}»: ${names}`
+      `изменить участников покупки «${description}»: ${names}`,
+    summarizeSetPeriodRent: (amount, currency, periods) =>
+      `установить аренду ${formatUserFacingMoney(amount, currency)} для ${periods.join(', ')}`
   },
   payments: {
     topicMissing:

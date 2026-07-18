@@ -489,6 +489,36 @@ describe('createMiniAppBillingCycleHandler', () => {
       }
     })
   })
+
+  test('passes an explicitly requested future period to the finance service', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    let requestedPeriod: string | undefined
+    financeService.getAdminCycleState = async (period) => {
+      requestedPeriod = period
+      return { cycle: null, rentRule: null, utilityBills: [] }
+    }
+    const handler = createMiniAppBillingCycleHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/billing-cycle', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ initData: initData(), period: '2026-08' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(requestedPeriod).toBe('2026-08')
+  })
 })
 
 test('createMiniAppUpdateUtilityBillHandler updates a utility bill for the current cycle', async () => {
