@@ -77,6 +77,7 @@ import { registerPaymentReminderActions } from './payment-reminder-actions'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
+import { createLivePaymentCardService } from './live-payment-cards'
 import { createBotWebhookServer } from './server'
 import { createTelegramTransport } from './runtime/telegram-transport'
 import { createFinanceServiceRegistry } from './runtime/finance-service-registry'
@@ -110,7 +111,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     purchaseMessages: purchaseRepositoryClient,
     topicMessageHistory: topicMessageHistoryRepositoryClient,
     adHocNotification: adHocNotificationRepositoryClient,
-    auditNotification: auditNotificationRepositoryClient
+    auditNotification: auditNotificationRepositoryClient,
+    paymentCards: paymentCardRepositoryClient
   } = repositoryClients
   const bot = createTelegramBot(
     runtime.telegramBotToken,
@@ -144,6 +146,21 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     financeServiceRegistry!.financeServiceForHousehold(householdId)
   const paymentConfirmationServiceForHousehold = (householdId: string) =>
     financeServiceRegistry!.paymentConfirmationServiceForHousehold(householdId)
+  const livePaymentCardService = paymentCardRepositoryClient
+    ? createLivePaymentCardService({
+        repository: paymentCardRepositoryClient.repository,
+        financeServiceForHousehold,
+        editMessage: async (input) => {
+          await bot.api.editMessageText(input.chatId, Number(input.messageId), input.text, {
+            parse_mode: input.parseMode,
+            ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {})
+          })
+        },
+        ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
+        ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
+        logger: getLogger('payment-cards')
+      })
+    : null
   const householdOnboardingService = householdConfigurationRepositoryClient
     ? createHouseholdOnboardingService({
         repository: householdConfigurationRepositoryClient.repository
@@ -189,6 +206,35 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           sendTopicMessage: async (input) => {
             return telegramTransport.sendTopicMessage(input)
           },
+          ...(livePaymentCardService
+            ? {
+                onDelivered: async ({ event, chatId, threadId, messageId }) => {
+                  const kind = event.metadata.kind
+                  const period = event.metadata.period
+                  if (
+                    !event.eventType.startsWith('period.') ||
+                    (kind !== 'utilities' && kind !== 'rent_warning' && kind !== 'rent_due') ||
+                    typeof period !== 'string'
+                  ) {
+                    return
+                  }
+                  const chat =
+                    await householdConfigurationRepositoryClient.repository.getHouseholdChatByHouseholdId(
+                      event.householdId
+                    )
+                  await livePaymentCardService.register({
+                    householdId: event.householdId,
+                    kind: kind === 'utilities' ? 'utilities' : 'rent',
+                    period,
+                    surface: 'reminder',
+                    locale: chat?.defaultLocale ?? 'en',
+                    telegramChatId: chatId,
+                    telegramThreadId: threadId,
+                    telegramMessageId: messageId
+                  })
+                }
+              }
+            : {}),
           logger: getLogger('audit-notifications')
         })
       : null
@@ -235,9 +281,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
           financeServiceForHousehold,
           processedBotMessageRepository: processedBotMessageRepositoryClient.repository,
-          sendTopicMessage: async (input) => {
-            await telegramTransport.sendTopicMessage(input)
-          },
+          sendTopicMessage: (input) => telegramTransport.sendTopicMessage(input),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
           ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
           logger: getLogger('payment-instructions')
@@ -287,7 +332,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             }
           : {}),
         logger: getLogger('payment-ingestion'),
-        ...(auditNotificationService ? { auditNotificationService } : {})
+        ...(auditNotificationService ? { auditNotificationService } : {}),
+        ...(livePaymentCardService ? { livePaymentCardService } : {})
       }
     )
   } else {
@@ -315,7 +361,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             botUsername: bot.botInfo?.username
           }
         : {}),
-      ...(auditNotificationService ? { auditNotificationService } : {})
+      ...(auditNotificationService ? { auditNotificationService } : {}),
+      ...(livePaymentCardService ? { livePaymentCardService } : {})
     })
 
     financeCommands.register(bot)
@@ -397,9 +444,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           scheduledDispatchService,
           adHocNotificationRepository: adHocNotificationRepositoryClient.repository,
           householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-          sendTopicMessage: async (input) => {
-            await telegramTransport.sendTopicMessage(input)
-          },
+          sendTopicMessage: (input) => telegramTransport.sendTopicMessage(input),
           sendDirectMessage: async (input) => {
             await telegramTransport.sendDirectMessage(input)
           },
@@ -410,6 +455,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
                 auditNotificationService
               }
             : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           ...(runtime.miniAppUrl
             ? {
                 miniAppUrl: runtime.miniAppUrl
@@ -512,6 +558,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       financeServiceForHousehold,
       ...(auditNotificationService ? { auditNotificationService } : {}),
+      ...(livePaymentCardService ? { livePaymentCardService } : {}),
       ...(runtime.miniAppUrl ? { miniAppUrl: runtime.miniAppUrl } : {}),
       ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
       logger: getLogger('payment-reminders')
@@ -699,6 +746,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
           ...(auditNotificationService ? { auditNotificationService } : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -781,6 +829,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             financeServiceForHousehold,
             adHocNotificationService,
             ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(livePaymentCardService ? { livePaymentCardService } : {}),
             ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {

@@ -281,6 +281,13 @@
       "when": 1783281629866,
       "tag": "0039_drop_dm_assistant_pending_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784560295060,
+      "tag": "0040_new_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }

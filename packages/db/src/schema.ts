@@ -1000,6 +1000,36 @@ export const householdAuditEvents = pgTable(
   })
 )
 
+export const telegramPaymentCards = pgTable(
+  'telegram_payment_cards',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    period: text('period').notNull(),
+    surface: text('surface').notNull(),
+    locale: text('locale').notNull(),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramThreadId: text('telegram_thread_id'),
+    telegramMessageId: text('telegram_message_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    messageUnique: uniqueIndex('telegram_payment_cards_message_unique').on(
+      table.telegramChatId,
+      table.telegramMessageId
+    ),
+    householdPeriodIdx: index('telegram_payment_cards_household_period_idx').on(
+      table.householdId,
+      table.kind,
+      table.period
+    )
+  })
+)
+
 export const settlements = pgTable(
   'settlements',
   {

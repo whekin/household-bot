@@ -20,6 +20,7 @@ import {
   type PaymentReminderViewMode
 } from './payment-reminder-content'
 import { buildPaymentInstructionContent } from './payment-instruction-content'
+import type { LivePaymentCardService } from './live-payment-cards'
 
 const PAYMENT_REMINDER_PAID_PATTERN = new RegExp(
   `^${PAYMENT_REMINDER_PAID_CALLBACK_PREFIX}(rent|utilities):(\\d{4}-\\d{2})$`
@@ -90,6 +91,7 @@ export function registerPaymentReminderActions(options: {
   >
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   botUsername?: string
   miniAppUrl?: string
   logger?: Logger
@@ -232,6 +234,14 @@ export function registerPaymentReminderActions(options: {
       })
     }
 
+    if (closed > 0 && options.livePaymentCardService) {
+      await options.livePaymentCardService.refresh({
+        householdId: action.actorContext.householdId,
+        kind: action.kind,
+        period: action.period
+      })
+    }
+
     await refresh(ctx, action, 'compact')
   })
 
@@ -262,6 +272,13 @@ export function registerPaymentReminderActions(options: {
       },
       options.logger
     )
+    if (result && result.closedMembers.length > 0 && options.livePaymentCardService) {
+      await options.livePaymentCardService.refresh({
+        householdId: action.actorContext.householdId,
+        kind: action.kind,
+        period: action.period
+      })
+    }
     await refresh(ctx, action, 'compact')
   })
 }

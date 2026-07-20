@@ -27,6 +27,7 @@ import {
   TELEGRAM_HOME_STATUS_CALLBACK
 } from './home-menu'
 import { tryEditMessageText } from './telegram-message-edit'
+import type { LivePaymentCardService } from './live-payment-cards'
 
 type FinanceDashboardForBot = NonNullable<
   Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
@@ -902,6 +903,7 @@ export function createFinanceCommandsService(options: {
   miniAppUrl?: string
   botUsername?: string
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
 }): {
   register: (bot: Bot) => void
 } {
@@ -969,10 +971,10 @@ export function createFinanceCommandsService(options: {
         input.options as Parameters<Context['editMessageText']>[1]
       ))
     ) {
-      return
+      return null
     }
 
-    await input.ctx.reply(input.text, input.options)
+    return input.ctx.reply(input.text, input.options)
   }
 
   async function replyOrEditWithHomeMenu(input: {
@@ -2031,7 +2033,7 @@ export function createFinanceCommandsService(options: {
             orderMemberId: input.orderMemberId
           })
     })
-    await replyOrEditText({
+    const sentBill = await replyOrEditText({
       ctx: input.ctx,
       text: reply.text,
       options: {
@@ -2042,6 +2044,28 @@ export function createFinanceCommandsService(options: {
       },
       editMessage: input.editMessage
     })
+    const billMode = input.forcedMode ?? plan.billingStage
+    if (
+      sentBill &&
+      options.livePaymentCardService &&
+      (billMode === 'rent' || billMode === 'utilities') &&
+      !input.viewerMemberId &&
+      input.ctx.chat
+    ) {
+      await options.livePaymentCardService.register({
+        householdId: input.householdId,
+        kind: billMode,
+        period: plan.period,
+        surface: 'bill',
+        locale,
+        telegramChatId: input.ctx.chat.id.toString(),
+        telegramThreadId:
+          'message_thread_id' in sentBill && sentBill.message_thread_id !== undefined
+            ? sentBill.message_thread_id.toString()
+            : null,
+        telegramMessageId: sentBill.message_id.toString()
+      })
+    }
   }
 
   function statusCallbackPeriod(periodArg: string | undefined): string {

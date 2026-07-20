@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { FinanceCommandService } from '@household/application'
-import { Money } from '@household/domain'
+import { Money, Temporal } from '@household/domain'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { formatPaymentProposalText, createAgentPaymentProposal } from './payment-proposals'
@@ -195,6 +195,49 @@ function financeServiceWithUsdRent(): FinanceCommandService {
 }
 
 describe('payment proposals', () => {
+  test('uses the most recently opened payment window when rent and utilities are both unpaid', async () => {
+    const baseService = financeServiceWithUtilityPlan()
+    const service = {
+      ...baseService,
+      generateDashboard: async () => {
+        const dashboard = await baseService.generateDashboard()
+        const period = dashboard!.paymentPeriods![0]!
+        const rent = period.kinds.find((kind) => kind.kind === 'rent')!
+        rent.totalDue = Money.fromMajor('469.00', 'GEL')
+        rent.totalRemaining = Money.fromMajor('469.00', 'GEL')
+        rent.unresolvedMembers = [
+          {
+            memberId: 'dima',
+            displayName: 'Дима',
+            suggestedAmount: Money.fromMajor('469.00', 'GEL'),
+            baseDue: Money.fromMajor('469.00', 'GEL'),
+            paid: Money.zero('GEL'),
+            remaining: Money.fromMajor('469.00', 'GEL'),
+            effectivelySettled: false
+          }
+        ]
+        return dashboard
+      }
+    } as FinanceCommandService
+
+    const result = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'dima',
+      additionalMemberIds: [],
+      kind: null,
+      explicitAmount: null,
+      perMemberAmount: null,
+      financeService: service,
+      householdConfigurationRepository,
+      referenceInstant: Temporal.Instant.from('2026-06-20T12:00:00Z')
+    })
+
+    expect(result.status).toBe('proposal')
+    if (result.status !== 'proposal') return
+    expect(result.payload.kind).toBe('rent')
+    expect(result.payload.amountMinor).toBe('46900')
+  })
+
   test('uses the active utility payment-period amount instead of recomputing from purchase offset', async () => {
     const result = await createAgentPaymentProposal({
       householdId: 'household-1',

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type {
   FinanceCommandService,
+  HouseholdAuditNotificationService,
   PaymentConfirmationService,
   PaymentConfirmationSubmitResult
 } from '@household/application'
@@ -727,6 +728,12 @@ describe('publishAgentPaymentProposal', () => {
       amount: Money.fromMajor('40.00', 'GEL')
     }))
     const householdRepository = createHouseholdRepository() as never
+    const auditNotificationService = {
+      recordEvent: async (input: unknown) => {
+        calls.push({ method: 'auditNotification', payload: input })
+        return {} as never
+      }
+    } as HouseholdAuditNotificationService
 
     const proposal = await createAgentPaymentProposal({
       householdId: 'household-1',
@@ -759,7 +766,8 @@ describe('publishAgentPaymentProposal', () => {
       householdRepository,
       promptRepository,
       () => financeService,
-      () => paymentService
+      () => paymentService,
+      { auditNotificationService }
     )
 
     await bot.handleUpdate(paymentUpdate('Оплатил коммуналку за себя и за Диму') as never)
@@ -770,6 +778,9 @@ describe('publishAgentPaymentProposal', () => {
       'member-2'
     ])
     expect(resolvedMemberIds.sort()).toEqual(['member-1', 'member-2'])
+    expect(calls.findIndex((call) => call.method === 'auditNotification')).toBeLessThan(
+      calls.findLastIndex((call) => call.method === 'sendMessage')
+    )
   })
 
   test('multi-confirm still records and edits when the callback answer is stale', async () => {
@@ -831,6 +842,10 @@ describe('publishAgentPaymentProposal', () => {
     expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
     const edit = calls.findLast((call) => call.method === 'editMessageText')
     expect((edit?.payload as { text?: string } | undefined)?.text).toBe(
+      'Записал оплату коммуналки для: Stas, Dima.'
+    )
+    const closure = calls.findLast((call) => call.method === 'sendMessage')
+    expect((closure?.payload as { text?: string } | undefined)?.text).toBe(
       'Коммуналка за май 2026 г. полностью закрыта.'
     )
   })

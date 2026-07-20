@@ -47,6 +47,12 @@ export type {
   ProcessedBotMessageRepository,
   ReleaseProcessedBotMessageInput
 } from './processed-bot-messages'
+export type {
+  TelegramPaymentCardKind,
+  TelegramPaymentCardRecord,
+  TelegramPaymentCardRepository,
+  TelegramPaymentCardSurface
+} from './payment-cards'
 export {
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   HOUSEHOLD_PAYMENT_BALANCE_ADJUSTMENT_POLICIES,

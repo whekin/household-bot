@@ -679,6 +679,12 @@ export function createHouseholdAuditNotificationService(input: {
     parseMode?: 'HTML'
     replyMarkup?: unknown
   }) => Promise<HouseholdAuditNotificationSendResult | void>
+  onDelivered?: (input: {
+    event: HouseholdAuditEventRecord
+    chatId: string
+    threadId: string | null
+    messageId: string
+  }) => Promise<void>
   logger?: HouseholdAuditNotificationLogger
 }): HouseholdAuditNotificationService {
   async function markSkipped(eventId: string, reason: string) {
@@ -785,6 +791,26 @@ export function createHouseholdAuditNotificationService(input: {
           deliveredTelegramMessageId: sent?.telegramMessageId ?? null,
           deliveryError: null
         })
+        if (sent?.telegramMessageId && input.onDelivered) {
+          try {
+            await input.onDelivered({
+              event,
+              chatId: chat.telegramChatId,
+              threadId: topic?.telegramThreadId ?? null,
+              messageId: sent.telegramMessageId
+            })
+          } catch (error) {
+            input.logger?.warn(
+              {
+                event: 'household.audit_notification.post_delivery_hook_failed',
+                householdId: event.householdId,
+                auditEventId: event.id,
+                error
+              },
+              'Audit notification post-delivery hook failed'
+            )
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         input.logger?.warn(

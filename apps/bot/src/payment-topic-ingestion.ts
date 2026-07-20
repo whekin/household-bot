@@ -31,6 +31,7 @@ import {
   telegramMessageIdFromMessage,
   telegramMessageSentAtFromMessage
 } from './topic-history'
+import type { LivePaymentCardService } from './live-payment-cards'
 
 const PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX = 'payment_topic:confirm:'
 const PAYMENT_TOPIC_CANCEL_CALLBACK_PREFIX = 'payment_topic:cancel:'
@@ -440,15 +441,10 @@ function formatMultiPaymentProposalText(
 function formatMultiRecordedText(
   locale: BotLocale,
   payload: PaymentTopicMultiConfirmationPayload,
-  fullyPaid: boolean,
   handledMemberIds?: ReadonlySet<string>,
   alreadyPaidMemberIds?: ReadonlySet<string>
 ): string {
   const t = getBotTranslations(locale).payments
-  if (fullyPaid) {
-    return t.fullyPaid(payload.kind, formatPeriodLabel(locale, payload.period))
-  }
-
   const recordedNames = payload.members
     .filter((member) => member.selected && handledMemberIds?.has(member.memberId) !== false)
     .map((member) => member.displayName)
@@ -970,6 +966,7 @@ export function registerPaymentTopicCallbacks(
     historyRepository?: TopicMessageHistoryRepository
     logger?: Logger
     auditNotificationService?: HouseholdAuditNotificationService
+    livePaymentCardService?: LivePaymentCardService
   } = {}
 ): void {
   bot.callbackQuery(
@@ -1287,13 +1284,7 @@ export function registerPaymentTopicCallbacks(
           })
         : false
       const recordedText = fullyHandled
-        ? formatMultiRecordedText(
-            locale,
-            payload,
-            fullyPaid,
-            handledMemberIds,
-            alreadyPaidMemberIds
-          )
+        ? formatMultiRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
         : formatMultiPartialRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
 
       await safeEditPaymentCallbackMessage(
@@ -1360,6 +1351,23 @@ export function registerPaymentTopicCallbacks(
           summaryText: `Utilities for ${settledPeriod} are fully settled`,
           metadata: { period: settledPeriod }
         })
+      }
+
+      if (fullyHandled && options.livePaymentCardService) {
+        await options.livePaymentCardService.refresh({
+          householdId: payload.householdId,
+          kind: payload.kind,
+          period: payload.period
+        })
+      }
+
+      if (fullyPaid) {
+        await ctx.reply(
+          getBotTranslations(locale).payments.fullyPaid(
+            payload.kind,
+            formatPeriodLabel(locale, payload.period)
+          )
+        )
       }
     }
   )
@@ -1563,12 +1571,7 @@ export function registerPaymentTopicCallbacks(
               kind: payload.kind,
               period: payload.period
             })
-      const recordedText = fullyPaid
-        ? getBotTranslations(locale).payments.fullyPaid(
-            payload.kind,
-            formatPeriodLabel(locale, payload.period!)
-          )
-        : formatRecordedPaymentText(locale, payload, result.amount)
+      const recordedText = formatRecordedPaymentText(locale, payload, result.amount)
       await safeEditPaymentCallbackMessage(
         ctx,
         recordedText,
@@ -1611,6 +1614,23 @@ export function registerPaymentTopicCallbacks(
             metadata: settledPeriod ? { period: settledPeriod } : {}
           })
         }
+      }
+
+      if (payload.period && options.livePaymentCardService) {
+        await options.livePaymentCardService.refresh({
+          householdId: payload.householdId,
+          kind: payload.kind,
+          period: payload.period
+        })
+      }
+
+      if (fullyPaid) {
+        await ctx.reply(
+          getBotTranslations(locale).payments.fullyPaid(
+            payload.kind,
+            formatPeriodLabel(locale, payload.period!)
+          )
+        )
       }
     }
   )

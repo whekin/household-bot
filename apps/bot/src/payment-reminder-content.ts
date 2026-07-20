@@ -112,34 +112,6 @@ function paymentKindSummary(
   )
 }
 
-function statusLines(input: {
-  dashboard: FinanceDashboard
-  locale: BotLocale
-  period: string
-  kind: PaymentReminderKind
-  details: boolean
-}): string[] {
-  const t = getBotTranslations(input.locale).reminders
-  const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
-  const unresolved = new Set(summary?.unresolvedMembers.map((member) => member.memberId) ?? [])
-  const unresolvedLines =
-    summary?.unresolvedMembers.map(
-      (member) =>
-        `🔴 ${escapeHtml(member.displayName)} — ${escapeHtml(moneyText(member.suggestedAmount))}`
-    ) ?? []
-  if (!input.details) {
-    return unresolvedLines.length > 0 ? unresolvedLines : ['✅ ' + escapeHtml(t.everyonePaid)]
-  }
-
-  const settledLines = input.dashboard.members
-    .filter((member) => !unresolved.has(member.memberId))
-    .map((member) => `✅ ${escapeHtml(member.displayName)}`)
-
-  return unresolvedLines.length > 0
-    ? [...unresolvedLines, ...settledLines]
-    : ['✅ ' + escapeHtml(t.everyonePaid)]
-}
-
 function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): string[] {
   const destinations =
     dashboard.rentBillingState.paymentDestinations ?? dashboard.rentPaymentDestinations ?? []
@@ -147,18 +119,32 @@ function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): s
     return [`• ${escapeHtml(getBotTranslations(locale).reminders.noRentDestinations)}`]
   }
 
-  return destinations.flatMap((destination) => [
-    `• <b>${escapeHtml(destination.label)}</b>`,
-    `  ${escapeHtml(destination.recipientName ?? destination.bankName ?? 'Account')}: <code>${escapeHtml(destination.account)}</code>`,
-    ...(destination.note ? [`  ${escapeHtml(destination.note)}`] : []),
-    ...(destination.link ? [`  ${escapeHtml(destination.link)}`] : [])
-  ])
+  return destinations.flatMap((destination) => {
+    const title = [destination.bankName, destination.label]
+      .filter((value): value is string => Boolean(value))
+      .join(' · ')
+
+    return [
+      `🏦 <b>${escapeHtml(title)}</b>`,
+      ...(destination.recipientName
+        ? [
+            `${escapeHtml(locale === 'ru' ? 'Получатель' : 'Recipient')}: ${escapeHtml(destination.recipientName)}`
+          ]
+        : []),
+      `${escapeHtml(locale === 'ru' ? 'Счёт' : 'Account')}: <code>${escapeHtml(destination.account)}</code>`,
+      ...(destination.note ? [escapeHtml(destination.note)] : []),
+      ...(destination.link ? [escapeHtml(destination.link)] : [])
+    ]
+  })
 }
 
-function rentMemberAmountLines(dashboard: FinanceDashboard): string[] {
+function rentMemberAmountLines(dashboard: FinanceDashboard, locale: BotLocale): string[] {
   return dashboard.rentBillingState.memberSummaries.map((member) => {
-    const paid = member.remaining.amountMinor <= 0n ? '✅' : '🔴'
-    return `${paid} ${escapeHtml(member.displayName)} — ${escapeHtml(moneyText(member.remaining.amountMinor > 0n ? member.remaining : member.due))}`
+    return member.remaining.amountMinor > 0n
+      ? `👤 <b>${escapeHtml(member.displayName)}</b> — ${escapeHtml(moneyText(member.remaining))}`
+      : `✅ <b>${escapeHtml(member.displayName)}</b> — ${escapeHtml(
+          locale === 'ru' ? 'оплачено' : 'paid'
+        )}`
   })
 }
 
@@ -240,6 +226,27 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
   const detailMode = input.viewMode === 'details' ? 'compact' : 'details'
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
 
+  if (input.kind === 'rent' && input.viewMode !== 'confirm-close') {
+    const destinations =
+      input.dashboard.rentBillingState.paymentDestinations ??
+      input.dashboard.rentPaymentDestinations ??
+      []
+    for (const destination of destinations) {
+      if (destination.account.length === 0 || destination.account.length > 256) {
+        continue
+      }
+      rows.push([
+        {
+          text:
+            input.locale === 'ru'
+              ? `📋 Скопировать счёт · ${(destination.bankName ?? destination.label).slice(0, 40)}`
+              : `📋 Copy account · ${(destination.bankName ?? destination.label).slice(0, 40)}`,
+          copy_text: { text: destination.account }
+        }
+      ])
+    }
+  }
+
   if (!fullyPaid && input.viewMode !== 'confirm-close') {
     rows.push([
       {
@@ -304,13 +311,10 @@ export function buildPaymentReminderMessageContentForSurface(
   const t = getBotTranslations(input.locale).reminders
   const month = formatBillingMonth(input.locale, input.period)
   const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
-  const details = input.viewMode === 'details' || input.viewMode === 'confirm-close'
   const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
   const title =
     input.kind === 'rent'
-      ? input.dispatchKind === 'rent_warning'
-        ? `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Скоро аренда' : 'Rent coming up')}</b>`
-        : `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Аренда к оплате' : 'Rent due')}</b>`
+      ? `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Аренда' : 'Rent')} · ${escapeHtml(month)}</b>`
       : `💡 <b>${escapeHtml(input.locale === 'ru' ? 'Коммуналка к оплате' : 'Utilities due')}</b>`
   const dueDate =
     input.kind === 'rent'
@@ -318,52 +322,44 @@ export function buildPaymentReminderMessageContentForSurface(
       : input.dashboard.utilityBillingPlan
         ? formatDueDate(input.locale, input.dashboard.utilityBillingPlan.dueDate)
         : month
-  const lines = [
-    title,
-    `📅 ${escapeHtml(month)} · ${escapeHtml(input.locale === 'ru' ? 'срок' : 'due')} ${escapeHtml(dueDate)}`
-  ]
+  const lines =
+    input.kind === 'rent'
+      ? [
+          title,
+          `📅 ${escapeHtml(input.locale === 'ru' ? 'Оплатить до' : 'Pay by')} ${escapeHtml(dueDate)}`
+        ]
+      : [
+          title,
+          `📅 ${escapeHtml(month)} · ${escapeHtml(input.locale === 'ru' ? 'срок' : 'due')} ${escapeHtml(dueDate)}`
+        ]
 
   if (fullyPaid) {
     lines.push('', `✅ <b>${escapeHtml(t.fullyPaid(input.kind, month))}</b>`)
-  } else {
+  } else if (input.kind === 'utilities') {
     lines.push(
       '',
       `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`
     )
 
-    if (input.kind === 'utilities') {
-      // One block per member: name + total, then their bills underneath.
-      lines.push(
-        '',
-        `<b>${escapeHtml(input.locale === 'ru' ? 'Кто сколько платит' : 'Who pays what')}</b>`,
-        ...utilitiesByMemberLines({
-          dashboard: input.dashboard,
-          locale: input.locale,
-          period: input.period
-        })
-      )
-    } else {
-      lines.push(
-        '',
-        `<b>${escapeHtml(input.locale === 'ru' ? 'Статус' : 'Status')}</b>`,
-        ...statusLines({
-          dashboard: input.dashboard,
-          locale: input.locale,
-          period: input.period,
-          kind: input.kind,
-          details
-        })
-      )
-    }
+    // One block per member: name + total, then their bills underneath.
+    lines.push(
+      '',
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Кто сколько платит' : 'Who pays what')}</b>`,
+      ...utilitiesByMemberLines({
+        dashboard: input.dashboard,
+        locale: input.locale,
+        period: input.period
+      })
+    )
   }
 
   if (input.kind === 'rent') {
     lines.push(
       '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Сколько платить' : 'Amounts by member')}</b>`,
-      ...rentMemberAmountLines(input.dashboard),
+      `<b>${escapeHtml(input.locale === 'ru' ? 'К оплате' : 'Amount due')}</b>`,
+      ...rentMemberAmountLines(input.dashboard, input.locale),
       '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Куда платить' : 'Where to pay')}</b>`,
+      `<b>${escapeHtml(input.locale === 'ru' ? 'Куда переводить' : 'Where to pay')}</b>`,
       ...rentDestinationLines(input.dashboard, input.locale)
     )
   }

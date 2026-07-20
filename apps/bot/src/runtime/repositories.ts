@@ -5,6 +5,7 @@ import {
   createDbProcessedBotMessageRepository,
   createDbScheduledDispatchRepository,
   createDbTelegramPendingActionRepository,
+  createDbTelegramPaymentCardRepository,
   createDbTopicMessageHistoryRepository
 } from '@household/adapters-db'
 
@@ -39,6 +40,9 @@ export function createBotRepositoryClients(
   const auditNotification = runtime.databaseUrl
     ? createDbAuditNotificationRepository(runtime.databaseUrl)
     : null
+  const paymentCards = runtime.databaseUrl
+    ? createDbTelegramPaymentCardRepository(runtime.databaseUrl)
+    : null
 
   const closeableClients = [
     householdConfiguration,
@@ -48,7 +52,8 @@ export function createBotRepositoryClients(
     purchaseMessages,
     topicMessageHistory,
     adHocNotification,
-    auditNotification
+    auditNotification,
+    paymentCards
   ]
 
   return {
@@ -60,6 +65,7 @@ export function createBotRepositoryClients(
     topicMessageHistory,
     adHocNotification,
     auditNotification,
+    paymentCards,
     close: async () => {
       await Promise.allSettled(closeableClients.map((client) => client?.close()))
     }

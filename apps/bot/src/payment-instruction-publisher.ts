@@ -7,6 +7,7 @@ import type {
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { buildPaymentInstructionContent } from './payment-instruction-content'
+import type { LivePaymentCardService } from './live-payment-cards'
 
 export type PaymentInstructionKind = 'utilities' | 'rent'
 
@@ -42,7 +43,8 @@ export function createPaymentInstructionPublisher(options: {
     text: string
     parseMode?: 'HTML'
     replyMarkup?: InlineKeyboardMarkup
-  }) => Promise<void>
+  }) => Promise<{ telegramMessageId: string } | void>
+  livePaymentCardService?: LivePaymentCardService
   botUsername?: string
   miniAppUrl?: string
   logger?: Logger
@@ -120,7 +122,7 @@ export function createPaymentInstructionPublisher(options: {
           ...(options.miniAppUrl ? { miniAppUrl: options.miniAppUrl } : {})
         })
 
-        await options.sendTopicMessage({
+        const sent = await options.sendTopicMessage({
           householdId: input.householdId,
           chatId: chat.telegramChatId,
           threadId: paymentsTopic.telegramThreadId,
@@ -128,6 +130,18 @@ export function createPaymentInstructionPublisher(options: {
           parseMode: content.parseMode,
           ...(content.replyMarkup ? { replyMarkup: content.replyMarkup } : {})
         })
+        if (sent?.telegramMessageId && options.livePaymentCardService) {
+          await options.livePaymentCardService.register({
+            householdId: input.householdId,
+            kind: input.kind,
+            period: input.period,
+            surface: 'instruction',
+            locale: chat.defaultLocale,
+            telegramChatId: chat.telegramChatId,
+            telegramThreadId: paymentsTopic.telegramThreadId,
+            telegramMessageId: sent.telegramMessageId
+          })
+        }
 
         return { status: 'sent' }
       } catch (error) {

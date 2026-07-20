@@ -3,7 +3,7 @@ import {
   type FinanceCommandService,
   type MemberPaymentGuidance
 } from '@household/application'
-import { convertMoney, Money } from '@household/domain'
+import { convertMoney, Money, Temporal } from '@household/domain'
 import type {
   FinanceMemberRecord,
   FinancePaymentKind,
@@ -111,6 +111,7 @@ function inferActivePaymentKind(input: {
   dashboard: Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
   memberIds: readonly string[]
   settings: Parameters<typeof buildMemberPaymentGuidance>[0]['settings']
+  referenceInstant?: Temporal.Instant
 }): FinancePaymentKind | null {
   const dashboard = input.dashboard
   if (!dashboard) {
@@ -132,6 +133,47 @@ function inferActivePaymentKind(input: {
 
   if (unresolvedKinds.length === 1) {
     return unresolvedKinds[0]!
+  }
+
+  if (unresolvedKinds.length > 1) {
+    const latestOpenWindow = unresolvedKinds
+      .map((kind) => {
+        const memberLine = dashboard.members.find((member) => memberIds.has(member.memberId))
+        if (!memberLine) {
+          return null
+        }
+        const guidance = buildMemberPaymentGuidance({
+          kind,
+          period: dashboard.period,
+          memberLine,
+          settings: input.settings,
+          paymentKindSummary: currentKindSummary({
+            dashboard,
+            period: dashboard.period,
+            kind
+          }),
+          ...(input.referenceInstant ? { referenceInstant: input.referenceInstant } : {})
+        })
+        return guidance.paymentWindowOpen
+          ? {
+              kind,
+              reminderDate: guidance.reminderDate
+            }
+          : null
+      })
+      .filter(
+        (
+          candidate
+        ): candidate is {
+          kind: FinancePaymentKind
+          reminderDate: string
+        } => candidate !== null
+      )
+      .sort((left, right) => right.reminderDate.localeCompare(left.reminderDate))[0]
+
+    if (latestOpenWindow) {
+      return latestOpenWindow.kind
+    }
   }
 
   if (dashboard.billingStage === 'rent' || dashboard.billingStage === 'utilities') {
@@ -394,6 +436,7 @@ export async function createAgentPaymentProposal(input: {
   perMemberAmount: Money | null
   financeService: FinanceCommandService
   householdConfigurationRepository: HouseholdConfigurationRepository
+  referenceInstant?: Temporal.Instant
 }): Promise<AgentPaymentProposalResult> {
   const [settings, dashboard, members] = await Promise.all([
     input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
@@ -418,7 +461,8 @@ export async function createAgentPaymentProposal(input: {
     inferActivePaymentKind({
       dashboard,
       memberIds: targetMemberIds,
-      settings
+      settings,
+      ...(input.referenceInstant ? { referenceInstant: input.referenceInstant } : {})
     })
   if (!kind) {
     return { status: 'no_action', reason: 'payment_kind_ambiguous' }

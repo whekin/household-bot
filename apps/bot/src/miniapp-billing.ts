@@ -6,6 +6,7 @@ import type {
 } from '@household/application'
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
+import type { LivePaymentCardService } from './live-payment-cards'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 import { formatUserFacingMoney } from './i18n/money'
@@ -1995,6 +1996,7 @@ export function createMiniAppAddPaymentHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -2075,6 +2077,11 @@ export function createMiniAppAddPaymentHandler(options: {
             period: payment.period
           }
         })
+        await options.livePaymentCardService?.refresh({
+          householdId: auth.member.householdId,
+          kind: payload.kind,
+          period: payment.period
+        })
         options.logger?.info(
           {
             event: 'miniapp.payment.record_completed',
@@ -2105,6 +2112,7 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
   onboardingService: HouseholdOnboardingService
   adHocNotificationService: AdHocNotificationService
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   householdConfigurationRepository?: Pick<
     HouseholdConfigurationRepository,
     'listHouseholdUtilityCategories'
@@ -2220,6 +2228,11 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
               })),
               skippedMembers: result.skippedMembers
             }
+          })
+          await options.livePaymentCardService?.refresh({
+            householdId: auth.member.householdId,
+            kind: result.kind,
+            period: result.period
           })
         }
 

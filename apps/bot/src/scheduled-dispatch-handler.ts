@@ -14,6 +14,7 @@ import type {
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { buildTopicNotificationText } from './ad-hoc-notifications'
+import type { LivePaymentCardService } from './live-payment-cards'
 import type { PaymentInstructionPublisher } from './payment-instruction-publisher'
 import { buildScheduledReminderMessageContent } from './scheduled-reminder-content'
 
@@ -74,11 +75,12 @@ export function createScheduledDispatchHandler(options: {
     text: string
     parseMode?: 'HTML'
     replyMarkup?: InlineKeyboardMarkup
-  }) => Promise<void>
+  }) => Promise<{ telegramMessageId: string } | void>
   sendDirectMessage: (input: { telegramUserId: string; text: string }) => Promise<void>
   financeServiceForHousehold?: (householdId: string) => FinanceCommandService
   paymentInstructionPublisher?: PaymentInstructionPublisher
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   miniAppUrl?: string
   botUsername?: string
   logger?: Logger
@@ -284,8 +286,15 @@ export function createScheduledDispatchHandler(options: {
           : {})
       })
 
+      let deliveredMessage:
+        | {
+            chatId: string
+            threadId: string | null
+            messageId: string
+          }
+        | undefined
       if (options.auditNotificationService) {
-        await options.auditNotificationService.recordEvent({
+        const event = await options.auditNotificationService.recordEvent({
           householdId: dispatch.householdId,
           actorMemberId: null,
           actorDisplayName: 'System',
@@ -295,7 +304,7 @@ export function createScheduledDispatchHandler(options: {
           metadata: {
             dispatchId: dispatch.id,
             kind: dispatch.kind,
-            period: dispatch.period ?? null
+            period
           },
           ...(content.parseMode ? { parseMode: content.parseMode } : {}),
           ...(content.parseMode
@@ -310,8 +319,15 @@ export function createScheduledDispatchHandler(options: {
               }
             : {})
         })
+        if (event.deliveredTelegramChatId && event.deliveredTelegramMessageId) {
+          deliveredMessage = {
+            chatId: event.deliveredTelegramChatId,
+            threadId: event.deliveredTelegramThreadId,
+            messageId: event.deliveredTelegramMessageId
+          }
+        }
       } else {
-        await options.sendTopicMessage({
+        const sent = await options.sendTopicMessage({
           householdId: dispatch.householdId,
           chatId: chat.telegramChatId,
           threadId: reminderTopic?.telegramThreadId ?? null,
@@ -322,6 +338,26 @@ export function createScheduledDispatchHandler(options: {
                 replyMarkup: content.replyMarkup
               }
             : {})
+        })
+        if (sent?.telegramMessageId) {
+          deliveredMessage = {
+            chatId: chat.telegramChatId,
+            threadId: reminderTopic?.telegramThreadId ?? null,
+            messageId: sent.telegramMessageId
+          }
+        }
+      }
+
+      if (dashboard && deliveredMessage && options.livePaymentCardService) {
+        await options.livePaymentCardService.register({
+          householdId: dispatch.householdId,
+          kind: dispatch.kind === 'utilities' ? 'utilities' : 'rent',
+          period,
+          surface: 'reminder',
+          locale: chat.defaultLocale,
+          telegramChatId: deliveredMessage.chatId,
+          telegramThreadId: deliveredMessage.threadId,
+          telegramMessageId: deliveredMessage.messageId
         })
       }
 
