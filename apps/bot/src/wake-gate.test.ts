@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   assessWake,
   isRecentBotConversationFollowUp,
+  looksLikeCompletedPurchaseFact,
   mentionsBotName,
   type WakeClassifier
 } from './wake-gate'
@@ -70,6 +71,18 @@ describe('mentionsBotName', () => {
   test('does not fire inside other words', () => {
     expect(mentionsBotName('забота о доме')).toBe(false)
     expect(mentionsBotName('мы работаем')).toBe(false)
+  })
+})
+
+describe('looksLikeCompletedPurchaseFact', () => {
+  test('recognizes a multiline feminine purchase caption with an explicit amount', () => {
+    expect(looksLikeCompletedPurchaseFact('Крючки на кухню\n3 лари\nКупила')).toBe(true)
+  })
+
+  test('rejects hypothetical and negated purchase wording', () => {
+    expect(looksLikeCompletedPurchaseFact('Купила бы крючки за 3 лари')).toBe(false)
+    expect(looksLikeCompletedPurchaseFact('Крючки 3 лари, но не купила')).toBe(false)
+    expect(looksLikeCompletedPurchaseFact('Кто купил крючки за 3 лари?')).toBe(false)
   })
 })
 
@@ -186,6 +199,20 @@ describe('assessWake', () => {
     })
 
     expect(decision).toEqual({ wake: true, reason: 'payment_fact' })
+  })
+
+  test('a clear completed purchase caption wakes without relying on the classifier', async () => {
+    const { classifier, calls } = classifierStub({ completedPurchaseFact: false })
+
+    const decision = await assessWake({
+      ...baseInput,
+      topicRole: 'purchase',
+      messageText: 'Крючки на кухню\n3 лари\nКупила',
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'purchase_fact' })
+    expect(calls).toHaveLength(0)
   })
 
   test('a payment fact outside the payments topic does not wake', async () => {

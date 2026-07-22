@@ -45,6 +45,36 @@ const BOT_NAME_PATTERN =
   /(?:^|[^\p{L}\p{N}])(?:бот[а-яё]{0,3}|кожур[а-яё]{0,3}|кожор[а-яё]{0,3}|bot|kojori)(?=$|[^\p{L}\p{N}])/iu
 
 const CONVERSATION_FOLLOW_UP_WINDOW_MS = 5 * 60_000
+const COMPLETED_PURCHASE_VERB_PATTERN =
+  /(?:^|[^\p{L}])(?:купил(?:а|и)?|приобр[её]л(?:а|и)?|bought|purchased)(?=$|[^\p{L}])/iu
+const EXPLICIT_PURCHASE_AMOUNT_PATTERN =
+  /\d+(?:[.,]\d{1,2})?\s*(?:₾|gel|lari|лари|usd|\$|доллар(?:а|ов)?)(?=$|[^\p{L}])/iu
+
+export function looksLikeCompletedPurchaseFact(messageText: string): boolean {
+  if (messageText.includes('?') || !EXPLICIT_PURCHASE_AMOUNT_PATTERN.test(messageText)) {
+    return false
+  }
+
+  const verb = COMPLETED_PURCHASE_VERB_PATTERN.exec(messageText)
+  if (!verb) {
+    return false
+  }
+
+  const verbText = verb[0].trim()
+  const verbStart = verb.index + verb[0].indexOf(verbText)
+  const before = messageText
+    .slice(0, verbStart)
+    .trimEnd()
+    .match(/[\p{L}]+$/u)?.[0]
+    ?.toLowerCase()
+  const after = messageText
+    .slice(verbStart + verbText.length)
+    .trimStart()
+    .match(/^[\p{L}]+/u)?.[0]
+    ?.toLowerCase()
+
+  return before !== 'не' && after !== 'бы'
+}
 
 export function isRecentBotConversationFollowUp(input: {
   senderTelegramUserId: string
@@ -83,7 +113,7 @@ const WAKE_CLASSIFIER_SYSTEM_PROMPT = `You watch one message in a shared househo
 
 2. completedPaymentFact — the message states a household member has COMPLETED a rent or utilities payment (e.g. "оплатил коммуналку", "закинул за себя и за Иона", "paid rent"). Future intent ("надо оплатить", "завтра закину", "могу оплатить"), offers, requests to others, and questions are NOT payment facts. When unsure, answer false.
 
-3. completedPurchaseFact — the message states a COMPLETED shared household purchase with an item (e.g. "купил корм 12 лари"). Plans, wishes, and price chatter are NOT purchase facts. When unsure, answer false.
+3. completedPurchaseFact — the message states a COMPLETED shared household purchase with an item (e.g. "купил корм 12 лари", "крючки 3 лари, купила"). Masculine and feminine completed-purchase wording are equivalent. Plans, wishes, questions, and price chatter are NOT purchase facts. When unsure, answer false.
 
 4. notificationRequest — the message asks to schedule, set, move, or cancel a household reminder/notification (e.g. "напомни завтра про уборку", "напомни оплатить свет 24-го"). Ordinary chatter about plans is NOT a request. When unsure, answer false.
 
@@ -216,6 +246,10 @@ export async function assessWake(input: {
 
   if (input.hasActiveWorkflow) {
     return { wake: true, reason: 'active_workflow' }
+  }
+
+  if (input.topicRole === 'purchase' && looksLikeCompletedPurchaseFact(input.messageText)) {
+    return { wake: true, reason: 'purchase_fact' }
   }
 
   const namePresent = mentionsBotName(input.messageText, input.botUsername)
