@@ -40,12 +40,10 @@ function toneClass(tone: SemanticMoneyTone): string {
 export function PurchaseStream({
   model,
   currentMemberId,
-  canAddPurchase,
   onAddPurchase
 }: {
   model: TodayViewModel
   currentMemberId: string | null
-  canAddPurchase: boolean
   onAddPurchase: () => void
 }) {
   const { copy, locale } = useI18n()
@@ -94,12 +92,10 @@ export function PurchaseStream({
           title={copy.todayPurchaseCommandTitle}
           hint={copy.todayPurchaseCommandBody}
           action={
-            canAddPurchase ? (
-              <Button variant="primary" size="sm" onClick={onAddPurchase}>
-                <Plus className="size-3.5" />
-                {copy.todayAddPurchase}
-              </Button>
-            ) : undefined
+            <Button variant="primary" size="sm" onClick={onAddPurchase}>
+              <Plus className="size-3.5" />
+              {copy.todayAddPurchase}
+            </Button>
           }
         />
       </div>

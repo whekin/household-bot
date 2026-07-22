@@ -152,7 +152,7 @@ export function HomeView() {
         onCloseMine={() => void closeCurrentMember()}
       />
 
-      {effectiveIsAdmin ? <QuickPurchaseComposer currentMemberId={currentMemberId} /> : null}
+      <QuickPurchaseComposer currentMemberId={currentMemberId} />
 
       {model.stage === 'utilities' ? <UtilitiesBillsPanel /> : null}
       {model.stage === 'rent' ? <RentDetailsPanel model={model} /> : null}
@@ -178,7 +178,6 @@ export function HomeView() {
       <PurchaseStream
         model={model}
         currentMemberId={currentMemberId}
-        canAddPurchase={effectiveIsAdmin}
         onAddPurchase={scrollToComposer}
       />
 

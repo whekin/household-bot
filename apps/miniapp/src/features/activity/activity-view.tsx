@@ -151,16 +151,12 @@ export function ActivityView() {
   }
 
   const chooserItems = [
-    ...(effectiveIsAdmin
-      ? [
-          {
-            id: 'purchase',
-            label: copy.purchaseAddAction,
-            icon: <ShoppingBag className="size-4" />,
-            onSelect: () => setPurchaseEditor({ open: true, entry: null })
-          }
-        ]
-      : []),
+    {
+      id: 'purchase',
+      label: copy.purchaseAddAction,
+      icon: <ShoppingBag className="size-4" />,
+      onSelect: () => setPurchaseEditor({ open: true, entry: null })
+    },
     {
       id: 'utility',
       label: copy.addUtilityBillAction,

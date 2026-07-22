@@ -1695,7 +1695,7 @@ export function createMiniAppAddPurchaseHandler(options: {
       }
 
       try {
-        const auth = await authenticateAdminSession(
+        const auth = await authenticateMemberSession(
           request.clone() as Request,
           sessionService,
           origin

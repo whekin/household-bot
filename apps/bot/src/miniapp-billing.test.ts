@@ -825,7 +825,7 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
 })
 
 describe('createMiniAppAddPurchaseHandler', () => {
-  test('rejects inactive admins before purchase creation', async () => {
+  test('rejects inactive members before purchase creation', async () => {
     const repository = {
       ...onboardingRepository(),
       listHouseholdMembersByTelegramUserId: async () => [
@@ -884,8 +884,23 @@ describe('createMiniAppAddPurchaseHandler', () => {
     expect(serviceCalled).toBe(false)
   })
 
-  test('forwards purchase creation with split to the finance service', async () => {
-    const repository = onboardingRepository()
+  test('lets an active non-admin member create a purchase with a split', async () => {
+    const repository = {
+      ...onboardingRepository(),
+      listHouseholdMembersByTelegramUserId: async () => [
+        {
+          id: 'member-123456',
+          householdId: 'household-1',
+          telegramUserId: '123456',
+          displayName: 'Stan',
+          status: 'active' as const,
+          preferredLocale: null,
+          householdDefaultLocale: 'ru' as const,
+          rentShareWeight: 1,
+          isAdmin: false
+        }
+      ]
+    } satisfies HouseholdConfigurationRepository
     let capturedArgs: any = null
     const audit = createAuditNotificationServiceStub()
     const purchaseTopicNoticeService = createPurchaseTopicNoticeServiceStub()
