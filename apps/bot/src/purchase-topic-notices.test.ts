@@ -55,6 +55,7 @@ function purchase(input: Partial<FinanceParsedPurchaseRecord> = {}): FinancePars
     id: input.id ?? 'purchase-1',
     cycleId: input.cycleId ?? 'cycle-1',
     cyclePeriod: input.cyclePeriod ?? '2026-03',
+    createdByMemberId: input.createdByMemberId ?? 'member-1',
     payerMemberId: input.payerMemberId ?? 'member-1',
     amountMinor: input.amountMinor ?? 3000n,
     currency: input.currency ?? 'GEL',

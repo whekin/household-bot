@@ -38,6 +38,7 @@ export interface FinanceParsedPurchaseRecord {
   id: string
   cycleId: string | null
   cyclePeriod?: string | null
+  createdByMemberId: string | null
   payerMemberId: string
   amountMinor: bigint
   currency: CurrencyCode
@@ -340,6 +341,7 @@ export interface FinanceRepository {
   }): Promise<void>
   addParsedPurchase(input: {
     cycleId: string
+    createdByMemberId: string
     payerMemberId: string
     amountMinor: bigint
     currency: CurrencyCode

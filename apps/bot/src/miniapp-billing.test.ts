@@ -8,6 +8,7 @@ import type {
 import { createHouseholdOnboardingService } from '@household/application'
 import { DOMAIN_ERROR_CODE, DomainError, instantFromIso, Money } from '@household/domain'
 import type {
+  FinanceParsedPurchaseRecord,
   HouseholdConfigurationRepository,
   HouseholdTopicBindingRecord
 } from '@household/ports'
@@ -264,6 +265,77 @@ function createDashboardStub() {
   }
 }
 
+function activeResidentRepository(): HouseholdConfigurationRepository {
+  return {
+    ...onboardingRepository(),
+    listHouseholdMembersByTelegramUserId: async () => [
+      {
+        id: 'member-123456',
+        householdId: 'household-1',
+        telegramUserId: '123456',
+        displayName: 'Stan',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+  }
+}
+
+function purchaseRecord(
+  input: Partial<FinanceParsedPurchaseRecord> = {}
+): FinanceParsedPurchaseRecord {
+  return {
+    id: input.id ?? 'purchase-1',
+    cycleId: input.cycleId ?? 'cycle-2026-03',
+    cyclePeriod: input.cyclePeriod ?? '2026-03',
+    createdByMemberId: input.createdByMemberId ?? 'member-123456',
+    payerMemberId: input.payerMemberId ?? 'member-123456',
+    amountMinor: input.amountMinor ?? 3000n,
+    currency: input.currency ?? 'GEL',
+    description: input.description ?? 'Kettle',
+    occurredAt: input.occurredAt ?? instantFromIso('2026-03-12T12:00:00.000Z'),
+    splitMode: input.splitMode ?? 'equal',
+    participants: input.participants ?? []
+  }
+}
+
+function dashboardWithPurchase(input?: {
+  createdByMemberId?: string
+  hasRecordedAllocations?: boolean
+  isCurrentCyclePurchase?: boolean
+}) {
+  return {
+    ...createDashboardStub(),
+    ledger: [
+      {
+        id: 'purchase-1',
+        kind: 'purchase' as const,
+        title: 'Kettle',
+        memberId: 'member-123456',
+        amount: Money.fromMinor(3000n, 'GEL'),
+        currency: 'GEL' as const,
+        displayAmount: Money.fromMinor(3000n, 'GEL'),
+        displayCurrency: 'GEL' as const,
+        fxRateMicros: null,
+        fxEffectiveDate: null,
+        actorDisplayName: 'Stan',
+        occurredAt: '2026-03-12T12:00:00.000Z',
+        paymentKind: null,
+        createdByMemberId: input?.createdByMemberId ?? 'member-123456',
+        payerMemberId: 'member-123456',
+        purchaseSplitMode: 'equal' as const,
+        isCurrentCyclePurchase: input?.isCurrentCyclePurchase ?? true,
+        hasRecordedAllocations: input?.hasRecordedAllocations ?? false,
+        resolutionStatus: 'unresolved' as const,
+        outstandingByMember: []
+      }
+    ]
+  }
+}
+
 function createFinanceServiceStub(): FinanceCommandService & {
   resolvedUtilityPlans: Array<Parameters<FinanceCommandService['resolveUtilityBillAsPlanned']>[0]>
   utilityVendorPayments: Array<{
@@ -382,7 +454,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
     }),
     deletePayment: async () => true,
     getPayment: async () => null,
-    getPurchase: async () => null,
+    getPurchase: async () => purchaseRecord(),
     generateCurrentBillPlan: async () => null,
     resolveUtilityBillAsPlanned: async function (input) {
       this.resolvedUtilityPlans.push(input)
@@ -822,6 +894,143 @@ describe('createMiniAppUpdatePurchaseHandler', () => {
       }
     ])
   })
+
+  test('lets a resident update their own current unallocated purchase', async () => {
+    let updateCalled = false
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => dashboardWithPurchase(),
+      updatePurchase: async () => {
+        updateCalled = true
+        return {
+          purchaseId: 'purchase-1',
+          amount: Money.fromMinor(3200n, 'GEL'),
+          currency: 'GEL' as const
+        }
+      }
+    }
+    const handler = createMiniAppUpdatePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1',
+          description: 'Kettle and filters',
+          amountMajor: '32',
+          currency: 'GEL',
+          payerMemberId: 'member-123456'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(updateCalled).toBe(true)
+  })
+
+  test('rejects a resident updating another member purchase', async () => {
+    let updateCalled = false
+    const financeService = {
+      ...createFinanceServiceStub(),
+      getPurchase: async () => purchaseRecord({ createdByMemberId: 'member-other' }),
+      updatePurchase: async () => {
+        updateCalled = true
+        return null
+      }
+    }
+    const handler = createMiniAppUpdatePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1',
+          description: 'Kettle',
+          amountMajor: '30',
+          currency: 'GEL'
+        })
+      })
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'You can only change purchases you added'
+    })
+    expect(updateCalled).toBe(false)
+  })
+
+  test('rejects a resident changing the payer of their purchase', async () => {
+    let updateCalled = false
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => dashboardWithPurchase(),
+      updatePurchase: async () => {
+        updateCalled = true
+        return null
+      }
+    }
+    const handler = createMiniAppUpdatePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/update', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1',
+          description: 'Kettle',
+          amountMajor: '30',
+          currency: 'GEL',
+          payerMemberId: 'member-other'
+        })
+      })
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Members cannot change the purchase payer'
+    })
+    expect(updateCalled).toBe(false)
+  })
 })
 
 describe('createMiniAppAddPurchaseHandler', () => {
@@ -921,9 +1130,19 @@ describe('createMiniAppAddPurchaseHandler', () => {
           amountArg: string,
           payerMemberId: string,
           currencyArg?: string,
-          split?: any
+          split?: any,
+          occurredOnArg?: string,
+          createdByMemberId?: string
         ) => {
-          capturedArgs = { description, amountArg, payerMemberId, currencyArg, split }
+          capturedArgs = {
+            description,
+            amountArg,
+            payerMemberId,
+            currencyArg,
+            split,
+            occurredOnArg,
+            createdByMemberId
+          }
           return {
             purchaseId: 'new-purchase-1',
             amount: Money.fromMinor(3000n, 'GEL'),
@@ -969,6 +1188,8 @@ describe('createMiniAppAddPurchaseHandler', () => {
       amountArg: '30',
       payerMemberId: 'member-123456',
       currencyArg: 'GEL',
+      occurredOnArg: undefined,
+      createdByMemberId: 'member-123456',
       split: {
         mode: 'equal',
         participants: [
@@ -1001,6 +1222,53 @@ describe('createMiniAppAddPurchaseHandler', () => {
         purchaseId: 'new-purchase-1'
       }
     ])
+  })
+
+  test('rejects a resident recording a purchase for another payer', async () => {
+    let serviceCalled = false
+    const handler = createMiniAppAddPurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => ({
+        ...createFinanceServiceStub(),
+        addPurchase: async () => {
+          serviceCalled = true
+          return {
+            purchaseId: 'purchase-1',
+            amount: Money.fromMinor(3000n, 'GEL'),
+            currency: 'GEL'
+          }
+        }
+      })
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          description: 'Pizza',
+          amountMajor: '30',
+          currency: 'GEL',
+          payerMemberId: 'member-other'
+        })
+      })
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'Members can only record purchases they paid for'
+    })
+    expect(serviceCalled).toBe(false)
   })
 
   test('returns 400 for purchase mutation validation errors before dashboard refresh', async () => {
@@ -1233,6 +1501,89 @@ describe('createMiniAppDeletePurchaseHandler', () => {
         purchaseId: 'purchase-1'
       }
     ])
+  })
+
+  test('lets a resident delete their own current unallocated purchase', async () => {
+    let deleteCalled = false
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => dashboardWithPurchase(),
+      deletePurchase: async () => {
+        deleteCalled = true
+        return true
+      }
+    }
+    const handler = createMiniAppDeletePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/delete', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(deleteCalled).toBe(true)
+  })
+
+  test('locks resident deletion after a purchase has recorded allocations', async () => {
+    let deleteCalled = false
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () =>
+        dashboardWithPurchase({
+          hasRecordedAllocations: true
+        }),
+      deletePurchase: async () => {
+        deleteCalled = true
+        return true
+      }
+    }
+    const handler = createMiniAppDeletePurchaseHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository: activeResidentRepository()
+      }),
+      adHocNotificationService,
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/purchases/delete', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          purchaseId: 'purchase-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'This purchase can no longer be changed'
+    })
+    expect(deleteCalled).toBe(false)
   })
 })
 

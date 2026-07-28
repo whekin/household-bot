@@ -7,7 +7,10 @@ import type {
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type { LivePaymentCardService } from './live-payment-cards'
-import type { HouseholdConfigurationRepository } from '@household/ports'
+import type {
+  FinanceParsedPurchaseRecord,
+  HouseholdConfigurationRepository
+} from '@household/ports'
 import type { MiniAppSessionResult } from './miniapp-auth'
 import { formatUserFacingMoney } from './i18n/money'
 import { loadMiniAppDashboardPayload } from './miniapp-dashboard'
@@ -313,6 +316,53 @@ async function authenticateMemberSession(
   return {
     member: session.member
   }
+}
+
+async function authorizePurchaseMutation(input: {
+  service: FinanceCommandService
+  member: NonNullable<MiniAppSessionResult['member']>
+  purchaseId: string
+  origin: string | undefined
+}): Promise<Response | { purchase: FinanceParsedPurchaseRecord }> {
+  const purchase = await input.service.getPurchase(input.purchaseId)
+  if (!purchase) {
+    return miniAppJsonResponse({ ok: false, error: 'Purchase not found' }, 404, input.origin)
+  }
+
+  if (input.member.isAdmin) {
+    return { purchase }
+  }
+
+  if (purchase.createdByMemberId !== input.member.id) {
+    return miniAppJsonResponse(
+      { ok: false, error: 'You can only change purchases you added' },
+      403,
+      input.origin
+    )
+  }
+
+  const openCycle = await input.service.getOpenCycle()
+  if (!openCycle || purchase.cycleId !== openCycle.id) {
+    return miniAppJsonResponse(
+      { ok: false, error: 'This purchase can no longer be changed' },
+      409,
+      input.origin
+    )
+  }
+
+  const dashboard = await input.service.generateDashboard(openCycle.period)
+  const ledgerEntry = dashboard?.ledger.find(
+    (entry) => entry.kind === 'purchase' && entry.id === input.purchaseId
+  )
+  if (!ledgerEntry?.isCurrentCyclePurchase || ledgerEntry.hasRecordedAllocations === true) {
+    return miniAppJsonResponse(
+      { ok: false, error: 'This purchase can no longer be changed' },
+      409,
+      input.origin
+    )
+  }
+
+  return { purchase }
 }
 
 async function parseJsonBody<T>(request: Request): Promise<T> {
@@ -1711,6 +1761,13 @@ export function createMiniAppAddPurchaseHandler(options: {
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
         const payerMemberId = payload.payerMemberId ?? auth.member.id
+        if (!auth.member.isAdmin && payerMemberId !== auth.member.id) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Members can only record purchases they paid for' },
+            403,
+            origin
+          )
+        }
         const purchase = await service
           .addPurchase(
             payload.description,
@@ -1718,7 +1775,8 @@ export function createMiniAppAddPurchaseHandler(options: {
             payerMemberId,
             payload.currency,
             payload.split,
-            payload.occurredOn
+            payload.occurredOn,
+            auth.member.id
           )
           .catch((error) => {
             throw toMiniAppClientValidationError(error)
@@ -1809,7 +1867,7 @@ export function createMiniAppUpdatePurchaseHandler(options: {
       }
 
       try {
-        const auth = await authenticateAdminSession(
+        const auth = await authenticateMemberSession(
           request.clone() as Request,
           sessionService,
           origin
@@ -1824,7 +1882,28 @@ export function createMiniAppUpdatePurchaseHandler(options: {
         }
 
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        const authorization = await authorizePurchaseMutation({
+          service,
+          member: auth.member,
+          purchaseId: payload.purchaseId,
+          origin
+        })
+        if (authorization instanceof Response) {
+          return authorization
+        }
+
         const payerMemberId = payload.payerMemberId
+        if (
+          !auth.member.isAdmin &&
+          payerMemberId !== undefined &&
+          payerMemberId !== authorization.purchase.payerMemberId
+        ) {
+          return miniAppJsonResponse(
+            { ok: false, error: 'Members cannot change the purchase payer' },
+            403,
+            origin
+          )
+        }
         const updated = await service
           .updatePurchase(
             payload.purchaseId,
@@ -1928,7 +2007,7 @@ export function createMiniAppDeletePurchaseHandler(options: {
       }
 
       try {
-        const auth = await authenticateAdminSession(
+        const auth = await authenticateMemberSession(
           request.clone() as Request,
           sessionService,
           origin
@@ -1939,6 +2018,16 @@ export function createMiniAppDeletePurchaseHandler(options: {
 
         const payload = await readPurchaseMutationPayload(request)
         const service = options.financeServiceForHousehold(auth.member.householdId)
+        const authorization = await authorizePurchaseMutation({
+          service,
+          member: auth.member,
+          purchaseId: payload.purchaseId,
+          origin
+        })
+        if (authorization instanceof Response) {
+          return authorization
+        }
+
         const deleted = await service.deletePurchase(payload.purchaseId)
 
         if (!deleted) {

@@ -194,4 +194,80 @@ describe('createDbFinanceRepository', () => {
     await financeClient.close()
     await queryClient.end({ timeout: 5 })
   })
+
+  testIfDatabase('keeps purchase author unchanged when the payer changes', async () => {
+    const { db, queryClient } = createDbClient(databaseUrl!, {
+      max: 1,
+      prepare: false
+    })
+    const householdId = randomUUID()
+    const cycleId = randomUUID()
+    const authorMemberId = randomUUID()
+    const nextPayerMemberId = randomUUID()
+
+    createdHouseholdIds.push(householdId)
+
+    await db.insert(schema.households).values({
+      id: householdId,
+      name: `Purchase Author Household ${randomUUID()}`
+    })
+    await db.insert(schema.members).values([
+      {
+        id: authorMemberId,
+        householdId,
+        telegramUserId: '40004',
+        displayName: 'Author'
+      },
+      {
+        id: nextPayerMemberId,
+        householdId,
+        telegramUserId: '50005',
+        displayName: 'Next payer'
+      }
+    ])
+    await db.insert(schema.billingCycles).values({
+      id: cycleId,
+      householdId,
+      period: '2026-07',
+      currency: 'GEL'
+    })
+
+    const financeClient = createDbFinanceRepository(databaseUrl!, householdId)
+    const created = await financeClient.repository.addParsedPurchase({
+      cycleId,
+      createdByMemberId: authorMemberId,
+      payerMemberId: authorMemberId,
+      amountMinor: 3000n,
+      currency: 'GEL',
+      description: 'Kettle',
+      occurredAt: instantFromIso('2026-07-12T12:00:00.000Z')
+    })
+    const updated = await financeClient.repository.updateParsedPurchase({
+      purchaseId: created.id,
+      payerMemberId: nextPayerMemberId,
+      amountMinor: 3000n,
+      currency: 'GEL',
+      description: 'Kettle'
+    })
+
+    expect(updated).toMatchObject({
+      createdByMemberId: authorMemberId,
+      payerMemberId: nextPayerMemberId
+    })
+
+    const rows = await db
+      .select({
+        senderMemberId: schema.purchaseMessages.senderMemberId,
+        payerMemberId: schema.purchaseMessages.payerMemberId
+      })
+      .from(schema.purchaseMessages)
+      .where(eq(schema.purchaseMessages.id, created.id))
+    expect(rows[0]).toEqual({
+      senderMemberId: authorMemberId,
+      payerMemberId: nextPayerMemberId
+    })
+
+    await financeClient.close()
+    await queryClient.end({ timeout: 5 })
+  })
 })

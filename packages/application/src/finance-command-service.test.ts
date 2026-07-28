@@ -35,6 +35,17 @@ function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): strin
   return `${normalizedYear}-${String(normalizedMonth).padStart(2, '0')}`
 }
 
+type FinanceParsedPurchaseFixture = Omit<FinanceParsedPurchaseRecord, 'createdByMemberId'> & {
+  createdByMemberId?: string | null
+}
+
+function purchaseRecord(fixture: FinanceParsedPurchaseFixture): FinanceParsedPurchaseRecord {
+  return {
+    ...fixture,
+    createdByMemberId: fixture.createdByMemberId ?? fixture.payerMemberId
+  }
+}
+
 class FinanceRepositoryStub implements FinanceRepository {
   householdId = 'household-1'
   member: FinanceMemberRecord | null = null
@@ -51,7 +62,7 @@ class FinanceRepositoryStub implements FinanceRepository {
   cycles: readonly FinanceCycleRecord[] = []
   rentRule: FinanceRentRuleRecord | null = null
   rentRulesByPeriod = new Map<string, FinanceRentRuleRecord>()
-  purchases: readonly FinanceParsedPurchaseRecord[] = []
+  purchases: readonly FinanceParsedPurchaseFixture[] = []
   utilityBills: readonly {
     id: string
     cycleId?: string
@@ -230,6 +241,7 @@ class FinanceRepositoryStub implements FinanceRepository {
       id: 'purchase-1',
       cycleId: input.cycleId,
       cyclePeriod: null,
+      createdByMemberId: input.createdByMemberId,
       payerMemberId: input.payerMemberId,
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -262,6 +274,7 @@ class FinanceRepositoryStub implements FinanceRepository {
       id: input.purchaseId,
       cycleId: existing?.cycleId ?? null,
       cyclePeriod: existing?.cyclePeriod ?? null,
+      createdByMemberId: existing?.createdByMemberId ?? existing?.payerMemberId ?? 'alice',
       payerMemberId: input.payerMemberId ?? existing?.payerMemberId ?? 'alice',
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -294,7 +307,8 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async getParsedPurchase(purchaseId: string) {
-    return this.purchases.find((purchase) => purchase.id === purchaseId) ?? null
+    const purchase = this.purchases.find((purchase) => purchase.id === purchaseId)
+    return purchase ? purchaseRecord(purchase) : null
   }
 
   async ensureEqualPurchaseParticipants(purchaseId: string) {
@@ -698,11 +712,11 @@ class FinanceRepositoryStub implements FinanceRepository {
   }
 
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
-    return this.purchases
+    return this.purchases.map(purchaseRecord)
   }
 
   async listParsedPurchases(): Promise<readonly FinanceParsedPurchaseRecord[]> {
-    return this.purchases
+    return this.purchases.map(purchaseRecord)
   }
 
   async listPaymentPurchaseAllocations() {
@@ -1677,6 +1691,32 @@ describe('createFinanceCommandService', () => {
     )
 
     expect(repository.lastUpdatedPurchaseInput?.occurredAt?.toString()).toBe('2026-03-14T08:00:00Z')
+  })
+
+  test('addPurchase preserves the authenticated author separately from the payer', async () => {
+    const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
+    repository.openCycleRecord = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL'
+    }
+    const service = createService(repository)
+
+    await service.addPurchase(
+      'Kitchen towels',
+      '30.00',
+      'alice',
+      'GEL',
+      undefined,
+      undefined,
+      'bob'
+    )
+
+    expect(repository.lastAddedPurchaseInput).toMatchObject({
+      createdByMemberId: 'bob',
+      payerMemberId: 'alice'
+    })
   })
 
   test('updatePurchase rejects implicit amount changes for existing custom splits', async () => {

@@ -48,7 +48,7 @@ function toneClass(tone: SemanticMoneyTone): string {
 export function QuickPurchaseComposer({ currentMemberId }: { currentMemberId: string | null }) {
   const { copy, locale } = useI18n()
   const { initData, handleMiniAppRequestError } = useSession()
-  const { dashboard, refresh } = useDashboard()
+  const { dashboard, effectiveIsAdmin, refresh } = useDashboard()
   const { showToast } = useToast()
 
   const [draft, setDraft] = useState<PurchaseDraft>(() =>
@@ -279,32 +279,34 @@ export function QuickPurchaseComposer({ currentMemberId }: { currentMemberId: st
 
       {advanced ? (
         <div className="grid grid-cols-2 gap-3">
-          <Field label={copy.purchasePayerLabel}>
-            <Select
-              value={selectedPayerMemberId ?? ''}
-              aria-label={copy.purchasePayerLabel}
-              onChange={(event) => {
-                const value = event.target.value
-                setSelectedPayerMemberId(value || null)
-                setDraft((current) => {
-                  if (value) {
-                    return { ...current, payerMemberId: value }
-                  }
+          {effectiveIsAdmin ? (
+            <Field label={copy.purchasePayerLabel}>
+              <Select
+                value={selectedPayerMemberId ?? ''}
+                aria-label={copy.purchasePayerLabel}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setSelectedPayerMemberId(value || null)
+                  setDraft((current) => {
+                    if (value) {
+                      return { ...current, payerMemberId: value }
+                    }
 
-                  const { payerMemberId: _payerMemberId, ...rest } = current
-                  return rest
-                })
-              }}
-            >
-              <option value="">—</option>
-              {activeMembers.map((member) => (
-                <option key={member.memberId} value={member.memberId}>
-                  {member.displayName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={copy.purchaseDateLabel}>
+                    const { payerMemberId: _payerMemberId, ...rest } = current
+                    return rest
+                  })
+                }}
+              >
+                <option value="">—</option>
+                {activeMembers.map((member) => (
+                  <option key={member.memberId} value={member.memberId}>
+                    {member.displayName}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          <Field label={copy.purchaseDateLabel} className={cn(!effectiveIsAdmin && 'col-span-2')}>
             <Input
               type="date"
               value={draft.occurredOn ?? ''}

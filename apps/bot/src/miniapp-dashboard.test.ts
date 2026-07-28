@@ -62,6 +62,7 @@ function repository(
       id: 'purchase-new',
       cycleId: input.cycleId,
       cyclePeriod: null,
+      createdByMemberId: input.createdByMemberId,
       payerMemberId: input.payerMemberId,
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -151,6 +152,7 @@ function repository(
         id: 'purchase-1',
         cycleId: cycle.id,
         cyclePeriod: cycle.period,
+        createdByMemberId: member?.id ?? 'member-1',
         payerMemberId: member?.id ?? 'member-1',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -163,6 +165,7 @@ function repository(
         id: 'purchase-1',
         cycleId: cycle.id,
         cyclePeriod: cycle.period,
+        createdByMemberId: member?.id ?? 'member-1',
         payerMemberId: member?.id ?? 'member-1',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -710,6 +713,7 @@ describe('createMiniAppDashboardHandler', () => {
         id: 'purchase-1',
         cycleId: 'cycle-1',
         cyclePeriod: '2026-03',
+        createdByMemberId: 'member-1',
         payerMemberId: 'member-1',
         amountMinor: 3000n,
         currency: 'GEL',
@@ -862,8 +866,10 @@ describe('createMiniAppDashboardHandler', () => {
           },
           {
             id: 'purchase-1',
+            createdByMemberId: 'member-1',
             payerMemberId: 'member-1',
             isCurrentCyclePurchase: false,
+            hasRecordedAllocations: false,
             purchaseSplitMode: 'custom_amounts',
             purchaseParticipants: [
               {

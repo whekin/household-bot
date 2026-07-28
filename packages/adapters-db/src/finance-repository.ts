@@ -230,6 +230,7 @@ export function createDbFinanceRepository(
         id: schema.purchaseMessages.id,
         cycleId: schema.purchaseMessages.cycleId,
         cyclePeriod: schema.billingCycles.period,
+        createdByMemberId: schema.purchaseMessages.senderMemberId,
         payerMemberId: schema.purchaseMessages.payerMemberId,
         amountMinor: schema.purchaseMessages.parsedAmountMinor,
         currency: schema.purchaseMessages.parsedCurrency,
@@ -264,6 +265,7 @@ export function createDbFinanceRepository(
       id: row.id,
       cycleId: row.cycleId,
       cyclePeriod: row.cyclePeriod,
+      createdByMemberId: row.createdByMemberId,
       payerMemberId: row.payerMemberId,
       amountMinor: row.amountMinor,
       currency: toCurrencyCode(row.currency),
@@ -597,7 +599,7 @@ export function createDbFinanceRepository(
         id: purchaseId,
         householdId,
         cycleId: input.cycleId,
-        senderMemberId: input.payerMemberId,
+        senderMemberId: input.createdByMemberId,
         payerMemberId: input.payerMemberId,
         senderTelegramUserId: 'miniapp',
         senderDisplayName: member?.displayName ?? 'Mini App',
@@ -659,6 +661,7 @@ export function createDbFinanceRepository(
       return {
         id: row.id,
         cycleId: input.cycleId,
+        createdByMemberId: input.createdByMemberId,
         payerMemberId: row.payerMemberId,
         amountMinor: row.amountMinor,
         currency: toCurrencyCode(row.currency),
@@ -694,7 +697,6 @@ export function createDbFinanceRepository(
               : {}),
             ...(input.payerMemberId
               ? {
-                  senderMemberId: input.payerMemberId,
                   payerMemberId: input.payerMemberId
                 }
               : {}),
@@ -710,6 +712,7 @@ export function createDbFinanceRepository(
           )
           .returning({
             id: schema.purchaseMessages.id,
+            createdByMemberId: schema.purchaseMessages.senderMemberId,
             payerMemberId: schema.purchaseMessages.payerMemberId,
             amountMinor: schema.purchaseMessages.parsedAmountMinor,
             currency: schema.purchaseMessages.parsedCurrency,
@@ -753,6 +756,7 @@ export function createDbFinanceRepository(
         return {
           id: row.id,
           cycleId: null,
+          createdByMemberId: row.createdByMemberId,
           payerMemberId: row.payerMemberId,
           amountMinor: row.amountMinor,
           currency: toCurrencyCode(row.currency),
@@ -1922,6 +1926,7 @@ export function createDbFinanceRepository(
           id: schema.purchaseMessages.id,
           cycleId: schema.purchaseMessages.cycleId,
           cyclePeriod: schema.billingCycles.period,
+          createdByMemberId: schema.purchaseMessages.senderMemberId,
           payerMemberId: schema.purchaseMessages.payerMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
@@ -1955,6 +1960,7 @@ export function createDbFinanceRepository(
         id: row.id,
         cycleId: row.cycleId,
         cyclePeriod: row.cyclePeriod,
+        createdByMemberId: row.createdByMemberId,
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
         currency: toCurrencyCode(row.currency!),
@@ -1971,6 +1977,7 @@ export function createDbFinanceRepository(
           id: schema.purchaseMessages.id,
           cycleId: schema.purchaseMessages.cycleId,
           cyclePeriod: schema.billingCycles.period,
+          createdByMemberId: schema.purchaseMessages.senderMemberId,
           payerMemberId: schema.purchaseMessages.payerMemberId,
           amountMinor: schema.purchaseMessages.parsedAmountMinor,
           currency: schema.purchaseMessages.parsedCurrency,
@@ -2003,6 +2010,7 @@ export function createDbFinanceRepository(
         id: row.id,
         cycleId: row.cycleId,
         cyclePeriod: row.cyclePeriod,
+        createdByMemberId: row.createdByMemberId,
         payerMemberId: row.payerMemberId!,
         amountMinor: row.amountMinor!,
         currency: toCurrencyCode(row.currency!),

@@ -244,6 +244,8 @@ export interface MiniAppDashboard {
       shareAmountMajor: string | null
     }[]
     payerMemberId?: string
+    createdByMemberId?: string | null
+    hasRecordedAllocations?: boolean
   }[]
   notifications: {
     id: string

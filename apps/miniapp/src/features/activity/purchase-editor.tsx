@@ -196,10 +196,12 @@ function ParticipantSplitInputs({
 
 function PurchaseDraftFields({
   draft,
-  updateDraft
+  updateDraft,
+  canSelectPayer
 }: {
   draft: PurchaseDraft
   updateDraft: DraftUpdater
+  canSelectPayer: boolean
 }) {
   const { dashboard } = useDashboard()
   const { copy } = useI18n()
@@ -260,6 +262,7 @@ function PurchaseDraftFields({
         <Select
           value={draft.payerMemberId ?? ''}
           aria-label={copy.purchasePayerLabel}
+          disabled={!canSelectPayer}
           onChange={(event) => {
             const value = event.target.value
             updateDraft((current) => purchaseDraftWithSelectedPayer(current, value || null))
@@ -310,7 +313,7 @@ export function PurchaseEditor({
 }) {
   const { initData, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, currentMemberLine, refresh } = useDashboard()
+  const { dashboard, currentMemberLine, effectiveIsAdmin, refresh } = useDashboard()
 
   const [draft, setDraft] = useState<PurchaseDraft | null>(null)
   const [saving, setSaving] = useState(false)
@@ -442,7 +445,13 @@ export function PurchaseEditor({
         <p className="text-xs text-faint">
           {entry ? copy.purchaseInlineEditorBody : copy.purchaseComposerBody}
         </p>
-        {draft ? <PurchaseDraftFields draft={draft} updateDraft={updateDraft} /> : null}
+        {draft ? (
+          <PurchaseDraftFields
+            draft={draft}
+            updateDraft={updateDraft}
+            canSelectPayer={effectiveIsAdmin}
+          />
+        ) : null}
         {mutationError ? (
           <p className="text-xs text-destructive" role="alert">
             {mutationError}

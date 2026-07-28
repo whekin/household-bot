@@ -3,11 +3,81 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  canEditLedgerEntry,
   percentageStringToBasisPoints,
   rebalancePurchaseSplit,
   validatePurchaseDraft,
   type PurchaseDraft
 } from './ledger-helpers'
+import type { MiniAppDashboard } from '../api'
+
+function purchaseLedgerEntry(
+  input: Partial<MiniAppDashboard['ledger'][number]> = {}
+): MiniAppDashboard['ledger'][number] {
+  return {
+    id: 'purchase-1',
+    kind: 'purchase',
+    title: 'Kettle',
+    memberId: 'member-a',
+    paymentKind: null,
+    amountMajor: '30.00',
+    currency: 'GEL',
+    displayAmountMajor: '30.00',
+    displayCurrency: 'GEL',
+    fxRateMicros: null,
+    fxEffectiveDate: null,
+    actorDisplayName: 'Alice',
+    occurredAt: '2026-07-10T12:00:00Z',
+    createdByMemberId: 'member-a',
+    isCurrentCyclePurchase: true,
+    hasRecordedAllocations: false,
+    ...input
+  }
+}
+
+describe('canEditLedgerEntry', () => {
+  test('allows an administrator to edit any ledger entry', () => {
+    expect(
+      canEditLedgerEntry({
+        entry: purchaseLedgerEntry({
+          createdByMemberId: 'member-other',
+          isCurrentCyclePurchase: false,
+          hasRecordedAllocations: true
+        }),
+        currentMemberId: 'member-a',
+        isAdmin: true
+      })
+    ).toBe(true)
+  })
+
+  test('allows a member to edit their current unallocated purchase', () => {
+    expect(
+      canEditLedgerEntry({
+        entry: purchaseLedgerEntry(),
+        currentMemberId: 'member-a',
+        isAdmin: false
+      })
+    ).toBe(true)
+  })
+
+  test('rejects non-owner, historical, and allocated member edits', () => {
+    const variants = [
+      purchaseLedgerEntry({ createdByMemberId: 'member-other' }),
+      purchaseLedgerEntry({ isCurrentCyclePurchase: false }),
+      purchaseLedgerEntry({ hasRecordedAllocations: true })
+    ]
+
+    expect(
+      variants.map((entry) =>
+        canEditLedgerEntry({
+          entry,
+          currentMemberId: 'member-a',
+          isAdmin: false
+        })
+      )
+    ).toEqual([false, false, false])
+  })
+})
 
 describe('percentageStringToBasisPoints', () => {
   test('parses decimal percentages without floating-point math', () => {

@@ -49,6 +49,23 @@ export function absoluteMinor(value: bigint): bigint {
   return value < 0n ? -value : value
 }
 
+export function canEditLedgerEntry(input: {
+  entry: MiniAppDashboard['ledger'][number]
+  currentMemberId: string
+  isAdmin: boolean
+}): boolean {
+  if (input.isAdmin) {
+    return true
+  }
+
+  return (
+    input.entry.kind === 'purchase' &&
+    input.entry.createdByMemberId === input.currentMemberId &&
+    input.entry.isCurrentCyclePurchase === true &&
+    input.entry.hasRecordedAllocations !== true
+  )
+}
+
 export function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
   return minorToMajorString(
     majorStringToMinor(member.rentShareMajor) + majorStringToMinor(member.utilityShareMajor)

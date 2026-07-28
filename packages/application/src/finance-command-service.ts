@@ -364,6 +364,7 @@ export interface FinanceDashboardLedgerEntry {
   actorDisplayName: string | null
   occurredAt: string | null
   paymentKind: FinancePaymentKind | null
+  createdByMemberId?: string | null
   purchaseSplitMode?: 'equal' | 'custom_amounts'
   purchaseParticipants?: readonly {
     memberId: string
@@ -373,6 +374,7 @@ export interface FinanceDashboardLedgerEntry {
   payerMemberId?: string
   originPeriod?: string | null
   isCurrentCyclePurchase?: boolean
+  hasRecordedAllocations?: boolean
   resolutionStatus?: 'unresolved' | 'resolved'
   resolvedAt?: string | null
   outstandingByMember?: readonly {
@@ -817,6 +819,7 @@ interface PurchaseHistoryState {
   converted: ConvertedCycleMoney
   outstandingByMemberId: ReadonlyMap<string, Money>
   outstandingTotal: Money
+  hasRecordedAllocations: boolean
   resolvedAt: string | null
 }
 
@@ -2671,10 +2674,12 @@ async function buildFinanceDashboard(
         (sum, [, amount]) => sum.add(amount),
         Money.zero(converted.settlementAmount.currency)
       )
+      const purchaseAllocations = paymentPurchaseAllocations.filter(
+        (allocation) => allocation.purchaseId === purchase.id
+      )
       const resolvedAt =
         outstandingEntries.length === 0
-          ? (paymentPurchaseAllocations
-              .filter((allocation) => allocation.purchaseId === purchase.id)
+          ? (purchaseAllocations
               .map((allocation) => allocation.recordedAt.toString())
               .sort()
               .at(-1) ?? null)
@@ -2685,6 +2690,7 @@ async function buildFinanceDashboard(
         converted,
         outstandingByMemberId,
         outstandingTotal,
+        hasRecordedAllocations: purchaseAllocations.length > 0,
         resolvedAt
       }
     }
@@ -2952,46 +2958,50 @@ async function buildFinanceDashboard(
       occurredAt: bill.createdAt.toString(),
       paymentKind: null
     })),
-    ...purchaseHistory.map(({ purchase, converted, outstandingByMemberId, resolvedAt }) => {
-      const entry: FinanceDashboardLedgerEntry = {
-        id: purchase.id,
-        kind: 'purchase',
-        title: purchase.description ?? 'Shared purchase',
-        memberId: purchase.payerMemberId,
-        payerMemberId: purchase.payerMemberId,
-        amount: converted.originalAmount,
-        currency: purchase.currency,
-        displayAmount: converted.settlementAmount,
-        displayCurrency: cycle.currency,
-        fxRateMicros: converted.fxRateMicros,
-        fxEffectiveDate: converted.fxEffectiveDate,
-        actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
-        occurredAt: purchase.occurredAt?.toString() ?? null,
-        paymentKind: null,
-        purchaseSplitMode: purchase.splitMode ?? 'equal',
-        originPeriod: purchaseOriginPeriod(purchase),
-        isCurrentCyclePurchase: currentCyclePurchaseIds.has(purchase.id),
-        resolutionStatus: outstandingByMemberId.size === 0 ? 'resolved' : 'unresolved',
-        resolvedAt,
-        outstandingByMember: [...outstandingByMemberId.entries()].map(([memberId, amount]) => ({
-          memberId,
-          amount
-        }))
-      }
+    ...purchaseHistory.map(
+      ({ purchase, converted, outstandingByMemberId, hasRecordedAllocations, resolvedAt }) => {
+        const entry: FinanceDashboardLedgerEntry = {
+          id: purchase.id,
+          kind: 'purchase',
+          title: purchase.description ?? 'Shared purchase',
+          memberId: purchase.payerMemberId,
+          payerMemberId: purchase.payerMemberId,
+          amount: converted.originalAmount,
+          currency: purchase.currency,
+          displayAmount: converted.settlementAmount,
+          displayCurrency: cycle.currency,
+          fxRateMicros: converted.fxRateMicros,
+          fxEffectiveDate: converted.fxEffectiveDate,
+          actorDisplayName: memberNameById.get(purchase.payerMemberId) ?? null,
+          occurredAt: purchase.occurredAt?.toString() ?? null,
+          paymentKind: null,
+          createdByMemberId: purchase.createdByMemberId,
+          purchaseSplitMode: purchase.splitMode ?? 'equal',
+          originPeriod: purchaseOriginPeriod(purchase),
+          isCurrentCyclePurchase: currentCyclePurchaseIds.has(purchase.id),
+          hasRecordedAllocations,
+          resolutionStatus: outstandingByMemberId.size === 0 ? 'resolved' : 'unresolved',
+          resolvedAt,
+          outstandingByMember: [...outstandingByMemberId.entries()].map(([memberId, amount]) => ({
+            memberId,
+            amount
+          }))
+        }
 
-      if (purchase.participants) {
-        entry.purchaseParticipants = purchase.participants.map((participant) => ({
-          memberId: participant.memberId,
-          included: participant.included !== false,
-          shareAmount:
-            participant.shareAmountMinor !== null
-              ? Money.fromMinor(participant.shareAmountMinor, converted.settlementAmount.currency)
-              : null
-        }))
-      }
+        if (purchase.participants) {
+          entry.purchaseParticipants = purchase.participants.map((participant) => ({
+            memberId: participant.memberId,
+            included: participant.included !== false,
+            shareAmount:
+              participant.shareAmountMinor !== null
+                ? Money.fromMinor(participant.shareAmountMinor, converted.settlementAmount.currency)
+                : null
+          }))
+        }
 
-      return entry
-    }),
+        return entry
+      }
+    ),
     ...paymentRecords.map((payment) => ({
       id: payment.id,
       kind: 'payment' as const,
@@ -3334,7 +3344,8 @@ export interface FinanceCommandService {
         shareAmountMajor?: string
       }[]
     },
-    occurredOnArg?: string
+    occurredOnArg?: string,
+    createdByMemberId?: string
   ): Promise<{
     purchaseId: string
     amount: Money
@@ -3992,7 +4003,15 @@ export function createFinanceCommandService(
       }
     },
 
-    async addPurchase(description, amountArg, payerMemberId, currencyArg, split, occurredOnArg) {
+    async addPurchase(
+      description,
+      amountArg,
+      payerMemberId,
+      currencyArg,
+      split,
+      occurredOnArg,
+      createdByMemberId
+    ) {
       const [settings, members] = await Promise.all([
         householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
         householdConfigurationRepository.listHouseholdMembers(dependencies.householdId)
@@ -4013,6 +4032,7 @@ export function createFinanceCommandService(
 
       const created = await repository.addParsedPurchase({
         cycleId: openCycle.id,
+        createdByMemberId: createdByMemberId ?? payerMemberId,
         payerMemberId,
         amountMinor: amount.amountMinor,
         currency,

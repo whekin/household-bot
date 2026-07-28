@@ -2,6 +2,7 @@ import { HandCoins, Lightbulb, Plus, Settings2, ShoppingBag } from 'lucide-react
 import { useState } from 'react'
 
 import { useDashboard } from '@/app/dashboard-context'
+import { useReadySession } from '@/app/session-context'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
@@ -9,7 +10,7 @@ import { Sheet } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
-import { formatMoneyLabel } from '@/lib/ledger-helpers'
+import { canEditLedgerEntry, formatMoneyLabel } from '@/lib/ledger-helpers'
 import { haptics } from '@/telegram/webapp'
 import { BalancesSection } from './balances-section'
 import { LedgerList } from './ledger-list'
@@ -52,6 +53,7 @@ function FilterChip({
 }
 
 export function ActivityView() {
+  const session = useReadySession()
   const { copy, locale } = useI18n()
   const {
     dashboard,
@@ -256,7 +258,13 @@ export function ActivityView() {
           <LedgerList
             entries={entries}
             emptyText={emptyText}
-            canEdit={() => effectiveIsAdmin}
+            canEdit={(entry) =>
+              canEditLedgerEntry({
+                entry,
+                currentMemberId: session.member.id,
+                isAdmin: effectiveIsAdmin
+              })
+            }
             onSelect={handleSelectEntry}
           />
         </div>

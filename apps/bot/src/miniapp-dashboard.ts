@@ -278,9 +278,11 @@ export async function loadMiniAppDashboardPayload(input: {
       ...(entry.kind === 'purchase'
         ? {
             payerMemberId: entry.payerMemberId ?? undefined,
+            createdByMemberId: entry.createdByMemberId ?? null,
             purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
             originPeriod: entry.originPeriod ?? null,
             isCurrentCyclePurchase: entry.isCurrentCyclePurchase ?? false,
+            hasRecordedAllocations: entry.hasRecordedAllocations ?? false,
             resolutionStatus: entry.resolutionStatus ?? 'unresolved',
             resolvedAt: entry.resolvedAt ?? null,
             outstandingByMember:
