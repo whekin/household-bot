@@ -552,6 +552,131 @@ function buildDemoUtilityPlan(state: {
   }
 }
 
+const cycleHistory: NonNullable<MiniAppDashboard['cycleHistory']> = [
+  {
+    period: '2026-02',
+    currency: 'GEL',
+    source: 'frozen',
+    totalDueMajor: '2488.00',
+    totalPaidMajor: '2488.00',
+    totalRemainingMajor: '0.00',
+    rentTotalMajor: '2310.00',
+    utilityTotalMajor: '178.00',
+    purchaseVolumeMajor: '326.40',
+    purchaseCount: 9,
+    members: [
+      {
+        memberId: 'demo-member',
+        displayName: 'Stas',
+        rentShareMajor: '577.50',
+        utilityShareMajor: '59.33',
+        purchaseOffsetMajor: '-24.80',
+        netDueMajor: '612.03',
+        paidMajor: '612.03',
+        remainingMajor: '0.00'
+      },
+      {
+        memberId: 'member-chorb',
+        displayName: 'Chorbanaut',
+        rentShareMajor: '577.50',
+        utilityShareMajor: '59.34',
+        purchaseOffsetMajor: '38.20',
+        netDueMajor: '675.04',
+        paidMajor: '675.04',
+        remainingMajor: '0.00'
+      },
+      {
+        memberId: 'member-el',
+        displayName: 'El',
+        rentShareMajor: '1155.00',
+        utilityShareMajor: '59.33',
+        purchaseOffsetMajor: '-13.40',
+        netDueMajor: '1200.93',
+        paidMajor: '1200.93',
+        remainingMajor: '0.00'
+      }
+    ],
+    purchaseContributors: [
+      {
+        memberId: 'demo-member',
+        displayName: 'Stas',
+        amountMajor: '167.20',
+        purchaseCount: 4
+      },
+      {
+        memberId: 'member-el',
+        displayName: 'El',
+        amountMajor: '104.20',
+        purchaseCount: 3
+      },
+      {
+        memberId: 'member-chorb',
+        displayName: 'Chorbanaut',
+        amountMajor: '55.00',
+        purchaseCount: 2
+      }
+    ]
+  },
+  {
+    period: '2026-01',
+    currency: 'GEL',
+    source: 'legacy',
+    totalDueMajor: '2436.00',
+    totalPaidMajor: '2396.00',
+    totalRemainingMajor: '40.00',
+    rentTotalMajor: '2280.00',
+    utilityTotalMajor: '156.00',
+    purchaseVolumeMajor: '218.75',
+    purchaseCount: 6,
+    members: [
+      {
+        memberId: 'demo-member',
+        displayName: 'Stas',
+        rentShareMajor: '570.00',
+        utilityShareMajor: '52.00',
+        purchaseOffsetMajor: '-18.75',
+        netDueMajor: '603.25',
+        paidMajor: '603.25',
+        remainingMajor: '0.00'
+      },
+      {
+        memberId: 'member-chorb',
+        displayName: 'Chorbanaut',
+        rentShareMajor: '570.00',
+        utilityShareMajor: '52.00',
+        purchaseOffsetMajor: '18.75',
+        netDueMajor: '640.75',
+        paidMajor: '600.75',
+        remainingMajor: '40.00'
+      },
+      {
+        memberId: 'member-el',
+        displayName: 'El',
+        rentShareMajor: '1140.00',
+        utilityShareMajor: '52.00',
+        purchaseOffsetMajor: '0.00',
+        netDueMajor: '1192.00',
+        paidMajor: '1192.00',
+        remainingMajor: '0.00'
+      }
+    ],
+    purchaseContributors: [
+      {
+        memberId: 'demo-member',
+        displayName: 'Stas',
+        amountMajor: '118.75',
+        purchaseCount: 3
+      },
+      {
+        memberId: 'member-chorb',
+        displayName: 'Chorbanaut',
+        amountMajor: '100.00',
+        purchaseCount: 3
+      }
+    ]
+  }
+]
+
 function createDashboard(state: {
   totalDueMajor: string
   totalPaidMajor: string
@@ -646,6 +771,7 @@ function createDashboard(state: {
     },
     members: state.members,
     paymentPeriods,
+    cycleHistory,
     ledger,
     notifications: [
       {

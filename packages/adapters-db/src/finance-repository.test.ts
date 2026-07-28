@@ -270,4 +270,85 @@ describe('createDbFinanceRepository', () => {
     await financeClient.close()
     await queryClient.end({ timeout: 5 })
   })
+
+  testIfDatabase('reads a complete settlement snapshot with archive metadata', async () => {
+    const { db, queryClient } = createDbClient(databaseUrl!, {
+      max: 1,
+      prepare: false
+    })
+    const householdId = randomUUID()
+    const cycleId = randomUUID()
+    const memberId = randomUUID()
+
+    createdHouseholdIds.push(householdId)
+
+    await db.insert(schema.households).values({
+      id: householdId,
+      name: `History Snapshot Household ${randomUUID()}`
+    })
+    await db.insert(schema.members).values({
+      id: memberId,
+      householdId,
+      telegramUserId: '60006',
+      displayName: 'Archive member'
+    })
+    await db.insert(schema.billingCycles).values({
+      id: cycleId,
+      householdId,
+      period: '2026-06',
+      currency: 'GEL'
+    })
+
+    const financeClient = createDbFinanceRepository(databaseUrl!, householdId)
+    await financeClient.repository.replaceSettlementSnapshot({
+      cycleId,
+      inputHash: 'history-snapshot',
+      totalDueMinor: 75_000n,
+      currency: 'GEL',
+      metadata: {
+        cycleHistoryArchive: {
+          version: 1,
+          period: '2026-06'
+        }
+      },
+      lines: [
+        {
+          memberId,
+          rentShareMinor: 60_000n,
+          utilityShareMinor: 15_000n,
+          purchaseOffsetMinor: 0n,
+          netDueMinor: 75_000n,
+          explanations: ['Frozen at cycle close']
+        }
+      ]
+    })
+
+    const snapshot = await financeClient.repository.getSettlementSnapshot(cycleId)
+
+    expect(snapshot).toEqual({
+      cycleId,
+      inputHash: 'history-snapshot',
+      totalDueMinor: 75_000n,
+      currency: 'GEL',
+      metadata: {
+        cycleHistoryArchive: {
+          version: 1,
+          period: '2026-06'
+        }
+      },
+      lines: [
+        {
+          memberId,
+          rentShareMinor: 60_000n,
+          utilityShareMinor: 15_000n,
+          purchaseOffsetMinor: 0n,
+          netDueMinor: 75_000n,
+          explanations: ['Frozen at cycle close']
+        }
+      ]
+    })
+
+    await financeClient.close()
+    await queryClient.end({ timeout: 5 })
+  })
 })

@@ -215,6 +215,34 @@ export interface MiniAppDashboard {
       }[]
     }[]
   }[]
+  cycleHistory?: readonly {
+    period: string
+    currency: 'USD' | 'GEL'
+    source: 'frozen' | 'legacy'
+    totalDueMajor: string
+    totalPaidMajor: string
+    totalRemainingMajor: string
+    rentTotalMajor: string
+    utilityTotalMajor: string
+    purchaseVolumeMajor: string
+    purchaseCount: number
+    members: readonly {
+      memberId: string
+      displayName: string
+      rentShareMajor: string
+      utilityShareMajor: string
+      purchaseOffsetMajor: string
+      netDueMajor: string
+      paidMajor: string
+      remainingMajor: string
+    }[]
+    purchaseContributors: readonly {
+      memberId: string
+      displayName: string
+      amountMajor: string
+      purchaseCount: number
+    }[]
+  }[]
   ledger: {
     id: string
     kind: 'purchase' | 'utility' | 'payment'

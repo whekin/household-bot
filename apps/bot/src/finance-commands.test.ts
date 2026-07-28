@@ -476,6 +476,7 @@ function createFinanceService(): FinanceCommandService {
         isAdmin: true
       }
     ],
+    listCycleHistory: async () => [],
     getOpenCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',

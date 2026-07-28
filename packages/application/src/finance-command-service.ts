@@ -12,6 +12,7 @@ import type {
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
+  SettlementSnapshotRecord,
   FinanceUtilityBillingPlanPayload,
   FinanceUtilityBillingPlanStatus,
   HouseholdBillingSettingsRecord,
@@ -406,6 +407,363 @@ export interface FinanceDashboard {
   members: readonly FinanceDashboardMemberLine[]
   paymentPeriods?: readonly FinanceDashboardPaymentPeriodSummary[]
   ledger: readonly FinanceDashboardLedgerEntry[]
+}
+
+export interface FinanceCycleHistoryMember {
+  memberId: string
+  displayName: string
+  rentShare: Money
+  utilityShare: Money
+  purchaseOffset: Money
+  netDue: Money
+  paid: Money
+  remaining: Money
+}
+
+export interface FinanceCycleHistoryContributor {
+  memberId: string
+  displayName: string
+  amount: Money
+  purchaseCount: number
+}
+
+export interface FinanceCycleHistoryEntry {
+  period: string
+  currency: CurrencyCode
+  source: 'frozen' | 'legacy'
+  totalDue: Money
+  totalPaid: Money
+  totalRemaining: Money
+  rentTotal: Money
+  utilityTotal: Money
+  purchaseVolume: Money
+  purchaseCount: number
+  members: readonly FinanceCycleHistoryMember[]
+  purchaseContributors: readonly FinanceCycleHistoryContributor[]
+}
+
+const CYCLE_HISTORY_ARCHIVE_KEY = 'cycleHistoryArchive'
+
+function cycleHistoryArchiveMetadata(dashboard: FinanceDashboard): Record<string, unknown> {
+  const currentPurchases = dashboard.ledger.filter(
+    (entry) => entry.kind === 'purchase' && entry.isCurrentCyclePurchase === true
+  )
+  const contributorByMemberId = new Map<
+    string,
+    { displayName: string; amountMinor: bigint; purchaseCount: number }
+  >()
+
+  for (const purchase of currentPurchases) {
+    const memberId = purchase.payerMemberId ?? purchase.memberId
+    if (!memberId) {
+      continue
+    }
+
+    const current = contributorByMemberId.get(memberId) ?? {
+      displayName: purchase.actorDisplayName ?? memberId,
+      amountMinor: 0n,
+      purchaseCount: 0
+    }
+    contributorByMemberId.set(memberId, {
+      ...current,
+      amountMinor: current.amountMinor + purchase.displayAmount.amountMinor,
+      purchaseCount: current.purchaseCount + 1
+    })
+  }
+
+  return {
+    version: 1,
+    period: dashboard.period,
+    currency: dashboard.currency,
+    totalDueMinor: dashboard.totalDue.amountMinor.toString(),
+    totalPaidMinor: dashboard.totalPaid.amountMinor.toString(),
+    totalRemainingMinor: dashboard.totalRemaining.amountMinor.toString(),
+    rentTotalMinor: dashboard.members
+      .reduce((sum, member) => sum + member.rentShare.amountMinor, 0n)
+      .toString(),
+    utilityTotalMinor: dashboard.members
+      .reduce((sum, member) => sum + member.utilityShare.amountMinor, 0n)
+      .toString(),
+    purchaseVolumeMinor: currentPurchases
+      .reduce((sum, purchase) => sum + purchase.displayAmount.amountMinor, 0n)
+      .toString(),
+    purchaseCount: currentPurchases.length,
+    members: dashboard.members.map((member) => ({
+      memberId: member.memberId,
+      displayName: member.displayName,
+      rentShareMinor: member.rentShare.amountMinor.toString(),
+      utilityShareMinor: member.utilityShare.amountMinor.toString(),
+      purchaseOffsetMinor: member.purchaseOffset.amountMinor.toString(),
+      netDueMinor: member.netDue.amountMinor.toString(),
+      paidMinor: member.paid.amountMinor.toString(),
+      remainingMinor: member.remaining.amountMinor.toString()
+    })),
+    purchaseContributors: [...contributorByMemberId.entries()]
+      .map(([memberId, contributor]) => ({
+        memberId,
+        displayName: contributor.displayName,
+        amountMinor: contributor.amountMinor.toString(),
+        purchaseCount: contributor.purchaseCount
+      }))
+      .sort((left, right) => {
+        const amountComparison = BigInt(right.amountMinor) - BigInt(left.amountMinor)
+        return amountComparison === 0n
+          ? left.displayName.localeCompare(right.displayName)
+          : amountComparison > 0n
+            ? 1
+            : -1
+      })
+  }
+}
+
+function archiveRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function archiveBigInt(value: unknown): bigint | null {
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
+    return null
+  }
+
+  try {
+    return BigInt(value)
+  } catch {
+    return null
+  }
+}
+
+function parseFrozenCycleHistory(input: {
+  cycle: FinanceCycleRecord
+  snapshot: SettlementSnapshotRecord
+}): FinanceCycleHistoryEntry | null {
+  const archive = archiveRecord(input.snapshot.metadata[CYCLE_HISTORY_ARCHIVE_KEY])
+  if (!archive || archive.version !== 1 || archive.period !== input.cycle.period) {
+    return null
+  }
+
+  const totals = {
+    totalDue: archiveBigInt(archive.totalDueMinor),
+    totalPaid: archiveBigInt(archive.totalPaidMinor),
+    totalRemaining: archiveBigInt(archive.totalRemainingMinor),
+    rentTotal: archiveBigInt(archive.rentTotalMinor),
+    utilityTotal: archiveBigInt(archive.utilityTotalMinor),
+    purchaseVolume: archiveBigInt(archive.purchaseVolumeMinor)
+  }
+  if (Object.values(totals).some((value) => value === null)) {
+    return null
+  }
+
+  const members = Array.isArray(archive.members)
+    ? archive.members
+        .map((value): FinanceCycleHistoryMember | null => {
+          const member = archiveRecord(value)
+          if (!member || typeof member.memberId !== 'string') {
+            return null
+          }
+
+          const amounts = {
+            rentShare: archiveBigInt(member.rentShareMinor),
+            utilityShare: archiveBigInt(member.utilityShareMinor),
+            purchaseOffset: archiveBigInt(member.purchaseOffsetMinor),
+            netDue: archiveBigInt(member.netDueMinor),
+            paid: archiveBigInt(member.paidMinor),
+            remaining: archiveBigInt(member.remainingMinor)
+          }
+          if (Object.values(amounts).some((amount) => amount === null)) {
+            return null
+          }
+
+          return {
+            memberId: member.memberId,
+            displayName:
+              typeof member.displayName === 'string' ? member.displayName : member.memberId,
+            rentShare: Money.fromMinor(amounts.rentShare!, input.cycle.currency),
+            utilityShare: Money.fromMinor(amounts.utilityShare!, input.cycle.currency),
+            purchaseOffset: Money.fromMinor(amounts.purchaseOffset!, input.cycle.currency),
+            netDue: Money.fromMinor(amounts.netDue!, input.cycle.currency),
+            paid: Money.fromMinor(amounts.paid!, input.cycle.currency),
+            remaining: Money.fromMinor(amounts.remaining!, input.cycle.currency)
+          }
+        })
+        .filter((member): member is FinanceCycleHistoryMember => member !== null)
+    : []
+
+  const purchaseContributors = Array.isArray(archive.purchaseContributors)
+    ? archive.purchaseContributors
+        .map((value): FinanceCycleHistoryContributor | null => {
+          const contributor = archiveRecord(value)
+          const amountMinor = archiveBigInt(contributor?.amountMinor)
+          if (
+            !contributor ||
+            typeof contributor.memberId !== 'string' ||
+            amountMinor === null ||
+            typeof contributor.purchaseCount !== 'number'
+          ) {
+            return null
+          }
+
+          return {
+            memberId: contributor.memberId,
+            displayName:
+              typeof contributor.displayName === 'string'
+                ? contributor.displayName
+                : contributor.memberId,
+            amount: Money.fromMinor(amountMinor, input.cycle.currency),
+            purchaseCount: contributor.purchaseCount
+          }
+        })
+        .filter(
+          (contributor): contributor is FinanceCycleHistoryContributor => contributor !== null
+        )
+    : []
+
+  return {
+    period: input.cycle.period,
+    currency: input.cycle.currency,
+    source: 'frozen',
+    totalDue: Money.fromMinor(totals.totalDue!, input.cycle.currency),
+    totalPaid: Money.fromMinor(totals.totalPaid!, input.cycle.currency),
+    totalRemaining: Money.fromMinor(totals.totalRemaining!, input.cycle.currency),
+    rentTotal: Money.fromMinor(totals.rentTotal!, input.cycle.currency),
+    utilityTotal: Money.fromMinor(totals.utilityTotal!, input.cycle.currency),
+    purchaseVolume: Money.fromMinor(totals.purchaseVolume!, input.cycle.currency),
+    purchaseCount:
+      typeof archive.purchaseCount === 'number' && Number.isInteger(archive.purchaseCount)
+        ? archive.purchaseCount
+        : 0,
+    members,
+    purchaseContributors
+  }
+}
+
+async function buildLegacyCycleHistory(input: {
+  repository: FinanceRepository
+  cycle: FinanceCycleRecord
+  snapshot: SettlementSnapshotRecord
+  members: readonly FinanceMemberRecord[]
+  purchases: readonly FinanceParsedPurchaseRecord[]
+}): Promise<FinanceCycleHistoryEntry> {
+  const memberNameById = new Map(input.members.map((member) => [member.id, member.displayName]))
+  const payments = await input.repository.listPaymentRecordsForCycle(input.cycle.id)
+  const cyclePurchases = input.purchases.filter(
+    (purchase) =>
+      purchase.cycleId === input.cycle.id ||
+      (purchase.cycleId === null && purchase.cyclePeriod === input.cycle.period)
+  )
+
+  async function intoCycleCurrency(
+    amountMinor: bigint,
+    currency: CurrencyCode
+  ): Promise<Money | null> {
+    const amount = Money.fromMinor(amountMinor, currency)
+    if (currency === input.cycle.currency) {
+      return amount
+    }
+
+    const rate = await input.repository.getCycleExchangeRate(
+      input.cycle.id,
+      currency,
+      input.cycle.currency
+    )
+    return rate ? convertMoney(amount, input.cycle.currency, rate.rateMicros) : null
+  }
+
+  const convertedPayments = (
+    await Promise.all(
+      payments.map(async (payment) => ({
+        memberId: payment.memberId,
+        amount: await intoCycleCurrency(payment.amountMinor, payment.currency)
+      }))
+    )
+  ).filter((payment): payment is { memberId: string; amount: Money } => payment.amount !== null)
+  const convertedPurchases = (
+    await Promise.all(
+      cyclePurchases.map(async (purchase) => ({
+        payerMemberId: purchase.payerMemberId,
+        amount: await intoCycleCurrency(purchase.amountMinor, purchase.currency)
+      }))
+    )
+  ).filter(
+    (purchase): purchase is { payerMemberId: string; amount: Money } => purchase.amount !== null
+  )
+
+  const paidByMemberId = new Map<string, bigint>()
+  for (const payment of convertedPayments) {
+    paidByMemberId.set(
+      payment.memberId,
+      (paidByMemberId.get(payment.memberId) ?? 0n) + payment.amount.amountMinor
+    )
+  }
+
+  const contributorByMemberId = new Map<string, { amountMinor: bigint; purchaseCount: number }>()
+  for (const purchase of convertedPurchases) {
+    const current = contributorByMemberId.get(purchase.payerMemberId) ?? {
+      amountMinor: 0n,
+      purchaseCount: 0
+    }
+    contributorByMemberId.set(purchase.payerMemberId, {
+      amountMinor: current.amountMinor + purchase.amount.amountMinor,
+      purchaseCount: current.purchaseCount + 1
+    })
+  }
+
+  const members = input.snapshot.lines.map((line) => {
+    const paidMinor = paidByMemberId.get(line.memberId) ?? 0n
+    return {
+      memberId: line.memberId,
+      displayName: memberNameById.get(line.memberId) ?? line.memberId,
+      rentShare: Money.fromMinor(line.rentShareMinor, input.cycle.currency),
+      utilityShare: Money.fromMinor(line.utilityShareMinor, input.cycle.currency),
+      purchaseOffset: Money.fromMinor(line.purchaseOffsetMinor, input.cycle.currency),
+      netDue: Money.fromMinor(line.netDueMinor, input.cycle.currency),
+      paid: Money.fromMinor(paidMinor, input.cycle.currency),
+      remaining: Money.fromMinor(line.netDueMinor - paidMinor, input.cycle.currency)
+    }
+  })
+
+  return {
+    period: input.cycle.period,
+    currency: input.cycle.currency,
+    source: 'legacy',
+    totalDue: Money.fromMinor(input.snapshot.totalDueMinor, input.cycle.currency),
+    totalPaid: Money.fromMinor(
+      convertedPayments.reduce((sum, payment) => sum + payment.amount.amountMinor, 0n),
+      input.cycle.currency
+    ),
+    totalRemaining: Money.fromMinor(
+      members.reduce((sum, member) => sum + member.remaining.amountMinor, 0n),
+      input.cycle.currency
+    ),
+    rentTotal: Money.fromMinor(
+      input.snapshot.lines.reduce((sum, line) => sum + line.rentShareMinor, 0n),
+      input.cycle.currency
+    ),
+    utilityTotal: Money.fromMinor(
+      input.snapshot.lines.reduce((sum, line) => sum + line.utilityShareMinor, 0n),
+      input.cycle.currency
+    ),
+    purchaseVolume: Money.fromMinor(
+      convertedPurchases.reduce((sum, purchase) => sum + purchase.amount.amountMinor, 0n),
+      input.cycle.currency
+    ),
+    purchaseCount: cyclePurchases.length,
+    members,
+    purchaseContributors: [...contributorByMemberId.entries()]
+      .map(([memberId, contributor]) => ({
+        memberId,
+        displayName: memberNameById.get(memberId) ?? memberId,
+        amount: Money.fromMinor(contributor.amountMinor, input.cycle.currency),
+        purchaseCount: contributor.purchaseCount
+      }))
+      .sort((left, right) => {
+        if (right.amount.amountMinor === left.amount.amountMinor) {
+          return left.displayName.localeCompare(right.displayName)
+        }
+        return right.amount.amountMinor > left.amount.amountMinor ? 1 : -1
+      })
+  }
 }
 
 export interface FinanceDashboardUtilityBillingPlan {
@@ -1426,6 +1784,7 @@ async function ensureUtilityBillingPlan(input: {
   }[]
   activeCarryoverCreditByMemberId: ReadonlyMap<string, bigint>
   skipRebalance?: boolean
+  readOnly?: boolean
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
     converted: ConvertedCycleMoney
@@ -1445,6 +1804,12 @@ async function ensureUtilityBillingPlan(input: {
     [...existingPlans]
       .reverse()
       .find((plan) => plan.status === 'active' || plan.status === 'settled') ?? null
+  if (input.readOnly && !activePlan) {
+    return {
+      record: null,
+      computed: null
+    }
+  }
   const inputChangeStatus = activePlan
     ? utilityPlanInputsChangedAfterPlan({
         activePlan,
@@ -1487,9 +1852,10 @@ async function ensureUtilityBillingPlan(input: {
   // We SHOULD recompute if:
   // - Inputs changed (new bills, changed purchases, etc.) AND the plan is NOT locked yet.
   const shouldRecompute =
-    !activePlan ||
-    (!isLocked && !input.skipRebalance && hasPendingOffPlanFact) ||
-    (!isLocked && inputChangeStatus.anyChanged)
+    !input.readOnly &&
+    (!activePlan ||
+      (!isLocked && !input.skipRebalance && hasPendingOffPlanFact) ||
+      (!isLocked && inputChangeStatus.anyChanged))
 
   // Orphan matched facts are ignored unless they reference the selected current plan.
   const vendorPaymentsForCompute = offPlanFacts
@@ -1565,7 +1931,16 @@ async function ensureUtilityBillingPlan(input: {
           purchaseIds: input.purchaseIds ?? []
         })
       })()
-    : materializeUtilityBillingPlanRecord(activePlan)
+    : activePlan
+      ? materializeUtilityBillingPlanRecord(activePlan)
+      : null
+
+  if (!computed) {
+    return {
+      record: null,
+      computed: null
+    }
+  }
 
   const progressFacts = [...offPlanFacts, ...validMatchedFacts]
   const plannedPaidByMemberId = validMatchedFacts.reduce((totals, fact) => {
@@ -1616,6 +1991,13 @@ async function ensureUtilityBillingPlan(input: {
     return {
       record: null,
       computed: null
+    }
+  }
+
+  if (input.readOnly) {
+    return {
+      record: activePlan,
+      computed
     }
   }
 
@@ -2517,6 +2899,8 @@ async function buildFinanceDashboard(
   if (!cycle) {
     return null
   }
+  const openCycle = await dependencies.repository.getOpenCycle()
+  const isOpenCycle = openCycle?.id === cycle.id
 
   const [members, memberPresenceDays, rentRule, settings] = await Promise.all([
     dependencies.householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
@@ -2762,7 +3146,7 @@ async function buildFinanceDashboard(
       })
   })
 
-  await dependencies.repository.replaceSettlementSnapshot({
+  const settlementSnapshotBase: SettlementSnapshotRecord = {
     cycleId: cycle.id,
     inputHash: computeInputHash({
       cycleId: cycle.id,
@@ -2793,7 +3177,7 @@ async function buildFinanceDashboard(
       netDueMinor: line.netDue.amountMinor,
       explanations: line.explanations
     }))
-  })
+  }
 
   const memberNameById = new Map(members.map((member) => [member.id, member.displayName]))
   const paymentsByMemberId = new Map<string, Money>()
@@ -2818,7 +3202,8 @@ async function buildFinanceDashboard(
     activeCarryoverCreditByMemberId,
     convertedUtilityBills,
     purchaseIds: [...currentCyclePurchaseIds],
-    ...(options.skipPlanRebalance ? { skipRebalance: true } : {})
+    ...(options.skipPlanRebalance || !isOpenCycle ? { skipRebalance: true } : {}),
+    ...(!isOpenCycle ? { readOnly: true } : {})
   })
   const overduePaymentsByMemberId = await computeMemberOverduePayments({
     dependencies,
@@ -3025,7 +3410,7 @@ async function buildFinanceDashboard(
     return (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
   })
 
-  return {
+  const dashboard: FinanceDashboard = {
     period: cycle.period,
     currency: cycle.currency,
     timezone: settings.timezone,
@@ -3055,6 +3440,18 @@ async function buildFinanceDashboard(
     paymentPeriods,
     ledger
   }
+
+  if (isOpenCycle) {
+    await dependencies.repository.replaceSettlementSnapshot({
+      ...settlementSnapshotBase,
+      metadata: {
+        ...settlementSnapshotBase.metadata,
+        [CYCLE_HISTORY_ARCHIVE_KEY]: cycleHistoryArchiveMetadata(dashboard)
+      }
+    })
+  }
+
+  return dashboard
 }
 
 async function allocatePaymentPurchaseOverage(input: {
@@ -3257,6 +3654,7 @@ async function allocatePaymentPurchaseOverage(input: {
 export interface FinanceCommandService {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   listMembers(): Promise<readonly FinanceMemberRecord[]>
+  listCycleHistory(): Promise<readonly FinanceCycleHistoryEntry[]>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
   ensureExpectedCycle(referenceInstant?: Temporal.Instant): Promise<FinanceCycleRecord>
   getAdminCycleState(periodArg?: string): Promise<FinanceAdminCycleState>
@@ -3725,6 +4123,40 @@ export function createFinanceCommandService(
       return repository.listMembers()
     },
 
+    async listCycleHistory() {
+      const [cycles, openCycle, members, purchases] = await Promise.all([
+        repository.listCycles(),
+        repository.getOpenCycle(),
+        repository.listMembers(),
+        repository.listParsedPurchases()
+      ])
+      const closedCycles = cycles
+        .filter((cycle) => cycle.id !== openCycle?.id)
+        .sort((left, right) => right.period.localeCompare(left.period))
+
+      const history = await Promise.all(
+        closedCycles.map(async (cycle) => {
+          const snapshot = await repository.getSettlementSnapshot(cycle.id)
+          if (!snapshot) {
+            return null
+          }
+
+          return (
+            parseFrozenCycleHistory({ cycle, snapshot }) ??
+            buildLegacyCycleHistory({
+              repository,
+              cycle,
+              snapshot,
+              members,
+              purchases
+            })
+          )
+        })
+      )
+
+      return history.filter((entry): entry is FinanceCycleHistoryEntry => entry !== null)
+    },
+
     getOpenCycle() {
       return repository.getOpenCycle()
     },
@@ -3786,6 +4218,11 @@ export function createFinanceCommandService(
       const cycle = await getCycleByPeriodOrLatest(repository, periodArg)
       if (!cycle) {
         return null
+      }
+
+      const dashboard = await buildFinanceDashboard(dependencies, cycle.period)
+      if (!dashboard) {
+        throw new Error(`Failed to materialize final dashboard for cycle ${cycle.period}`)
       }
 
       await repository.closeCycle(cycle.id, nowInstant())

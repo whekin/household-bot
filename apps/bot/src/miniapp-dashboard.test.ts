@@ -291,6 +291,7 @@ function repository(
       createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
     }),
     getSettlementSnapshotLines: async () => [],
+    getSettlementSnapshot: async () => null,
     savePaymentConfirmation: async () =>
       ({
         status: 'needs_review',
@@ -471,6 +472,40 @@ describe('createMiniAppDashboardHandler', () => {
     let capturedPeriodArg: string | undefined
     let capturedTodayOverride: string | undefined
     const financeService = {
+      listCycleHistory: async () => [
+        {
+          period: '2026-03',
+          currency: 'GEL' as const,
+          source: 'frozen' as const,
+          totalDue: Money.fromMinor(100_000n, 'GEL'),
+          totalPaid: Money.fromMinor(100_000n, 'GEL'),
+          totalRemaining: Money.zero('GEL'),
+          rentTotal: Money.fromMinor(70_000n, 'GEL'),
+          utilityTotal: Money.fromMinor(20_000n, 'GEL'),
+          purchaseVolume: Money.fromMinor(10_000n, 'GEL'),
+          purchaseCount: 2,
+          members: [
+            {
+              memberId: 'member-1',
+              displayName: 'Stan',
+              rentShare: Money.fromMinor(70_000n, 'GEL'),
+              utilityShare: Money.fromMinor(20_000n, 'GEL'),
+              purchaseOffset: Money.fromMinor(10_000n, 'GEL'),
+              netDue: Money.fromMinor(100_000n, 'GEL'),
+              paid: Money.fromMinor(100_000n, 'GEL'),
+              remaining: Money.zero('GEL')
+            }
+          ],
+          purchaseContributors: [
+            {
+              memberId: 'member-1',
+              displayName: 'Stan',
+              amount: Money.fromMinor(10_000n, 'GEL'),
+              purchaseCount: 2
+            }
+          ]
+        }
+      ],
       generateDashboard: async (periodArg?: string, options?: { todayOverride?: string }) => {
         capturedPeriodArg = periodArg
         capturedTodayOverride = options?.todayOverride
@@ -504,7 +539,7 @@ describe('createMiniAppDashboardHandler', () => {
           ledger: []
         }
       }
-    } satisfies Pick<FinanceCommandService, 'generateDashboard'>
+    } satisfies Pick<FinanceCommandService, 'generateDashboard' | 'listCycleHistory'>
 
     householdRepository.listHouseholdMembersByTelegramUserId = async () => [
       {
@@ -553,6 +588,41 @@ describe('createMiniAppDashboardHandler', () => {
     expect(response.status).toBe(200)
     expect(capturedPeriodArg).toBe('2026-04')
     expect(capturedTodayOverride).toBe('2026-04-03')
+    const payload = (await response.json()) as any
+    expect(payload.dashboard.cycleHistory).toEqual([
+      {
+        period: '2026-03',
+        currency: 'GEL',
+        source: 'frozen',
+        totalDueMajor: '1000.00',
+        totalPaidMajor: '1000.00',
+        totalRemainingMajor: '0.00',
+        rentTotalMajor: '700.00',
+        utilityTotalMajor: '200.00',
+        purchaseVolumeMajor: '100.00',
+        purchaseCount: 2,
+        members: [
+          {
+            memberId: 'member-1',
+            displayName: 'Stan',
+            rentShareMajor: '700.00',
+            utilityShareMajor: '200.00',
+            purchaseOffsetMajor: '100.00',
+            netDueMajor: '1000.00',
+            paidMajor: '1000.00',
+            remainingMajor: '0.00'
+          }
+        ],
+        purchaseContributors: [
+          {
+            memberId: 'member-1',
+            displayName: 'Stan',
+            amountMajor: '100.00',
+            purchaseCount: 2
+          }
+        ]
+      }
+    ])
   })
 
   test('returns a dashboard for an authenticated household member', async () => {

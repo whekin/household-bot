@@ -117,6 +117,10 @@ class FinanceRepositoryStub implements FinanceRepository {
     createdByMemberId: string
   } | null = null
   replacedSnapshot: SettlementSnapshotRecord | null = null
+  settlementSnapshots = new Map<string, SettlementSnapshotRecord>()
+  replaceSnapshotCalls = 0
+  closedCycleIds: string[] = []
+  snapshotCycleIdsObservedAtClose: string[] = []
   cycleExchangeRates = new Map<string, FinanceCycleExchangeRateRecord>()
   lastUpdatedPurchaseInput: Parameters<FinanceRepository['updateParsedPurchase']>[0] | null = null
   lastAddedPurchaseInput: Parameters<FinanceRepository['addParsedPurchase']>[0] | null = null
@@ -174,7 +178,15 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.latestCycleRecord = cycle
   }
 
-  async closeCycle(): Promise<void> {}
+  async closeCycle(cycleId: string): Promise<void> {
+    if (this.settlementSnapshots.has(cycleId)) {
+      this.snapshotCycleIdsObservedAtClose.push(cycleId)
+    }
+    this.closedCycleIds.push(cycleId)
+    if (this.openCycleRecord?.id === cycleId) {
+      this.openCycleRecord = null
+    }
+  }
 
   async saveRentRule(
     period: string,
@@ -723,8 +735,12 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.paymentPurchaseAllocations
   }
 
-  async getSettlementSnapshotLines() {
-    return []
+  async getSettlementSnapshotLines(cycleId: string) {
+    return this.settlementSnapshots.get(cycleId)?.lines ?? []
+  }
+
+  async getSettlementSnapshot(cycleId: string) {
+    return this.settlementSnapshots.get(cycleId) ?? null
   }
 
   async savePaymentConfirmation() {
@@ -736,6 +752,8 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async replaceSettlementSnapshot(snapshot: SettlementSnapshotRecord): Promise<void> {
     this.replacedSnapshot = snapshot
+    this.settlementSnapshots.set(snapshot.cycleId, snapshot)
+    this.replaceSnapshotCalls++
   }
 }
 
@@ -1205,6 +1223,7 @@ describe('createFinanceCommandService', () => {
       period: '2026-03',
       currency: 'GEL'
     }
+    repository.openCycleRecord = repository.latestCycleRecord
     repository.members = [
       {
         id: 'alice',
@@ -1325,6 +1344,174 @@ describe('createFinanceCommandService', () => {
     const dashboard = await service.generateDashboard('2026-03')
 
     expect(dashboard?.period).toBe('2026-03')
+  })
+
+  test('closeCycle freezes rich history before close and historical reads do not rewrite it', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.openCycleRecord = cycle
+    repository.latestCycleRecord = cycle
+    repository.cycles = [cycle]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '200',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    repository.rentRule = {
+      amountMinor: 100_000n,
+      currency: 'GEL'
+    }
+    repository.purchases = [
+      {
+        id: 'purchase-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        payerMemberId: 'alice',
+        amountMinor: 12_000n,
+        currency: 'GEL',
+        description: 'Kitchen supplies',
+        occurredAt: instantFromIso('2026-03-10T10:00:00.000Z')
+      }
+    ]
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 50_000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-20T10:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    await service.closeCycle(cycle.period)
+
+    expect(repository.snapshotCycleIdsObservedAtClose).toEqual([cycle.id])
+    expect(repository.closedCycleIds).toEqual([cycle.id])
+    expect(repository.replacedSnapshot?.metadata.cycleHistoryArchive).toMatchObject({
+      version: 1,
+      period: cycle.period,
+      currency: 'GEL',
+      purchaseVolumeMinor: '12000',
+      purchaseCount: 1
+    })
+
+    const history = await service.listCycleHistory()
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({
+      period: '2026-03',
+      currency: 'GEL',
+      source: 'frozen',
+      purchaseCount: 1
+    })
+    expect(history[0]?.purchaseVolume.amountMinor).toBe(12_000n)
+    expect(history[0]?.purchaseContributors).toEqual([
+      {
+        memberId: 'alice',
+        displayName: 'Alice',
+        amount: Money.fromMinor(12_000n, 'GEL'),
+        purchaseCount: 1
+      }
+    ])
+
+    const replaceCallsAfterClose = repository.replaceSnapshotCalls
+    await service.generateDashboard(cycle.period)
+    expect(repository.replaceSnapshotCalls).toBe(replaceCallsAfterClose)
+  })
+
+  test('listCycleHistory exposes legacy snapshots and excludes the open cycle', async () => {
+    const repository = new FinanceRepositoryStub()
+    const closedCycle = {
+      id: 'cycle-2026-02',
+      period: '2026-02',
+      currency: 'GEL' as const
+    }
+    const openCycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.cycles = [closedCycle, openCycle]
+    repository.openCycleRecord = openCycle
+    repository.latestCycleRecord = openCycle
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.settlementSnapshots.set(closedCycle.id, {
+      cycleId: closedCycle.id,
+      inputHash: 'legacy',
+      totalDueMinor: 70_000n,
+      currency: 'GEL',
+      metadata: {},
+      lines: [
+        {
+          memberId: 'alice',
+          rentShareMinor: 60_000n,
+          utilityShareMinor: 10_000n,
+          purchaseOffsetMinor: 0n,
+          netDueMinor: 70_000n,
+          explanations: []
+        }
+      ]
+    })
+    repository.paymentRecords = [
+      {
+        id: 'payment-legacy',
+        cycleId: closedCycle.id,
+        cyclePeriod: closedCycle.period,
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 65_000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-02-20T10:00:00.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-legacy',
+        cycleId: closedCycle.id,
+        cyclePeriod: closedCycle.period,
+        payerMemberId: 'alice',
+        amountMinor: 8_000n,
+        currency: 'GEL',
+        description: 'Legacy supplies',
+        occurredAt: instantFromIso('2026-02-10T10:00:00.000Z')
+      }
+    ]
+
+    const history = await createService(repository).listCycleHistory()
+
+    expect(history.map((entry) => entry.period)).toEqual(['2026-02'])
+    expect(history[0]).toMatchObject({
+      source: 'legacy',
+      purchaseCount: 1
+    })
+    expect(history[0]?.totalRemaining.amountMinor).toBe(5_000n)
+    expect(history[0]?.purchaseVolume.amountMinor).toBe(8_000n)
   })
 
   test('ensureDashboardMaterialized preserves generateDashboard behavior', async () => {

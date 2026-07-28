@@ -352,6 +352,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
     utilityVendorPayments: [],
     getMemberByTelegramUserId: async () => null,
     listMembers: async () => [],
+    listCycleHistory: async () => [],
     ensureExpectedCycle: async () => ({
       id: 'cycle-2026-03',
       period: '2026-03',

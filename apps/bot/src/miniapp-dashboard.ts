@@ -139,14 +139,15 @@ export async function loadMiniAppDashboardPayload(input: {
     return null
   }
 
-  const [notifications, utilityCategories] = await Promise.all([
+  const [notifications, utilityCategories, cycleHistory] = await Promise.all([
     input.adHocNotificationService.listUpcomingNotifications({
       householdId: input.householdId,
       viewerMemberId: input.viewerMemberId
     }),
     input.householdConfigurationRepository
       ? input.householdConfigurationRepository.listHouseholdUtilityCategories(input.householdId)
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    input.financeService.listCycleHistory()
   ])
 
   return {
@@ -259,6 +260,34 @@ export async function loadMiniAppDashboardPayload(input: {
           remainingMajor: member.remaining.toMajorString(),
           effectivelySettled: member.effectivelySettled
         }))
+      }))
+    })),
+    cycleHistory: cycleHistory.map((cycle) => ({
+      period: cycle.period,
+      currency: cycle.currency,
+      source: cycle.source,
+      totalDueMajor: cycle.totalDue.toMajorString(),
+      totalPaidMajor: cycle.totalPaid.toMajorString(),
+      totalRemainingMajor: cycle.totalRemaining.toMajorString(),
+      rentTotalMajor: cycle.rentTotal.toMajorString(),
+      utilityTotalMajor: cycle.utilityTotal.toMajorString(),
+      purchaseVolumeMajor: cycle.purchaseVolume.toMajorString(),
+      purchaseCount: cycle.purchaseCount,
+      members: cycle.members.map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName,
+        rentShareMajor: member.rentShare.toMajorString(),
+        utilityShareMajor: member.utilityShare.toMajorString(),
+        purchaseOffsetMajor: member.purchaseOffset.toMajorString(),
+        netDueMajor: member.netDue.toMajorString(),
+        paidMajor: member.paid.toMajorString(),
+        remainingMajor: member.remaining.toMajorString()
+      })),
+      purchaseContributors: cycle.purchaseContributors.map((contributor) => ({
+        memberId: contributor.memberId,
+        displayName: contributor.displayName,
+        amountMajor: contributor.amount.toMajorString(),
+        purchaseCount: contributor.purchaseCount
       }))
     })),
     ledger: dashboard.ledger.map((entry) => ({

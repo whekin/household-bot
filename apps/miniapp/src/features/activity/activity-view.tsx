@@ -13,6 +13,7 @@ import { cn } from '@/lib/cn'
 import { canEditLedgerEntry, formatMoneyLabel } from '@/lib/ledger-helpers'
 import { haptics } from '@/telegram/webapp'
 import { BalancesSection } from './balances-section'
+import { CycleHistoryArchive } from './cycle-history'
 import { LedgerList } from './ledger-list'
 import { PaymentEditor } from './payment-editor'
 import { PurchaseEditor } from './purchase-editor'
@@ -205,6 +206,8 @@ export function ActivityView() {
           </div>
         </Card>
       ) : null}
+
+      <CycleHistoryArchive cycles={dashboard.cycleHistory ?? []} />
 
       <Card>
         <CardHeader

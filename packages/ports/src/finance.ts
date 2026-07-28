@@ -542,6 +542,7 @@ export interface FinanceRepository {
   getSettlementSnapshotLines(
     cycleId: string
   ): Promise<readonly FinanceSettlementSnapshotLineRecord[]>
+  getSettlementSnapshot(cycleId: string): Promise<SettlementSnapshotRecord | null>
   savePaymentConfirmation(
     input: FinancePaymentConfirmationSaveInput
   ): Promise<FinancePaymentConfirmationSaveResult>
