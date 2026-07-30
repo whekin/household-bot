@@ -177,6 +177,75 @@ describe('createScheduledDispatchHandler', () => {
     expect(markedDispatches).toEqual(['dispatch-1'])
   })
 
+  test('delivers a notification created in a private chat without a topic thread', async () => {
+    const dispatch = scheduledDispatch({
+      id: 'dispatch-1',
+      householdId: 'household-1',
+      kind: 'ad_hoc_notification',
+      adHocNotificationId: 'notif-1'
+    })
+    const sentTopicMessages: string[] = []
+
+    const service: ScheduledDispatchService = {
+      scheduleAdHocNotification: async () => dispatch,
+      cancelAdHocNotification: async () => {},
+      reconcileHouseholdBuiltInDispatches: async () => {},
+      reconcileAllBuiltInDispatches: async () => {},
+      listDueDispatches: async () => [dispatch],
+      getDispatchById: async () => dispatch,
+      claimDispatch: async () => true,
+      releaseDispatch: async () => {},
+      markDispatchSent: async () => dispatch
+    }
+
+    const handler = createScheduledDispatchHandler({
+      scheduledDispatchService: service,
+      adHocNotificationRepository: {
+        async getNotificationById() {
+          return notification({
+            id: 'notif-1',
+            scheduledFor: dispatch.dueAt,
+            notificationText: 'Позвонить в Магти',
+            sourceTelegramChatId: '10002',
+            sourceTelegramThreadId: null
+          })
+        },
+        async markNotificationSent() {
+          return null
+        }
+      },
+      householdConfigurationRepository: {
+        async getHouseholdChatByHouseholdId(): Promise<HouseholdTelegramChatRecord | null> {
+          throw new Error('not used')
+        },
+        async getHouseholdTopicBinding(): Promise<HouseholdTopicBindingRecord | null> {
+          throw new Error('not used')
+        },
+        async getHouseholdBillingSettings() {
+          throw new Error('not used')
+        },
+        async listHouseholdMembers(): Promise<readonly HouseholdMemberRecord[]> {
+          return []
+        }
+      },
+      sendTopicMessage: async (input) => {
+        sentTopicMessages.push(`${input.chatId}:${input.threadId}:${input.text}`)
+      },
+      sendDirectMessage: async () => {
+        throw new Error('not used')
+      }
+    })
+
+    const response = await handler.handle(
+      new Request('http://localhost/jobs/dispatch/dispatch-1', { method: 'POST' }),
+      'dispatch-1'
+    )
+    const payload = (await response.json()) as { ok: boolean; outcome: string }
+
+    expect(payload.outcome).toBe('sent')
+    expect(sentTopicMessages).toEqual(['10002:null:Позвонить в Магти'])
+  })
+
   test('ignores stale ad hoc dispatch callbacks after a reschedule', async () => {
     const dispatch = scheduledDispatch({
       id: 'dispatch-1',

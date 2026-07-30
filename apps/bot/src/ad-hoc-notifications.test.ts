@@ -114,6 +114,26 @@ function member(
   }
 }
 
+function privateMessageUpdate(text: string) {
+  return {
+    update_id: 4003,
+    message: {
+      message_id: 56,
+      date: Math.floor(Date.now() / 1000),
+      chat: {
+        id: 10002,
+        type: 'private'
+      },
+      from: {
+        id: 10002,
+        is_bot: false,
+        first_name: 'Dima'
+      },
+      text
+    }
+  }
+}
+
 function createHouseholdRepository() {
   const members = [
     member({ id: 'dima', telegramUserId: '10002', displayName: 'Дима' }),
@@ -158,6 +178,9 @@ function createHouseholdRepository() {
         telegramThreadId: '777',
         topicName: 'Напоминания'
       }
+    },
+    async listHouseholdMembersByTelegramUserId(telegramUserId: string) {
+      return members.filter((entry) => entry.telegramUserId === telegramUserId)
     },
     async getHouseholdMember(householdId: string, telegramUserId: string) {
       return (
@@ -288,6 +311,101 @@ describe('createNotificationDraftPublisher', () => {
 
     expect(notificationService.scheduled).toHaveLength(1)
     expect(notificationService.scheduled[0]?.notificationText).toBe('Вынести мусор')
+  })
+
+  test('posts the card in a topic that is not the reminders topic', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createNotificationTestBot(calls)
+    const publisher = createNotificationDraftPublisher({
+      householdConfigurationRepository: {
+        ...createHouseholdRepository(),
+        async findHouseholdTopicByTelegramContext() {
+          return {
+            householdId: 'household-1',
+            role: 'payments' as const,
+            telegramThreadId: '136',
+            topicName: 'Быт или не быт'
+          }
+        }
+      } as never,
+      promptRepository: createPromptRepository()
+    })
+
+    const tomorrow = Temporal.Now.zonedDateTimeISO('Asia/Tbilisi').add({ days: 1 }).toPlainDate()
+
+    bot.on('message', async (ctx) => {
+      const published = await publisher.publish({
+        ctx,
+        text: 'Дима, позвони в Магти',
+        localDate: tomorrow.toString(),
+        hour: 12,
+        minute: 0,
+        assigneeMemberId: 'dima'
+      })
+      expect(published.status).toBe('card_posted')
+    })
+
+    await bot.handleUpdate(reminderMessageUpdate('напомни завтра Диме про Магти', 136) as never)
+
+    const card = calls.find((call) => call.method === 'sendMessage')
+    expect((card?.payload as { message_thread_id?: number } | undefined)?.message_thread_id).toBe(
+      136
+    )
+  })
+
+  test('posts the card in a private chat with a single household', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createNotificationTestBot(calls)
+    const publisher = createNotificationDraftPublisher({
+      householdConfigurationRepository: createHouseholdRepository() as never,
+      promptRepository: createPromptRepository()
+    })
+
+    const tomorrow = Temporal.Now.zonedDateTimeISO('Asia/Tbilisi').add({ days: 1 }).toPlainDate()
+
+    bot.on('message', async (ctx) => {
+      const published = await publisher.publish({
+        ctx,
+        text: 'Позвонить в Магти',
+        localDate: tomorrow.toString(),
+        hour: 12,
+        minute: 0,
+        assigneeMemberId: null
+      })
+      expect(published.status).toBe('card_posted')
+    })
+
+    await bot.handleUpdate(privateMessageUpdate('напомни завтра про Магти') as never)
+
+    const card = calls.find((call) => call.method === 'sendMessage')
+    expect(card).toBeDefined()
+    expect((card!.payload as { message_thread_id?: number }).message_thread_id).toBeUndefined()
+  })
+
+  test('reports an unknown assignee instead of posting a card', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createNotificationTestBot(calls)
+    const publisher = createNotificationDraftPublisher({
+      householdConfigurationRepository: createHouseholdRepository() as never,
+      promptRepository: createPromptRepository()
+    })
+
+    const tomorrow = Temporal.Now.zonedDateTimeISO('Asia/Tbilisi').add({ days: 1 }).toPlainDate()
+
+    bot.on('message', async (ctx) => {
+      const published = await publisher.publish({
+        ctx,
+        text: 'Позвонить в Магти',
+        localDate: tomorrow.toString(),
+        hour: 12,
+        minute: 0,
+        assigneeMemberId: 'not-a-member'
+      })
+      expect(published.status).toBe('unknown_assignee')
+    })
+
+    await bot.handleUpdate(reminderMessageUpdate('напомни') as never)
+    expect(calls.find((call) => call.method === 'sendMessage')).toBeUndefined()
   })
 
   test('rejects past schedules with a fixed status', async () => {

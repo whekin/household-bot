@@ -22,7 +22,10 @@ import {
   type AgentActionPayload,
   type AgentActionType
 } from './agent-confirmations'
-import type { NotificationDraftPublisher } from './ad-hoc-notifications'
+import type {
+  NotificationDraftPublisher,
+  NotificationDraftPublishStatus
+} from './ad-hoc-notifications'
 import type { AssistantConversationMemoryStore } from './assistant-state'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { createAgentPaymentProposal } from './payment-proposals'
@@ -430,7 +433,7 @@ function agentCapabilities(isAdmin: boolean): string {
     'Record rent/utilities payments as confirmation cards (including payments made for several members or reported for another member).',
     'Record shared purchases as confirmation cards.',
     'Edit or delete saved payments and purchases and change purchase participants — always via a confirmation card.',
-    'Schedule one-off household notifications in the reminders topic (as confirmation cards).',
+    'Schedule one-off household notifications from any chat or topic (as confirmation cards).',
     'Cancel a pending proposal.',
     ...(isAdmin
       ? [
@@ -1087,12 +1090,32 @@ async function cancelPendingProposal(context: AgentToolContext): Promise<ToolSes
   return { result: { status: 'cancelled' }, cardPosted: true }
 }
 
+// Bare status codes make the model invent explanations ("the service is down"),
+// so every failure carries the next step in plain language.
+const NOTIFICATION_FAILURE_GUIDANCE: Record<
+  Exclude<NotificationDraftPublishStatus, 'card_posted'>,
+  string
+> = {
+  missing_schedule: 'No usable date or time. Ask the member when the reminder should fire.',
+  invalid_past: 'That moment is already in the past. Ask the member for a future date or time.',
+  household_not_resolved:
+    'This chat is not linked to a household, so reminders cannot be scheduled here.',
+  unknown_assignee:
+    'assignee_member_id is not a member of this household. Retry with an id from the member list, or omit it.'
+}
+
 async function proposeNotification(
   context: AgentToolContext,
   args: Record<string, unknown>
 ): Promise<ToolSessionToolResult> {
   if (!context.notificationDraftPublisher) {
-    return { result: { error: 'notifications_unavailable' } }
+    return {
+      result: {
+        scheduled: false,
+        error: 'notifications_unavailable',
+        guidance: 'Reminders are not configured for this bot. Say you cannot schedule reminders.'
+      }
+    }
   }
 
   const text = readStringArgument(args, 'text')
@@ -1121,12 +1144,22 @@ async function proposeNotification(
     assigneeMemberId
   })
 
+  if (published.status === 'card_posted') {
+    return {
+      result: {
+        status: 'card_posted',
+        nothingScheduledYet: true
+      },
+      cardPosted: true
+    }
+  }
+
   return {
     result: {
       status: published.status,
-      nothingScheduledYet: published.status === 'card_posted'
-    },
-    cardPosted: published.status === 'card_posted'
+      scheduled: false,
+      guidance: NOTIFICATION_FAILURE_GUIDANCE[published.status]
+    }
   }
 }
 
@@ -1241,7 +1274,7 @@ export function agentToolDefinitions(input: {
     {
       name: 'propose_notification',
       description: [
-        'Post a confirmation card for a one-off scheduled household notification. Only works in the reminders topic; nothing is scheduled until a person confirms the card.',
+        'Post a confirmation card for a one-off scheduled household notification. Works in any topic and in private chats; nothing is scheduled until a person confirms the card.',
         'Use when a member asks to be reminded about something. text: the notification message to deliver, written out fully.',
         'local_date: YYYY-MM-DD in the household timezone, computed from the current local time in the context. hour/minute: 24h local time; omit both when the member gave only a day.',
         MEMBER_ID_NOTE

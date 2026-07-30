@@ -29,7 +29,7 @@ type NotificationDraftPayload =
       stage: 'await_schedule'
       proposalId: string
       householdId: string
-      threadId: string
+      threadId: string | null
       creatorMemberId: string
       timezone: string
       originalRequestText: string
@@ -43,7 +43,7 @@ type NotificationDraftPayload =
       proposalId: string
       confirmationMessageId: number | null
       householdId: string
-      threadId: string
+      threadId: string | null
       creatorMemberId: string
       timezone: string
       originalRequestText: string
@@ -57,10 +57,10 @@ type NotificationDraftPayload =
       viewMode: 'compact' | 'expanded'
     }
 
-interface ReminderTopicContext {
+interface NotificationActorContext {
   locale: BotLocale
   householdId: string
-  threadId: string
+  threadId: string | null
   member: HouseholdMemberRecord
   members: readonly HouseholdMemberRecord[]
   timezone: string
@@ -409,29 +409,51 @@ async function replyInTopic(
   return sentMessage.message_id
 }
 
-async function resolveReminderTopicContext(
+async function resolveHouseholdId(
+  ctx: Context,
+  repository: HouseholdConfigurationRepository,
+  telegramUserId: string
+): Promise<string | null> {
+  if (ctx.chat?.type === 'private') {
+    const memberships = await repository.listHouseholdMembersByTelegramUserId(telegramUserId)
+    const active = memberships.filter((membership) => membership.status !== 'left')
+    return active.length === 1 ? active[0]!.householdId : null
+  }
+
+  if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) {
+    return null
+  }
+
+  const telegramChatId = ctx.chat.id.toString()
+  const threadId = getMessageThreadId(ctx)
+  const binding = threadId
+    ? await repository.findHouseholdTopicByTelegramContext({
+        telegramChatId,
+        telegramThreadId: threadId
+      })
+    : null
+  if (binding) {
+    return binding.householdId
+  }
+
+  const chat = await repository.getTelegramHouseholdChat(telegramChatId)
+  return chat?.householdId ?? null
+}
+
+// Reminders can be asked for anywhere the household talks to the bot: any topic
+// of the household chat, or a private chat with a single household. Delivery
+// falls back to the reminders topic only when the source thread is unknown.
+async function resolveNotificationContext(
   ctx: Context,
   repository: HouseholdConfigurationRepository
-): Promise<ReminderTopicContext | null> {
-  if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
-    return null
-  }
-
-  const threadId = getMessageThreadId(ctx)
-  if (!ctx.chat || !threadId) {
-    return null
-  }
-
-  const binding = await repository.findHouseholdTopicByTelegramContext({
-    telegramChatId: ctx.chat.id.toString(),
-    telegramThreadId: threadId
-  })
-  if (!binding || binding.role !== 'reminders') {
-    return null
-  }
-
+): Promise<NotificationActorContext | null> {
   const telegramUserId = ctx.from?.id?.toString()
   if (!telegramUserId) {
+    return null
+  }
+
+  const householdId = await resolveHouseholdId(ctx, repository, telegramUserId)
+  if (!householdId) {
     return null
   }
 
@@ -439,15 +461,15 @@ async function resolveReminderTopicContext(
     resolveReplyLocale({
       ctx,
       repository,
-      householdId: binding.householdId
+      householdId
     }),
-    repository.getHouseholdMember(binding.householdId, telegramUserId),
-    repository.listHouseholdMembers(binding.householdId),
-    repository.getHouseholdBillingSettings(binding.householdId),
+    repository.getHouseholdMember(householdId, telegramUserId),
+    repository.listHouseholdMembers(householdId),
+    repository.getHouseholdBillingSettings(householdId),
     repository.getHouseholdAssistantConfig
-      ? repository.getHouseholdAssistantConfig(binding.householdId)
+      ? repository.getHouseholdAssistantConfig(householdId)
       : Promise.resolve<HouseholdAssistantConfigRecord>({
-          householdId: binding.householdId,
+          householdId,
           assistantContext: null,
           assistantTone: null
         })
@@ -459,8 +481,8 @@ async function resolveReminderTopicContext(
 
   return {
     locale,
-    householdId: binding.householdId,
-    threadId,
+    householdId,
+    threadId: getMessageThreadId(ctx),
     member,
     members,
     timezone: settings.timezone,
@@ -518,22 +540,22 @@ async function showDraftConfirmationCard(
   draft: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
   previousConfirmationMessageId?: number | null
 ): Promise<void> {
-  const reminderContext = await resolveReminderTopicContext(
+  const notificationContext = await resolveNotificationContext(
     ctx,
     deps.householdConfigurationRepository
   )
-  if (!reminderContext) {
+  if (!notificationContext) {
     return
   }
 
   const confirmationMessageId = await replyInTopic(
     ctx,
     notificationSummaryText({
-      locale: reminderContext.locale,
+      locale: notificationContext.locale,
       payload: draft,
-      members: reminderContext.members
+      members: notificationContext.members
     }),
-    notificationDraftReplyMarkup(reminderContext.locale, draft, reminderContext.members)
+    notificationDraftReplyMarkup(notificationContext.locale, draft, notificationContext.members)
   )
 
   if (
@@ -541,11 +563,15 @@ async function showDraftConfirmationCard(
     ctx.chat &&
     previousConfirmationMessageId !== confirmationMessageId
   ) {
-    await ctx.api.editMessageReplyMarkup(ctx.chat.id, previousConfirmationMessageId, {
-      reply_markup: {
-        inline_keyboard: []
-      }
-    })
+    // The previous card may be gone or too old to edit; that must not fail the
+    // new proposal, otherwise the stale draft blocks every retry.
+    try {
+      await ctx.api.editMessageReplyMarkup(ctx.chat.id, previousConfirmationMessageId, {
+        reply_markup: {
+          inline_keyboard: []
+        }
+      })
+    } catch {}
   }
 
   await saveDraft(deps.promptRepository, ctx, {
@@ -558,7 +584,7 @@ export type NotificationDraftPublishStatus =
   | 'card_posted'
   | 'missing_schedule'
   | 'invalid_past'
-  | 'not_in_reminders_topic'
+  | 'household_not_resolved'
   | 'unknown_assignee'
 
 export interface NotificationDraftPublisher {
@@ -578,23 +604,23 @@ export function createNotificationDraftPublisher(deps: {
 }): NotificationDraftPublisher {
   return {
     async publish(input) {
-      const reminderContext = await resolveReminderTopicContext(
+      const notificationContext = await resolveNotificationContext(
         input.ctx,
         deps.householdConfigurationRepository
       )
-      if (!reminderContext) {
-        return { status: 'not_in_reminders_topic' }
+      if (!notificationContext) {
+        return { status: 'household_not_resolved' }
       }
 
       if (
         input.assigneeMemberId &&
-        !reminderContext.members.some((member) => member.id === input.assigneeMemberId)
+        !notificationContext.members.some((member) => member.id === input.assigneeMemberId)
       ) {
         return { status: 'unknown_assignee' }
       }
 
       const schedule = parseAdHocNotificationSchedule({
-        timezone: reminderContext.timezone,
+        timezone: notificationContext.timezone,
         resolvedLocalDate: input.localDate,
         resolvedHour: input.hour,
         resolvedMinute: input.hour !== null ? (input.minute ?? 0) : null,
@@ -621,10 +647,10 @@ export function createNotificationDraftPublisher(deps: {
         stage: 'confirm',
         proposalId: createProposalId(),
         confirmationMessageId: null,
-        householdId: reminderContext.householdId,
-        threadId: reminderContext.threadId,
-        creatorMemberId: reminderContext.member.id,
-        timezone: reminderContext.timezone,
+        householdId: notificationContext.householdId,
+        threadId: notificationContext.threadId,
+        creatorMemberId: notificationContext.member.id,
+        timezone: notificationContext.timezone,
         originalRequestText: input.text,
         normalizedNotificationText: input.text,
         renderedNotificationText: input.text,
@@ -653,46 +679,46 @@ export function registerAdHocNotifications(options: {
     ctx: Context,
     payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>
   ) {
-    const reminderContext = await resolveReminderTopicContext(
+    const notificationContext = await resolveNotificationContext(
       ctx,
       options.householdConfigurationRepository
     )
-    if (!reminderContext || !ctx.callbackQuery || !('message' in ctx.callbackQuery)) {
+    if (!notificationContext || !ctx.callbackQuery || !('message' in ctx.callbackQuery)) {
       return
     }
 
     await saveDraft(options.promptRepository, ctx, payload)
     await ctx.editMessageText(
       notificationSummaryText({
-        locale: reminderContext.locale,
+        locale: notificationContext.locale,
         payload,
-        members: reminderContext.members
+        members: notificationContext.members
       }),
       {
         reply_markup: notificationDraftReplyMarkup(
-          reminderContext.locale,
+          notificationContext.locale,
           payload,
-          reminderContext.members
+          notificationContext.members
         )
       }
     )
   }
 
   options.bot.command('notifications', async (ctx, next) => {
-    const reminderContext = await resolveReminderTopicContext(
+    const notificationContext = await resolveNotificationContext(
       ctx,
       options.householdConfigurationRepository
     )
-    if (!reminderContext) {
+    if (!notificationContext) {
       await next()
       return
     }
 
     const items = await options.notificationService.listUpcomingNotifications({
-      householdId: reminderContext.householdId,
-      viewerMemberId: reminderContext.member.id
+      householdId: notificationContext.householdId,
+      viewerMemberId: notificationContext.member.id
     })
-    const locale = reminderContext.locale
+    const locale = notificationContext.locale
 
     if (items.length === 0) {
       await replyInTopic(
@@ -712,7 +738,7 @@ export function registerAdHocNotifications(options: {
       ({ item, index }) =>
         `${index + 1}. ${listedNotificationLine({
           locale,
-          timezone: reminderContext.timezone,
+          timezone: notificationContext.timezone,
           item
         })}`
     )
@@ -746,13 +772,13 @@ export function registerAdHocNotifications(options: {
 
     if (data.startsWith(AD_HOC_NOTIFICATION_CONFIRM_PREFIX)) {
       const proposalId = data.slice(AD_HOC_NOTIFICATION_CONFIRM_PREFIX.length)
-      const reminderContext = await resolveReminderTopicContext(
+      const notificationContext = await resolveNotificationContext(
         ctx,
         options.householdConfigurationRepository
       )
       const payload = await loadDraft(options.promptRepository, ctx)
       if (
-        !reminderContext ||
+        !notificationContext ||
         !payload ||
         payload.stage !== 'confirm' ||
         payload.proposalId !== proposalId
@@ -780,7 +806,7 @@ export function registerAdHocNotifications(options: {
       if (result.status !== 'scheduled') {
         await ctx.answerCallbackQuery({
           text:
-            reminderContext.locale === 'ru'
+            notificationContext.locale === 'ru'
               ? 'Не удалось сохранить напоминание.'
               : 'Failed to save notification.',
           show_alert: true
@@ -796,17 +822,19 @@ export function registerAdHocNotifications(options: {
 
       await ctx.answerCallbackQuery({
         text:
-          reminderContext.locale === 'ru' ? 'Напоминание запланировано.' : 'Notification scheduled.'
+          notificationContext.locale === 'ru'
+            ? 'Напоминание запланировано.'
+            : 'Notification scheduled.'
       })
       await ctx.editMessageText(
         notificationSummaryText({
-          locale: reminderContext.locale,
+          locale: notificationContext.locale,
           payload,
-          members: reminderContext.members
+          members: notificationContext.members
         }),
         {
           reply_markup: buildSavedNotificationReplyMarkup(
-            reminderContext.locale,
+            notificationContext.locale,
             result.notification.id
           )
         }
@@ -816,7 +844,7 @@ export function registerAdHocNotifications(options: {
 
     if (data.startsWith(AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX)) {
       const proposalId = data.slice(AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX.length)
-      const reminderContext = await resolveReminderTopicContext(
+      const notificationContext = await resolveNotificationContext(
         ctx,
         options.householdConfigurationRepository
       )
@@ -827,7 +855,7 @@ export function registerAdHocNotifications(options: {
         payload.proposalId !== proposalId ||
         !ctx.chat ||
         !ctx.from ||
-        !reminderContext
+        !notificationContext
       ) {
         await next()
         return
@@ -839,9 +867,9 @@ export function registerAdHocNotifications(options: {
         AD_HOC_NOTIFICATION_ACTION
       )
       await ctx.answerCallbackQuery({
-        text: cancelledDraftReply(reminderContext.locale)
+        text: cancelledDraftReply(notificationContext.locale)
       })
-      await ctx.editMessageText(cancelledDraftReply(reminderContext.locale), {
+      await ctx.editMessageText(cancelledDraftReply(notificationContext.locale), {
         reply_markup: {
           inline_keyboard: []
         }
@@ -928,24 +956,24 @@ export function registerAdHocNotifications(options: {
 
     if (data.startsWith(AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX)) {
       const notificationId = data.slice(AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX.length)
-      const reminderContext = await resolveReminderTopicContext(
+      const notificationContext = await resolveNotificationContext(
         ctx,
         options.householdConfigurationRepository
       )
-      if (!reminderContext) {
+      if (!notificationContext) {
         await next()
         return
       }
 
       const result = await options.notificationService.cancelNotification({
         notificationId,
-        viewerMemberId: reminderContext.member.id
+        viewerMemberId: notificationContext.member.id
       })
 
       if (result.status !== 'cancelled') {
         await ctx.answerCallbackQuery({
           text:
-            reminderContext.locale === 'ru'
+            notificationContext.locale === 'ru'
               ? 'Не удалось отменить напоминание.'
               : 'Could not cancel this notification.',
           show_alert: true
@@ -954,9 +982,9 @@ export function registerAdHocNotifications(options: {
       }
 
       await ctx.answerCallbackQuery({
-        text: cancelledSavedReply(reminderContext.locale)
+        text: cancelledSavedReply(notificationContext.locale)
       })
-      await ctx.editMessageText(cancelledSavedReply(reminderContext.locale), {
+      await ctx.editMessageText(cancelledSavedReply(notificationContext.locale), {
         reply_markup: {
           inline_keyboard: []
         }

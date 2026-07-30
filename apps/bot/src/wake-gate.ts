@@ -289,7 +289,8 @@ export async function assessWake(input: {
     return { wake: true, reason: 'purchase_fact' }
   }
 
-  if (input.topicRole === 'reminders' && verdict.notificationRequest) {
+  // Reminders can be asked for in any topic, so this wake reason is not gated by role.
+  if (verdict.notificationRequest) {
     return { wake: true, reason: 'notification_request' }
   }
 

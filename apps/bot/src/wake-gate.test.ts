@@ -241,6 +241,19 @@ describe('assessWake', () => {
     expect(decision).toEqual({ wake: true, reason: 'notification_request' })
   })
 
+  test('a notification request outside the reminders topic wakes too', async () => {
+    const { classifier } = classifierStub({ notificationRequest: true })
+
+    const decision = await assessWake({
+      ...baseInput,
+      topicRole: 'payments',
+      messageText: 'напомни завтра Диме позвонить в Магти',
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'notification_request' })
+  })
+
   test('classifier failure means silence', async () => {
     const { classifier } = classifierStub(null)
 

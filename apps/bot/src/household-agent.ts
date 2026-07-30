@@ -557,6 +557,9 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           householdConfigurationRepository: options.householdConfigurationRepository,
           promptRepository: options.promptRepository,
           ...(options.purchaseRepository ? { purchaseRepository: options.purchaseRepository } : {}),
+          ...(options.notificationDraftPublisher
+            ? { notificationDraftPublisher: options.notificationDraftPublisher }
+            : {}),
           ...(options.historyRepository ? { historyRepository: options.historyRepository } : {}),
           ...(options.memoryStore ? { memoryStore: options.memoryStore } : {}),
           commandCatalog,

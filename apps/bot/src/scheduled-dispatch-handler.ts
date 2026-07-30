@@ -124,22 +124,23 @@ export function createScheduledDispatchHandler(options: {
       }
 
       if (notification.deliveryMode === 'topic') {
-        const householdChat =
-          notification.sourceTelegramChatId ??
-          (
-            await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
-              notification.householdId
-            )
-          )?.telegramChatId
-        const threadId =
-          notification.sourceTelegramThreadId ??
-          (
-            await options.householdConfigurationRepository.getHouseholdTopicBinding(
-              notification.householdId,
-              'reminders'
-            )
-          )?.telegramThreadId ??
-          null
+        // A thread id only means something inside its own chat, so the source
+        // chat and thread are taken together or not at all.
+        const [householdChat, threadId] = notification.sourceTelegramChatId
+          ? [notification.sourceTelegramChatId, notification.sourceTelegramThreadId]
+          : [
+              (
+                await options.householdConfigurationRepository.getHouseholdChatByHouseholdId(
+                  notification.householdId
+                )
+              )?.telegramChatId,
+              (
+                await options.householdConfigurationRepository.getHouseholdTopicBinding(
+                  notification.householdId,
+                  'reminders'
+                )
+              )?.telegramThreadId ?? null
+            ]
 
         if (!householdChat) {
           throw new Error(`Household chat not configured for ${notification.householdId}`)

@@ -39,6 +39,38 @@ function mockAgentModel(replyText: string): { calls: Array<{ body: string }> } {
   return { calls }
 }
 
+function mockToolCallModel(call: { name: string; arguments: Record<string, unknown> }): {
+  calls: Array<{ body: string }>
+} {
+  const calls: Array<{ body: string }> = []
+  globalThis.fetch = (async (
+    _input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1]
+  ) => {
+    calls.push({ body: String(init?.body ?? '') })
+    const output =
+      calls.length === 1
+        ? [
+            {
+              type: 'function_call',
+              name: call.name,
+              call_id: 'call-1',
+              arguments: JSON.stringify(call.arguments)
+            }
+          ]
+        : [{ type: 'message', content: [{ type: 'output_text', text: 'Готово' }] }]
+
+    return new Response(
+      JSON.stringify({
+        output,
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+      }),
+      { status: 200 }
+    )
+  }) as unknown as typeof fetch
+  return { calls }
+}
+
 function createAgentBot(calls: Array<{ method: string; payload: unknown }>) {
   const bot = createTelegramBot('000000:test-token')
 
@@ -446,5 +478,42 @@ describe('registerHouseholdAgent in private chats', () => {
 
     expect(model.calls).toHaveLength(1)
     expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1)
+  })
+})
+
+describe('registerHouseholdAgent reminder tools', () => {
+  test('routes propose_notification to the notification draft publisher', async () => {
+    const model = mockToolCallModel({
+      name: 'propose_notification',
+      arguments: {
+        text: 'Дима, позвони в Магти',
+        local_date: '2026-07-31',
+        hour: 12,
+        minute: 0,
+        assignee_member_id: 'member-1'
+      }
+    })
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+    const published: Array<Record<string, unknown>> = []
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: createHouseholdRepositoryFake(1),
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      notificationDraftPublisher: {
+        async publish(input) {
+          published.push({ text: input.text, localDate: input.localDate, hour: input.hour })
+          return { status: 'card_posted' }
+        }
+      }
+    })
+
+    await bot.handleUpdate(dmUpdate('напомни завтра Диме о звонке в Магти в 12 дня'))
+
+    expect(published).toEqual([
+      { text: 'Дима, позвони в Магти', localDate: '2026-07-31', hour: 12 }
+    ])
+    expect(model.calls).toHaveLength(2)
   })
 })
