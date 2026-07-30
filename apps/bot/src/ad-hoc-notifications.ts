@@ -95,6 +95,10 @@ function escapeHtml(raw: string): string {
   return raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
+function escapeRegExp(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function formatScheduledFor(locale: BotLocale, scheduledForIso: string, timezone: string): string {
   const zdt = Temporal.Instant.from(scheduledForIso).toZonedDateTimeISO(timezone)
   const date =
@@ -798,7 +802,6 @@ export function registerAdHocNotifications(options: {
         deliveryMode: payload.deliveryMode,
         assigneeMemberId: payload.assigneeMemberId,
         dmRecipientMemberIds: payload.dmRecipientMemberIds,
-        friendlyTagAssignee: false,
         sourceTelegramChatId: ctx.chat?.id?.toString() ?? null,
         sourceTelegramThreadId: payload.threadId
       })
@@ -996,12 +999,29 @@ export function registerAdHocNotifications(options: {
   })
 }
 
-export function buildTopicNotificationText(input: { notificationText: string }): {
+export function buildTopicNotificationText(input: {
+  notificationText: string
+  mention?: { telegramUserId: string; displayName: string } | null
+}): {
   text: string
   parseMode: 'HTML'
 } {
+  const text = escapeHtml(input.notificationText)
+  if (!input.mention) {
+    return {
+      text,
+      parseMode: 'HTML'
+    }
+  }
+
+  const displayName = escapeHtml(input.mention.displayName)
+  const link = `<a href="tg://user?id=${input.mention.telegramUserId}">${displayName}</a>`
+  // Reminder texts usually already open with the person's name ("Дима, позвони…"),
+  // so turn that name into the mention instead of repeating it.
+  const leadingName = new RegExp(`^${escapeRegExp(displayName)}(?=[\\s,:!?])`, 'i')
+
   return {
-    text: escapeHtml(input.notificationText),
+    text: leadingName.test(text) ? text.replace(leadingName, link) : `${link}: ${text}`,
     parseMode: 'HTML'
   }
 }

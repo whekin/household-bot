@@ -30,7 +30,6 @@ function mapNotification(row: {
   timePrecision: string
   deliveryMode: string
   dmRecipientMemberIds: unknown
-  friendlyTagAssignee: number
   status: string
   sourceTelegramChatId: string | null
   sourceTelegramThreadId: string | null
@@ -52,7 +51,6 @@ function mapNotification(row: {
     timePrecision: row.timePrecision as AdHocNotificationRecord['timePrecision'],
     deliveryMode: row.deliveryMode as AdHocNotificationRecord['deliveryMode'],
     dmRecipientMemberIds: parseMemberIds(row.dmRecipientMemberIds),
-    friendlyTagAssignee: row.friendlyTagAssignee === 1,
     status: row.status as AdHocNotificationRecord['status'],
     sourceTelegramChatId: row.sourceTelegramChatId,
     sourceTelegramThreadId: row.sourceTelegramThreadId,
@@ -77,7 +75,6 @@ function notificationSelect() {
     timePrecision: schema.adHocNotifications.timePrecision,
     deliveryMode: schema.adHocNotifications.deliveryMode,
     dmRecipientMemberIds: schema.adHocNotifications.dmRecipientMemberIds,
-    friendlyTagAssignee: schema.adHocNotifications.friendlyTagAssignee,
     status: schema.adHocNotifications.status,
     sourceTelegramChatId: schema.adHocNotifications.sourceTelegramChatId,
     sourceTelegramThreadId: schema.adHocNotifications.sourceTelegramThreadId,
@@ -114,7 +111,6 @@ export function createDbAdHocNotificationRepository(databaseUrl: string): {
           timePrecision: input.timePrecision,
           deliveryMode: input.deliveryMode,
           dmRecipientMemberIds: input.dmRecipientMemberIds ?? [],
-          friendlyTagAssignee: input.friendlyTagAssignee ? 1 : 0,
           status: 'scheduled',
           sourceTelegramChatId: input.sourceTelegramChatId ?? null,
           sourceTelegramThreadId: input.sourceTelegramThreadId ?? null,

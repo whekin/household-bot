@@ -13,6 +13,7 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { createTelegramBot } from './bot'
 import {
+  buildTopicNotificationText,
   createNotificationDraftPublisher,
   formatReminderWhen,
   registerAdHocNotifications
@@ -455,5 +456,45 @@ describe('formatReminderWhen', () => {
         now: Temporal.Instant.from('2026-03-24T00:14:00Z')
       })
     ).toBe('завтра в 9 утра')
+  })
+})
+
+describe('buildTopicNotificationText', () => {
+  test('turns a leading name into a mention instead of repeating it', () => {
+    expect(
+      buildTopicNotificationText({
+        notificationText: 'Дима, позвони в Магти',
+        mention: { telegramUserId: '10002', displayName: 'Дима' }
+      })
+    ).toEqual({
+      text: '<a href="tg://user?id=10002">Дима</a>, позвони в Магти',
+      parseMode: 'HTML'
+    })
+  })
+
+  test('prefixes the mention when the text does not name the member', () => {
+    expect(
+      buildTopicNotificationText({
+        notificationText: 'Вынести мусор',
+        mention: { telegramUserId: '10003', displayName: 'Стас' }
+      }).text
+    ).toBe('<a href="tg://user?id=10003">Стас</a>: Вынести мусор')
+  })
+
+  test('escapes the notification text and the display name', () => {
+    expect(
+      buildTopicNotificationText({
+        notificationText: 'Купить <b>хлеб</b> & молоко',
+        mention: { telegramUserId: '10003', displayName: 'A<b>' }
+      }).text
+    ).toBe(
+      '<a href="tg://user?id=10003">A&lt;b&gt;</a>: Купить &lt;b&gt;хлеб&lt;/b&gt; &amp; молоко'
+    )
+  })
+
+  test('leaves the text alone without a mention', () => {
+    expect(buildTopicNotificationText({ notificationText: 'Просто текст' }).text).toBe(
+      'Просто текст'
+    )
   })
 })

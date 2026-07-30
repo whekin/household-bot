@@ -56,7 +56,6 @@ export type ScheduleAdHocNotificationResult =
         | 'assignee_not_found'
         | 'dm_recipients_missing'
         | 'delivery_mode_invalid'
-        | 'friendly_assignee_missing'
         | 'scheduled_for_past'
         | 'dispatch_schedule_failed'
     }
@@ -99,7 +98,6 @@ export interface AdHocNotificationService {
     deliveryMode: AdHocNotificationDeliveryMode
     assigneeMemberId?: string | null
     dmRecipientMemberIds?: readonly string[]
-    friendlyTagAssignee?: boolean
     sourceTelegramChatId?: string | null
     sourceTelegramThreadId?: string | null
   }): Promise<ScheduleAdHocNotificationResult>
@@ -222,14 +220,6 @@ export function createAdHocNotificationService(input: {
         }
       }
 
-      const friendlyTagAssignee = notificationInput.friendlyTagAssignee === true
-      if (friendlyTagAssignee && !assignee) {
-        return {
-          status: 'invalid',
-          reason: 'friendly_assignee_missing'
-        }
-      }
-
       let dmRecipientMemberIds: readonly string[] = []
       switch (notificationInput.deliveryMode) {
         case 'topic':
@@ -274,7 +264,6 @@ export function createAdHocNotificationService(input: {
         timePrecision: notificationInput.timePrecision,
         deliveryMode: notificationInput.deliveryMode,
         dmRecipientMemberIds,
-        friendlyTagAssignee,
         sourceTelegramChatId: notificationInput.sourceTelegramChatId ?? null,
         sourceTelegramThreadId: notificationInput.sourceTelegramThreadId ?? null
       })

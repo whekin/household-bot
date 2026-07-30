@@ -50,7 +50,6 @@ function notification(input: Partial<AdHocNotificationRecord> = {}): AdHocNotifi
     timePrecision: input.timePrecision ?? 'exact',
     deliveryMode: input.deliveryMode ?? 'topic',
     dmRecipientMemberIds: input.dmRecipientMemberIds ?? [],
-    friendlyTagAssignee: input.friendlyTagAssignee ?? false,
     status: input.status ?? 'scheduled',
     sourceTelegramChatId: input.sourceTelegramChatId ?? null,
     sourceTelegramThreadId: input.sourceTelegramThreadId ?? null,
@@ -175,6 +174,86 @@ describe('createScheduledDispatchHandler', () => {
     expect(sentTopicMessages).toEqual(['chat-1:103:Dima, reminder landed.'])
     expect(markedNotifications).toEqual(['notif-1'])
     expect(markedDispatches).toEqual(['dispatch-1'])
+  })
+
+  test('tags the assignee so the reminder pings them', async () => {
+    const dispatch = scheduledDispatch({
+      id: 'dispatch-1',
+      householdId: 'household-1',
+      kind: 'ad_hoc_notification',
+      adHocNotificationId: 'notif-1'
+    })
+    const sentTopicMessages: string[] = []
+
+    const service: ScheduledDispatchService = {
+      scheduleAdHocNotification: async () => dispatch,
+      cancelAdHocNotification: async () => {},
+      reconcileHouseholdBuiltInDispatches: async () => {},
+      reconcileAllBuiltInDispatches: async () => {},
+      listDueDispatches: async () => [dispatch],
+      getDispatchById: async () => dispatch,
+      claimDispatch: async () => true,
+      releaseDispatch: async () => {},
+      markDispatchSent: async () => dispatch
+    }
+
+    const handler = createScheduledDispatchHandler({
+      scheduledDispatchService: service,
+      adHocNotificationRepository: {
+        async getNotificationById() {
+          return notification({
+            id: 'notif-1',
+            scheduledFor: dispatch.dueAt,
+            assigneeMemberId: 'dima',
+            notificationText: 'Дима, позвони в Магти',
+            sourceTelegramChatId: 'chat-1',
+            sourceTelegramThreadId: '2033'
+          })
+        },
+        async markNotificationSent() {
+          return null
+        }
+      },
+      householdConfigurationRepository: {
+        async getHouseholdChatByHouseholdId(): Promise<HouseholdTelegramChatRecord | null> {
+          throw new Error('not used')
+        },
+        async getHouseholdTopicBinding(): Promise<HouseholdTopicBindingRecord | null> {
+          throw new Error('not used')
+        },
+        async getHouseholdBillingSettings() {
+          throw new Error('not used')
+        },
+        async listHouseholdMembers(): Promise<readonly HouseholdMemberRecord[]> {
+          return [
+            {
+              id: 'dima',
+              householdId: 'household-1',
+              telegramUserId: '10002',
+              displayName: 'Дима',
+              status: 'active',
+              preferredLocale: 'ru',
+              householdDefaultLocale: 'ru',
+              rentShareWeight: 1,
+              isAdmin: false
+            }
+          ]
+        }
+      },
+      sendTopicMessage: async (input) => {
+        sentTopicMessages.push(input.text)
+      },
+      sendDirectMessage: async () => {
+        throw new Error('not used')
+      }
+    })
+
+    await handler.handle(
+      new Request('http://localhost/jobs/dispatch/dispatch-1', { method: 'POST' }),
+      'dispatch-1'
+    )
+
+    expect(sentTopicMessages).toEqual(['<a href="tg://user?id=10002">Дима</a>, позвони в Магти'])
   })
 
   test('delivers a notification created in a private chat without a topic thread', async () => {

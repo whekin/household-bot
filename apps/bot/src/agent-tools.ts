@@ -1276,6 +1276,7 @@ export function agentToolDefinitions(input: {
       description: [
         'Post a confirmation card for a one-off scheduled household notification. Works in any topic and in private chats; nothing is scheduled until a person confirms the card.',
         'Use when a member asks to be reminded about something. text: the notification message to deliver, written out fully.',
+        'The assignee (or the requester when there is none) is tagged automatically on delivery, so write text addressed to them and do not add a @mention yourself.',
         'local_date: YYYY-MM-DD in the household timezone, computed from the current local time in the context. hour/minute: 24h local time; omit both when the member gave only a day.',
         MEMBER_ID_NOTE
       ].join(' '),

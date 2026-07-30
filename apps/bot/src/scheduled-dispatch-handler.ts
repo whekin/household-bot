@@ -146,16 +146,41 @@ export function createScheduledDispatchHandler(options: {
           throw new Error(`Household chat not configured for ${notification.householdId}`)
         }
 
+        // A reminder nobody is tagged in is easy to miss, so the assignee — or
+        // the member who asked for it — is always mentioned.
+        const members = await options.householdConfigurationRepository.listHouseholdMembers(
+          notification.householdId
+        )
+        const mentionMemberId = notification.assigneeMemberId ?? notification.creatorMemberId
+        const mentionMember = members.find((member) => member.id === mentionMemberId)
         const content = buildTopicNotificationText({
-          notificationText: notification.notificationText
+          notificationText: notification.notificationText,
+          mention: mentionMember
+            ? {
+                telegramUserId: mentionMember.telegramUserId,
+                displayName: mentionMember.displayName
+              }
+            : null
         })
-        await options.sendTopicMessage({
+        const sent = await options.sendTopicMessage({
           householdId: notification.householdId,
           chatId: householdChat,
           threadId,
           text: content.text,
           parseMode: content.parseMode
         })
+
+        options.logger?.info(
+          {
+            event: 'scheduler.ad_hoc_notification.delivered',
+            notificationId: notification.id,
+            chatId: householdChat,
+            threadId,
+            usedSourceChat: notification.sourceTelegramChatId !== null,
+            telegramMessageId: sent?.telegramMessageId ?? null
+          },
+          'Ad hoc notification delivered'
+        )
       } else {
         const members = await options.householdConfigurationRepository.listHouseholdMembers(
           notification.householdId

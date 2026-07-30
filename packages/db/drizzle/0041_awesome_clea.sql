@@ -1,0 +1,1 @@
+ALTER TABLE "ad_hoc_notifications" DROP COLUMN "friendly_tag_assignee";

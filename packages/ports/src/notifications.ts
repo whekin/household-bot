@@ -20,7 +20,6 @@ export interface AdHocNotificationRecord {
   timePrecision: AdHocNotificationTimePrecision
   deliveryMode: AdHocNotificationDeliveryMode
   dmRecipientMemberIds: readonly string[]
-  friendlyTagAssignee: boolean
   status: AdHocNotificationStatus
   sourceTelegramChatId: string | null
   sourceTelegramThreadId: string | null
@@ -42,7 +41,6 @@ export interface CreateAdHocNotificationInput {
   timePrecision: AdHocNotificationTimePrecision
   deliveryMode: AdHocNotificationDeliveryMode
   dmRecipientMemberIds?: readonly string[]
-  friendlyTagAssignee: boolean
   sourceTelegramChatId?: string | null
   sourceTelegramThreadId?: string | null
 }

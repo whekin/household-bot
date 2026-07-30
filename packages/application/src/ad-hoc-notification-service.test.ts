@@ -31,7 +31,6 @@ class NotificationRepositoryStub implements AdHocNotificationRepository {
       timePrecision: input.timePrecision,
       deliveryMode: input.deliveryMode,
       dmRecipientMemberIds: input.dmRecipientMemberIds ?? [],
-      friendlyTagAssignee: input.friendlyTagAssignee,
       status: 'scheduled',
       sourceTelegramChatId: input.sourceTelegramChatId ?? null,
       sourceTelegramThreadId: input.sourceTelegramThreadId ?? null,
@@ -233,31 +232,6 @@ describe('createAdHocNotificationService', () => {
     }
   })
 
-  test('rejects friendly mode without assignee', async () => {
-    const repository = new NotificationRepositoryStub()
-    const service = createAdHocNotificationService({
-      repository,
-      householdConfigurationRepository: createHouseholdRepository([member({ id: 'creator' })])
-    })
-
-    const result = await service.scheduleNotification({
-      householdId: 'household-1',
-      creatorMemberId: 'creator',
-      originalRequestText: 'remind tomorrow',
-      notificationText: 'check rent',
-      timezone: 'Asia/Tbilisi',
-      scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
-      timePrecision: 'date_only_defaulted',
-      deliveryMode: 'topic',
-      friendlyTagAssignee: true
-    })
-
-    expect(result).toEqual({
-      status: 'invalid',
-      reason: 'friendly_assignee_missing'
-    })
-  })
-
   test('allows admin to cancel someone else notification', async () => {
     const repository = new NotificationRepositoryStub()
     const creator = member({ id: 'creator', telegramUserId: 'creator-tg' })
@@ -275,8 +249,7 @@ describe('createAdHocNotificationService', () => {
       timezone: 'Asia/Tbilisi',
       scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
-      deliveryMode: 'topic',
-      friendlyTagAssignee: false
+      deliveryMode: 'topic'
     })
 
     const result = await service.cancelNotification({
@@ -308,8 +281,7 @@ describe('createAdHocNotificationService', () => {
       timezone: 'Asia/Tbilisi',
       scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
-      deliveryMode: 'topic',
-      friendlyTagAssignee: false
+      deliveryMode: 'topic'
     })
 
     const items = await service.listUpcomingNotifications({
@@ -344,8 +316,7 @@ describe('createAdHocNotificationService', () => {
       timezone: 'Asia/Tbilisi',
       scheduledFor: Temporal.Instant.from('2099-03-25T08:00:00Z'),
       timePrecision: 'date_only_defaulted',
-      deliveryMode: 'topic',
-      friendlyTagAssignee: false
+      deliveryMode: 'topic'
     })
 
     const result = await service.updateNotification({

@@ -525,7 +525,6 @@ export const adHocNotifications = pgTable(
     dmRecipientMemberIds: jsonb('dm_recipient_member_ids')
       .default(sql`'[]'::jsonb`)
       .notNull(),
-    friendlyTagAssignee: integer('friendly_tag_assignee').default(0).notNull(),
     status: text('status').default('scheduled').notNull(),
     sourceTelegramChatId: text('source_telegram_chat_id'),
     sourceTelegramThreadId: text('source_telegram_thread_id'),

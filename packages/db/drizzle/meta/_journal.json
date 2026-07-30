@@ -288,6 +288,13 @@
       "when": 1784560295060,
       "tag": "0040_new_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785433479190,
+      "tag": "0041_awesome_clea",
+      "breakpoints": true
     }
   ]
 }
