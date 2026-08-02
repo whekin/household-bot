@@ -499,6 +499,7 @@ describe('createScheduledDispatchHandler', () => {
         actorDisplayName: 'System',
         category: 'period_events',
         eventType: 'period.utilities',
+        deliveryTopicRole: 'reminders',
         metadata: {
           dispatchId: 'dispatch-utilities',
           kind: 'utilities',

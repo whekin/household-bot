@@ -335,10 +335,10 @@ export function createScheduledDispatchHandler(options: {
           ...(content.parseMode ? { parseMode: content.parseMode } : {}),
           ...(content.parseMode
             ? {
-                preserveSummaryText: true as const,
-                deliveryTopicRole: 'reminders' as const
+                preserveSummaryText: true as const
               }
             : {}),
+          deliveryTopicRole: 'reminders',
           ...(content.replyMarkup
             ? {
                 replyMarkup: content.replyMarkup

@@ -142,7 +142,7 @@ function createPromptRepository(): TelegramPendingActionRepository & {
   }
 }
 
-function createHouseholdRepository() {
+function createHouseholdRepository(topicRole: 'reminders' | 'notifications' = 'reminders') {
   return {
     getTelegramHouseholdChat: async () => ({
       householdId: 'household-1',
@@ -162,15 +162,15 @@ function createHouseholdRepository() {
     }),
     getHouseholdTopicBinding: async () => ({
       householdId: 'household-1',
-      role: 'reminders' as const,
+      role: topicRole,
       telegramThreadId: '555',
-      topicName: 'Напоминания'
+      topicName: topicRole === 'reminders' ? 'Напоминания' : 'Уведомления'
     }),
     findHouseholdTopicByTelegramContext: async () => ({
       householdId: 'household-1',
-      role: 'reminders' as const,
+      role: topicRole,
       telegramThreadId: '555',
-      topicName: 'Напоминания'
+      topicName: topicRole === 'reminders' ? 'Напоминания' : 'Уведомления'
     }),
     getHouseholdBillingSettings: async () => ({
       householdId: 'household-1',
@@ -330,7 +330,12 @@ function createFinanceService(): FinanceCommandService & {
   }
 }
 
-function setupBot(options: { paymentInstructionStatuses?: string[] } = {}) {
+function setupBot(
+  options: {
+    paymentInstructionStatuses?: string[]
+    topicRole?: 'reminders' | 'notifications'
+  } = {}
+) {
   const bot = createTelegramBot('000000:test-token')
   const calls: Array<{ method: string; payload: unknown }> = []
   const promptRepository = createPromptRepository()
@@ -361,7 +366,7 @@ function setupBot(options: { paymentInstructionStatuses?: string[] } = {}) {
 
   registerReminderTopicUtilities({
     bot,
-    householdConfigurationRepository: createHouseholdRepository() as never,
+    householdConfigurationRepository: createHouseholdRepository(options.topicRole) as never,
     promptRepository,
     financeServiceForHousehold: () => financeService,
     ...(options.paymentInstructionStatuses
@@ -387,6 +392,29 @@ function setupBot(options: { paymentInstructionStatuses?: string[] } = {}) {
 }
 
 describe('registerReminderTopicUtilities', () => {
+  test('starts utility entry from fallback cards already posted in the notifications topic', async () => {
+    const { bot, calls } = setupBot({ topicRole: 'notifications' })
+
+    await bot.handleUpdate(
+      reminderCallbackUpdate(`${REMINDER_UTILITY_GUIDED_CALLBACK}:2026-08`) as never
+    )
+
+    expect(calls[0]).toMatchObject({
+      method: 'answerCallbackQuery',
+      payload: {
+        callback_query_id: 'callback-1',
+        text: 'Пошаговый ввод коммуналки запущен.'
+      }
+    })
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        text: expect.stringContaining('Electricity'),
+        message_thread_id: 555
+      }
+    })
+  })
+
   test('runs the guided reminder flow and records utility bills on confirmation', async () => {
     const { bot, calls, financeService, promptRepository } = setupBot()
 

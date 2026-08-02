@@ -8,6 +8,8 @@ Make scheduled rent and utilities reminders useful as shared payment-status mess
 
 - Rent reminders show the month name, due date, unpaid members, remaining amounts, paid members, and configured rent requisites.
 - Utilities reminders show the month name, due date, planned utility provider assignments, and member paid/unpaid status.
+- Every scheduled reminder variant, including the no-plan utilities fallback, is delivered to the reminders topic.
+- Utility-entry callbacks remain usable on fallback cards previously delivered to the notifications topic.
 - Reminder messages are compact by default and can be expanded in-place with a details button.
 - "I paid" closes the clicking member's unresolved payment period only.
 - Utilities "I paid" means the member paid assigned utility providers according to the plan, not reimbursed another member.
@@ -28,5 +30,7 @@ Out of scope for this pass:
 ## Verification
 
 - Formatter tests cover rent, utilities, fully paid, details, month labels, and HTML escaping.
+- Scheduler tests cover reminders-topic routing for plain-text fallback cards.
+- Utility-entry callback tests cover fallback cards already posted in the notifications topic.
 - Callback tests cover actor-only payment, admin-only close-all, stale/already-paid clicks, topic rejection, old-period behavior, and Telegram edit failures.
 - Finance tests cover close-period idempotency at the application/repository boundary.

@@ -327,7 +327,8 @@ async function resolveReminderContext(
   const actorContext = await resolveReminderTopicActorContext({
     ctx,
     householdConfigurationRepository,
-    financeServiceForHousehold
+    financeServiceForHousehold,
+    allowedTopicRoles: ['reminders', 'notifications']
   })
   if (!actorContext || !actorContext.telegramThreadId) {
     return null
