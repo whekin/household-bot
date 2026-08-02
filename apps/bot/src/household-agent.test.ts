@@ -325,7 +325,8 @@ describe('registerHouseholdAgent in private chats', () => {
     }
     const systemPrompt = requestBody.input?.find((message) => message.role === 'system')?.content
     expect(systemPrompt).toContain('relaxed, positive contemporary Russian group chat')
-    expect(systemPrompt).toContain('Occasionally add one light chat marker')
+    expect(systemPrompt).toContain('sparingly and less often than mild slang or light jokes')
+    expect(systemPrompt).toContain('"понял))", never "понял ))"')
     expect(systemPrompt).toContain('Do not end a Russian conversational reply with a full stop')
     expect(systemPrompt).toContain('custom instructions may refine your personality')
     expect(systemPrompt).toContain('always call get_rent_settings')

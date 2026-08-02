@@ -123,9 +123,11 @@ locale strings, emits audit events.
   saved/cancelled state.
 - The agent never consents/commits on behalf of members.
 - Free-form Russian replies use a relaxed, positive contemporary chat tone with
-  occasional mild slang, light jokes, text emoticons, or a fitting emoji. The
-  style stays restrained for serious financial matters and does not end a
-  conversational reply with a full stop.
+  occasional mild slang and light jokes. Text emoticons or a fitting emoji are
+  used more sparingly, and most replies contain none. Russian bracket emoticons
+  attach directly to the preceding word without a space (`понял))`, not
+  `понял ))`). The style stays restrained for serious financial matters and does
+  not end a conversational reply with a full stop.
 - Direct joke requests favor fresh observational or situational humor over
   stock riddles and well-known classics. Negative feedback or “another joke”
   changes both the premise and the joke structure; the bot does not promise a
