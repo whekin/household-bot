@@ -48,6 +48,7 @@ export type TodayViewModel = {
     shareMajor: string
     purchaseOffsetMajor: string
     carryForwardCreditMajor: string
+    nextCycleCreditMajor: string
     targetMajor: string
     hasAdjustment: boolean
   } | null
@@ -400,6 +401,22 @@ export function buildTodayViewModel(input: {
           targetMajor: currentMemberUtilitySummary.fairShareMajor
         })
       : '0.00'
+  const currentMemberNextCycleCreditMajor = (() => {
+    if (!currentMember || !input.dashboard.utilityBillingPlan) {
+      return '0.00'
+    }
+
+    const credit = input.dashboard.utilityBillingPlan.carryForwardCredits?.find(
+      (candidate) => candidate.memberId === currentMember.memberId
+    )
+    if (!credit) {
+      return '0.00'
+    }
+
+    const netCreditMinor =
+      majorStringToMinor(credit.creditCreatedMajor) - majorStringToMinor(credit.creditConsumedMajor)
+    return minorToMajorString(netCreditMinor > 0n ? netCreditMinor : 0n)
+  })()
 
   return {
     period,
@@ -479,10 +496,12 @@ export function buildTodayViewModel(input: {
             shareMajor: currentMember.utilityShareMajor,
             purchaseOffsetMajor: currentMember.purchaseOffsetMajor,
             carryForwardCreditMajor: currentMemberCarryForwardCreditMajor,
+            nextCycleCreditMajor: currentMemberNextCycleCreditMajor,
             targetMajor: currentMemberUtilitySummary.fairShareMajor,
             hasAdjustment:
               majorStringToMinor(currentMember.purchaseOffsetMajor) !== 0n ||
-              majorStringToMinor(currentMemberCarryForwardCreditMajor) > 0n
+              majorStringToMinor(currentMemberCarryForwardCreditMajor) > 0n ||
+              majorStringToMinor(currentMemberNextCycleCreditMajor) > 0n
           }
         : null,
     rentPaymentDestinations:

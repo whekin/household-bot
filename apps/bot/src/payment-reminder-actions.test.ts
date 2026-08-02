@@ -392,6 +392,9 @@ describe('registerPaymentReminderActions', () => {
       }
     })
     expect(calls.some((call) => call.method === 'editMessageText')).toBe(true)
+    const editCall = calls.find((call) => call.method === 'editMessageText')
+    expect(JSON.stringify(editCall?.payload)).not.toContain('pr:d:')
+    expect(JSON.stringify(editCall?.payload)).not.toContain('pr:c:')
     expect(auditEvents).toHaveLength(1)
   })
 
@@ -425,6 +428,7 @@ describe('registerPaymentReminderActions', () => {
 
     const editCall = calls.find((call) => call.method === 'editMessageText')
     expect(JSON.stringify(editCall?.payload)).toContain('pr:p:utilities:2026-05')
+    expect(JSON.stringify(editCall?.payload)).not.toContain('pr:d:')
     expect(JSON.stringify(editCall?.payload)).not.toContain('reminder_util:guided')
     expect(JSON.stringify(editCall?.payload)).not.toContain('reminder_util:template')
   })

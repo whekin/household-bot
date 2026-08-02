@@ -3152,6 +3152,13 @@ export function createFinanceCommandsService(options: {
             metadata: { period: resolveResult.period }
           })
         }
+        if (resolveResult && options.livePaymentCardService) {
+          await options.livePaymentCardService.refresh({
+            householdId,
+            kind: 'utilities',
+            period: resolveResult.period
+          })
+        }
         const [plan, utilityCategories, billingSettings] = await Promise.all([
           service.generateCurrentBillPlan(periodArg),
           options.householdConfigurationRepository.listHouseholdUtilityCategories(householdId),
@@ -3677,6 +3684,11 @@ export function createFinanceCommandsService(options: {
             currency: result.currency,
             period: result.period
           }
+        })
+        await options.livePaymentCardService?.refresh({
+          householdId: resolved.householdId,
+          kind,
+          period: result.period
         })
         await ctx.reply(
           t.paymentAdded(kind, result.amount.toMajorString(), result.currency, result.period)

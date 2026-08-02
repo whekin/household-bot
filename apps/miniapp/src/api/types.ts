@@ -153,6 +153,12 @@ export interface MiniAppDashboard {
       assignedThisCycleMajor: string
       projectedDeltaAfterPlanMajor: string
     }[]
+    carryForwardCredits?: readonly {
+      memberId: string
+      creditCreatedMajor: string
+      creditConsumedMajor: string
+      policyTarget: 'utilities' | 'rent'
+    }[]
   } | null
   rentBillingState: {
     dueDate: string

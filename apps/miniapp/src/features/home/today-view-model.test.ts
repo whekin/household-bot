@@ -348,7 +348,63 @@ describe('today view model', () => {
       shareMajor: '63.05',
       purchaseOffsetMajor: '-12.00',
       carryForwardCreditMajor: '22.93',
+      nextCycleCreditMajor: '0.00',
       targetMajor: '28.12',
+      hasAdjustment: true
+    })
+  })
+
+  test('exposes credit created by the active plan for the next cycle', () => {
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ utilitiesRemaining: '109.27' })),
+        members: [
+          {
+            ...dashboard(periodSummary()).members[0]!,
+            utilityShareMajor: '27.31',
+            purchaseOffsetMajor: '-64.75',
+            carryForwardCreditMajor: '0.00',
+            effectivePurchaseBalanceMajor: '-64.75'
+          }
+        ],
+        utilityBillingPlan: {
+          version: 1,
+          status: 'active',
+          dueDate: '2026-03-05',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [],
+          memberSummaries: [
+            {
+              memberId: 'member-a',
+              displayName: 'Ada',
+              fairShareMajor: '0.00',
+              vendorPaidMajor: '0.00',
+              assignedThisCycleMajor: '0.00',
+              projectedDeltaAfterPlanMajor: '0.00'
+            }
+          ],
+          carryForwardCredits: [
+            {
+              memberId: 'member-a',
+              creditCreatedMajor: '37.44',
+              creditConsumedMajor: '0.00',
+              policyTarget: 'utilities'
+            }
+          ]
+        }
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'utilities'
+    })
+
+    expect(model.currentMemberUtilityBreakdown).toEqual({
+      shareMajor: '27.31',
+      purchaseOffsetMajor: '-64.75',
+      carryForwardCreditMajor: '0.00',
+      nextCycleCreditMajor: '37.44',
+      targetMajor: '0.00',
       hasAdjustment: true
     })
   })

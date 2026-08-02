@@ -274,6 +274,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
     guidedEntryButton: 'Ввести по шагам',
     copyTemplateButton: 'Шаблон',
     openDashboardButton: 'Открыть дашборд',
+    dashboardDetailsHint: 'Подробности и история платежей — в дашборде.',
     noActiveCategories:
       'Для этого дома пока нет активных категорий коммуналки. Сначала добавьте их в дашборде.',
     startToast: 'Пошаговый ввод коммуналки запущен.',
@@ -300,10 +301,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
     paymentInstructionSent: 'Инструкция по оплате отправлена в топик оплат.',
     proposalUnavailable: 'Это предложение по коммуналке уже недоступно.',
     onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
-    detailsButton: 'Детали',
-    hideDetailsButton: 'Скрыть детали',
     paidButton: 'Отметить оплату',
-    paidUtilitiesButton: 'Отметить оплату провайдеров',
+    paidUtilitiesButton: 'Я оплатил свои счета',
     closeUnpaidButton: 'Закрыть неоплаченных',
     confirmCloseButton: 'Подтвердить закрытие',
     fullyPaid: (kind, month) =>

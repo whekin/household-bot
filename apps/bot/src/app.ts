@@ -885,6 +885,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
           ...(auditNotificationService ? { auditNotificationService } : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -897,6 +898,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             financeServiceForHousehold,
             adHocNotificationService,
             ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(livePaymentCardService ? { livePaymentCardService } : {}),
             ...(householdConfigurationRepositoryClient
               ? {
                   householdConfigurationRepository:
@@ -933,6 +935,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
           ...(auditNotificationService ? { auditNotificationService } : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,
@@ -943,6 +946,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
           ...(auditNotificationService ? { auditNotificationService } : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
           logger: getLogger('miniapp-billing')
         })
       : undefined,

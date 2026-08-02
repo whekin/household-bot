@@ -10,7 +10,12 @@ Make scheduled rent and utilities reminders useful as shared payment-status mess
 - Utilities reminders show the month name, due date, planned utility provider assignments, and member paid/unpaid status.
 - Every scheduled reminder variant, including the no-plan utilities fallback, is delivered to the reminders topic.
 - Utility-entry callbacks remain usable on fallback cards previously delivered to the notifications topic.
-- Reminder messages are compact by default and can be expanded in-place with a details button.
+- Utility reminders include members whose current provider payment is zero when the plan creates a carry-forward credit for them.
+- Member rows use neutral payment wording without colored urgency markers, and carry-forward copy explicitly says the credit reduces future payments.
+- Scheduled reminder cards expose only shared member actions; administrative close controls remain available through dedicated administration flows.
+- Shared payment cards do not offer a no-op details toggle; they point members to the dashboard for full details and payment history.
+- The mini app shows credit created by the active utility plan as an amount carried into the next cycle before the current plan is settled.
+- Live reminder cards refresh after supported payment recording flows in Telegram commands, payment topics, reminder callbacks, and the mini app.
 - "I paid" closes the clicking member's unresolved payment period only.
 - Utilities "I paid" means the member paid assigned utility providers according to the plan, not reimbursed another member.
 - Already-paid, stale, and concurrent clicks do not create duplicate payment records or duplicate planned utility facts.

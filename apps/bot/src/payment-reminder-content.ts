@@ -1,5 +1,5 @@
 import type { FinanceDashboard, FinanceDashboardPaymentKindSummary } from '@household/application'
-import type { Money } from '@household/domain'
+import { Money } from '@household/domain'
 import type { FinancePaymentKind } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
@@ -157,10 +157,24 @@ function utilitiesByMemberLines(input: {
 }): string[] {
   const t = getBotTranslations(input.locale).reminders
   const summary = paymentKindSummary(input.dashboard, input.period, 'utilities')
-  const categories = input.dashboard.utilityBillingPlan?.categories ?? []
+  const plan = input.dashboard.utilityBillingPlan
+  const categories = plan?.categories ?? []
   const unresolvedById = new Map(
     (summary?.unresolvedMembers ?? []).map((member) => [member.memberId, member])
   )
+  const planSummaryById = new Map(
+    (plan?.memberSummaries ?? []).map((member) => [member.memberId, member])
+  )
+  const nextCycleCreditById = new Map<string, Money>()
+  for (const credit of plan?.carryForwardCredits ?? []) {
+    const amountMinor = credit.creditCreated.amountMinor - credit.creditConsumed.amountMinor
+    if (amountMinor > 0n) {
+      nextCycleCreditById.set(
+        credit.memberId,
+        Money.fromMinor(amountMinor, input.dashboard.currency)
+      )
+    }
+  }
 
   const categoriesByMember = new Map<string, (typeof categories)[number][]>()
   for (const category of categories) {
@@ -177,10 +191,18 @@ function utilitiesByMemberLines(input: {
     orderedMemberIds.push(member.memberId)
     nameById.set(member.memberId, member.displayName)
   }
+  for (const member of plan?.memberSummaries ?? []) {
+    nameById.set(member.memberId, member.displayName)
+  }
   for (const category of categories) {
     if (!orderedMemberIds.includes(category.assignedMemberId)) {
       orderedMemberIds.push(category.assignedMemberId)
       nameById.set(category.assignedMemberId, category.assignedDisplayName)
+    }
+  }
+  for (const memberId of nextCycleCreditById.keys()) {
+    if (!orderedMemberIds.includes(memberId)) {
+      orderedMemberIds.push(memberId)
     }
   }
 
@@ -192,21 +214,33 @@ function utilitiesByMemberLines(input: {
   for (const memberId of orderedMemberIds) {
     const memberCategories = categoriesByMember.get(memberId) ?? []
     const unresolved = unresolvedById.get(memberId)
-    const emoji = unresolved ? '🔴' : '✅'
+    const nextCycleCredit = nextCycleCreditById.get(memberId)
     const displayName = nameById.get(memberId) ?? memberId
     const total =
       unresolved?.suggestedAmount ??
-      memberCategories
-        .slice(1)
-        .reduce(
-          (sum, category) => sum.add(category.assignedAmount),
-          memberCategories[0]!.assignedAmount
-        )
-    lines.push(`${emoji} <b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`)
+      (memberCategories.length > 0
+        ? memberCategories
+            .slice(1)
+            .reduce(
+              (sum, category) => sum.add(category.assignedAmount),
+              memberCategories[0]!.assignedAmount
+            )
+        : (planSummaryById.get(memberId)?.assignedThisCycle ??
+          Money.zero(input.dashboard.currency)))
+    lines.push(
+      nextCycleCredit && total.amountMinor <= 0n
+        ? `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(input.locale === 'ru' ? 'сейчас платить не нужно' : 'nothing to pay now')}`
+        : `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`
+    )
     for (const category of memberCategories) {
       const billPaid = category.paidAmount.amountMinor >= category.assignedAmount.amountMinor
       lines.push(
         `${billPaid ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
+      )
+    }
+    if (nextCycleCredit) {
+      lines.push(
+        `   ↪ ${escapeHtml(moneyText(nextCycleCredit))} ${escapeHtml(input.locale === 'ru' ? 'зачтётся в следующих платежах' : 'will reduce future payments')}`
       )
     }
   }
@@ -223,7 +257,6 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
   const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
   const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
   const dashboardUrl = buildBotStartDeepLink(input.botUsername, 'dashboard')
-  const detailMode = input.viewMode === 'details' ? 'compact' : 'details'
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
 
   if (input.kind === 'rent' && input.viewMode !== 'confirm-close') {
@@ -267,20 +300,12 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
         callback_data: `${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}${input.kind}:${input.period}:compact`
       }
     ])
-  } else {
+  } else if (input.surface !== 'scheduled-reminder' && !fullyPaid) {
     rows.push([
       {
-        text: input.viewMode === 'details' ? t.hideDetailsButton : t.detailsButton,
-        callback_data: `${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}${input.kind}:${input.period}:${detailMode}`
-      },
-      ...(!fullyPaid
-        ? [
-            {
-              text: t.closeUnpaidButton,
-              callback_data: `${PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
-            }
-          ]
-        : [])
+        text: t.closeUnpaidButton,
+        callback_data: `${PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
+      }
     ])
   }
 
@@ -362,6 +387,10 @@ export function buildPaymentReminderMessageContentForSurface(
       `<b>${escapeHtml(input.locale === 'ru' ? 'Куда переводить' : 'Where to pay')}</b>`,
       ...rentDestinationLines(input.dashboard, input.locale)
     )
+  }
+
+  if (input.viewMode !== 'confirm-close' && buildBotStartDeepLink(input.botUsername, 'dashboard')) {
+    lines.push('', `ℹ️ ${escapeHtml(t.dashboardDetailsHint)}`)
   }
 
   if (input.viewMode === 'confirm-close') {

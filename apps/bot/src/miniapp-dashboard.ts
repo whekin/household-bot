@@ -194,7 +194,15 @@ export async function loadMiniAppDashboardPayload(input: {
             vendorPaidMajor: summary.vendorPaid.toMajorString(),
             assignedThisCycleMajor: summary.assignedThisCycle.toMajorString(),
             projectedDeltaAfterPlanMajor: summary.projectedDeltaAfterPlan.toMajorString()
-          }))
+          })),
+          carryForwardCredits: (dashboard.utilityBillingPlan.carryForwardCredits ?? []).map(
+            (credit) => ({
+              memberId: credit.memberId,
+              creditCreatedMajor: credit.creditCreated.toMajorString(),
+              creditConsumedMajor: credit.creditConsumed.toMajorString(),
+              policyTarget: credit.policyTarget
+            })
+          )
         }
       : null,
     rentBillingState: {

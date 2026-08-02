@@ -7,9 +7,9 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 import { resolveReminderTopicActorContext } from './reminder-topic-context'
-import { buildBillingReminderPromptContent } from './billing-reminder-prompt-content'
 import { getBotTranslations } from './i18n'
 import {
+  buildScheduledPaymentReminderContent,
   formatBillingMonth,
   PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX,
   PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX,
@@ -159,7 +159,7 @@ export function registerPaymentReminderActions(options: {
     const buildContent =
       action.topicRole === 'payments'
         ? buildPaymentInstructionContent
-        : buildBillingReminderPromptContent
+        : buildScheduledPaymentReminderContent
     const content = buildContent({
       locale: action.actorContext.locale,
       kind: action.kind,

@@ -56,14 +56,26 @@ function formatCarryForwardCreditAdjustmentLabel(
   return formatAdjustmentMoneyLabel(minorToMajorString(-creditMinor), currency, locale)
 }
 
-function PersonalLine({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+function PersonalLine({
+  label,
+  value,
+  tone = 'default'
+}: {
+  label: string
+  value: string
+  tone?: 'default' | 'muted' | 'credit'
+}) {
   return (
     <div className="flex items-center justify-between gap-3 py-1">
-      <span className={cn('text-xs', muted ? 'text-faint' : 'text-muted-foreground')}>{label}</span>
+      <span className={cn('text-xs', tone === 'muted' ? 'text-faint' : 'text-muted-foreground')}>
+        {label}
+      </span>
       <span
         className={cn(
           'font-mono text-xs',
-          muted ? 'text-muted-foreground' : 'font-semibold text-foreground'
+          tone === 'muted' && 'text-muted-foreground',
+          tone === 'default' && 'font-semibold text-foreground',
+          tone === 'credit' && 'font-semibold text-status-credit'
         )}
       >
         {value}
@@ -194,14 +206,14 @@ export function StageBanner({
             />
             {majorStringToMinor(breakdown.purchaseOffsetMajor) !== 0n ? (
               <PersonalLine
-                muted
+                tone="muted"
                 label={copy.todayUtilityPurchasesAdjustmentLabel}
                 value={formatAdjustmentMoneyLabel(breakdown.purchaseOffsetMajor, currency, locale)}
               />
             ) : null}
             {majorStringToMinor(breakdown.carryForwardCreditMajor) > 0n ? (
               <PersonalLine
-                muted
+                tone="muted"
                 label={copy.todayUtilityCarryForwardCreditLabel}
                 value={formatCarryForwardCreditAdjustmentLabel(
                   breakdown.carryForwardCreditMajor,
@@ -214,6 +226,13 @@ export function StageBanner({
               label={copy.todayUtilityPlanTargetLabel}
               value={formatMoneyLabel(breakdown.targetMajor, currency, locale)}
             />
+            {majorStringToMinor(breakdown.nextCycleCreditMajor) > 0n ? (
+              <PersonalLine
+                tone="credit"
+                label={copy.todayUtilityNextCycleCreditLabel}
+                value={`+${formatMoneyLabel(breakdown.nextCycleCreditMajor, currency, locale)}`}
+              />
+            ) : null}
           </PersonalGroup>
         ) : null}
 
@@ -237,7 +256,7 @@ export function StageBanner({
             />
             {model.currentMemberRentDueDate ? (
               <PersonalLine
-                muted
+                tone="muted"
                 label={copy.dueOnLabel.replace('{date}', '').trim()}
                 value={formatFriendlyDate(model.currentMemberRentDueDate, locale)}
               />

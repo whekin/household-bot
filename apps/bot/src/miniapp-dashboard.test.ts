@@ -528,7 +528,24 @@ describe('createMiniAppDashboardHandler', () => {
           rentDisplayAmount: Money.zero('GEL'),
           rentFxRateMicros: null,
           rentFxEffectiveDate: null,
-          utilityBillingPlan: null,
+          utilityBillingPlan: {
+            id: 'utility-plan-1',
+            version: 1,
+            status: 'active' as const,
+            dueDate: '2026-04-04',
+            updatedFromVersion: null,
+            reason: null,
+            categories: [],
+            memberSummaries: [],
+            carryForwardCredits: [
+              {
+                memberId: 'member-1',
+                creditCreated: Money.fromMajor('37.44', 'GEL'),
+                creditConsumed: Money.zero('GEL'),
+                policyTarget: 'utilities' as const
+              }
+            ]
+          },
           rentBillingState: {
             dueDate: '2026-04-20',
             memberSummaries: [],
@@ -589,6 +606,14 @@ describe('createMiniAppDashboardHandler', () => {
     expect(capturedPeriodArg).toBe('2026-04')
     expect(capturedTodayOverride).toBe('2026-04-03')
     const payload = (await response.json()) as any
+    expect(payload.dashboard.utilityBillingPlan.carryForwardCredits).toEqual([
+      {
+        memberId: 'member-1',
+        creditCreatedMajor: '37.44',
+        creditConsumedMajor: '0.00',
+        policyTarget: 'utilities'
+      }
+    ])
     expect(payload.dashboard.cycleHistory).toEqual([
       {
         period: '2026-03',

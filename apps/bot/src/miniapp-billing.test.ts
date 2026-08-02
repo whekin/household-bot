@@ -27,6 +27,7 @@ import {
   createMiniAppUpdatePurchaseHandler,
   createMiniAppUpdateUtilityBillHandler
 } from './miniapp-billing'
+import type { LivePaymentCardService } from './live-payment-cards'
 import type { PurchaseTopicNoticeService } from './purchase-topic-notices'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
@@ -183,6 +184,18 @@ function createAuditNotificationServiceStub() {
     }
   }
   return { service, events }
+}
+
+function createLivePaymentCardServiceStub() {
+  const refreshes: Array<Parameters<LivePaymentCardService['refresh']>[0]> = []
+  const service: LivePaymentCardService = {
+    register: async () => {},
+    refresh: async (input) => {
+      refreshes.push(input)
+    }
+  }
+
+  return { refreshes, service }
 }
 
 function createPurchaseTopicNoticeServiceStub(input?: {
@@ -1772,6 +1785,7 @@ describe('utility billing action handlers', () => {
     const repository = onboardingRepository()
     const financeService = createFinanceServiceStub()
     const audit = createAuditNotificationServiceStub()
+    const liveCards = createLivePaymentCardServiceStub()
     const handler = createMiniAppResolveUtilityPlanHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
@@ -1779,7 +1793,8 @@ describe('utility billing action handlers', () => {
         repository
       }),
       financeServiceForHousehold: () => financeService,
-      auditNotificationService: audit.service
+      auditNotificationService: audit.service,
+      livePaymentCardService: liveCards.service
     })
 
     const response = await handler.handler(
@@ -1826,6 +1841,13 @@ describe('utility billing action handlers', () => {
             }
           ]
         }
+      }
+    ])
+    expect(liveCards.refreshes).toEqual([
+      {
+        householdId: 'household-1',
+        kind: 'utilities',
+        period: '2026-03'
       }
     ])
   })
@@ -1924,13 +1946,15 @@ describe('utility billing action handlers', () => {
   test('custom vendor payment supports admin acting for another member', async () => {
     const repository = onboardingRepository()
     const financeService = createFinanceServiceStub()
+    const liveCards = createLivePaymentCardServiceStub()
     const handler = createMiniAppRecordUtilityVendorPaymentHandler({
       allowedOrigins: ['http://localhost:5173'],
       botToken: 'test-bot-token',
       onboardingService: createHouseholdOnboardingService({
         repository
       }),
-      financeServiceForHousehold: () => financeService
+      financeServiceForHousehold: () => financeService,
+      livePaymentCardService: liveCards.service
     })
 
     const response = await handler.handler(
@@ -1961,6 +1985,13 @@ describe('utility billing action handlers', () => {
         amountArg: '45.50',
         currencyArg: 'GEL',
         periodArg: '2026-03'
+      }
+    ])
+    expect(liveCards.refreshes).toEqual([
+      {
+        householdId: 'household-1',
+        kind: 'utilities',
+        period: '2026-03'
       }
     ])
   })

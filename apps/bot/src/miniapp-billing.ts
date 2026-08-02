@@ -2502,6 +2502,7 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -2612,6 +2613,11 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             metadata: { period: result.period }
           })
         }
+        await options.livePaymentCardService?.refresh({
+          householdId: auth.member.householdId,
+          kind: 'utilities',
+          period: result.period
+        })
         options.logger?.info(
           {
             event: 'miniapp.utility_plan.resolve_completed',
@@ -2638,6 +2644,7 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
   auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -2713,6 +2720,11 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
               metadata: { period: result.period }
             })
           }
+          await options.livePaymentCardService?.refresh({
+            householdId: auth.member.householdId,
+            kind: 'utilities',
+            period: result.period
+          })
         }
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

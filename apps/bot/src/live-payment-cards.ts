@@ -8,8 +8,8 @@ import type {
 } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
-import { buildBillingReminderPromptContent } from './billing-reminder-prompt-content'
 import { buildPaymentInstructionContent } from './payment-instruction-content'
+import { buildScheduledPaymentReminderContent } from './payment-reminder-content'
 
 export interface LivePaymentCardService {
   register(input: {
@@ -64,7 +64,7 @@ export function createLivePaymentCardService(options: {
         cards.map(async (card) => {
           const buildContent =
             card.surface === 'reminder'
-              ? buildBillingReminderPromptContent
+              ? buildScheduledPaymentReminderContent
               : buildPaymentInstructionContent
           const content = buildContent({
             locale: card.locale,

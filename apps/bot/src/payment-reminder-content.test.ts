@@ -5,7 +5,10 @@ import { Money } from '@household/domain'
 
 import { buildBillingReminderPromptContent } from './billing-reminder-prompt-content'
 import { buildPaymentInstructionContent } from './payment-instruction-content'
-import { formatBillingMonth } from './payment-reminder-content'
+import {
+  buildScheduledPaymentReminderContent,
+  formatBillingMonth
+} from './payment-reminder-content'
 
 function dashboard(): FinanceDashboard {
   const gel = (minor: bigint) => Money.fromMinor(minor, 'GEL')
@@ -242,6 +245,69 @@ describe('payment reminder content', () => {
     expect(content.text).toContain('Gas &lt;main&gt;')
     expect(content.text).not.toContain('Gas &lt;main&gt; → ')
     expect(JSON.stringify(content.replyMarkup)).toContain('pr:p:utilities:2026-05')
+    expect(JSON.stringify(content.replyMarkup)).toContain('I paid my bills')
+  })
+
+  test('shows next-cycle credits for members without a provider assignment', () => {
+    const baseDashboard = dashboard()
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        utilityBillingPlan: {
+          ...baseDashboard.utilityBillingPlan!,
+          memberSummaries: [
+            ...baseDashboard.utilityBillingPlan!.memberSummaries,
+            {
+              memberId: 'stas',
+              displayName: 'Стас',
+              fairShare: Money.zero('GEL'),
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.zero('GEL'),
+              projectedDeltaAfterPlan: Money.zero('GEL')
+            }
+          ],
+          carryForwardCredits: [
+            {
+              memberId: 'stas',
+              creditCreated: Money.fromMajor('37.44', 'GEL'),
+              creditConsumed: Money.zero('GEL'),
+              policyTarget: 'utilities'
+            }
+          ]
+        }
+      },
+      viewMode: 'compact'
+    })
+
+    expect(content.text).toContain('<b>Стас</b> — сейчас платить не нужно')
+    expect(content.text).toContain('37.44 ₾ зачтётся в следующих платежах')
+    expect(content.text).not.toContain('🔴 <b>')
+    expect(content.text).not.toContain('🟢 <b>')
+  })
+
+  test('keeps only shared actions on scheduled reminder cards', () => {
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: dashboard(),
+      viewMode: 'compact',
+      botUsername: 'household_test_bot'
+    })
+
+    const markup = JSON.stringify(content.replyMarkup)
+    expect(content.text).toContain('Подробности и история платежей — в дашборде.')
+    expect(markup).toContain('pr:p:utilities:2026-05')
+    expect(markup).toContain('start=dashboard')
+    expect(markup).not.toContain('pr:d:')
+    expect(markup).not.toContain('pr:c:')
+    expect(markup).not.toContain('reminder_util:guided')
+    expect(markup).not.toContain('reminder_util:template')
   })
 
   test('renders utility entry controls for reminder-topic utility prompts by default', () => {
@@ -266,11 +332,15 @@ describe('payment reminder content', () => {
       dispatchKind: 'utilities',
       period: '2026-05',
       dashboard: dashboard(),
-      viewMode: 'details'
+      viewMode: 'details',
+      botUsername: 'household_test_bot'
     })
 
     const markup = JSON.stringify(content.replyMarkup)
+    expect(content.text).toContain('Details and payment history are available in the dashboard.')
     expect(markup).toContain('pr:p:utilities:2026-05')
+    expect(markup).toContain('start=dashboard')
+    expect(markup).not.toContain('pr:d:')
     expect(markup).not.toContain('reminder_util:guided')
     expect(markup).not.toContain('reminder_util:template')
   })

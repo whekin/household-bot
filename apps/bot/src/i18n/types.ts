@@ -255,6 +255,7 @@ export interface BotTranslationCatalog {
     guidedEntryButton: string
     copyTemplateButton: string
     openDashboardButton: string
+    dashboardDetailsHint: string
     noActiveCategories: string
     startToast: string
     templateToast: string
@@ -273,8 +274,6 @@ export interface BotTranslationCatalog {
     paymentInstructionSent: string
     proposalUnavailable: string
     onlyOriginalSender: string
-    detailsButton: string
-    hideDetailsButton: string
     paidButton: string
     paidUtilitiesButton: string
     closeUnpaidButton: string

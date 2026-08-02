@@ -270,6 +270,7 @@ export const enBotTranslations: BotTranslationCatalog = {
     guidedEntryButton: 'Guided entry',
     copyTemplateButton: 'Copy template',
     openDashboardButton: 'Open dashboard',
+    dashboardDetailsHint: 'Details and payment history are available in the dashboard.',
     noActiveCategories:
       'This household has no active utility categories yet. Use the dashboard to add them first.',
     startToast: 'Guided utility entry started.',
@@ -296,10 +297,8 @@ export const enBotTranslations: BotTranslationCatalog = {
     paymentInstructionSent: 'Payment instructions were sent to the payments topic.',
     proposalUnavailable: 'This utility submission is no longer available.',
     onlyOriginalSender: 'Only the person who started this utility submission can confirm it.',
-    detailsButton: 'Details',
-    hideDetailsButton: 'Hide details',
     paidButton: 'I paid',
-    paidUtilitiesButton: 'I paid providers',
+    paidUtilitiesButton: 'I paid my bills',
     closeUnpaidButton: 'Close unpaid',
     confirmCloseButton: 'Confirm close',
     fullyPaid: (kind, month) =>
