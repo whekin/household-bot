@@ -1688,6 +1688,13 @@ async function ensureUtilityBillingPlan(input: {
     purchaseOffset: Money
   }[]
   skipRebalance?: boolean
+  /**
+   * Redraw the plan even though a payment has frozen it, treating what has been
+   * paid as coverage so those bills are not handed to somebody else. For when
+   * the inputs moved after publication — a purchase edited or deleted — and the
+   * standing instruction no longer matches what members actually owe.
+   */
+  forceRecompute?: boolean
   readOnly?: boolean
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
@@ -1757,13 +1764,20 @@ async function ensureUtilityBillingPlan(input: {
   // - Inputs changed (new bills, changed purchases, etc.) AND the plan is NOT locked yet.
   const shouldRecompute =
     !input.readOnly &&
-    (!activePlan ||
+    (input.forceRecompute === true ||
+      !activePlan ||
       (!isLocked && !input.skipRebalance && hasPendingOffPlanFact) ||
       (!isLocked && inputChangeStatus.anyChanged))
 
   // Orphan matched facts are ignored unless they reference the selected current plan.
-  const vendorPaymentsForCompute = offPlanFacts
-  const billCoveragePaymentsForCompute = activePlan ? offPlanFacts : []
+  // A forced redraw is the exception: every payment already made has to count as
+  // coverage, or a bill somebody has settled would be reassigned to a housemate.
+  const vendorPaymentsForCompute = input.forceRecompute ? vendorFacts : offPlanFacts
+  const billCoveragePaymentsForCompute = input.forceRecompute
+    ? vendorFacts
+    : activePlan
+      ? offPlanFacts
+      : []
 
   let computed = shouldRecompute
     ? (() => {
@@ -1876,7 +1890,7 @@ async function ensureUtilityBillingPlan(input: {
     }
   }
 
-  if (activePlan && isLocked) {
+  if (activePlan && isLocked && !input.forceRecompute) {
     return {
       record: activePlan,
       computed
@@ -1931,8 +1945,9 @@ async function ensureUtilityBillingPlan(input: {
         ? 'diverged'
         : 'superseded'
       : null,
-    reason:
-      planToSupersede && vendorFacts.some((fact) => !fact.matchedPlan)
+    reason: input.forceRecompute
+      ? 'manual_refresh'
+      : planToSupersede && vendorFacts.some((fact) => !fact.matchedPlan)
         ? 'rebalanced_after_off_plan_change'
         : planToSupersede
           ? 'rebalanced_after_cycle_change'
@@ -2766,6 +2781,7 @@ async function buildFinanceDashboard(
   options: {
     todayOverride?: string
     skipPlanRebalance?: boolean
+    forcePlanRefresh?: boolean
   } = {}
 ): Promise<FinanceDashboard | null> {
   const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
@@ -3038,6 +3054,7 @@ async function buildFinanceDashboard(
     })),
     convertedUtilityBills,
     purchaseIds: [...currentCyclePurchaseIds],
+    ...(options.forcePlanRefresh && isOpenCycle ? { forceRecompute: true } : {}),
     ...(options.skipPlanRebalance || !isOpenCycle ? { skipRebalance: true } : {}),
     ...(!isOpenCycle ? { readOnly: true } : {})
   })
@@ -3676,6 +3693,12 @@ export interface FinanceCommandService {
       todayOverride?: string
     }
   ): Promise<FinanceDashboard | null>
+  /**
+   * Redraw the utility plan from what members owe right now, keeping every
+   * payment already made. Published plans are frozen on purpose, so this is the
+   * explicit way to reissue one after the inputs moved underneath it.
+   */
+  refreshUtilityBillingPlan(periodArg?: string): Promise<FinanceDashboard | null>
   generateBillingAuditExport(periodArg?: string): Promise<FinanceBillingAuditExport | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -4991,6 +5014,10 @@ export function createFinanceCommandService(
         : ensureExpectedCycle().then(() => buildFinanceDashboard(dependencies)))
 
       return dashboard?.utilityBillingPlan ?? null
+    },
+
+    async refreshUtilityBillingPlan(periodArg) {
+      return await buildFinanceDashboard(dependencies, periodArg, { forcePlanRefresh: true })
     },
 
     async generateBillingAuditExport(periodArg) {

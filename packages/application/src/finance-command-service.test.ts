@@ -4736,6 +4736,105 @@ describe('createFinanceCommandService', () => {
     ).toBe(true)
   })
 
+  test('refreshUtilityBillingPlan redraws around what has already been paid', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      { id: 'alisa', telegramUserId: '1', displayName: 'Alisa', rentShareWeight: 1, isAdmin: true },
+      { id: 'dima', telegramUserId: '2', displayName: 'Dima', rentShareWeight: 1, isAdmin: false }
+    ]
+    repository.cycles = [{ id: 'cycle-2026-08', period: '2026-08', currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = { paymentBalanceAdjustmentPolicy: 'utilities' }
+    repository.memberPresenceDays = [
+      { memberId: 'alisa', period: '2026-08', daysPresent: 31 },
+      { memberId: 'dima', period: '2026-08', daysPresent: 31 }
+    ]
+    // 60.00 of bills, 30.00 each. The purchase tilts Alisa to 40.00 and Dima to 20.00.
+    repository.utilityBills = [
+      {
+        id: 'bill-a',
+        cycleId: 'cycle-2026-08',
+        billName: 'Electricity',
+        amountMinor: 4000n,
+        currency: 'GEL',
+        createdByMemberId: 'alisa',
+        createdAt: instantFromIso('2026-08-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-b',
+        cycleId: 'cycle-2026-08',
+        billName: 'Gas',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        createdByMemberId: 'alisa',
+        createdAt: instantFromIso('2026-08-01T09:00:01.000Z')
+      }
+    ]
+    repository.purchases = [
+      {
+        id: 'purchase-for-alisa',
+        cycleId: 'cycle-2026-08',
+        cyclePeriod: '2026-08',
+        payerMemberId: 'dima',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        description: 'Covered for Alisa',
+        occurredAt: instantFromIso('2026-08-01T10:00:00.000Z'),
+        splitMode: 'equal',
+        participants: [
+          { memberId: 'alisa', included: true, shareAmountMinor: null },
+          { memberId: 'dima', included: false, shareAmountMinor: null }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const planned = await service.generateDashboard('2026-08')
+    expect(
+      planned?.utilityBillingPlan?.categories.map((category) => [
+        category.billName,
+        category.assignedMemberId
+      ])
+    ).toEqual([
+      ['Electricity', 'alisa'],
+      ['Gas', 'dima']
+    ])
+
+    // Alisa pays her bill, which freezes the plan.
+    await service.resolveUtilityBillAsPlanned({ memberId: 'alisa', periodArg: '2026-08' })
+
+    // The purchase is settled outside the app and removed, so Dima is no longer
+    // owed and the published split no longer matches what the two of them owe.
+    repository.purchases = []
+
+    const stale = await service.generateDashboard('2026-08')
+    expect(
+      stale?.utilityBillingPlan?.categories.map((category) => [
+        category.billName,
+        category.assignedMemberId
+      ])
+    ).toEqual([
+      ['Electricity', 'alisa'],
+      ['Gas', 'dima']
+    ])
+
+    const refreshed = await service.refreshUtilityBillingPlan('2026-08')
+
+    // Electricity is paid, so it is not handed to anyone a second time; only the
+    // open bill is redrawn.
+    expect(
+      refreshed?.utilityBillingPlan?.categories.map((category) => [
+        category.billName,
+        category.assignedMemberId
+      ])
+    ).toEqual([['Gas', 'dima']])
+    expect(refreshed?.utilityBillingPlan?.version).toBeGreaterThan(
+      planned?.utilityBillingPlan?.version ?? 0
+    )
+  })
+
   test('resolveUtilityBillAsPlanned only funds purchase debt with money actually paid', async () => {
     // Regression for the 2026-08 over-allocation: the cycle's bills were smaller than
     // Alisa's adjusted target, so paying her single assigned bill cleared her whole
