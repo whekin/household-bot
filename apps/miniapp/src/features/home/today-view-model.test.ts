@@ -348,9 +348,12 @@ describe('today view model', () => {
       effectiveStage: 'utilities'
     })
 
-    expect(model.memberLines.find((line) => line.memberId === 'member-a')?.shortfallMajor).toBe(
-      '34.78'
-    )
+    const line = model.memberLines.find((entry) => entry.memberId === 'member-a')
+    expect(line?.shortfallMajor).toBe('34.78')
+    // She covered the only bill routed to her, so the row closes even though the
+    // plan still carries a 37.04 assignment against her name.
+    expect(line?.amountMajor).toBe('0.00')
+    expect(line?.settled).toBe(true)
   })
 
   test('exposes current member utility carry-forward breakdown', () => {

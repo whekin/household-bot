@@ -103,6 +103,20 @@ export function memberRemainingMajor(
     )
   }
 
+  // The period summary is the only per-member view that nets a member's own
+  // matched payments off their assignment. Plan categories carry `paidAmount`
+  // per *bill*, so subtracting it there would mark everyone sharing a split bill
+  // as settled the moment one of them pays. Members absent from
+  // `unresolvedMembers` have nothing left, which is what makes a paid member
+  // read as closed.
+  const utilitiesSummary = periodKindSummary(periodSummary, 'utilities')
+  if (utilitiesSummary) {
+    return (
+      utilitiesSummary.unresolvedMembers.find((summary) => summary.memberId === memberId)
+        ?.remainingMajor ?? '0.00'
+    )
+  }
+
   if (data.utilityBillingPlan) {
     return minorToMajorString(
       data.utilityBillingPlan.categories
@@ -111,11 +125,7 @@ export function memberRemainingMajor(
     )
   }
 
-  return (
-    periodKindSummary(periodSummary, 'utilities')?.unresolvedMembers.find(
-      (summary) => summary.memberId === memberId
-    )?.remainingMajor ?? '0.00'
-  )
+  return '0.00'
 }
 
 export function purchaseShareForMember(
