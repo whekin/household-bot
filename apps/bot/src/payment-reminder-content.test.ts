@@ -316,6 +316,48 @@ describe('payment reminder content', () => {
     expect(content.text).not.toContain('-46.28')
   })
 
+  test('lists a member who holds a purchase balance but no plan assignment', () => {
+    const baseDashboard = dashboard()
+    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
+      (summary) => summary.period === '2026-05'
+    )!
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        // Bob is owed, so he has nothing to pay and no bill assigned to him. He
+        // reaches the list through the balance alone.
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'bob'
+            ? { ...member, purchaseOffset: Money.fromMajor('-46.28', 'GEL') }
+            : member
+        ),
+        paymentPeriods: [
+          {
+            ...utilitiesPeriod,
+            kinds: utilitiesPeriod.kinds.map((kind) =>
+              kind.kind === 'utilities'
+                ? {
+                    ...kind,
+                    unresolvedMembers: kind.unresolvedMembers.filter(
+                      (member) => member.memberId !== 'bob'
+                    )
+                  }
+                : kind
+            )
+          }
+        ]
+      },
+      viewMode: 'compact'
+    })
+
+    expect(content.text).toContain('<b>Bob</b>')
+    expect(content.text).toContain('46.28 ₾ вам должны по покупкам')
+  })
+
   test('keeps only shared actions on scheduled reminder cards', () => {
     const content = buildScheduledPaymentReminderContent({
       locale: 'ru',

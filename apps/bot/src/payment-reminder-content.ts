@@ -165,6 +165,9 @@ function utilitiesByMemberLines(input: {
   const planSummaryById = new Map(
     (plan?.memberSummaries ?? []).map((member) => [member.memberId, member])
   )
+  const purchaseBalanceById = new Map(
+    input.dashboard.members.map((member) => [member.memberId, member.purchaseOffset])
+  )
   const categoriesByMember = new Map<string, (typeof categories)[number][]>()
   for (const category of categories) {
     categoriesByMember.set(category.assignedMemberId, [
@@ -187,6 +190,16 @@ function utilitiesByMemberLines(input: {
     if (!orderedMemberIds.includes(category.assignedMemberId)) {
       orderedMemberIds.push(category.assignedMemberId)
       nameById.set(category.assignedMemberId, category.assignedDisplayName)
+    }
+  }
+  // A member can owe nothing on the plan and still hold a shared-purchase
+  // position — most sharply the one the household owes, since being owed is what
+  // empties their plan row. Without this they drop out of the list entirely and
+  // their balance is never stated.
+  for (const member of input.dashboard.members) {
+    if (!orderedMemberIds.includes(member.memberId) && member.purchaseOffset.amountMinor !== 0n) {
+      orderedMemberIds.push(member.memberId)
+      nameById.set(member.memberId, member.displayName)
     }
   }
 
@@ -225,9 +238,7 @@ function utilitiesByMemberLines(input: {
     // purchases can leave a balance no bill was able to carry. Read the live
     // offset rather than the plan's projected delta, which freezes with the plan
     // and stops tracking purchases once it locks.
-    const purchaseBalance = unresolved
-      ? null
-      : input.dashboard.members.find((member) => member.memberId === memberId)?.purchaseOffset
+    const purchaseBalance = unresolved ? null : purchaseBalanceById.get(memberId)
     if (purchaseBalance && purchaseBalance.amountMinor !== 0n) {
       // Both directions matter. Without the credit side the member the household
       // owes the most is the one shown nothing at all, because their plan row is
