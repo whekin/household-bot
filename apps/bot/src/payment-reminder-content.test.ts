@@ -316,6 +316,53 @@ describe('payment reminder content', () => {
     expect(content.text).not.toContain('-46.28')
   })
 
+  test('states a purchase balance next to a member who still owes on the plan', () => {
+    const baseDashboard = dashboard()
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        // Alice owes 120.00 on the plan and 32.25 on shared purchases. They are
+        // separate debts, and only the second one outlives the cycle.
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'alice'
+            ? { ...member, purchaseOffset: Money.fromMajor('32.25', 'GEL') }
+            : member
+        )
+      },
+      viewMode: 'compact'
+    })
+
+    expect(content.text).toContain('120.00 ₾')
+    expect(content.text).toContain('32.25 ₾ долг по покупкам')
+  })
+
+  test('says up front how much of the cycle no bill can carry', () => {
+    const baseDashboard = dashboard()
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        // Targets come to 170.00 against 120.00 of bills: Alice 120.00 + 50.00,
+        // Bob clamped to zero by being owed. 50.00 has nowhere to go this cycle.
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'alice'
+            ? { ...member, purchaseOffset: Money.fromMajor('50.00', 'GEL') }
+            : { ...member, purchaseOffset: Money.fromMajor('-50.00', 'GEL') }
+        )
+      },
+      viewMode: 'compact'
+    })
+
+    expect(content.text).toContain('Покупок сверх счетов: 50.00 ₾')
+  })
+
   test('lists a member who holds a purchase balance but no plan assignment', () => {
     const baseDashboard = dashboard()
     const utilitiesPeriod = baseDashboard.paymentPeriods!.find(

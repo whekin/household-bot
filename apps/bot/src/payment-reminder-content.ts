@@ -238,7 +238,10 @@ function utilitiesByMemberLines(input: {
     // purchases can leave a balance no bill was able to carry. Read the live
     // offset rather than the plan's projected delta, which freezes with the plan
     // and stops tracking purchases once it locks.
-    const purchaseBalance = unresolved ? null : purchaseBalanceById.get(memberId)
+    // Shown for everyone, including members who still owe on the plan: the two
+    // are separate debts and the shared-purchase one is the part that outlives
+    // the cycle.
+    const purchaseBalance = purchaseBalanceById.get(memberId)
     if (purchaseBalance && purchaseBalance.amountMinor !== 0n) {
       // Both directions matter. Without the credit side the member the household
       // owes the most is the one shown nothing at all, because their plan row is
@@ -268,6 +271,31 @@ function utilitiesByMemberLines(input: {
 
 function totalRemainingText(summary: FinanceDashboardPaymentKindSummary | null): string {
   return summary ? moneyText(summary.totalRemaining) : '0.00'
+}
+
+/**
+ * How much of what members owe this cycle has no bill left to travel through.
+ *
+ * A member owed money is repaid by not being charged utilities, so at most their
+ * own share can come back to them per cycle. Once shared purchases outgrow the
+ * bills, the difference cannot be settled now however the plan is drawn, and
+ * saying so up front beats leaving people to wonder why the numbers look short.
+ */
+function unroutableThisCycle(input: { dashboard: FinanceDashboard; period: string }): Money | null {
+  const utilityTotal = input.dashboard.paymentPeriods?.find(
+    (summary) => summary.period === input.period
+  )?.utilityTotal
+  if (!utilityTotal || utilityTotal.amountMinor <= 0n) {
+    return null
+  }
+
+  const targetTotalMinor = input.dashboard.members.reduce((sum, member) => {
+    const targetMinor = member.utilityShare.amountMinor + member.purchaseOffset.amountMinor
+    return sum + (targetMinor > 0n ? targetMinor : 0n)
+  }, 0n)
+
+  const overflowMinor = targetTotalMinor - utilityTotal.amountMinor
+  return overflowMinor > 0n ? Money.fromMinor(overflowMinor, input.dashboard.currency) : null
 }
 
 function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup {
@@ -383,6 +411,17 @@ export function buildPaymentReminderMessageContentForSurface(
       '',
       `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`
     )
+
+    const unroutable = unroutableThisCycle({ dashboard: input.dashboard, period: input.period })
+    if (unroutable) {
+      lines.push(
+        `📦 ${escapeHtml(
+          input.locale === 'ru'
+            ? `Покупок сверх счетов: ${moneyText(unroutable)} — в этом месяце не закрыть, перейдёт дальше`
+            : `Purchases beyond the bills: ${moneyText(unroutable)} — no bill left to cover it this month`
+        )}`
+      )
+    }
 
     // One block per member: name + total, then their bills underneath.
     lines.push(
