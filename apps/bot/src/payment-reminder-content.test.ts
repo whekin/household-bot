@@ -279,7 +279,7 @@ describe('payment reminder content', () => {
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('34.78 ₾ ещё за вами по покупкам')
+    expect(content.text).toContain('34.78 ₾ долг по покупкам')
   })
 
   test('states the credit side when the household owes the member instead', () => {
@@ -312,7 +312,7 @@ describe('payment reminder content', () => {
     })
 
     // Shown absolute, not as a negative debt.
-    expect(content.text).toContain('46.28 ₾ вам должны по покупкам')
+    expect(content.text).toContain('46.28 ₾ в плюсе по покупкам')
     expect(content.text).not.toContain('-46.28')
   })
 
@@ -355,7 +355,7 @@ describe('payment reminder content', () => {
     })
 
     expect(content.text).toContain('<b>Bob</b>')
-    expect(content.text).toContain('46.28 ₾ вам должны по покупкам')
+    expect(content.text).toContain('46.28 ₾ в плюсе по покупкам')
   })
 
   test('keeps only shared actions on scheduled reminder cards', () => {

@@ -242,7 +242,8 @@ function utilitiesByMemberLines(input: {
     if (purchaseBalance && purchaseBalance.amountMinor !== 0n) {
       // Both directions matter. Without the credit side the member the household
       // owes the most is the one shown nothing at all, because their plan row is
-      // the first to close.
+      // the first to close. Wording stays in the third person: these lines are
+      // printed for every member, not only for whoever is reading.
       const owes = purchaseBalance.amountMinor > 0n
       const amount = Money.fromMinor(
         owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
@@ -252,11 +253,11 @@ function utilitiesByMemberLines(input: {
         `   ↩ ${escapeHtml(moneyText(amount))} ${escapeHtml(
           owes
             ? input.locale === 'ru'
-              ? 'ещё за вами по покупкам'
-              : 'still owed on shared purchases'
+              ? 'долг по покупкам'
+              : 'owed on shared purchases'
             : input.locale === 'ru'
-              ? 'вам должны по покупкам'
-              : 'owed to you on shared purchases'
+              ? 'в плюсе по покупкам'
+              : 'in credit on shared purchases'
         )}`
       )
     }

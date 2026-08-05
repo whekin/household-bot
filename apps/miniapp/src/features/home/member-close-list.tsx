@@ -9,6 +9,7 @@ import { useI18n } from '@/i18n/context'
 import { formatMoneyLabel } from '@/lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 import { cn } from '@/lib/cn'
+import { PersonalDetails } from './personal-details'
 import { initialsForName, type TodayMemberCloseLine, type TodayViewModel } from './today-view-model'
 
 /**
@@ -98,58 +99,60 @@ export function MemberCloseList({
           {orderedLines.map((line) => {
             const canClose = isAdmin || line.memberId === currentMemberId
             return (
-              <button
-                key={line.memberId}
-                type="button"
-                disabled={!canClose || line.settled}
-                onClick={() => onSelectMember(line)}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-xl bg-elevated px-3 py-2.5 text-left transition-colors active:bg-field-hover disabled:pointer-events-none',
-                  line.settled && 'opacity-60',
-                  line.isCurrent && 'ring-1 ring-inset ring-primary/40'
-                )}
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary">
-                  {initialsForName(line.displayName)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold text-foreground">
-                      {line.displayName}
-                    </span>
-                    {line.isCurrent ? (
-                      <span className="shrink-0 text-[11px] text-primary">
-                        {copy.todayYouLabel}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="block text-xs text-faint">
-                    {line.settled
-                      ? copy.todayDone
-                      : canClose
-                        ? copy.todayTapToClose
-                        : copy.todayWaitingForMember}
-                  </span>
-                  {line.purchaseBalanceMajor ? (
-                    <PurchaseBalanceHint
-                      balanceMajor={line.purchaseBalanceMajor}
-                      currency={dashboard.currency}
-                      locale={locale}
-                      copy={copy}
-                    />
-                  ) : null}
-                </span>
-                <span
+              <div key={line.memberId} className="space-y-2">
+                <button
+                  type="button"
+                  disabled={!canClose || line.settled}
+                  onClick={() => onSelectMember(line)}
                   className={cn(
-                    'shrink-0 font-mono text-sm font-semibold',
-                    line.settled ? 'text-status-credit' : 'text-foreground'
+                    'flex w-full items-center gap-3 rounded-xl bg-elevated px-3 py-2.5 text-left transition-colors active:bg-field-hover disabled:pointer-events-none',
+                    line.settled && 'opacity-60',
+                    line.isCurrent && 'ring-1 ring-inset ring-primary/40'
                   )}
                 >
-                  {line.settled
-                    ? copy.todayDone
-                    : formatMoneyLabel(line.amountMajor, dashboard.currency, locale)}
-                </span>
-              </button>
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary">
+                    {initialsForName(line.displayName)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-foreground">
+                        {line.displayName}
+                      </span>
+                      {line.isCurrent ? (
+                        <span className="shrink-0 text-[11px] text-primary">
+                          {copy.todayYouLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="block text-xs text-faint">
+                      {line.settled
+                        ? copy.todayDone
+                        : canClose
+                          ? copy.todayTapToClose
+                          : copy.todayWaitingForMember}
+                    </span>
+                    {line.purchaseBalanceMajor ? (
+                      <PurchaseBalanceHint
+                        balanceMajor={line.purchaseBalanceMajor}
+                        currency={dashboard.currency}
+                        locale={locale}
+                        copy={copy}
+                      />
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      'shrink-0 font-mono text-sm font-semibold',
+                      line.settled ? 'text-status-credit' : 'text-foreground'
+                    )}
+                  >
+                    {line.settled
+                      ? copy.todayDone
+                      : formatMoneyLabel(line.amountMajor, dashboard.currency, locale)}
+                  </span>
+                </button>
+                {line.isCurrent ? <PersonalDetails model={model} line={line} /> : null}
+              </div>
             )
           })}
         </div>
