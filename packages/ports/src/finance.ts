@@ -173,6 +173,7 @@ export interface FinanceUtilityVendorPaymentFactRecord {
   planVersion: number | null
   matchedPlan: boolean
   recordedByMemberId: string | null
+  paymentRecordId: string | null
   recordedAt: Instant
   createdAt: Instant
 }
@@ -220,6 +221,7 @@ export interface FinanceBalanceLedgerEntryRecord {
   reason: FinanceBalanceLedgerReason
   amountMinor: bigint
   currency: CurrencyCode
+  paymentRecordId: string | null
   idempotencyKey: string
   createdAt: Instant
 }
@@ -318,6 +320,7 @@ export interface FinanceRepository {
   getLatestCycle(): Promise<FinanceCycleRecord | null>
   openCycle(period: string, currency: CurrencyCode): Promise<void>
   closeCycle(cycleId: string, closedAt: Instant): Promise<void>
+  closeCyclesBeforePeriod(period: string, closedAt: Instant): Promise<readonly string[]>
   saveRentRule(
     period: string,
     amountMinor: bigint,
@@ -465,6 +468,12 @@ export interface FinanceRepository {
   listUtilityVendorPaymentFactsForCycle(
     cycleId: string
   ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
+  getUtilityVendorPaymentFact(factId: string): Promise<FinanceUtilityVendorPaymentFactRecord | null>
+  deleteUtilityVendorPaymentFact(factId: string): Promise<boolean>
+  attachUtilityVendorPaymentFactsToPayment(input: {
+    factIds: readonly string[]
+    paymentRecordId: string
+  }): Promise<void>
   listBalanceLedgerEntries(): Promise<readonly FinanceBalanceLedgerEntryRecord[]>
   addBalanceLedgerEntry(input: {
     memberId: string
@@ -476,6 +485,7 @@ export interface FinanceRepository {
     reason: FinanceBalanceLedgerReason
     amountMinor: bigint
     currency: CurrencyCode
+    paymentRecordId?: string | null
     idempotencyKey: string
   }): Promise<FinanceBalanceLedgerEntryRecord>
   addUtilityVendorPaymentFact(input: {
@@ -490,6 +500,7 @@ export interface FinanceRepository {
     planVersion?: number | null
     matchedPlan: boolean
     recordedByMemberId?: string | null
+    paymentRecordId?: string | null
     recordedAt: Instant
   }): Promise<FinanceUtilityVendorPaymentFactRecord>
   addUtilityVendorPaymentFactIfNew(input: {
@@ -504,6 +515,7 @@ export interface FinanceRepository {
     planVersion?: number | null
     matchedPlan: boolean
     recordedByMemberId?: string | null
+    paymentRecordId?: string | null
     recordedAt: Instant
     idempotencyKey: string
   }): Promise<FinanceUtilityVendorPaymentFactRecord | null>

@@ -226,6 +226,10 @@ function repository(
       return latestUtilityPlan
     },
     listUtilityVendorPaymentFactsForCycle: async () => [],
+    getUtilityVendorPaymentFact: async () => null,
+    deleteUtilityVendorPaymentFact: async () => true,
+    attachUtilityVendorPaymentFactsToPayment: async () => {},
+    closeCyclesBeforePeriod: async () => [],
     listBalanceLedgerEntries: async () => [],
     addBalanceLedgerEntry: async (input) => ({
       id: 'balance-ledger-1',
@@ -239,6 +243,7 @@ function repository(
       reason: input.reason,
       amountMinor: input.amountMinor,
       currency: input.currency,
+      paymentRecordId: input.paymentRecordId ?? null,
       idempotencyKey: input.idempotencyKey,
       createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
     }),
@@ -255,6 +260,7 @@ function repository(
       planVersion: input.planVersion ?? null,
       matchedPlan: input.matchedPlan,
       recordedByMemberId: input.recordedByMemberId ?? null,
+      paymentRecordId: input.paymentRecordId ?? null,
       recordedAt: input.recordedAt,
       createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
     }),
@@ -271,6 +277,7 @@ function repository(
       planVersion: input.planVersion ?? null,
       matchedPlan: input.matchedPlan,
       recordedByMemberId: input.recordedByMemberId ?? null,
+      paymentRecordId: input.paymentRecordId ?? null,
       recordedAt: input.recordedAt,
       createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
     }),

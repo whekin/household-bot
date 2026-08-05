@@ -195,6 +195,16 @@ export async function loadMiniAppDashboardPayload(input: {
             assignedThisCycleMajor: summary.assignedThisCycle.toMajorString(),
             projectedDeltaAfterPlanMajor: summary.projectedDeltaAfterPlan.toMajorString()
           })),
+          vendorPayments: (dashboard.utilityBillingPlan.vendorPayments ?? []).map((payment) => ({
+            id: payment.id,
+            utilityBillId: payment.utilityBillId,
+            billName: payment.billName,
+            payerMemberId: payment.payerMemberId,
+            payerDisplayName: payment.payerDisplayName,
+            amountMajor: payment.amount.toMajorString(),
+            matchedPlan: payment.matchedPlan,
+            recordedAt: payment.recordedAt.toString()
+          })),
           carryForwardCredits: (dashboard.utilityBillingPlan.carryForwardCredits ?? []).map(
             (credit) => ({
               memberId: credit.memberId,

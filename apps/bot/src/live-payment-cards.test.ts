@@ -139,5 +139,7 @@ describe('live payment cards', () => {
     expect(edits.map((edit) => edit.messageId)).toEqual(['101', '102'])
     expect(edits.every((edit) => edit.text.includes('полностью оплачена'))).toBe(true)
     expect(edits.every((edit) => JSON.stringify(edit.replyMarkup).includes('GE98'))).toBe(true)
+    expect(edits[0]?.text).toBe(edits[1]?.text)
+    expect(edits[0]?.replyMarkup).toEqual(edits[1]?.replyMarkup)
   })
 })

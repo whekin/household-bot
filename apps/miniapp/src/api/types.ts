@@ -153,6 +153,16 @@ export interface MiniAppDashboard {
       assignedThisCycleMajor: string
       projectedDeltaAfterPlanMajor: string
     }[]
+    vendorPayments?: readonly {
+      id: string
+      utilityBillId: string | null
+      billName: string
+      payerMemberId: string
+      payerDisplayName: string
+      amountMajor: string
+      matchedPlan: boolean
+      recordedAt: string
+    }[]
     carryForwardCredits?: readonly {
       memberId: string
       creditCreatedMajor: string

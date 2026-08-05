@@ -178,6 +178,17 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.latestCycleRecord = cycle
   }
 
+  async closeCyclesBeforePeriod(period: string): Promise<readonly string[]> {
+    const stale = (await this.listCycles()).filter(
+      (cycle) => cycle.period < period && !this.closedCycleIds.includes(cycle.id)
+    )
+    for (const cycle of stale) {
+      await this.closeCycle(cycle.id)
+    }
+
+    return stale.map((cycle) => cycle.id)
+  }
+
   async closeCycle(cycleId: string): Promise<void> {
     if (this.settlementSnapshots.has(cycleId)) {
       this.snapshotCycleIdsObservedAtClose.push(cycleId)
@@ -443,8 +454,15 @@ class FinanceRepositoryStub implements FinanceRepository {
     return null
   }
 
-  async deletePaymentRecord() {
-    return false
+  async deletePaymentRecord(paymentId: string) {
+    const next = this.paymentRecords.filter((payment) => payment.id !== paymentId)
+    const deleted = next.length !== this.paymentRecords.length
+    this.paymentRecords = next
+    // Stand in for the database cascade on payment_record_id.
+    this.utilityVendorPaymentFacts = this.utilityVendorPaymentFacts.filter(
+      (fact) => fact.paymentRecordId !== paymentId
+    )
+    return deleted
   }
 
   async getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null> {
@@ -608,6 +626,25 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.utilityVendorPaymentFacts.filter((fact) => fact.cycleId === cycleId)
   }
 
+  async getUtilityVendorPaymentFact(factId: string) {
+    return this.utilityVendorPaymentFacts.find((fact) => fact.id === factId) ?? null
+  }
+
+  async deleteUtilityVendorPaymentFact(factId: string) {
+    const next = this.utilityVendorPaymentFacts.filter((fact) => fact.id !== factId)
+    const deleted = next.length !== this.utilityVendorPaymentFacts.length
+    this.utilityVendorPaymentFacts = next
+    return deleted
+  }
+
+  async attachUtilityVendorPaymentFactsToPayment(
+    input: Parameters<FinanceRepository['attachUtilityVendorPaymentFactsToPayment']>[0]
+  ) {
+    this.utilityVendorPaymentFacts = this.utilityVendorPaymentFacts.map((fact) =>
+      input.factIds.includes(fact.id) ? { ...fact, paymentRecordId: input.paymentRecordId } : fact
+    )
+  }
+
   async listBalanceLedgerEntries() {
     return this.balanceLedgerEntries
   }
@@ -632,6 +669,7 @@ class FinanceRepositoryStub implements FinanceRepository {
       reason: input.reason,
       amountMinor: input.amountMinor,
       currency: input.currency,
+      paymentRecordId: input.paymentRecordId ?? null,
       idempotencyKey: input.idempotencyKey,
       createdAt: instantFromIso('2026-04-03T12:00:00.000Z')
     }
@@ -655,6 +693,7 @@ class FinanceRepositoryStub implements FinanceRepository {
       planVersion: input.planVersion ?? null,
       matchedPlan: input.matchedPlan,
       recordedByMemberId: input.recordedByMemberId ?? null,
+      paymentRecordId: input.paymentRecordId ?? null,
       recordedAt: input.recordedAt,
       createdAt: input.recordedAt
     }
@@ -685,6 +724,7 @@ class FinanceRepositoryStub implements FinanceRepository {
       planVersion: input.planVersion ?? null,
       matchedPlan: input.matchedPlan,
       recordedByMemberId: input.recordedByMemberId ?? null,
+      paymentRecordId: input.paymentRecordId ?? null,
       recordedAt: input.recordedAt,
       createdAt: input.recordedAt,
       idempotencyKey: input.idempotencyKey
@@ -4084,6 +4124,7 @@ describe('createFinanceCommandService', () => {
         plannedForMemberId: 'alice',
         planVersion: 1,
         matchedPlan: true,
+        paymentRecordId: null,
         recordedByMemberId: 'alice',
         recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
         createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
@@ -4198,6 +4239,7 @@ describe('createFinanceCommandService', () => {
         plannedForMemberId: 'alice',
         planVersion: plan?.version ?? null,
         matchedPlan: true,
+        paymentRecordId: null,
         recordedByMemberId: 'alice',
         recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
         createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
@@ -5092,6 +5134,7 @@ describe('createFinanceCommandService', () => {
         plannedForMemberId: 'alice',
         planVersion: 1,
         matchedPlan: true,
+        paymentRecordId: null,
         recordedByMemberId: 'alice',
         recordedAt: instantFromIso('2026-04-03T09:00:00.000Z'),
         createdAt: instantFromIso('2026-04-03T09:00:00.000Z')
@@ -5348,6 +5391,7 @@ describe('createFinanceCommandService', () => {
         plannedForMemberId: null,
         planVersion: 1,
         matchedPlan: false,
+        paymentRecordId: null,
         recordedByMemberId: 'alice',
         recordedAt: instantFromIso('2026-04-02T09:00:00.000Z'),
         createdAt: instantFromIso('2026-04-02T09:00:00.000Z')
@@ -5427,6 +5471,7 @@ describe('createFinanceCommandService', () => {
         plannedForMemberId: null,
         planVersion: null,
         matchedPlan: false,
+        paymentRecordId: null,
         recordedByMemberId: 'alice',
         recordedAt: instantFromIso('2026-02-01T09:00:00.000Z'),
         createdAt: instantFromIso('2026-02-01T09:00:00.000Z')
@@ -5874,5 +5919,141 @@ describe('createFinanceCommandService', () => {
     )
     expect(aliceAllocation).toBeDefined()
     expect(aliceAllocation?.amountMinor).toBe(3000n)
+  })
+})
+
+describe('reverting utility payment state', () => {
+  function planFixture(repository: FinanceRepositoryStub, status: 'active' | 'settled') {
+    repository.openCycleRecord = {
+      id: 'cycle-current',
+      period: expectedCurrentCyclePeriod('Asia/Tbilisi', 20),
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [repository.openCycleRecord]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-current',
+        version: 1,
+        status,
+        dueDate: `${repository.openCycleRecord.period}-04`,
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 1,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [
+            {
+              utilityBillId: 'bill-1',
+              billName: 'Electricity',
+              billTotalMinor: '3704',
+              assignedAmountMinor: '3704',
+              assignedMemberId: 'alice',
+              paidAmountMinor: '3704',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      }
+    ]
+  }
+
+  test('deleting a payment drops the vendor facts it created and reopens the plan', async () => {
+    const repository = new FinanceRepositoryStub()
+    planFixture(repository, 'settled')
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: 'cycle-current',
+        cyclePeriod: repository.openCycleRecord!.period,
+        memberId: 'alice',
+        kind: 'utilities',
+        amountMinor: 3704n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-08-05T10:15:31.000Z')
+      }
+    ]
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-current',
+        planId: 'utility-plan-1',
+        utilityBillId: 'bill-1',
+        billName: 'Electricity',
+        payerMemberId: 'alice',
+        amountMinor: 3704n,
+        currency: 'GEL',
+        plannedForMemberId: 'alice',
+        planVersion: 1,
+        matchedPlan: true,
+        recordedByMemberId: 'alice',
+        paymentRecordId: 'payment-1',
+        recordedAt: instantFromIso('2026-08-05T10:15:31.000Z'),
+        createdAt: instantFromIso('2026-08-05T10:15:31.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const deleted = await service.deletePayment('payment-1')
+
+    expect(deleted).toBe(true)
+    expect(repository.utilityVendorPaymentFacts).toEqual([])
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
+  })
+
+  test('deleting a vendor payment mark removes it and reopens the plan', async () => {
+    const repository = new FinanceRepositoryStub()
+    planFixture(repository, 'settled')
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-1',
+        cycleId: 'cycle-current',
+        planId: 'utility-plan-1',
+        utilityBillId: 'bill-1',
+        billName: 'Electricity',
+        payerMemberId: 'alice',
+        amountMinor: 3704n,
+        currency: 'GEL',
+        plannedForMemberId: 'alice',
+        planVersion: 1,
+        matchedPlan: true,
+        recordedByMemberId: 'alice',
+        paymentRecordId: null,
+        recordedAt: instantFromIso('2026-08-05T10:15:31.000Z'),
+        createdAt: instantFromIso('2026-08-05T10:15:31.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const deleted = await service.deleteUtilityVendorPaymentFact('fact-1')
+
+    expect(deleted).toBe(true)
+    expect(repository.utilityVendorPaymentFacts).toEqual([])
+    expect(repository.utilityBillingPlans.map((plan) => plan.status)).toEqual(['superseded'])
+  })
+
+  test('ensuring the expected cycle closes every stale open cycle, not just the newest', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    repository.openCycleRecord = {
+      id: 'cycle-current',
+      period: currentPeriod,
+      currency: 'GEL'
+    }
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.cycles = [
+      repository.openCycleRecord,
+      { id: 'cycle-old-1', period: '2026-04', currency: 'GEL' },
+      { id: 'cycle-old-2', period: '2026-05', currency: 'GEL' }
+    ]
+
+    const service = createService(repository)
+    await service.ensureExpectedCycle()
+
+    expect([...repository.closedCycleIds].sort()).toEqual(['cycle-old-1', 'cycle-old-2'])
   })
 })

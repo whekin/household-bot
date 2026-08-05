@@ -148,6 +148,7 @@ function mapBalanceLedgerEntry(row: {
   reason: string
   amountMinor: bigint
   currency: string
+  paymentRecordId: string | null
   idempotencyKey: string
   createdAt: Date | string
 }): FinanceBalanceLedgerEntryRecord {
@@ -166,6 +167,7 @@ function mapBalanceLedgerEntry(row: {
         : 'excess_purchase_credit',
     amountMinor: row.amountMinor,
     currency: toCurrencyCode(row.currency),
+    paymentRecordId: row.paymentRecordId,
     idempotencyKey: row.idempotencyKey,
     createdAt: instantFromDatabaseValue(row.createdAt)!
   }
@@ -459,6 +461,26 @@ export function createDbFinanceRepository(
         .onConflictDoNothing({
           target: [schema.billingCycles.householdId, schema.billingCycles.period]
         })
+    },
+
+    async closeCyclesBeforePeriod(period, closedAt) {
+      const rows = await db
+        .update(schema.billingCycles)
+        .set({
+          closedAt: instantToDate(closedAt)
+        })
+        .where(
+          and(
+            eq(schema.billingCycles.householdId, householdId),
+            isNull(schema.billingCycles.closedAt),
+            lt(schema.billingCycles.period, period)
+          )
+        )
+        .returning({
+          id: schema.billingCycles.id
+        })
+
+      return rows.map((row) => row.id)
     },
 
     async closeCycle(cycleId, closedAt) {
@@ -1605,6 +1627,7 @@ export function createDbFinanceRepository(
           planVersion: schema.utilityVendorPaymentFacts.planVersion,
           matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
           recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
           recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
           createdAt: schema.utilityVendorPaymentFacts.createdAt
         })
@@ -1621,6 +1644,82 @@ export function createDbFinanceRepository(
       }))
     },
 
+    async getUtilityVendorPaymentFact(factId) {
+      const rows = await db
+        .select({
+          id: schema.utilityVendorPaymentFacts.id,
+          cycleId: schema.utilityVendorPaymentFacts.cycleId,
+          planId: schema.utilityVendorPaymentFacts.planId,
+          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+          billName: schema.utilityVendorPaymentFacts.billName,
+          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+          currency: schema.utilityVendorPaymentFacts.currency,
+          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+          planVersion: schema.utilityVendorPaymentFacts.planVersion,
+          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
+          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+          createdAt: schema.utilityVendorPaymentFacts.createdAt
+        })
+        .from(schema.utilityVendorPaymentFacts)
+        .where(
+          and(
+            eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+            eq(schema.utilityVendorPaymentFacts.id, factId)
+          )
+        )
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        ...row,
+        currency: toCurrencyCode(row.currency),
+        matchedPlan: row.matchedPlan === 1,
+        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
+    },
+
+    async deleteUtilityVendorPaymentFact(factId) {
+      const rows = await db
+        .delete(schema.utilityVendorPaymentFacts)
+        .where(
+          and(
+            eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+            eq(schema.utilityVendorPaymentFacts.id, factId)
+          )
+        )
+        .returning({
+          id: schema.utilityVendorPaymentFacts.id
+        })
+
+      return rows.length > 0
+    },
+
+    async attachUtilityVendorPaymentFactsToPayment(input) {
+      if (input.factIds.length === 0) {
+        return
+      }
+
+      await db
+        .update(schema.utilityVendorPaymentFacts)
+        .set({
+          paymentRecordId: input.paymentRecordId
+        })
+        .where(
+          and(
+            eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+            inArray(schema.utilityVendorPaymentFacts.id, [...input.factIds])
+          )
+        )
+    },
+
     async listBalanceLedgerEntries() {
       const rows = await db
         .select({
@@ -1635,6 +1734,7 @@ export function createDbFinanceRepository(
           reason: schema.memberBalanceLedgerEntries.reason,
           amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
           currency: schema.memberBalanceLedgerEntries.currency,
+          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
           idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
           createdAt: schema.memberBalanceLedgerEntries.createdAt
         })
@@ -1663,6 +1763,7 @@ export function createDbFinanceRepository(
           reason: input.reason,
           amountMinor: input.amountMinor,
           currency: input.currency,
+          paymentRecordId: input.paymentRecordId ?? null,
           idempotencyKey: input.idempotencyKey
         })
         .onConflictDoNothing({
@@ -1680,6 +1781,7 @@ export function createDbFinanceRepository(
           reason: schema.memberBalanceLedgerEntries.reason,
           amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
           currency: schema.memberBalanceLedgerEntries.currency,
+          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
           idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
           createdAt: schema.memberBalanceLedgerEntries.createdAt
         })
@@ -1702,6 +1804,7 @@ export function createDbFinanceRepository(
           reason: schema.memberBalanceLedgerEntries.reason,
           amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
           currency: schema.memberBalanceLedgerEntries.currency,
+          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
           idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
           createdAt: schema.memberBalanceLedgerEntries.createdAt
         })
@@ -1733,6 +1836,7 @@ export function createDbFinanceRepository(
           planVersion: input.planVersion ?? null,
           matchedPlan: input.matchedPlan ? 1 : 0,
           recordedByMemberId: input.recordedByMemberId ?? null,
+          paymentRecordId: input.paymentRecordId ?? null,
           recordedAt: instantToDate(input.recordedAt)
         })
         .returning({
@@ -1748,6 +1852,7 @@ export function createDbFinanceRepository(
           planVersion: schema.utilityVendorPaymentFacts.planVersion,
           matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
           recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
           recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
           createdAt: schema.utilityVendorPaymentFacts.createdAt
         })
@@ -1801,6 +1906,7 @@ export function createDbFinanceRepository(
           planVersion: schema.utilityVendorPaymentFacts.planVersion,
           matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
           recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
           recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
           createdAt: schema.utilityVendorPaymentFacts.createdAt
         })

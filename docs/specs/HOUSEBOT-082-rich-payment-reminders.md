@@ -14,6 +14,7 @@ Make scheduled rent and utilities reminders useful as shared payment-status mess
 - Member rows use neutral payment wording without colored urgency markers, and carry-forward copy explicitly says the credit reduces future payments.
 - Scheduled reminder cards expose only shared member actions; administrative close controls remain available through dedicated administration flows.
 - Shared payment cards do not offer a no-op details toggle; they point members to the dashboard for full details and payment history.
+- Group `/bill` renders the same persistent shared card as a scheduled reminder. Group bill cards do not expose Home/Menu navigation, so navigation cannot replace the payment card in-place.
 - The mini app shows credit created by the active utility plan as an amount carried into the next cycle before the current plan is settled.
 - Live reminder cards refresh after supported payment recording flows in Telegram commands, payment topics, reminder callbacks, and the mini app.
 - "I paid" closes the clicking member's unresolved payment period only.

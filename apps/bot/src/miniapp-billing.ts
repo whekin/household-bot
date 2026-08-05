@@ -586,6 +586,29 @@ async function readUtilityBillDeletePayload(request: Request): Promise<{
   }
 }
 
+async function readUtilityVendorPaymentDeletePayload(request: Request): Promise<{
+  initData: string
+  vendorPaymentId: string
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    vendorPaymentId?: string
+  }>(request)
+  const initData = parsed.initData?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  const vendorPaymentId = parsed.vendorPaymentId?.trim()
+  if (!vendorPaymentId) {
+    throw new Error('Missing vendor payment id')
+  }
+
+  return {
+    initData,
+    vendorPaymentId
+  }
+}
+
 async function readAddPurchasePayload(request: Request): Promise<{
   initData: string
   description: string
@@ -2629,6 +2652,70 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           },
           'Mini app utility plan resolve completed'
         )
+
+        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppDeleteUtilityVendorPaymentHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  auditNotificationService?: HouseholdAuditNotificationService
+  livePaymentCardService?: LivePaymentCardService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateAdminSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+
+        const payload = await readUtilityVendorPaymentDeletePayload(request)
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const deleted = await service.deleteUtilityVendorPaymentFact(payload.vendorPaymentId)
+
+        if (!deleted) {
+          return miniAppJsonResponse({ ok: false, error: 'Payment mark not found' }, 404, origin)
+        }
+
+        await recordMiniAppAuditEvent({
+          service: options.auditNotificationService,
+          logger: options.logger,
+          authMember: auth.member,
+          category: 'plan_events',
+          eventType: 'utility_vendor_payment.deleted',
+          summaryText: `${auth.member.displayName} removed a utility payment mark`,
+          metadata: {
+            vendorPaymentId: payload.vendorPaymentId
+          }
+        })
 
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {

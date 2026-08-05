@@ -1,0 +1,6 @@
+ALTER TABLE "member_balance_ledger_entries" ADD COLUMN "payment_record_id" uuid;--> statement-breakpoint
+ALTER TABLE "utility_vendor_payment_facts" ADD COLUMN "payment_record_id" uuid;--> statement-breakpoint
+ALTER TABLE "member_balance_ledger_entries" ADD CONSTRAINT "member_balance_ledger_entries_payment_record_id_payment_records_id_fk" FOREIGN KEY ("payment_record_id") REFERENCES "public"."payment_records"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "utility_vendor_payment_facts" ADD CONSTRAINT "utility_vendor_payment_facts_payment_record_id_payment_records_id_fk" FOREIGN KEY ("payment_record_id") REFERENCES "public"."payment_records"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "member_balance_ledger_payment_idx" ON "member_balance_ledger_entries" USING btree ("payment_record_id");--> statement-breakpoint
+CREATE INDEX "utility_vendor_payment_facts_payment_idx" ON "utility_vendor_payment_facts" USING btree ("payment_record_id");

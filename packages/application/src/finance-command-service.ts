@@ -15,6 +15,7 @@ import type {
   SettlementSnapshotRecord,
   FinanceUtilityBillingPlanPayload,
   FinanceUtilityBillingPlanStatus,
+  FinanceUtilityVendorPaymentFactRecord,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   HouseholdMemberPresenceDaysRecord,
@@ -791,6 +792,16 @@ export interface FinanceDashboardUtilityBillingPlan {
     vendorPaid: Money
     assignedThisCycle: Money
     projectedDeltaAfterPlan: Money
+  }[]
+  vendorPayments?: readonly {
+    id: string
+    utilityBillId: string | null
+    billName: string
+    payerMemberId: string
+    payerDisplayName: string
+    amount: Money
+    matchedPlan: boolean
+    recordedAt: Instant
   }[]
   carryForwardCredits?: readonly {
     memberId: string
@@ -2076,6 +2087,7 @@ function buildDashboardUtilityBillingPlan(input: {
   computed: UtilityBillingPlanComputed
   memberNameById: ReadonlyMap<string, string>
   priorVersionByPlanId: ReadonlyMap<string, number>
+  vendorFacts: readonly FinanceUtilityVendorPaymentFactRecord[]
 }): FinanceDashboardUtilityBillingPlan {
   return {
     id: input.planRecord.id,
@@ -2108,6 +2120,18 @@ function buildDashboardUtilityBillingPlan(input: {
         projectedDeltaAfterPlan: summary.projectedDeltaAfterPlan
       }
     }),
+    // Surfaced so a wrong "paid" mark can be found and undone; nothing else
+    // could remove these facts before.
+    vendorPayments: input.vendorFacts.map((fact) => ({
+      id: fact.id,
+      utilityBillId: fact.utilityBillId,
+      billName: fact.billName,
+      payerMemberId: fact.payerMemberId,
+      payerDisplayName: input.memberNameById.get(fact.payerMemberId) ?? fact.payerMemberId,
+      amount: Money.fromMinor(fact.amountMinor, fact.currency),
+      matchedPlan: fact.matchedPlan,
+      recordedAt: fact.recordedAt
+    })),
     carryForwardCredits: input.computed.carryForwardCredits,
     accountedPurchaseIds: input.planRecord.payload.purchaseIds ?? []
   }
@@ -3281,7 +3305,8 @@ async function buildFinanceDashboard(
           planRecord: ensuredUtilityPlan.record,
           computed: ensuredUtilityPlan.computed,
           memberNameById,
-          priorVersionByPlanId: utilityPlanVersionById
+          priorVersionByPlanId: utilityPlanVersionById,
+          vendorFacts: await dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
         })
       : null
   const rentPaidByMemberId = new Map<string, Money>()
@@ -3793,6 +3818,7 @@ export interface FinanceCommandService {
     currency: CurrencyCode
   } | null>
   deletePayment(paymentId: string): Promise<boolean>
+  deleteUtilityVendorPaymentFact(factId: string): Promise<boolean>
   getPayment(paymentId: string): Promise<FinancePaymentRecord | null>
   getPurchase(purchaseId: string): Promise<FinanceParsedPurchaseRecord | null>
   generateCurrentBillPlan(periodArg?: string): Promise<FinanceCurrentBillPlan | null>
@@ -3885,10 +3911,9 @@ export function createFinanceCommandService(
       throw new Error(`Failed to ensure billing cycle for period ${period}`)
     }
 
-    const openCycle = await repository.getOpenCycle()
-    if (openCycle && openCycle.id !== cycle.id) {
-      await repository.closeCycle(openCycle.id, referenceInstant)
-    }
+    // Close every past cycle, not just the newest open one: closing one at a time
+    // left older cycles open forever, which made closedAt meaningless.
+    await repository.closeCyclesBeforePeriod(period, referenceInstant)
 
     if (settings.rentAmountMinor !== null) {
       await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency, {
@@ -3991,6 +4016,7 @@ export function createFinanceCommandService(
       .reduce((sum, payment) => sum + payment.amountMinor, 0n)
     let insertedMatchedPlanPaidMinor = 0n
     const insertedBillIds: string[] = []
+    const insertedFactIds: string[] = []
     for (const { category, remainingMinor } of categoriesToRecord) {
       const fact = await repository.addUtilityVendorPaymentFactIfNew({
         cycleId: input.cycle.id,
@@ -4010,6 +4036,7 @@ export function createFinanceCommandService(
       if (fact) {
         insertedMatchedPlanPaidMinor += fact.amountMinor
         insertedBillIds.push(category.utilityBillId)
+        insertedFactIds.push(fact.id)
       }
     }
 
@@ -4061,6 +4088,13 @@ export function createFinanceCommandService(
             : undefined))
 
     if (payment) {
+      // Tie the facts minted above to the payment they came from, so deleting the
+      // payment removes them instead of leaving the member marked as paid.
+      await repository.attachUtilityVendorPaymentFactsToPayment({
+        factIds: insertedFactIds,
+        paymentRecordId: payment.id
+      })
+
       const existingAllocations = await repository.listPaymentPurchaseAllocations()
       const existingPaymentAllocations = existingAllocations.filter(
         (allocation) => allocation.paymentRecordId === payment.id
@@ -4090,6 +4124,7 @@ export function createFinanceCommandService(
         reason: 'payment_balance_credit_applied',
         amountMinor: carryForward.creditConsumed.amountMinor,
         currency: input.dashboard.currency,
+        ...(payment ? { paymentRecordId: payment.id } : {}),
         idempotencyKey: `utility-plan:${input.utilityPlan.id}:member:${input.memberId}:carryover-consumed`
       })
     }
@@ -4104,6 +4139,7 @@ export function createFinanceCommandService(
         reason: 'excess_purchase_credit',
         amountMinor: carryForward.creditCreated.amountMinor,
         currency: input.dashboard.currency,
+        ...(payment ? { paymentRecordId: payment.id } : {}),
         idempotencyKey: `utility-plan:${input.utilityPlan.id}:member:${input.memberId}:carryover-created`
       })
     }
@@ -4900,8 +4936,40 @@ export function createFinanceCommandService(
       }
     },
 
-    deletePayment(paymentId) {
-      return repository.deletePaymentRecord(paymentId)
+    async deletePayment(paymentId) {
+      const existing = await repository.getPaymentRecord(paymentId)
+      const deleted = await repository.deletePaymentRecord(paymentId)
+      if (!deleted || !existing) {
+        return deleted
+      }
+
+      // Vendor payment facts and balance credits derived from this payment are
+      // gone with it (cascade), so a settled plan may no longer be covered.
+      const plans = await repository.listUtilityBillingPlansForCycle(existing.cycleId)
+      const currentPlan = currentUtilityBillingPlanRecord([...plans])
+      if (currentPlan?.status === 'settled') {
+        await repository.updateUtilityBillingPlanStatus(currentPlan.id, 'active')
+      }
+      await invalidateUtilityBillingPlanForCycle(repository, existing.cycleId)
+
+      return true
+    },
+
+    async deleteUtilityVendorPaymentFact(factId) {
+      const fact = await repository.getUtilityVendorPaymentFact(factId)
+      const deleted = await repository.deleteUtilityVendorPaymentFact(factId)
+      if (!deleted || !fact) {
+        return deleted
+      }
+
+      const plans = await repository.listUtilityBillingPlansForCycle(fact.cycleId)
+      const currentPlan = currentUtilityBillingPlanRecord([...plans])
+      if (currentPlan?.status === 'settled') {
+        await repository.updateUtilityBillingPlanStatus(currentPlan.id, 'active')
+      }
+      await invalidateUtilityBillingPlanForCycle(repository, fact.cycleId)
+
+      return true
     },
 
     getPayment(paymentId) {

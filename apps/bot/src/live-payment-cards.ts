@@ -63,9 +63,9 @@ export function createLivePaymentCardService(options: {
       await Promise.all(
         cards.map(async (card) => {
           const buildContent =
-            card.surface === 'reminder'
-              ? buildScheduledPaymentReminderContent
-              : buildPaymentInstructionContent
+            card.surface === 'instruction'
+              ? buildPaymentInstructionContent
+              : buildScheduledPaymentReminderContent
           const content = buildContent({
             locale: card.locale,
             kind: card.kind,

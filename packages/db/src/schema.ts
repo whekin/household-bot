@@ -813,6 +813,11 @@ export const utilityVendorPaymentFacts = pgTable(
     recordedByMemberId: uuid('recorded_by_member_id').references(() => members.id, {
       onDelete: 'set null'
     }),
+    // Set for facts derived from a payment record, so deleting that payment
+    // takes its derived state with it.
+    paymentRecordId: uuid('payment_record_id').references(() => paymentRecords.id, {
+      onDelete: 'cascade'
+    }),
     idempotencyKey: text('idempotency_key'),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
@@ -822,6 +827,7 @@ export const utilityVendorPaymentFacts = pgTable(
     planIdx: index('utility_vendor_payment_facts_plan_idx').on(table.planId),
     billIdx: index('utility_vendor_payment_facts_bill_idx').on(table.utilityBillId),
     payerIdx: index('utility_vendor_payment_facts_payer_idx').on(table.payerMemberId),
+    paymentIdx: index('utility_vendor_payment_facts_payment_idx').on(table.paymentRecordId),
     idempotencyUnique: uniqueIndex('utility_vendor_payment_facts_idempotency_unique').on(
       table.idempotencyKey
     )
@@ -924,6 +930,11 @@ export const memberBalanceLedgerEntries = pgTable(
     reason: text('reason').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
+    // Same as on vendor payment facts: credits minted while resolving a member's
+    // payment disappear with that payment.
+    paymentRecordId: uuid('payment_record_id').references(() => paymentRecords.id, {
+      onDelete: 'cascade'
+    }),
     idempotencyKey: text('idempotency_key').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -934,6 +945,7 @@ export const memberBalanceLedgerEntries = pgTable(
     ),
     sourceCycleIdx: index('member_balance_ledger_source_cycle_idx').on(table.sourceCycleId),
     planIdx: index('member_balance_ledger_plan_idx').on(table.planId),
+    paymentIdx: index('member_balance_ledger_payment_idx').on(table.paymentRecordId),
     idempotencyUnique: uniqueIndex('member_balance_ledger_idempotency_unique').on(
       table.idempotencyKey
     )

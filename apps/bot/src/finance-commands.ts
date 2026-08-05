@@ -28,6 +28,7 @@ import {
 } from './home-menu'
 import { tryEditMessageText } from './telegram-message-edit'
 import type { LivePaymentCardService } from './live-payment-cards'
+import { buildScheduledPaymentReminderContent } from './payment-reminder-content'
 
 type FinanceDashboardForBot = NonNullable<
   Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
@@ -1948,18 +1949,70 @@ export function createFinanceCommandsService(options: {
       repository: options.householdConfigurationRepository,
       householdId: input.householdId
     })
+
+    if (isGroupChat(input.ctx) && !input.viewerMemberId && input.detailMode === 'compact') {
+      const dashboard = await input.service.generateDashboard(input.periodArg)
+      const sharedKind = input.forcedMode ?? dashboard?.billingStage
+      if (dashboard && (sharedKind === 'rent' || sharedKind === 'utilities')) {
+        const content = buildScheduledPaymentReminderContent({
+          locale,
+          kind: sharedKind,
+          dispatchKind: sharedKind === 'utilities' ? 'utilities' : 'rent_due',
+          period: dashboard.period,
+          dashboard,
+          viewMode: 'compact',
+          botUsername: input.ctx.me.username ?? options.botUsername,
+          ...(options.miniAppUrl ? { miniAppUrl: options.miniAppUrl } : {})
+        })
+        const sentBill = await replyOrEditText({
+          ctx: input.ctx,
+          text: content.text,
+          options: {
+            parse_mode: content.parseMode,
+            ...(content.replyMarkup ? { reply_markup: content.replyMarkup } : {})
+          },
+          editMessage: input.editMessage
+        })
+        if (sentBill && options.livePaymentCardService && input.ctx.chat) {
+          await options.livePaymentCardService.register({
+            householdId: input.householdId,
+            kind: sharedKind,
+            period: dashboard.period,
+            surface: 'bill',
+            locale,
+            telegramChatId: input.ctx.chat.id.toString(),
+            telegramThreadId:
+              'message_thread_id' in sentBill && sentBill.message_thread_id !== undefined
+                ? sentBill.message_thread_id.toString()
+                : null,
+            telegramMessageId: sentBill.message_id.toString()
+          })
+        }
+        return
+      }
+    }
+
     const [plan, utilityCategories, billingSettings] = await Promise.all([
       input.service.generateCurrentBillPlan(input.periodArg),
       options.householdConfigurationRepository.listHouseholdUtilityCategories(input.householdId),
       options.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId)
     ])
     if (!plan) {
-      await replyOrEditWithHomeMenu({
-        ctx: input.ctx,
-        locale,
-        text: getBotTranslations(locale).finance.noStatementCycle,
-        editMessage: input.editMessage
-      })
+      const noCycleText = getBotTranslations(locale).finance.noStatementCycle
+      if (isGroupChat(input.ctx)) {
+        await replyOrEditText({
+          ctx: input.ctx,
+          text: noCycleText,
+          editMessage: input.editMessage
+        })
+      } else {
+        await replyOrEditWithHomeMenu({
+          ctx: input.ctx,
+          locale,
+          text: noCycleText,
+          editMessage: input.editMessage
+        })
+      }
       return
     }
 
@@ -2033,14 +2086,18 @@ export function createFinanceCommandsService(options: {
             orderMemberId: input.orderMemberId
           })
     })
+    const billKeyboardRows = [
+      ...(reply.copyButtonRows ?? []),
+      ...(isGroupChat(input.ctx) ? keyboard : appendHomeMenuRow(locale, keyboard))
+    ]
     const sentBill = await replyOrEditText({
       ctx: input.ctx,
       text: reply.text,
       options: {
         ...(reply.parseMode ? { parse_mode: reply.parseMode } : {}),
-        reply_markup: {
-          inline_keyboard: [...(reply.copyButtonRows ?? []), ...appendHomeMenuRow(locale, keyboard)]
-        }
+        ...(billKeyboardRows.length > 0
+          ? { reply_markup: { inline_keyboard: billKeyboardRows } }
+          : {})
       },
       editMessage: input.editMessage
     })

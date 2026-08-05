@@ -390,6 +390,24 @@ export async function resolveMiniAppUtilityPlan(
   }
 }
 
+export async function deleteMiniAppUtilityVendorPayment(
+  initData: string,
+  vendorPaymentId: string
+): Promise<void> {
+  const { response, payload } = await postMiniApp<{
+    ok: boolean
+    authorized?: boolean
+    error?: string
+  }>('/api/miniapp/billing/utilities/vendor-payment/delete', {
+    initData,
+    vendorPaymentId
+  })
+
+  if (!response.ok || !payload.authorized) {
+    throw miniAppApiError(response, payload, 'Failed to remove utility payment mark')
+  }
+}
+
 export async function recordMiniAppUtilityVendorPayment(
   initData: string,
   input: {

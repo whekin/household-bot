@@ -21,6 +21,7 @@ import {
   createMiniAppDeletePurchaseHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
+  createMiniAppDeleteUtilityVendorPaymentHandler,
   createMiniAppRecordUtilityVendorPaymentHandler,
   createMiniAppRentUpdateHandler,
   createMiniAppResolveUtilityPlanHandler,
@@ -350,6 +351,7 @@ function dashboardWithPurchase(input?: {
 }
 
 function createFinanceServiceStub(): FinanceCommandService & {
+  deletedVendorPaymentFactIds: string[]
   resolvedUtilityPlans: Array<Parameters<FinanceCommandService['resolveUtilityBillAsPlanned']>[0]>
   utilityVendorPayments: Array<{
     utilityBillId: string
@@ -360,7 +362,10 @@ function createFinanceServiceStub(): FinanceCommandService & {
     periodArg?: string
   }>
 } {
+  const deletedVendorPaymentFactIds: string[] = []
+
   return {
+    deletedVendorPaymentFactIds,
     resolvedUtilityPlans: [],
     utilityVendorPayments: [],
     getMemberByTelegramUserId: async () => null,
@@ -466,6 +471,10 @@ function createFinanceServiceStub(): FinanceCommandService & {
       amount: Money.fromMinor(10000n, 'USD'),
       currency: 'USD'
     }),
+    deleteUtilityVendorPaymentFact: async (factId: string) => {
+      deletedVendorPaymentFactIds.push(factId)
+      return factId !== 'missing-fact'
+    },
     deletePayment: async () => true,
     getPayment: async () => null,
     getPurchase: async () => purchaseRecord(),
@@ -1941,6 +1950,66 @@ describe('utility billing action handlers', () => {
       }
     ])
     expect(audit.events).toEqual([])
+  })
+
+  test('an admin can remove a vendor payment mark', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppDeleteUtilityVendorPaymentHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/vendor-payment/delete', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          vendorPaymentId: 'fact-1'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true })
+    expect(financeService.deletedVendorPaymentFactIds).toContain('fact-1')
+  })
+
+  test('removing an unknown vendor payment mark reports not found', async () => {
+    const repository = onboardingRepository()
+    const financeService = createFinanceServiceStub()
+    const handler = createMiniAppDeleteUtilityVendorPaymentHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({
+        repository
+      }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/vendor-payment/delete', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          vendorPaymentId: 'missing-fact'
+        })
+      })
+    )
+
+    expect(response.status).toBe(404)
   })
 
   test('custom vendor payment supports admin acting for another member', async () => {

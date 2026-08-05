@@ -219,6 +219,7 @@ function createFinanceService(): FinanceCommandService {
       currency: 'GEL'
     }),
     updatePayment: async () => null,
+    deleteUtilityVendorPaymentFact: async () => true,
     deletePayment: async () => false,
     getPayment: async () => null,
     getPurchase: async () => null,
