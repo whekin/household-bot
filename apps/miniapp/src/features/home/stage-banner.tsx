@@ -56,12 +56,6 @@ export function StageBanner({
       : model.stage === 'rent'
         ? copy.todayRentStage
         : copy.todayIdleStage
-  const stageBody =
-    model.stage === 'utilities'
-      ? copy.todayUtilitiesBody
-      : model.stage === 'rent'
-        ? copy.todayRentBody
-        : copy.todayIdleBody
   const nextWindowTitle =
     model.nextWindow?.kind === 'utilities'
       ? copy.todayNextWindowUtilities
@@ -118,7 +112,11 @@ export function StageBanner({
           </p>
         ) : null}
         <h2 className="mt-1 font-display text-lg font-semibold text-foreground">{stageTitle}</h2>
-        <p className="text-xs text-muted-foreground">{stageBody}</p>
+        {/* Only the quiet stage needs a sentence: with no window open and nothing
+            to act on, it is the one state the rest of the screen cannot explain. */}
+        {model.stage === 'idle' ? (
+          <p className="text-xs text-muted-foreground">{copy.todayIdleBody}</p>
+        ) : null}
       </div>
 
       <div className="space-y-2 empty:hidden">
