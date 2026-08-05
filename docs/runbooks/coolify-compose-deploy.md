@@ -165,29 +165,20 @@ Manual checks:
 - `GET https://household.whekin.dev/health` succeeds
 - unauthenticated `POST https://household-bot.whekin.dev/jobs/dispatch-due` returns `401`
 
-## GitHub Actions redeploy
+## Redeploy
 
-Use `.github/workflows/cd-coolify.yml` to trigger a Coolify redeploy after `CI` passes on `main`.
-The workflow also supports manual redeploys through GitHub Actions `Run workflow`.
+Coolify watches the repository and builds `docker-compose.coolify.yml` on the VPS itself, so a push
+to `main` is the deploy. To redeploy a commit that is already pushed, use `Redeploy` on the Coolify
+application page.
 
-Coolify is the only active CD workflow. Former cloud deployment workflows are archived under
-`docs/archive/github-workflows/` so GitHub does not run them, but their contents remain available if
-GCP or AWS deployment needs to be restored later.
+There is no CD workflow. One used to call Coolify's deploy webhook from GitHub Actions, but the
+webhook stopped resolving and every run failed for weeks while Coolify kept deploying on its own, so
+the workflow was removed rather than repaired. Former cloud deployment workflows stay archived under
+`docs/archive/github-workflows/` in case GCP or AWS deployment needs to be restored later.
 
-Required GitHub environment secrets for `Production`:
-
-- `COOLIFY_WEBHOOK` — Coolify resource deploy webhook URL from the application `Webhooks` page
-- `COOLIFY_TOKEN` — Coolify API token with deploy permission
-
-To redeploy immediately:
-
-1. Ensure the target commit is pushed to `main`.
-2. Open GitHub Actions.
-3. Select `CD / Coolify`.
-4. Click `Run workflow`.
-
-The workflow only calls Coolify's deploy webhook. Coolify still pulls the Git repository and builds
-`docker-compose.coolify.yml` on the VPS.
+If a GitHub-triggered deploy is ever wanted again, it needs a fresh resource webhook URL and an API
+token with deploy permission — the old `COOLIFY_WEBHOOK` and `COOLIFY_TOKEN` secrets on the
+`Production` environment are unused and safe to delete.
 
 ## Notes for later
 

@@ -8,7 +8,8 @@ Active deployment target: Coolify.
 Active workflows:
 
 - `.github/workflows/ci.yml`
-- `.github/workflows/cd-coolify.yml`
+
+Deployment runs from Coolify itself, which watches the repository, so there is no CD workflow.
 
 Archived workflows:
 
