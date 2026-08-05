@@ -282,6 +282,40 @@ describe('payment reminder content', () => {
     expect(content.text).toContain('34.78 ₾ ещё за вами по покупкам')
   })
 
+  test('states the credit side when the household owes the member instead', () => {
+    const baseDashboard = dashboard()
+    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
+      (summary) => summary.period === '2026-05'
+    )!
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'alice'
+            ? { ...member, purchaseOffset: Money.fromMajor('-46.28', 'GEL') }
+            : member
+        ),
+        paymentPeriods: [
+          {
+            ...utilitiesPeriod,
+            kinds: utilitiesPeriod.kinds.map((kind) =>
+              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
+            )
+          }
+        ]
+      },
+      viewMode: 'compact'
+    })
+
+    // Shown absolute, not as a negative debt.
+    expect(content.text).toContain('46.28 ₾ вам должны по покупкам')
+    expect(content.text).not.toContain('-46.28')
+  })
+
   test('keeps only shared actions on scheduled reminder cards', () => {
     const content = buildScheduledPaymentReminderContent({
       locale: 'ru',

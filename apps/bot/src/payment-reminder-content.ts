@@ -225,13 +225,27 @@ function utilitiesByMemberLines(input: {
     // purchases can leave a balance no bill was able to carry. Read the live
     // offset rather than the plan's projected delta, which freezes with the plan
     // and stops tracking purchases once it locks.
-    const purchaseDue = unresolved
+    const purchaseBalance = unresolved
       ? null
       : input.dashboard.members.find((member) => member.memberId === memberId)?.purchaseOffset
-    if (purchaseDue && purchaseDue.amountMinor > 0n) {
+    if (purchaseBalance && purchaseBalance.amountMinor !== 0n) {
+      // Both directions matter. Without the credit side the member the household
+      // owes the most is the one shown nothing at all, because their plan row is
+      // the first to close.
+      const owes = purchaseBalance.amountMinor > 0n
+      const amount = Money.fromMinor(
+        owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
+        input.dashboard.currency
+      )
       lines.push(
-        `   ↩ ${escapeHtml(moneyText(purchaseDue))} ${escapeHtml(
-          input.locale === 'ru' ? 'ещё за вами по покупкам' : 'still owed on shared purchases'
+        `   ↩ ${escapeHtml(moneyText(amount))} ${escapeHtml(
+          owes
+            ? input.locale === 'ru'
+              ? 'ещё за вами по покупкам'
+              : 'still owed on shared purchases'
+            : input.locale === 'ru'
+              ? 'вам должны по покупкам'
+              : 'owed to you on shared purchases'
         )}`
       )
     }

@@ -16,8 +16,11 @@ export type TodayMemberCloseLine = {
   amountMajor: string
   settled: boolean
   isCurrent: boolean
-  /** Live shared-purchase balance still owed once the member's plan row is closed. */
-  purchaseDueMajor?: string
+  /**
+   * Live shared-purchase balance once the member's plan row is closed.
+   * Positive means they still owe the household, negative means they are owed.
+   */
+  purchaseBalanceMajor?: string
 }
 
 export type TodayViewModel = {
@@ -401,11 +404,11 @@ export function buildTodayViewModel(input: {
                 periodSummary
               )
               const settled = majorStringToMinor(amountMajor) <= 0n
-              // A closed row does not mean the member owes the household nothing:
-              // shared purchases can leave a balance no bill was able to carry.
+              // A closed row settles nothing about shared purchases: the member can
+              // still owe the household, or be owed by it.
               // Read the live offset, not the plan's projected delta — that one is
               // frozen with the plan and stops tracking purchases once it locks.
-              const purchaseDueMinor =
+              const purchaseBalanceMinor =
                 settled && stage === 'utilities'
                   ? majorStringToMinor(member.purchaseOffsetMajor)
                   : 0n
@@ -416,8 +419,8 @@ export function buildTodayViewModel(input: {
                 amountMajor,
                 settled,
                 isCurrent: member.memberId === input.currentMemberId,
-                ...(purchaseDueMinor > 0n
-                  ? { purchaseDueMajor: minorToMajorString(purchaseDueMinor) }
+                ...(purchaseBalanceMinor !== 0n
+                  ? { purchaseBalanceMajor: minorToMajorString(purchaseBalanceMinor) }
                   : {})
               }
             }),

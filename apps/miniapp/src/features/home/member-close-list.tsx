@@ -12,6 +12,29 @@ import { cn } from '@/lib/cn'
 import { initialsForName, type TodayMemberCloseLine, type TodayViewModel } from './today-view-model'
 
 /**
+ * A closed row still carries a shared-purchase position, in either direction.
+ * The sign picks the wording and the colour; the amount is always shown absolute
+ * so a debt does not read as a negative credit.
+ */
+function PurchaseBalanceHint(props: {
+  balanceMajor: string
+  currency: 'USD' | 'GEL'
+  locale: Parameters<typeof formatMoneyLabel>[2]
+  copy: { todayPurchaseDueHint: string; todayPurchaseCreditHint: string }
+}) {
+  const balanceMinor = majorStringToMinor(props.balanceMajor)
+  const owes = balanceMinor > 0n
+  const amountMajor = minorToMajorString(owes ? balanceMinor : -balanceMinor)
+
+  return (
+    <span className={cn('block text-xs', owes ? 'text-status-due' : 'text-status-credit')}>
+      {formatMoneyLabel(amountMajor, props.currency, props.locale)}{' '}
+      {owes ? props.copy.todayPurchaseDueHint : props.copy.todayPurchaseCreditHint}
+    </span>
+  )
+}
+
+/**
  * Who is still open this stage — tap a line to close your own check (admins
  * can close anyone). Ported from the legacy MemberCloseList.
  */
@@ -107,11 +130,13 @@ export function MemberCloseList({
                         ? copy.todayTapToClose
                         : copy.todayWaitingForMember}
                   </span>
-                  {line.purchaseDueMajor ? (
-                    <span className="block text-xs text-status-due">
-                      {formatMoneyLabel(line.purchaseDueMajor, dashboard.currency, locale)}{' '}
-                      {copy.todayPurchaseDueHint}
-                    </span>
+                  {line.purchaseBalanceMajor ? (
+                    <PurchaseBalanceHint
+                      balanceMajor={line.purchaseBalanceMajor}
+                      currency={dashboard.currency}
+                      locale={locale}
+                      copy={copy}
+                    />
                   ) : null}
                 </span>
                 <span

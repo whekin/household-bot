@@ -355,7 +355,26 @@ describe('today view model', () => {
     expect(line?.amountMajor).toBe('0.00')
     expect(line?.settled).toBe(true)
     // Closed, but the shared-purchase balance is still hers.
-    expect(line?.purchaseDueMajor).toBe('34.78')
+    expect(line?.purchaseBalanceMajor).toBe('34.78')
+  })
+
+  test('keeps the sign when a closed member is owed rather than owing', () => {
+    const base = dashboard(periodSummary({ utilitiesRemaining: '0.00' }))
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...base,
+        members: base.members.map((member) => ({ ...member, purchaseOffsetMajor: '-46.28' }))
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'utilities'
+    })
+
+    // The household owes them. Without the sign this member sees nothing at all,
+    // because being owed is exactly what closes their row first.
+    expect(
+      model.memberLines.find((entry) => entry.memberId === 'member-a')?.purchaseBalanceMajor
+    ).toBe('-46.28')
   })
 
   test('exposes current member utility breakdown', () => {
