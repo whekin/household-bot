@@ -85,11 +85,33 @@ async function main(): Promise<void> {
       exchangeRateProvider: createNbgExchangeRateProvider()
     })
 
+    // Re-resolution rewrites the allocations of exactly one payment record — the
+    // member's latest utilities payment in this cycle, which is the one the
+    // resolver passes as `reresolvePaymentRecordId`. Report that set only.
+    // Their allocations from earlier cycles hang off other payments and are left
+    // alone, so counting every allocation the member ever received would hide
+    // the change behind unrelated history.
+    const cycle = await financeClient.repository.getCycleByPeriod(options.period)
+    if (!cycle) {
+      throw new Error(`No billing cycle for period ${options.period}`)
+    }
+
+    const targetPayment = (await financeClient.repository.listPaymentRecordsForCycle(cycle.id))
+      .filter((payment) => payment.memberId === options.memberId && payment.kind === 'utilities')
+      .sort((left, right) =>
+        right.recordedAt.toString().localeCompare(left.recordedAt.toString())
+      )[0]
+    if (!targetPayment) {
+      throw new Error(`No utilities payment for that member in ${options.period}`)
+    }
+
+    console.log(`target payment ${targetPayment.id} (${formatMinor(targetPayment.amountMinor)})\n`)
+
     const allocationsFor = async (): Promise<
       readonly { purchaseId: string; amountMinor: bigint }[]
     > =>
       (await financeClient.repository.listPaymentPurchaseAllocations())
-        .filter((allocation) => allocation.memberId === options.memberId)
+        .filter((allocation) => allocation.paymentRecordId === targetPayment.id)
         .map((allocation) => ({
           purchaseId: allocation.purchaseId,
           amountMinor: allocation.amountMinor
