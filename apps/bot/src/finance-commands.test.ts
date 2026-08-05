@@ -3249,6 +3249,7 @@ describe('createFinanceCommandsService', () => {
           paymentRecords: [],
           utilityVendorPaymentFacts: [],
           utilityReimbursementFacts: [],
+          paymentPurchaseAllocations: [],
           utilityPlanVersions: [],
           settlementSnapshot: {
             isFrozenHistoricalSnapshot: true,

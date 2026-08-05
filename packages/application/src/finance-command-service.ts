@@ -1031,6 +1031,17 @@ export interface FinanceBillingAuditExport {
       recordedAt: string
       createdAt: string
     }[]
+    paymentPurchaseAllocations: readonly {
+      id: string
+      paymentRecordId: string
+      purchaseId: string
+      memberId: string
+      amount: FinanceAuditMoney
+      resolutionCycleId: string | null
+      resolutionMethod: 'utilities_plan' | 'rent_plan' | 'manual' | null
+      resolutionPlanId: string | null
+      recordedAt: string
+    }[]
     utilityPlanVersions: readonly {
       id: string
       version: number
@@ -5257,6 +5268,7 @@ export function createFinanceCommandService(
         parsedPurchases,
         utilityVendorPaymentFacts,
         utilityReimbursementFacts,
+        paymentPurchaseAllocations,
         utilityPlanVersions,
         settlementSnapshotLines
       ] = await Promise.all([
@@ -5266,6 +5278,7 @@ export function createFinanceCommandService(
         repository.listParsedPurchases(),
         repository.listUtilityVendorPaymentFactsForCycle(cycle.id),
         repository.listUtilityReimbursementFactsForCycle(cycle.id),
+        repository.listPaymentPurchaseAllocations(),
         repository.listUtilityBillingPlansForCycle(cycle.id),
         repository.getSettlementSnapshotLines(cycle.id)
       ])
@@ -5528,6 +5541,17 @@ export function createFinanceCommandService(
             recordedByMemberId: fact.recordedByMemberId ?? null,
             recordedAt: fact.recordedAt.toString(),
             createdAt: fact.createdAt.toString()
+          })),
+          paymentPurchaseAllocations: paymentPurchaseAllocations.map((allocation) => ({
+            id: allocation.id,
+            paymentRecordId: allocation.paymentRecordId,
+            purchaseId: allocation.purchaseId,
+            memberId: allocation.memberId,
+            amount: serializeMoney(Money.fromMinor(allocation.amountMinor, cycle.currency)),
+            resolutionCycleId: allocation.resolutionCycleId ?? null,
+            resolutionMethod: allocation.resolutionMethod ?? null,
+            resolutionPlanId: allocation.resolutionPlanId ?? null,
+            recordedAt: allocation.recordedAt.toString()
           })),
           utilityPlanVersions: utilityPlanVersions.map((plan) => ({
             id: plan.id,
