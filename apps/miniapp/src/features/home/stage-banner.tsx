@@ -46,16 +46,6 @@ function formatAdjustmentMoneyLabel(
   return amountMinor > 0n ? `+${label}` : label
 }
 
-function formatCarryForwardCreditAdjustmentLabel(
-  creditMajor: string,
-  currency: MiniAppDashboard['currency'],
-  locale: Locale
-): string {
-  const creditMinor = majorStringToMinor(creditMajor)
-
-  return formatAdjustmentMoneyLabel(minorToMajorString(-creditMinor), currency, locale)
-}
-
 function PersonalLine({
   label,
   value,
@@ -211,28 +201,10 @@ export function StageBanner({
                 value={formatAdjustmentMoneyLabel(breakdown.purchaseOffsetMajor, currency, locale)}
               />
             ) : null}
-            {majorStringToMinor(breakdown.carryForwardCreditMajor) > 0n ? (
-              <PersonalLine
-                tone="muted"
-                label={copy.todayUtilityCarryForwardCreditLabel}
-                value={formatCarryForwardCreditAdjustmentLabel(
-                  breakdown.carryForwardCreditMajor,
-                  currency,
-                  locale
-                )}
-              />
-            ) : null}
             <PersonalLine
               label={copy.todayUtilityPlanTargetLabel}
               value={formatMoneyLabel(breakdown.targetMajor, currency, locale)}
             />
-            {majorStringToMinor(breakdown.nextCycleCreditMajor) > 0n ? (
-              <PersonalLine
-                tone="credit"
-                label={copy.todayUtilityNextCycleCreditLabel}
-                value={`+${formatMoneyLabel(breakdown.nextCycleCreditMajor, currency, locale)}`}
-              />
-            ) : null}
           </PersonalGroup>
         ) : null}
 

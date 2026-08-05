@@ -75,7 +75,7 @@ export function memberBaseDueMajor(member: MiniAppDashboard['members'][number]):
 export function memberEffectivePurchaseBalanceMajor(
   member: MiniAppDashboard['members'][number]
 ): string {
-  return member.effectivePurchaseBalanceMajor ?? member.purchaseOffsetMajor
+  return member.purchaseOffsetMajor
 }
 
 export function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {

@@ -43,6 +43,7 @@
     "0039_drop_dm_assistant_pending_actions.sql": "0a7f0c5301dfe8614c1dd4063322148cde7c260ee8ce4f575d2e7709227627df",
     "0040_new_lucky_pierre.sql": "3bc6ff484ce56aa02961dcaa7ac4de8d3b5b4c399e6892edf8ce782b45a6f585",
     "0041_awesome_clea.sql": "efa5d8251994e894bb732821211d648516ceff4569b65318183dbc814beaf829",
-    "0042_orange_blonde_phantom.sql": "12ad52220d07329763f9436cb98f94bbd06dcd26605a8d3846e9c9637fa27a50"
+    "0042_orange_blonde_phantom.sql": "12ad52220d07329763f9436cb98f94bbd06dcd26605a8d3846e9c9637fa27a50",
+    "0043_white_charles_xavier.sql": "6e8fda87c9234d3a12d82babbed57be003ca1a60535a0370f4f2df8980e7b215"
   }
 }

@@ -230,23 +230,6 @@ function repository(
     deleteUtilityVendorPaymentFact: async () => true,
     attachUtilityVendorPaymentFactsToPayment: async () => {},
     closeCyclesBeforePeriod: async () => [],
-    listBalanceLedgerEntries: async () => [],
-    addBalanceLedgerEntry: async (input) => ({
-      id: 'balance-ledger-1',
-      householdId: 'household-1',
-      memberId: input.memberId,
-      sourceCycleId: input.sourceCycleId,
-      sourceCyclePeriod: input.sourceCyclePeriod,
-      planId: input.planId ?? null,
-      entryType: input.entryType,
-      policyTarget: input.policyTarget,
-      reason: input.reason,
-      amountMinor: input.amountMinor,
-      currency: input.currency,
-      paymentRecordId: input.paymentRecordId ?? null,
-      idempotencyKey: input.idempotencyKey,
-      createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
-    }),
     addUtilityVendorPaymentFact: async (input) => ({
       id: 'utility-vendor-payment-1',
       cycleId: input.cycleId,
@@ -543,15 +526,7 @@ describe('createMiniAppDashboardHandler', () => {
             updatedFromVersion: null,
             reason: null,
             categories: [],
-            memberSummaries: [],
-            carryForwardCredits: [
-              {
-                memberId: 'member-1',
-                creditCreated: Money.fromMajor('37.44', 'GEL'),
-                creditConsumed: Money.zero('GEL'),
-                policyTarget: 'utilities' as const
-              }
-            ]
+            memberSummaries: []
           },
           rentBillingState: {
             dueDate: '2026-04-20',
@@ -613,14 +588,6 @@ describe('createMiniAppDashboardHandler', () => {
     expect(capturedPeriodArg).toBe('2026-04')
     expect(capturedTodayOverride).toBe('2026-04-03')
     const payload = (await response.json()) as any
-    expect(payload.dashboard.utilityBillingPlan.carryForwardCredits).toEqual([
-      {
-        memberId: 'member-1',
-        creditCreatedMajor: '37.44',
-        creditConsumedMajor: '0.00',
-        policyTarget: 'utilities'
-      }
-    ])
     expect(payload.dashboard.cycleHistory).toEqual([
       {
         period: '2026-03',

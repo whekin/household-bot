@@ -165,17 +165,6 @@ function utilitiesByMemberLines(input: {
   const planSummaryById = new Map(
     (plan?.memberSummaries ?? []).map((member) => [member.memberId, member])
   )
-  const nextCycleCreditById = new Map<string, Money>()
-  for (const credit of plan?.carryForwardCredits ?? []) {
-    const amountMinor = credit.creditCreated.amountMinor - credit.creditConsumed.amountMinor
-    if (amountMinor > 0n) {
-      nextCycleCreditById.set(
-        credit.memberId,
-        Money.fromMinor(amountMinor, input.dashboard.currency)
-      )
-    }
-  }
-
   const categoriesByMember = new Map<string, (typeof categories)[number][]>()
   for (const category of categories) {
     categoriesByMember.set(category.assignedMemberId, [
@@ -200,11 +189,6 @@ function utilitiesByMemberLines(input: {
       nameById.set(category.assignedMemberId, category.assignedDisplayName)
     }
   }
-  for (const memberId of nextCycleCreditById.keys()) {
-    if (!orderedMemberIds.includes(memberId)) {
-      orderedMemberIds.push(memberId)
-    }
-  }
 
   if (orderedMemberIds.length === 0) {
     return ['• ' + escapeHtml(t.noUtilityPlan)]
@@ -214,7 +198,6 @@ function utilitiesByMemberLines(input: {
   for (const memberId of orderedMemberIds) {
     const memberCategories = categoriesByMember.get(memberId) ?? []
     const unresolved = unresolvedById.get(memberId)
-    const nextCycleCredit = nextCycleCreditById.get(memberId)
     const displayName = nameById.get(memberId) ?? memberId
     const total =
       unresolved?.suggestedAmount ??
@@ -228,7 +211,7 @@ function utilitiesByMemberLines(input: {
         : (planSummaryById.get(memberId)?.assignedThisCycle ??
           Money.zero(input.dashboard.currency)))
     lines.push(
-      nextCycleCredit && total.amountMinor <= 0n
+      total.amountMinor <= 0n
         ? `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(input.locale === 'ru' ? 'сейчас платить не нужно' : 'nothing to pay now')}`
         : `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`
     )
@@ -238,12 +221,6 @@ function utilitiesByMemberLines(input: {
         `${billPaid ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
       )
     }
-    if (nextCycleCredit) {
-      lines.push(
-        `   ↪ ${escapeHtml(moneyText(nextCycleCredit))} ${escapeHtml(input.locale === 'ru' ? 'зачтётся в следующих платежах' : 'will reduce future payments')}`
-      )
-    }
-
     // Nothing left to pay on the plan does not mean nothing is owed: shared
     // purchases can leave a balance no bill was able to carry. Read the live
     // offset rather than the plan's projected delta, which freezes with the plan

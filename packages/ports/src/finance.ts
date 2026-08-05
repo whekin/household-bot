@@ -205,27 +205,6 @@ export interface FinancePaymentRecord {
   recordedAt: Instant
 }
 
-export type FinanceBalanceLedgerEntryType = 'credit_created' | 'credit_consumed'
-export type FinanceBalanceLedgerPolicyTarget = 'balance_policy'
-export type FinanceBalanceLedgerReason = 'excess_purchase_credit' | 'payment_balance_credit_applied'
-
-export interface FinanceBalanceLedgerEntryRecord {
-  id: string
-  householdId: string
-  memberId: string
-  sourceCycleId: string
-  sourceCyclePeriod: string
-  planId: string | null
-  entryType: FinanceBalanceLedgerEntryType
-  policyTarget: FinanceBalanceLedgerPolicyTarget
-  reason: FinanceBalanceLedgerReason
-  amountMinor: bigint
-  currency: CurrencyCode
-  paymentRecordId: string | null
-  idempotencyKey: string
-  createdAt: Instant
-}
-
 export interface FinanceSettlementSnapshotLineRecord {
   memberId: string
   rentShareMinor: bigint
@@ -474,20 +453,6 @@ export interface FinanceRepository {
     factIds: readonly string[]
     paymentRecordId: string
   }): Promise<void>
-  listBalanceLedgerEntries(): Promise<readonly FinanceBalanceLedgerEntryRecord[]>
-  addBalanceLedgerEntry(input: {
-    memberId: string
-    sourceCycleId: string
-    sourceCyclePeriod: string
-    planId?: string | null
-    entryType: FinanceBalanceLedgerEntryType
-    policyTarget: FinanceBalanceLedgerPolicyTarget
-    reason: FinanceBalanceLedgerReason
-    amountMinor: bigint
-    currency: CurrencyCode
-    paymentRecordId?: string | null
-    idempotencyKey: string
-  }): Promise<FinanceBalanceLedgerEntryRecord>
   addUtilityVendorPaymentFact(input: {
     cycleId: string
     planId?: string | null

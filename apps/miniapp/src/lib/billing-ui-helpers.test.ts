@@ -9,7 +9,6 @@ import {
   isSettledQuietPlan,
   isUtilityPlanActionable,
   paymentQueueGroups,
-  utilityPlanSnapshotOutcomes,
   utilityPlanTotals,
   type UtilityBillingPlan
 } from './billing-ui-helpers'
@@ -115,8 +114,6 @@ function dashboard(input: {
         rentShareMajor: '0.00',
         utilityShareMajor: '0.00',
         purchaseOffsetMajor: '0.00',
-        carryForwardCreditMajor: '22.93',
-        effectivePurchaseBalanceMajor: '-22.93',
         netDueMajor: '0.00',
         paidMajor: '0.00',
         remainingMajor: '0.00',
@@ -130,8 +127,6 @@ function dashboard(input: {
         rentShareMajor: '0.00',
         utilityShareMajor: '98.10',
         purchaseOffsetMajor: '0.00',
-        carryForwardCreditMajor: '0.00',
-        effectivePurchaseBalanceMajor: '0.00',
         netDueMajor: '0.00',
         paidMajor: '98.10',
         remainingMajor: '0.00',
@@ -186,22 +181,12 @@ describe('billing UI helpers', () => {
     expect(isUtilityPlanActionable(settledPlan)).toBe(false)
   })
 
-  test('computes settled plan totals and carry-forward credit', () => {
-    const data = dashboard({ billingStage: 'idle', utilityBillingPlan: settledPlan })
-
-    expect(utilityPlanTotals(settledPlan, data.members)).toEqual({
+  test('computes settled plan totals', () => {
+    expect(utilityPlanTotals(settledPlan)).toEqual({
       assignedTotalMajor: '154.96',
       paidTotalMajor: '154.96',
-      remainingTotalMajor: '0.00',
-      carryForwardCreditMajor: '22.93'
+      remainingTotalMajor: '0.00'
     })
-    expect(utilityPlanSnapshotOutcomes({ plan: settledPlan, members: data.members })).toEqual([
-      {
-        memberId: 'stas',
-        displayName: 'Stas',
-        amountMajor: '22.93'
-      }
-    ])
   })
 
   test('payment queue excludes settled periods and keeps overdue/current action groups', () => {

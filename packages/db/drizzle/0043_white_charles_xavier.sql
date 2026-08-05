@@ -1,0 +1,1 @@
+DROP TABLE "member_balance_ledger_entries" CASCADE;

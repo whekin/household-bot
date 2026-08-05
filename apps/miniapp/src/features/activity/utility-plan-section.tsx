@@ -20,7 +20,6 @@ import {
   isSettledQuietPlan,
   isUtilityPlanActionable,
   utilityPlanMemberRows,
-  utilityPlanSnapshotOutcomes,
   utilityPlanTotals
 } from '@/lib/billing-ui-helpers'
 import { formatMoneyLabel } from '@/lib/ledger-helpers'
@@ -65,12 +64,7 @@ export function UtilityPlanSection() {
   }, [dashboard, plan, currentMemberId, planIsActionMode])
 
   const planTotals = useMemo(
-    () => (dashboard && plan ? utilityPlanTotals(plan, dashboard.members) : null),
-    [dashboard, plan]
-  )
-  const planOutcomes = useMemo(
-    () =>
-      dashboard && plan ? utilityPlanSnapshotOutcomes({ plan, members: dashboard.members }) : [],
+    () => (dashboard && plan ? utilityPlanTotals(plan) : null),
     [dashboard, plan]
   )
   const utilityCategoryByName = useMemo(
@@ -251,37 +245,6 @@ export function UtilityPlanSection() {
                   {formatMoneyLabel(planTotals.remainingTotalMajor, currency, locale)}
                 </p>
               </div>
-              {majorStringToMinor(planTotals.carryForwardCreditMajor) > 0n ? (
-                <div className="rounded-xl bg-elevated p-2.5">
-                  <p className="text-[11px] text-faint">
-                    {locale === 'ru' ? 'Зачёт дальше' : 'Carry-forward'}
-                  </p>
-                  <p className="mt-0.5 font-mono text-sm text-status-credit">
-                    {formatMoneyLabel(planTotals.carryForwardCreditMajor, currency, locale)}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {planOutcomes.length > 0 ? (
-            <div className="divide-y divide-border rounded-xl bg-elevated px-3">
-              {planOutcomes.map((outcome) => (
-                <div
-                  key={outcome.memberId}
-                  className="flex items-center justify-between gap-3 py-2 text-sm"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-foreground">{outcome.displayName}</span>
-                    <span className="block text-[11px] text-faint">
-                      {locale === 'ru' ? 'зачёт на следующий период' : 'credit for next period'}
-                    </span>
-                  </span>
-                  <span className="shrink-0 font-mono text-xs text-status-credit">
-                    {formatMoneyLabel(outcome.amountMajor, currency, locale)}
-                  </span>
-                </div>
-              ))}
             </div>
           ) : null}
 

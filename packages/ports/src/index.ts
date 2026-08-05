@@ -84,10 +84,6 @@ export type {
 } from './anonymous-feedback'
 export type {
   FinanceCycleRecord,
-  FinanceBalanceLedgerEntryRecord,
-  FinanceBalanceLedgerEntryType,
-  FinanceBalanceLedgerPolicyTarget,
-  FinanceBalanceLedgerReason,
   FinanceMemberOverduePaymentRecord,
   FinanceCycleExchangeRateRecord,
   FinanceUtilityBillingPlanCategoryPayload,

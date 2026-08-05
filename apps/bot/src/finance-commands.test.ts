@@ -2193,7 +2193,7 @@ describe('createFinanceCommandsService', () => {
     expect(fullText).not.toContain('ещё 1')
   })
 
-  test('renders carry-forward utility credit in plan details', async () => {
+  test('renders the member utility balance breakdown in plan details', async () => {
     const repository = createRepository()
     const financeService: FinanceCommandService = {
       ...createFinanceService(),
@@ -2209,7 +2209,6 @@ describe('createFinanceCommandsService', () => {
             displayName: 'Стас',
             utilityShare: Money.fromMajor('63.05', 'GEL'),
             purchaseOffset: Money.fromMajor('-12.00', 'GEL'),
-            carryForwardCredit: Money.fromMajor('99.99', 'GEL'),
             purchaseDrivers: []
           }
         ],
@@ -2241,14 +2240,6 @@ describe('createFinanceCommandsService', () => {
               vendorPaid: Money.zero('GEL'),
               assignedThisCycle: Money.fromMajor('28.12', 'GEL'),
               projectedDeltaAfterPlan: Money.zero('GEL')
-            }
-          ],
-          carryForwardCredits: [
-            {
-              memberId: 'member-1',
-              creditCreated: Money.zero('GEL'),
-              creditConsumed: Money.fromMajor('22.93', 'GEL'),
-              policyTarget: 'utilities'
             }
           ]
         },
@@ -2299,9 +2290,7 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
 
     const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(fullText).toContain(
-      'Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾ · Перенос: 22.93 ₾ · План: 28.12 ₾'
-    )
+    expect(fullText).toContain('Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾ · План: 28.12 ₾')
     expect(fullText).toContain('Осталось оплатить: 28.12 ₾')
     expect(fullText).toContain('Internet — 28.12 ₾ из 35.00 ₾')
   })

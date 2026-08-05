@@ -163,12 +163,6 @@ export interface MiniAppDashboard {
       matchedPlan: boolean
       recordedAt: string
     }[]
-    carryForwardCredits?: readonly {
-      memberId: string
-      creditCreatedMajor: string
-      creditConsumedMajor: string
-      policyTarget: 'utilities' | 'rent'
-    }[]
   } | null
   rentBillingState: {
     dueDate: string
@@ -198,8 +192,6 @@ export interface MiniAppDashboard {
     rentShareMajor: string
     utilityShareMajor: string
     purchaseOffsetMajor: string
-    carryForwardCreditMajor?: string
-    effectivePurchaseBalanceMajor?: string
     netDueMajor: string
     paidMajor: string
     remainingMajor: string

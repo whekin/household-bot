@@ -2,7 +2,6 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from
 
 import { createDbClient, schema } from '@household/db'
 import type {
-  FinanceBalanceLedgerEntryRecord,
   FinanceParsedPurchaseRecord,
   FinancePurchaseTopicMessageRecord,
   FinanceRepository,
@@ -132,43 +131,6 @@ function mapUtilityBillingPlanRecord(row: {
     updatedFromPlanId: row.updatedFromPlanId,
     reason: row.reason,
     payload: mapUtilityBillingPlanPayload(row.payload),
-    createdAt: instantFromDatabaseValue(row.createdAt)!
-  }
-}
-
-function mapBalanceLedgerEntry(row: {
-  id: string
-  householdId: string
-  memberId: string
-  sourceCycleId: string
-  sourceCyclePeriod: string
-  planId: string | null
-  entryType: string
-  policyTarget: string
-  reason: string
-  amountMinor: bigint
-  currency: string
-  paymentRecordId: string | null
-  idempotencyKey: string
-  createdAt: Date | string
-}): FinanceBalanceLedgerEntryRecord {
-  return {
-    id: row.id,
-    householdId: row.householdId,
-    memberId: row.memberId,
-    sourceCycleId: row.sourceCycleId,
-    sourceCyclePeriod: row.sourceCyclePeriod,
-    planId: row.planId,
-    entryType: row.entryType === 'credit_consumed' ? 'credit_consumed' : 'credit_created',
-    policyTarget: 'balance_policy',
-    reason:
-      row.reason === 'payment_balance_credit_applied'
-        ? 'payment_balance_credit_applied'
-        : 'excess_purchase_credit',
-    amountMinor: row.amountMinor,
-    currency: toCurrencyCode(row.currency),
-    paymentRecordId: row.paymentRecordId,
-    idempotencyKey: row.idempotencyKey,
     createdAt: instantFromDatabaseValue(row.createdAt)!
   }
 }
@@ -1718,106 +1680,6 @@ export function createDbFinanceRepository(
             inArray(schema.utilityVendorPaymentFacts.id, [...input.factIds])
           )
         )
-    },
-
-    async listBalanceLedgerEntries() {
-      const rows = await db
-        .select({
-          id: schema.memberBalanceLedgerEntries.id,
-          householdId: schema.memberBalanceLedgerEntries.householdId,
-          memberId: schema.memberBalanceLedgerEntries.memberId,
-          sourceCycleId: schema.memberBalanceLedgerEntries.sourceCycleId,
-          sourceCyclePeriod: schema.memberBalanceLedgerEntries.sourceCyclePeriod,
-          planId: schema.memberBalanceLedgerEntries.planId,
-          entryType: schema.memberBalanceLedgerEntries.entryType,
-          policyTarget: schema.memberBalanceLedgerEntries.policyTarget,
-          reason: schema.memberBalanceLedgerEntries.reason,
-          amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
-          currency: schema.memberBalanceLedgerEntries.currency,
-          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
-          idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
-          createdAt: schema.memberBalanceLedgerEntries.createdAt
-        })
-        .from(schema.memberBalanceLedgerEntries)
-        .where(eq(schema.memberBalanceLedgerEntries.householdId, householdId))
-        .orderBy(
-          schema.memberBalanceLedgerEntries.sourceCyclePeriod,
-          schema.memberBalanceLedgerEntries.createdAt,
-          schema.memberBalanceLedgerEntries.id
-        )
-
-      return rows.map(mapBalanceLedgerEntry)
-    },
-
-    async addBalanceLedgerEntry(input) {
-      const rows = await db
-        .insert(schema.memberBalanceLedgerEntries)
-        .values({
-          householdId,
-          memberId: input.memberId,
-          sourceCycleId: input.sourceCycleId,
-          sourceCyclePeriod: input.sourceCyclePeriod,
-          planId: input.planId ?? null,
-          entryType: input.entryType,
-          policyTarget: input.policyTarget,
-          reason: input.reason,
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          paymentRecordId: input.paymentRecordId ?? null,
-          idempotencyKey: input.idempotencyKey
-        })
-        .onConflictDoNothing({
-          target: schema.memberBalanceLedgerEntries.idempotencyKey
-        })
-        .returning({
-          id: schema.memberBalanceLedgerEntries.id,
-          householdId: schema.memberBalanceLedgerEntries.householdId,
-          memberId: schema.memberBalanceLedgerEntries.memberId,
-          sourceCycleId: schema.memberBalanceLedgerEntries.sourceCycleId,
-          sourceCyclePeriod: schema.memberBalanceLedgerEntries.sourceCyclePeriod,
-          planId: schema.memberBalanceLedgerEntries.planId,
-          entryType: schema.memberBalanceLedgerEntries.entryType,
-          policyTarget: schema.memberBalanceLedgerEntries.policyTarget,
-          reason: schema.memberBalanceLedgerEntries.reason,
-          amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
-          currency: schema.memberBalanceLedgerEntries.currency,
-          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
-          idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
-          createdAt: schema.memberBalanceLedgerEntries.createdAt
-        })
-
-      const inserted = rows[0]
-      if (inserted) {
-        return mapBalanceLedgerEntry(inserted)
-      }
-
-      const existingRows = await db
-        .select({
-          id: schema.memberBalanceLedgerEntries.id,
-          householdId: schema.memberBalanceLedgerEntries.householdId,
-          memberId: schema.memberBalanceLedgerEntries.memberId,
-          sourceCycleId: schema.memberBalanceLedgerEntries.sourceCycleId,
-          sourceCyclePeriod: schema.memberBalanceLedgerEntries.sourceCyclePeriod,
-          planId: schema.memberBalanceLedgerEntries.planId,
-          entryType: schema.memberBalanceLedgerEntries.entryType,
-          policyTarget: schema.memberBalanceLedgerEntries.policyTarget,
-          reason: schema.memberBalanceLedgerEntries.reason,
-          amountMinor: schema.memberBalanceLedgerEntries.amountMinor,
-          currency: schema.memberBalanceLedgerEntries.currency,
-          paymentRecordId: schema.memberBalanceLedgerEntries.paymentRecordId,
-          idempotencyKey: schema.memberBalanceLedgerEntries.idempotencyKey,
-          createdAt: schema.memberBalanceLedgerEntries.createdAt
-        })
-        .from(schema.memberBalanceLedgerEntries)
-        .where(eq(schema.memberBalanceLedgerEntries.idempotencyKey, input.idempotencyKey))
-        .limit(1)
-
-      const existing = existingRows[0]
-      if (!existing) {
-        throw new Error('Balance ledger entry insert did not return a row')
-      }
-
-      return mapBalanceLedgerEntry(existing)
     },
 
     async addUtilityVendorPaymentFact(input) {

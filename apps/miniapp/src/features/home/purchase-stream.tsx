@@ -53,7 +53,7 @@ export function PurchaseStream({
     const items = (dashboard?.members ?? [])
       .filter((member) => member.status !== 'left')
       .map((member) => {
-        const amountMajor = member.effectivePurchaseBalanceMajor ?? member.purchaseOffsetMajor
+        const amountMajor = member.purchaseOffsetMajor
         const amountMinor = majorStringToMinor(amountMajor)
         return {
           memberId: member.memberId,

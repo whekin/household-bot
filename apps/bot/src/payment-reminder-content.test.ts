@@ -248,47 +248,6 @@ describe('payment reminder content', () => {
     expect(JSON.stringify(content.replyMarkup)).toContain('I paid my bills')
   })
 
-  test('shows next-cycle credits for members without a provider assignment', () => {
-    const baseDashboard = dashboard()
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        utilityBillingPlan: {
-          ...baseDashboard.utilityBillingPlan!,
-          memberSummaries: [
-            ...baseDashboard.utilityBillingPlan!.memberSummaries,
-            {
-              memberId: 'stas',
-              displayName: 'Стас',
-              fairShare: Money.zero('GEL'),
-              vendorPaid: Money.zero('GEL'),
-              assignedThisCycle: Money.zero('GEL'),
-              projectedDeltaAfterPlan: Money.zero('GEL')
-            }
-          ],
-          carryForwardCredits: [
-            {
-              memberId: 'stas',
-              creditCreated: Money.fromMajor('37.44', 'GEL'),
-              creditConsumed: Money.zero('GEL'),
-              policyTarget: 'utilities'
-            }
-          ]
-        }
-      },
-      viewMode: 'compact'
-    })
-
-    expect(content.text).toContain('<b>Стас</b> — сейчас платить не нужно')
-    expect(content.text).toContain('37.44 ₾ зачтётся в следующих платежах')
-    expect(content.text).not.toContain('🔴 <b>')
-    expect(content.text).not.toContain('🟢 <b>')
-  })
-
   test('flags a shared-purchase balance once nothing is left to pay on the plan', () => {
     const baseDashboard = dashboard()
     const utilitiesPeriod = baseDashboard.paymentPeriods!.find(

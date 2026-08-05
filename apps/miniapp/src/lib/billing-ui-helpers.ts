@@ -11,7 +11,6 @@ export interface UtilityPlanMemberRow extends UtilityPlanMemberSummary {
   categories: readonly UtilityPlanCategory[]
   isCurrent: boolean
   hasPendingAssignment: boolean
-  carryForwardCreditMajor: string
   effectivePurchaseBalanceMajor: string
 }
 
@@ -19,13 +18,6 @@ export interface UtilityPlanTotals {
   assignedTotalMajor: string
   paidTotalMajor: string
   remainingTotalMajor: string
-  carryForwardCreditMajor: string
-}
-
-export interface UtilityPlanOutcomeRow {
-  memberId: string
-  displayName: string
-  amountMajor: string
 }
 
 export interface PaymentQueueGroup {
@@ -91,10 +83,7 @@ export function isSettledQuietPlan(data: MiniAppDashboard): boolean {
   return data.billingStage === 'idle' && data.utilityBillingPlan?.status === 'settled'
 }
 
-export function utilityPlanTotals(
-  plan: UtilityBillingPlan,
-  members: readonly MiniAppDashboard['members'][number][]
-): UtilityPlanTotals {
+export function utilityPlanTotals(plan: UtilityBillingPlan): UtilityPlanTotals {
   const assignedTotalMinor = plan.categories.reduce(
     (sum, category) => sum + majorStringToMinor(category.assignedAmountMajor),
     0n
@@ -107,16 +96,10 @@ export function utilityPlanTotals(
     (sum, summary) => sum + majorStringToMinor(summary.assignedThisCycleMajor),
     0n
   )
-  const carryForwardCreditMinor = members.reduce(
-    (sum, member) => sum + majorStringToMinor(member.carryForwardCreditMajor ?? '0.00'),
-    0n
-  )
-
   return {
     assignedTotalMajor: minorToMajorString(assignedTotalMinor),
     paidTotalMajor: minorToMajorString(paidTotalMinor),
-    remainingTotalMajor: minorToMajorString(remainingTotalMinor),
-    carryForwardCreditMajor: minorToMajorString(carryForwardCreditMinor)
+    remainingTotalMajor: minorToMajorString(remainingTotalMinor)
   }
 }
 
@@ -153,9 +136,7 @@ export function utilityPlanMemberRows(input: {
         categories: categoriesByMemberId.get(summary.memberId) ?? [],
         isCurrent: summary.memberId === input.currentMemberId,
         hasPendingAssignment,
-        carryForwardCreditMajor: member?.carryForwardCreditMajor ?? '0.00',
-        effectivePurchaseBalanceMajor:
-          member?.effectivePurchaseBalanceMajor ?? member?.purchaseOffsetMajor ?? '0.00'
+        effectivePurchaseBalanceMajor: member?.purchaseOffsetMajor ?? '0.00'
       }
     })
     .sort((left, right) => {
@@ -170,29 +151,6 @@ export function utilityPlanMemberRows(input: {
 
       return left.displayName.localeCompare(right.displayName)
     })
-}
-
-export function utilityPlanSnapshotOutcomes(input: {
-  plan: UtilityBillingPlan
-  members: readonly MiniAppDashboard['members'][number][]
-}): UtilityPlanOutcomeRow[] {
-  const memberById = new Map(input.members.map((member) => [member.memberId, member]))
-  const rows: UtilityPlanOutcomeRow[] = []
-
-  for (const summary of input.plan.memberSummaries) {
-    const carryForwardMinor = majorStringToMinor(
-      memberById.get(summary.memberId)?.carryForwardCreditMajor ?? '0.00'
-    )
-    if (carryForwardMinor > 0n) {
-      rows.push({
-        memberId: summary.memberId,
-        displayName: summary.displayName,
-        amountMajor: minorToMajorString(carryForwardMinor)
-      })
-    }
-  }
-
-  return rows.sort((left, right) => left.displayName.localeCompare(right.displayName))
 }
 
 export function paymentQueueGroups(

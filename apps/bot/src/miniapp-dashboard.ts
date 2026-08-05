@@ -204,15 +204,7 @@ export async function loadMiniAppDashboardPayload(input: {
             amountMajor: payment.amount.toMajorString(),
             matchedPlan: payment.matchedPlan,
             recordedAt: payment.recordedAt.toString()
-          })),
-          carryForwardCredits: (dashboard.utilityBillingPlan.carryForwardCredits ?? []).map(
-            (credit) => ({
-              memberId: credit.memberId,
-              creditCreatedMajor: credit.creditCreated.toMajorString(),
-              creditConsumedMajor: credit.creditConsumed.toMajorString(),
-              policyTarget: credit.policyTarget
-            })
-          )
+          }))
         }
       : null,
     rentBillingState: {
@@ -246,9 +238,6 @@ export async function loadMiniAppDashboardPayload(input: {
       rentShareMajor: line.rentShare.toMajorString(),
       utilityShareMajor: line.utilityShare.toMajorString(),
       purchaseOffsetMajor: line.purchaseOffset.toMajorString(),
-      carryForwardCreditMajor: line.carryForwardCredit?.toMajorString() ?? '0.00',
-      effectivePurchaseBalanceMajor:
-        line.effectivePurchaseBalance?.toMajorString() ?? line.purchaseOffset.toMajorString(),
       netDueMajor: line.netDue.toMajorString(),
       paidMajor: line.paid.toMajorString(),
       remainingMajor: line.remaining.toMajorString(),

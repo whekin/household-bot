@@ -5,7 +5,6 @@ import type {
   ExchangeRateProvider,
   FinanceCycleExchangeRateRecord,
   FinanceCycleRecord,
-  FinanceBalanceLedgerEntryRecord,
   FinanceMemberRecord,
   FinancePaymentPurchaseAllocationRecord,
   FinanceParsedPurchaseRecord,
@@ -103,7 +102,6 @@ class FinanceRepositoryStub implements FinanceRepository {
     currency: 'USD' | 'GEL'
     recordedAt: Instant
   }[] = []
-  balanceLedgerEntries: readonly FinanceBalanceLedgerEntryRecord[] = []
   lastSavedRentRule: {
     period: string
     amountMinor: bigint
@@ -643,38 +641,6 @@ class FinanceRepositoryStub implements FinanceRepository {
     this.utilityVendorPaymentFacts = this.utilityVendorPaymentFacts.map((fact) =>
       input.factIds.includes(fact.id) ? { ...fact, paymentRecordId: input.paymentRecordId } : fact
     )
-  }
-
-  async listBalanceLedgerEntries() {
-    return this.balanceLedgerEntries
-  }
-
-  async addBalanceLedgerEntry(input: Parameters<FinanceRepository['addBalanceLedgerEntry']>[0]) {
-    const existing = this.balanceLedgerEntries.find(
-      (entry) => entry.idempotencyKey === input.idempotencyKey
-    )
-    if (existing) {
-      return existing
-    }
-
-    const entry: FinanceBalanceLedgerEntryRecord = {
-      id: `balance-ledger-${this.balanceLedgerEntries.length + 1}`,
-      householdId: this.householdId,
-      memberId: input.memberId,
-      sourceCycleId: input.sourceCycleId,
-      sourceCyclePeriod: input.sourceCyclePeriod,
-      planId: input.planId ?? null,
-      entryType: input.entryType,
-      policyTarget: input.policyTarget,
-      reason: input.reason,
-      amountMinor: input.amountMinor,
-      currency: input.currency,
-      paymentRecordId: input.paymentRecordId ?? null,
-      idempotencyKey: input.idempotencyKey,
-      createdAt: instantFromIso('2026-04-03T12:00:00.000Z')
-    }
-    this.balanceLedgerEntries = [...this.balanceLedgerEntries, entry]
-    return entry
   }
 
   async addUtilityVendorPaymentFact(
@@ -2935,7 +2901,6 @@ describe('createFinanceCommandService', () => {
             { memberId: 'alice', amountMinor: '10000' },
             { memberId: 'stas', amountMinor: '0' }
           ],
-          carryForwardCredits: [],
           preferredUtilityPayerMemberId: null
         }
       }
@@ -5004,7 +4969,6 @@ describe('createFinanceCommandService', () => {
     // claim is NOT minted as a ledger credit — it stays as Bob's unresolved purchase
     // share, which is what carries it forward.
     expect(aliceMayPlan?.fairShare.amountMinor).toBe(0n)
-    expect(mayDashboard?.utilityBillingPlan?.carryForwardCredits ?? []).toEqual([])
 
     await service.resolveUtilityBillAsPlanned({
       allMembers: true,
@@ -5016,8 +4980,6 @@ describe('createFinanceCommandService', () => {
       actorMemberId: 'alice',
       periodArg: '2026-05'
     })
-
-    expect(repository.balanceLedgerEntries).toHaveLength(0)
 
     // Bob's target was 250.00 but only 200.00 of bills exist to route, so his payment
     // funds 100.00 of purchase debt (200.00 paid less his own 100.00 utility share).
@@ -5036,8 +4998,6 @@ describe('createFinanceCommandService', () => {
     )
     // 150.00 owed less 100.00 funded — the 50.00 remainder stays with the purchase.
     expect(aliceSettledLine?.purchaseOffset.amountMinor).toBe(-5000n)
-    expect(aliceSettledLine?.carryForwardCredit?.amountMinor).toBe(0n)
-    expect(aliceSettledLine?.effectivePurchaseBalance?.amountMinor).toBe(-5000n)
 
     repository.openCycleRecord = repository.cycles[1]!
     repository.latestCycleRecord = repository.cycles[1]!
@@ -5055,13 +5015,6 @@ describe('createFinanceCommandService', () => {
       { memberId: 'alice', fairShareMinor: 0n },
       { memberId: 'bob', fairShareMinor: 10000n }
     ])
-    expect(juneDashboard?.utilityBillingPlan?.carryForwardCredits ?? []).toEqual([])
-
-    const juneCurrentBill = await service.generateCurrentBillPlan('2026-06')
-    expect(
-      juneCurrentBill?.members?.find((member) => member.memberId === 'alice')?.carryForwardCredit
-        ?.amountMinor
-    ).toBe(0n)
   })
 
   test('generateDashboard does not show overdue utilities when the current plan covered them', async () => {
