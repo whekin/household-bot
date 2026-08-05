@@ -12,22 +12,8 @@ import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 import { cn } from '@/lib/cn'
 import type { MiniAppDashboard } from '@/api'
 import type { Locale } from '@/i18n'
+import { railSegmentState } from './today-view-model'
 import type { TodayMemberCloseLine, TodayViewModel } from './today-view-model'
-
-function stageRailState(
-  model: TodayViewModel,
-  segment: TodayViewModel['timelineSegments'][number]
-): 'active' | 'carried' | 'inactive' {
-  if (model.currentTimelineSegmentKey === segment.key) {
-    return 'active'
-  }
-
-  if (model.stage !== 'idle' && model.stage === segment.kind) {
-    return 'carried'
-  }
-
-  return 'inactive'
-}
 
 function stageLabel(kind: TodayViewModel['timelineSegments'][number]['kind'], copy: Copy): string {
   if (kind === 'utilities') return copy.todayUtilitiesStage
@@ -103,17 +89,16 @@ export function StageBanner({
   const { dashboard } = useDashboard()
   const currency = dashboard?.currency ?? 'GEL'
 
+  // The headline is always about the reader: what they owe now, or their standing
+  // balance when they owe nothing. It used to swap in the household figure under a
+  // household label while still printing the reader's own balance, so the label and
+  // the number disagreed. The household total now has its own line underneath.
   const myRemainingMinor = majorStringToMinor(currentMemberLine?.amountMajor ?? '0.00')
-  const focusAmountMajor =
-    model.stage !== 'idle' && myRemainingMinor > 0n
-      ? (currentMemberLine?.amountMajor ?? '0.00')
-      : model.purchaseBalanceMajor
-  const focusLabel =
-    model.stage !== 'idle' && myRemainingMinor > 0n
-      ? copy.todayYourCheck
-      : model.stage === 'idle'
-        ? copy.todayPurchaseBalance
-        : copy.todayHouseStillOpen
+  const owesNow = model.stage !== 'idle' && myRemainingMinor > 0n
+  const focusAmountMajor = owesNow
+    ? (currentMemberLine?.amountMajor ?? '0.00')
+    : model.purchaseBalanceMajor
+  const focusLabel = owesNow ? copy.todayYourCheck : copy.todayPurchaseBalance
   const stageTitle =
     model.stage === 'utilities'
       ? copy.todayUtilitiesStage
@@ -148,7 +133,7 @@ export function StageBanner({
 
       <div aria-label={copy.todayProgressLabel} className="flex gap-1">
         {model.timelineSegments.map((segment) => {
-          const state = stageRailState(model, segment)
+          const state = railSegmentState(model, segment)
           return (
             <div
               key={segment.key}
@@ -159,9 +144,7 @@ export function StageBanner({
               <span
                 className={cn(
                   'block h-1 rounded-full',
-                  state === 'active' && 'bg-primary',
-                  state === 'carried' && 'bg-primary/40',
-                  state === 'inactive' && 'bg-field'
+                  state === 'active' ? 'bg-primary' : 'bg-field'
                 )}
               />
               <p
@@ -183,6 +166,11 @@ export function StageBanner({
         <p className="font-mono text-3xl font-semibold text-foreground">
           {formatMoneyLabel(focusAmountMajor, currency, locale)}
         </p>
+        {model.stage !== 'idle' ? (
+          <p className="text-xs text-muted-foreground">
+            {copy.todayHouseStillOpen}: {formatMoneyLabel(model.remainingMajor, currency, locale)}
+          </p>
+        ) : null}
         <h2 className="mt-1 font-display text-lg font-semibold text-foreground">{stageTitle}</h2>
         <p className="text-xs text-muted-foreground">{stageBody}</p>
       </div>

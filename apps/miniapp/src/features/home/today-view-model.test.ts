@@ -5,6 +5,7 @@ import {
   buildTodayTimeline,
   buildTodayViewModel,
   chooseTodayStage,
+  railSegmentState,
   type TodayPeriodSummary
 } from './today-view-model'
 
@@ -176,6 +177,25 @@ describe('today view model', () => {
         isCurrent: true
       }
     ])
+  })
+
+  test('gives the rail to the open stage once the calendar has moved past its window', () => {
+    const utilities = { key: 'utilities', kind: 'utilities' as const }
+    const pause = { key: 'pause-before-rent', kind: 'idle' as const }
+    // Today sits in the pause, but utilities are still open — the extended period.
+    const model = { stage: 'utilities' as const, currentTimelineSegmentKey: 'pause-before-rent' }
+
+    expect(railSegmentState(model, utilities as never)).toBe('active')
+    expect(railSegmentState(model, pause as never)).toBe('inactive')
+  })
+
+  test('falls back to the calendar segment when no stage is open', () => {
+    const pause = { key: 'pause-before-rent', kind: 'idle' as const }
+    const rent = { key: 'rent', kind: 'rent' as const }
+    const model = { stage: 'idle' as const, currentTimelineSegmentKey: 'pause-before-rent' }
+
+    expect(railSegmentState(model, pause as never)).toBe('active')
+    expect(railSegmentState(model, rent as never)).toBe('inactive')
   })
 
   test('builds a proportional cycle map from configured payment windows', () => {

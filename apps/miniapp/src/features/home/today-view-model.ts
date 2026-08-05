@@ -129,6 +129,23 @@ export function memberRemainingMajor(
   return '0.00'
 }
 
+/**
+ * While a stage is open it owns the rail, even once the calendar has moved past
+ * its window. Highlighting the segment the date falls into would put the accent
+ * on "Pause" while the household still owes utilities — true to the calendar,
+ * wrong about what is left to do. The extended-period badge covers the why.
+ */
+export function railSegmentState(
+  model: Pick<TodayViewModel, 'stage' | 'currentTimelineSegmentKey'>,
+  segment: TodayViewModel['timelineSegments'][number]
+): 'active' | 'inactive' {
+  if (model.stage !== 'idle') {
+    return model.stage === segment.kind ? 'active' : 'inactive'
+  }
+
+  return model.currentTimelineSegmentKey === segment.key ? 'active' : 'inactive'
+}
+
 export function purchaseShareForMember(
   entry: MiniAppDashboard['ledger'][number],
   memberId: string
