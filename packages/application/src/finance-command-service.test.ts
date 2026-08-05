@@ -4771,7 +4771,161 @@ describe('createFinanceCommandService', () => {
     ).toBe(true)
   })
 
-  test('resolveUtilityBillAsPlanned carries excess purchase credit into the next cycle', async () => {
+  test('resolveUtilityBillAsPlanned only funds purchase debt with money actually paid', async () => {
+    // Regression for the 2026-08 over-allocation: the cycle's bills were smaller than
+    // Alisa's adjusted target, so paying her single assigned bill cleared her whole
+    // gross purchase debt for free. Target 71.82, bills routable to her 37.04, raw
+    // utility share 18.57 -> only 18.47 of purchase debt is funded, not the gross 64.25.
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alisa',
+        telegramUserId: '1',
+        displayName: 'Alisa',
+        rentShareWeight: 1,
+        isAdmin: false
+      },
+      { id: 'dima', telegramUserId: '2', displayName: 'Dima', rentShareWeight: 1, isAdmin: false },
+      { id: 'ion', telegramUserId: '3', displayName: 'Ion', rentShareWeight: 1, isAdmin: false },
+      { id: 'stas', telegramUserId: '4', displayName: 'Stas', rentShareWeight: 1, isAdmin: true }
+    ]
+    repository.cycles = [{ id: 'cycle-2026-08', period: '2026-08', currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = {
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      preferredUtilityPayerMemberId: 'dima'
+    }
+    repository.memberPresenceDays = ['alisa', 'dima', 'ion', 'stas'].map((memberId) => ({
+      memberId,
+      period: '2026-08',
+      daysPresent: 31
+    }))
+    // 74.27 of bills over four members -> raw shares 18.57 / 18.57 / 18.57 / 18.56.
+    repository.utilityBills = [
+      {
+        id: 'bill-electricity',
+        cycleId: 'cycle-2026-08',
+        billName: 'Electricity',
+        amountMinor: 3704n,
+        currency: 'GEL',
+        createdByMemberId: 'stas',
+        createdAt: instantFromIso('2026-08-02T09:00:00.000Z')
+      },
+      {
+        id: 'bill-gas',
+        cycleId: 'cycle-2026-08',
+        billName: 'Gas',
+        amountMinor: 3473n,
+        currency: 'GEL',
+        createdByMemberId: 'stas',
+        createdAt: instantFromIso('2026-08-02T09:00:01.000Z')
+      },
+      {
+        id: 'bill-cleaning',
+        cycleId: 'cycle-2026-08',
+        billName: 'Cleaning',
+        amountMinor: 250n,
+        currency: 'GEL',
+        createdByMemberId: 'stas',
+        createdAt: instantFromIso('2026-08-02T09:00:02.000Z')
+      }
+    ]
+    // Purchase offsets: alisa +53.25, dima +0.25, ion +11.25, stas -64.75.
+    repository.purchases = [
+      {
+        id: 'purchase-shared',
+        cycleId: 'cycle-2026-08',
+        cyclePeriod: '2026-08',
+        payerMemberId: 'stas',
+        amountMinor: 12900n,
+        currency: 'GEL',
+        description: 'Household supplies',
+        occurredAt: instantFromIso('2026-08-01T10:00:00.000Z'),
+        splitMode: 'equal'
+      },
+      {
+        id: 'purchase-for-alisa',
+        cycleId: 'cycle-2026-08',
+        cyclePeriod: '2026-08',
+        payerMemberId: 'dima',
+        amountMinor: 3200n,
+        currency: 'GEL',
+        description: 'Utilities covered for Alisa',
+        occurredAt: instantFromIso('2026-08-01T11:00:00.000Z'),
+        splitMode: 'equal',
+        participants: [
+          { memberId: 'alisa', included: true, shareAmountMinor: null },
+          { memberId: 'dima', included: false, shareAmountMinor: null },
+          { memberId: 'ion', included: false, shareAmountMinor: null },
+          { memberId: 'stas', included: false, shareAmountMinor: null }
+        ]
+      },
+      {
+        id: 'purchase-by-ion',
+        cycleId: 'cycle-2026-08',
+        cyclePeriod: '2026-08',
+        payerMemberId: 'ion',
+        amountMinor: 2100n,
+        currency: 'GEL',
+        description: 'Detergent',
+        occurredAt: instantFromIso('2026-08-01T12:00:00.000Z'),
+        splitMode: 'equal',
+        participants: [
+          { memberId: 'alisa', included: false, shareAmountMinor: null },
+          { memberId: 'dima', included: false, shareAmountMinor: null },
+          { memberId: 'ion', included: false, shareAmountMinor: null },
+          { memberId: 'stas', included: true, shareAmountMinor: null }
+        ]
+      },
+      {
+        id: 'purchase-by-alisa',
+        cycleId: 'cycle-2026-08',
+        cyclePeriod: '2026-08',
+        payerMemberId: 'alisa',
+        amountMinor: 1100n,
+        currency: 'GEL',
+        description: 'Window cleaner',
+        occurredAt: instantFromIso('2026-08-01T13:00:00.000Z'),
+        splitMode: 'equal',
+        participants: [
+          { memberId: 'alisa', included: false, shareAmountMinor: null },
+          { memberId: 'dima', included: false, shareAmountMinor: null },
+          { memberId: 'ion', included: false, shareAmountMinor: null },
+          { memberId: 'stas', included: true, shareAmountMinor: null }
+        ]
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-08')
+    const alisaPlan = dashboard?.utilityBillingPlan?.memberSummaries.find(
+      (summary) => summary.memberId === 'alisa'
+    )
+    const alisaLine = dashboard?.members.find((member) => member.memberId === 'alisa')
+
+    // Premise: target well above what the bill set can route to her.
+    expect(alisaLine?.utilityShare.amountMinor).toBe(1857n)
+    expect(alisaLine?.purchaseOffset.amountMinor).toBe(5325n)
+    expect(alisaPlan?.fairShare.amountMinor).toBe(7182n)
+    expect(alisaPlan?.assignedThisCycle.amountMinor).toBe(3704n)
+
+    await service.resolveUtilityBillAsPlanned({
+      memberId: 'alisa',
+      periodArg: '2026-08'
+    })
+
+    const alisaAllocatedMinor = repository.paymentPurchaseAllocations
+      .filter((allocation) => allocation.memberId === 'alisa')
+      .reduce((sum, allocation) => sum + allocation.amountMinor, 0n)
+
+    expect(alisaAllocatedMinor).toBe(1847n)
+    // Her gross debt was 64.25 (32.25 shared + 32.00 covered for her); most of it stays.
+    expect(alisaAllocatedMinor).not.toBe(6425n)
+  })
+
+  test('resolveUtilityBillAsPlanned carries the unresolved purchase remainder into the next cycle', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
       {
@@ -4846,15 +5000,11 @@ describe('createFinanceCommandService', () => {
       (summary) => summary.memberId === 'alice'
     )
 
+    // Alice overspent on purchases, so her utility target clamps to zero. The residual
+    // claim is NOT minted as a ledger credit — it stays as Bob's unresolved purchase
+    // share, which is what carries it forward.
     expect(aliceMayPlan?.fairShare.amountMinor).toBe(0n)
-    expect(mayDashboard?.utilityBillingPlan?.carryForwardCredits).toContainEqual(
-      expect.objectContaining({
-        memberId: 'alice',
-        creditCreated: expect.objectContaining({ amountMinor: 5000n }),
-        creditConsumed: expect.objectContaining({ amountMinor: 0n }),
-        policyTarget: 'utilities'
-      })
-    )
+    expect(mayDashboard?.utilityBillingPlan?.carryForwardCredits ?? []).toEqual([])
 
     await service.resolveUtilityBillAsPlanned({
       allMembers: true,
@@ -4867,23 +5017,26 @@ describe('createFinanceCommandService', () => {
       periodArg: '2026-05'
     })
 
-    expect(repository.balanceLedgerEntries).toHaveLength(1)
-    expect(repository.balanceLedgerEntries[0]).toEqual(
-      expect.objectContaining({
-        memberId: 'alice',
-        sourceCyclePeriod: '2026-05',
-        planId: 'utility-plan-1',
-        entryType: 'credit_created',
-        reason: 'excess_purchase_credit',
-        amountMinor: 5000n
-      })
-    )
+    expect(repository.balanceLedgerEntries).toHaveLength(0)
+
+    // Bob's target was 250.00 but only 200.00 of bills exist to route, so his payment
+    // funds 100.00 of purchase debt (200.00 paid less his own 100.00 utility share).
+    // Repeating the resolution must not allocate a second time.
+    expect(
+      repository.paymentPurchaseAllocations
+        .filter(
+          (allocation) => allocation.purchaseId === 'purchase-may' && allocation.memberId === 'bob'
+        )
+        .reduce((sum, allocation) => sum + allocation.amountMinor, 0n)
+    ).toBe(10000n)
+
     const settledMayDashboard = await service.generateDashboard('2026-05')
     const aliceSettledLine = settledMayDashboard?.members.find(
       (member) => member.memberId === 'alice'
     )
-    expect(aliceSettledLine?.purchaseOffset.amountMinor).toBe(0n)
-    expect(aliceSettledLine?.carryForwardCredit?.amountMinor).toBe(5000n)
+    // 150.00 owed less 100.00 funded — the 50.00 remainder stays with the purchase.
+    expect(aliceSettledLine?.purchaseOffset.amountMinor).toBe(-5000n)
+    expect(aliceSettledLine?.carryForwardCredit?.amountMinor).toBe(0n)
     expect(aliceSettledLine?.effectivePurchaseBalance?.amountMinor).toBe(-5000n)
 
     repository.openCycleRecord = repository.cycles[1]!
@@ -4895,22 +5048,20 @@ describe('createFinanceCommandService', () => {
         memberId: summary.memberId,
         fairShareMinor: summary.fairShare.amountMinor
       }))
+      // June bill is 100.00 and raw shares are 50.00 each. Alice's 50.00 receivable zeroes
+      // her target and lands on Bob, so the targets now sum to the bill exactly. Under the
+      // credit model Bob was targeted 50.00 and half the June bill went unassigned.
     ).toEqual([
       { memberId: 'alice', fairShareMinor: 0n },
-      { memberId: 'bob', fairShareMinor: 5000n }
+      { memberId: 'bob', fairShareMinor: 10000n }
     ])
-    expect(juneDashboard?.utilityBillingPlan?.carryForwardCredits).toContainEqual(
-      expect.objectContaining({
-        memberId: 'alice',
-        creditConsumed: expect.objectContaining({ amountMinor: 5000n })
-      })
-    )
+    expect(juneDashboard?.utilityBillingPlan?.carryForwardCredits ?? []).toEqual([])
 
     const juneCurrentBill = await service.generateCurrentBillPlan('2026-06')
     expect(
       juneCurrentBill?.members?.find((member) => member.memberId === 'alice')?.carryForwardCredit
         ?.amountMinor
-    ).toBe(5000n)
+    ).toBe(0n)
   })
 
   test('generateDashboard does not show overdue utilities when the current plan covered them', async () => {

@@ -1294,11 +1294,15 @@ function paymentBalanceCarryForward(input: {
         : input.activeCarryoverCreditMinor
       : 0n
   const dueMinor = clampNonNegativeMinor(preCarryoverMinor - input.activeCarryoverCreditMinor)
-  const creditCreatedMinor = preCarryoverMinor < 0n ? -preCarryoverMinor : 0n
 
+  // Purchases own the residual claim, so no credit is minted here. A member whose
+  // adjusted target clamps to zero is owed money, and that claim already lives as
+  // unresolved purchase rows which carry into the next cycle through purchaseOffset.
+  // Minting a credit as well would book the same residual twice.
+  // Consumption stays until historical credits already in the ledger are drained.
   return {
     dueMinor,
-    creditCreatedMinor,
+    creditCreatedMinor: 0n,
     creditConsumedMinor
   }
 }
@@ -3128,46 +3132,25 @@ async function buildFinanceDashboard(
         utilityDays: Math.max(participation?.daysPresent ?? 0, 1)
       }
     }),
+    // Purchases feed settlement as what is still owed, never as the gross amount.
+    // Net offset is identical either way while nothing is allocated (the payer's own
+    // share cancels on both sides), but only the outstanding form reacts to a partial
+    // allocation. Gross form was all-or-nothing: paying 100 of a 150 share moved the
+    // offset by zero until the purchase happened to resolve completely.
     purchases: purchaseHistory
       .filter(({ outstandingTotal }) => outstandingTotal.amountMinor > 0n)
-      .map(({ purchase, converted, outstandingByMemberId, outstandingTotal }) => {
-        const nextPurchase: {
-          purchaseId: PurchaseEntryId
-          payerId: MemberId
-          amount: Money
-          splitMode: 'equal' | 'custom_amounts'
-          participants?: {
-            memberId: MemberId
-            shareAmount?: Money
-          }[]
-        } = {
-          purchaseId: PurchaseEntryId.from(purchase.id),
-          payerId: MemberId.from(purchase.payerMemberId),
-          amount: currentCyclePurchaseIds.has(purchase.id)
-            ? converted.settlementAmount
-            : outstandingTotal,
-          splitMode: 'custom_amounts'
-        }
-
-        const participantShareMap = currentCyclePurchaseIds.has(purchase.id)
-          ? buildPurchaseShareMap({
-              purchase,
-              amount: converted.settlementAmount,
-              activePurchaseParticipantIds
-            })
-          : outstandingByMemberId
-
-        nextPurchase.participants = [...participantShareMap.entries()]
-          .filter(([memberId]) =>
-            currentCyclePurchaseIds.has(purchase.id) ? true : memberId !== purchase.payerMemberId
-          )
+      .map(({ purchase, outstandingByMemberId, outstandingTotal }) => ({
+        purchaseId: PurchaseEntryId.from(purchase.id),
+        payerId: MemberId.from(purchase.payerMemberId),
+        amount: outstandingTotal,
+        splitMode: 'custom_amounts' as const,
+        participants: [...outstandingByMemberId.entries()]
+          .filter(([memberId]) => memberId !== purchase.payerMemberId)
           .map(([memberId, shareAmount]) => ({
             memberId: MemberId.from(memberId),
             shareAmount
           }))
-
-        return nextPurchase
-      })
+      }))
   })
 
   const settlementSnapshotBase: SettlementSnapshotRecord = {
@@ -3592,14 +3575,16 @@ async function allocatePaymentPurchaseOverage(input: {
   let remainingMinor: bigint
 
   if (plannedSummary && input.kind === 'utilities') {
-    // When paying utilities with an active plan, check if payment matches the planned amount
+    // Gross clearing is only funded when the real money reaches the member's adjusted
+    // target. No upper bound: paying above the target funds it all the more, and the
+    // loop below still caps every purchase at its own outstanding. The caller must
+    // pass actual money — a plan target here makes the predicate tautological and
+    // clears purchase debt the payment never covered.
     const plannedAmountMinor = plannedSummary.fairShare.amountMinor
-    const paymentMatchesPlan =
-      input.paymentAmount.amountMinor >= plannedAmountMinor &&
-      input.paymentAmount.amountMinor <= plannedAmountMinor + 100n // Allow small rounding differences
+    const paymentFundsPlan = input.paymentAmount.amountMinor >= plannedAmountMinor
 
-    if (paymentMatchesPlan) {
-      // Payment matches plan - allocate based on gross outstanding purchase debt.
+    if (paymentFundsPlan) {
+      // Payment funds the plan - allocate based on gross outstanding purchase debt.
       // The net purchaseOffset can be 0 when paid/owed purchases cancel out,
       // but individual purchases still need resolution. The plan's fairShare
       // guarantees all debts are covered when every member pays their share.
@@ -4052,14 +4037,18 @@ export function createFinanceCommandService(
       existingMatchedPlanPaidMinor + insertedMatchedPlanPaidMinor > existingUtilityPaymentMinor
         ? existingMatchedPlanPaidMinor + insertedMatchedPlanPaidMinor - existingUtilityPaymentMinor
         : 0n
+    // Allocate against the money the member actually put into this plan, never the
+    // plan target: when the cycle's bills are smaller than the member's adjusted
+    // target, the target overstates the payment and purchase debt clears for free.
+    // Cumulative (existing + inserted), not the inserted delta — on a repair or
+    // re-resolve the delta is zero and the still-valid allocations would be dropped.
+    const actualMatchedPlanPaidMinor = existingMatchedPlanPaidMinor + insertedMatchedPlanPaidMinor
     const allocationResult = await allocatePaymentPurchaseOverage({
       dependencies,
       cyclePeriod: input.dashboard.period,
       memberId: input.memberId,
       kind: 'utilities',
-      paymentAmount:
-        plannedSummary?.fairShare ??
-        Money.fromMinor(effectivePaymentAmountMinor, input.dashboard.currency),
+      paymentAmount: Money.fromMinor(actualMatchedPlanPaidMinor, input.dashboard.currency),
       settings,
       ...(existingPaymentRecord ? { reresolvePaymentRecordId: existingPaymentRecord.id } : {})
     })
