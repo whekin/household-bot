@@ -307,10 +307,12 @@ describe('today view model', () => {
     ])
   })
 
-  test('marks the part of a share no remaining bill can cover', () => {
+  test('flags a shared-purchase balance left over on a closed row', () => {
+    const base = dashboard(periodSummary({ utilitiesRemaining: '0.00' }))
     const model = buildTodayViewModel({
       dashboard: {
-        ...dashboard(periodSummary({ utilitiesRemaining: '0.00' })),
+        ...base,
+        members: base.members.map((member) => ({ ...member, purchaseOffsetMajor: '34.78' })),
         utilityBillingPlan: {
           version: 1,
           status: 'active',
@@ -349,11 +351,12 @@ describe('today view model', () => {
     })
 
     const line = model.memberLines.find((entry) => entry.memberId === 'member-a')
-    expect(line?.shortfallMajor).toBe('34.78')
     // She covered the only bill routed to her, so the row closes even though the
     // plan still carries a 37.04 assignment against her name.
     expect(line?.amountMajor).toBe('0.00')
     expect(line?.settled).toBe(true)
+    // Closed, but the shared-purchase balance is still hers.
+    expect(line?.purchaseDueMajor).toBe('34.78')
   })
 
   test('exposes current member utility carry-forward breakdown', () => {

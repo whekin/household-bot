@@ -289,8 +289,11 @@ describe('payment reminder content', () => {
     expect(content.text).not.toContain('🟢 <b>')
   })
 
-  test('says an unfundable share stays on the member after their bill is covered', () => {
+  test('flags a shared-purchase balance once nothing is left to pay on the plan', () => {
     const baseDashboard = dashboard()
+    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
+      (summary) => summary.period === '2026-05'
+    )!
     const content = buildScheduledPaymentReminderContent({
       locale: 'ru',
       kind: 'utilities',
@@ -298,22 +301,26 @@ describe('payment reminder content', () => {
       period: '2026-05',
       dashboard: {
         ...baseDashboard,
-        utilityBillingPlan: {
-          ...baseDashboard.utilityBillingPlan!,
-          memberSummaries: baseDashboard.utilityBillingPlan!.memberSummaries.map((summary) => ({
-            ...summary,
-            // Share 71.82, but only the 37.04 bill can be routed to them.
-            fairShare: Money.fromMajor('71.82', 'GEL'),
-            vendorPaid: Money.fromMajor('37.04', 'GEL'),
-            assignedThisCycle: Money.zero('GEL'),
-            projectedDeltaAfterPlan: Money.fromMajor('-34.78', 'GEL')
-          }))
-        }
+        // Alice covered every bill routed to her, but shared purchases left her
+        // owing the household 34.78 that no bill could carry.
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'alice'
+            ? { ...member, purchaseOffset: Money.fromMajor('34.78', 'GEL') }
+            : member
+        ),
+        paymentPeriods: [
+          {
+            ...utilitiesPeriod,
+            kinds: utilitiesPeriod.kinds.map((kind) =>
+              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
+            )
+          }
+        ]
       },
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('34.78 ₾ останется за вами')
+    expect(content.text).toContain('34.78 ₾ ещё за вами по покупкам')
   })
 
   test('keeps only shared actions on scheduled reminder cards', () => {

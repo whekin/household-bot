@@ -16,8 +16,8 @@ export type TodayMemberCloseLine = {
   amountMajor: string
   settled: boolean
   isCurrent: boolean
-  /** Part of the member's share that no remaining bill can cover this cycle. */
-  shortfallMajor?: string
+  /** Live shared-purchase balance still owed once the member's plan row is closed. */
+  purchaseDueMajor?: string
 }
 
 export type TodayViewModel = {
@@ -461,26 +461,24 @@ export function buildTodayViewModel(input: {
                 stage,
                 periodSummary
               )
-              // Covering every assigned bill can still leave part of a member's
-              // share unpaid, once shared purchases push their target above the
-              // bills that can be routed to them. Carry that remainder so a
-              // closed row does not read as "owes nothing".
-              const plannedDeltaMajor =
-                stage === 'utilities'
-                  ? (input.dashboard.utilityBillingPlan?.memberSummaries.find(
-                      (summary) => summary.memberId === member.memberId
-                    )?.projectedDeltaAfterPlanMajor ?? '0.00')
-                  : '0.00'
-              const shortfallMinor = -majorStringToMinor(plannedDeltaMajor)
+              const settled = majorStringToMinor(amountMajor) <= 0n
+              // A closed row does not mean the member owes the household nothing:
+              // shared purchases can leave a balance no bill was able to carry.
+              // Read the live offset, not the plan's projected delta — that one is
+              // frozen with the plan and stops tracking purchases once it locks.
+              const purchaseDueMinor =
+                settled && stage === 'utilities'
+                  ? majorStringToMinor(member.purchaseOffsetMajor)
+                  : 0n
 
               return {
                 memberId: member.memberId,
                 displayName: member.displayName,
                 amountMajor,
-                settled: majorStringToMinor(amountMajor) <= 0n,
+                settled,
                 isCurrent: member.memberId === input.currentMemberId,
-                ...(shortfallMinor > 0n
-                  ? { shortfallMajor: minorToMajorString(shortfallMinor) }
+                ...(purchaseDueMinor > 0n
+                  ? { purchaseDueMajor: minorToMajorString(purchaseDueMinor) }
                   : {})
               }
             }),
