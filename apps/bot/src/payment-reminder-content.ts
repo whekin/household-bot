@@ -243,6 +243,23 @@ function utilitiesByMemberLines(input: {
         `   ↪ ${escapeHtml(moneyText(nextCycleCredit))} ${escapeHtml(input.locale === 'ru' ? 'зачтётся в следующих платежах' : 'will reduce future payments')}`
       )
     }
+
+    // A member's share can exceed every bill that can be routed to them, which
+    // happens once shared purchases push their target above the cycle's bills.
+    // Covering the assigned bills then closes their plan while part of the share
+    // is still unpaid, so say so instead of letting a ticked-off bill read as
+    // "settled".
+    const shortfall = planSummaryById.get(memberId)?.projectedDeltaAfterPlan
+    if (shortfall && shortfall.amountMinor < 0n) {
+      const remainingShare = Money.fromMinor(-shortfall.amountMinor, input.dashboard.currency)
+      lines.push(
+        `   ↩ ${escapeHtml(moneyText(remainingShare))} ${escapeHtml(
+          input.locale === 'ru'
+            ? 'останется за вами — счетов на эту часть в этом месяце нет'
+            : 'still on you — no bill left this month to cover it'
+        )}`
+      )
+    }
   }
 
   return lines

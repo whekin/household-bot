@@ -107,6 +107,12 @@ export function MemberCloseList({
                         ? copy.todayTapToClose
                         : copy.todayWaitingForMember}
                   </span>
+                  {line.shortfallMajor ? (
+                    <span className="block text-xs text-status-due">
+                      {formatMoneyLabel(line.shortfallMajor, dashboard.currency, locale)}{' '}
+                      {copy.todayShortfallHint}
+                    </span>
+                  ) : null}
                 </span>
                 <span
                   className={cn(

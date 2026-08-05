@@ -16,6 +16,8 @@ export type TodayMemberCloseLine = {
   amountMajor: string
   settled: boolean
   isCurrent: boolean
+  /** Part of the member's share that no remaining bill can cover this cycle. */
+  shortfallMajor?: string
 }
 
 export type TodayViewModel = {
@@ -449,12 +451,27 @@ export function buildTodayViewModel(input: {
                 stage,
                 periodSummary
               )
+              // Covering every assigned bill can still leave part of a member's
+              // share unpaid, once shared purchases push their target above the
+              // bills that can be routed to them. Carry that remainder so a
+              // closed row does not read as "owes nothing".
+              const plannedDeltaMajor =
+                stage === 'utilities'
+                  ? (input.dashboard.utilityBillingPlan?.memberSummaries.find(
+                      (summary) => summary.memberId === member.memberId
+                    )?.projectedDeltaAfterPlanMajor ?? '0.00')
+                  : '0.00'
+              const shortfallMinor = -majorStringToMinor(plannedDeltaMajor)
+
               return {
                 memberId: member.memberId,
                 displayName: member.displayName,
                 amountMajor,
                 settled: majorStringToMinor(amountMajor) <= 0n,
-                isCurrent: member.memberId === input.currentMemberId
+                isCurrent: member.memberId === input.currentMemberId,
+                ...(shortfallMinor > 0n
+                  ? { shortfallMajor: minorToMajorString(shortfallMinor) }
+                  : {})
               }
             }),
     openMemberCount:

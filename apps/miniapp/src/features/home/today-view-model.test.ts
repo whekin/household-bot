@@ -307,6 +307,52 @@ describe('today view model', () => {
     ])
   })
 
+  test('marks the part of a share no remaining bill can cover', () => {
+    const model = buildTodayViewModel({
+      dashboard: {
+        ...dashboard(periodSummary({ utilitiesRemaining: '0.00' })),
+        utilityBillingPlan: {
+          version: 1,
+          status: 'active',
+          dueDate: '2026-03-05',
+          updatedFromVersion: null,
+          reason: null,
+          categories: [
+            {
+              utilityBillId: 'bill-electricity',
+              billName: 'Electricity',
+              billTotalMajor: '37.04',
+              assignedAmountMajor: '37.04',
+              assignedMemberId: 'member-a',
+              assignedDisplayName: 'Ada',
+              paidAmountMajor: '37.04',
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          memberSummaries: [
+            {
+              memberId: 'member-a',
+              displayName: 'Ada',
+              // Share 71.82, but only the 37.04 bill could be routed to her.
+              fairShareMajor: '71.82',
+              vendorPaidMajor: '37.04',
+              assignedThisCycleMajor: '0.00',
+              projectedDeltaAfterPlanMajor: '-34.78'
+            }
+          ]
+        }
+      },
+      currentMemberId: 'member-a',
+      effectivePeriod: '2026-03',
+      effectiveStage: 'utilities'
+    })
+
+    expect(model.memberLines.find((line) => line.memberId === 'member-a')?.shortfallMajor).toBe(
+      '34.78'
+    )
+  })
+
   test('exposes current member utility carry-forward breakdown', () => {
     const model = buildTodayViewModel({
       dashboard: {
