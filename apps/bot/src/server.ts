@@ -188,6 +188,12 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppRefreshUtilityPlan?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppSubmitPayment?:
     | {
         path?: string
@@ -316,6 +322,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
   const miniAppAddPaymentPath = options.miniAppAddPayment?.path ?? '/api/miniapp/admin/payments/add'
   const miniAppClosePaymentPeriodPath =
     options.miniAppClosePaymentPeriod?.path ?? '/api/miniapp/billing/periods/close'
+  const miniAppRefreshUtilityPlanPath =
+    options.miniAppRefreshUtilityPlan?.path ?? '/api/miniapp/billing/utilities/refresh-plan'
   const miniAppSubmitPaymentPath = options.miniAppSubmitPayment?.path ?? '/api/miniapp/payments/add'
   const miniAppUpdatePaymentPath =
     options.miniAppUpdatePayment?.path ?? '/api/miniapp/admin/payments/update'
@@ -471,6 +479,10 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
 
       if (options.miniAppAddPayment && url.pathname === miniAppAddPaymentPath) {
         return await options.miniAppAddPayment.handler(request)
+      }
+
+      if (options.miniAppRefreshUtilityPlan && url.pathname === miniAppRefreshUtilityPlanPath) {
+        return await options.miniAppRefreshUtilityPlan.handler(request)
       }
 
       if (options.miniAppClosePaymentPeriod && url.pathname === miniAppClosePaymentPeriodPath) {

@@ -47,6 +47,7 @@ import {
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
   createMiniAppClosePaymentPeriodHandler,
+  createMiniAppRefreshUtilityPlanHandler,
   createMiniAppCloseCycleHandler,
   createMiniAppDeletePaymentHandler,
   createMiniAppDeletePurchaseHandler,
@@ -886,6 +887,16 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           onboardingService: householdOnboardingService,
           financeServiceForHousehold,
           ...(auditNotificationService ? { auditNotificationService } : {}),
+          ...(livePaymentCardService ? { livePaymentCardService } : {}),
+          logger: getLogger('miniapp-billing')
+        })
+      : undefined,
+    miniAppRefreshUtilityPlan: householdOnboardingService
+      ? createMiniAppRefreshUtilityPlanHandler({
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          botToken: runtime.telegramBotToken,
+          onboardingService: householdOnboardingService,
+          financeServiceForHousehold,
           ...(livePaymentCardService ? { livePaymentCardService } : {}),
           logger: getLogger('miniapp-billing')
         })

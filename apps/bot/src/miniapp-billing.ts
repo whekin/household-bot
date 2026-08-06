@@ -2377,6 +2377,155 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
   }
 }
 
+async function readRefreshUtilityPlanPayload(request: Request): Promise<{
+  initData: string
+  period: string
+  apply: boolean
+}> {
+  const parsed = await parseJsonBody<{
+    initData?: string
+    period?: string
+    apply?: boolean
+  }>(request)
+  const initData = parsed.initData?.trim()
+  const period = parsed.period?.trim()
+  if (!initData) {
+    throw new Error('Missing initData')
+  }
+  if (!period) {
+    throw new Error('Missing payment period')
+  }
+
+  return { initData, period, apply: parsed.apply === true }
+}
+
+function utilityPlanShape(
+  dashboard: Awaited<ReturnType<FinanceCommandService['generateDashboard']>>
+): {
+  version: number
+  categories: {
+    billName: string
+    assignedMemberId: string
+    displayName: string
+    amountMajor: string
+    isPaid: boolean
+  }[]
+  members: { memberId: string; displayName: string; toPayNowMajor: string }[]
+} | null {
+  const plan = dashboard?.utilityBillingPlan
+  if (!plan) {
+    return null
+  }
+
+  return {
+    version: plan.version,
+    categories: plan.categories.map((category) => ({
+      billName: category.billName,
+      assignedMemberId: category.assignedMemberId,
+      displayName: category.assignedDisplayName,
+      amountMajor: category.assignedAmount.toMajorString(),
+      isPaid: category.paidAmount.amountMinor >= category.assignedAmount.amountMinor
+    })),
+    members: plan.memberSummaries.map((summary) => ({
+      memberId: summary.memberId,
+      displayName: summary.displayName,
+      toPayNowMajor: summary.assignedThisCycle.toMajorString()
+    }))
+  }
+}
+
+/**
+ * Redrawing a published split changes what members were already told to pay, so
+ * the endpoint answers in two steps: without `apply` it computes the redraw and
+ * returns it beside the current one for the admin to compare, persisting
+ * nothing. Only a second call with `apply` writes.
+ */
+export function createMiniAppRefreshUtilityPlanHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+  onboardingService: HouseholdOnboardingService
+  livePaymentCardService?: LivePaymentCardService
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) {
+          return auth
+        }
+        if (!auth.member.isAdmin) {
+          return miniAppJsonResponse({ ok: false, error: 'Admin access required' }, 403, origin)
+        }
+
+        const payload = await readRefreshUtilityPlanPayload(request)
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const current = utilityPlanShape(await service.generateDashboard(payload.period))
+
+        if (!payload.apply) {
+          const proposed = utilityPlanShape(
+            await service.previewUtilityBillingPlanRefresh(payload.period)
+          )
+
+          return miniAppJsonResponse(
+            { ok: true, authorized: true, applied: false, current, proposed },
+            200,
+            origin
+          )
+        }
+
+        options.logger?.info(
+          {
+            event: 'miniapp.utility_plan.refresh_requested',
+            householdId: auth.member.householdId,
+            actorMemberId: auth.member.id,
+            period: payload.period,
+            fromVersion: current?.version ?? null
+          },
+          'Mini app utility plan refresh requested'
+        )
+
+        const refreshed = utilityPlanShape(await service.refreshUtilityBillingPlan(payload.period))
+        await options.livePaymentCardService?.refresh({
+          householdId: auth.member.householdId,
+          kind: 'utilities',
+          period: payload.period
+        })
+
+        return miniAppJsonResponse(
+          { ok: true, authorized: true, applied: true, current, proposed: refreshed },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger, {
+          route: 'miniapp.billing.utilities.refresh_plan'
+        })
+      }
+    }
+  }
+}
+
 export function createMiniAppUpdatePaymentHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string

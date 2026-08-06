@@ -18,6 +18,7 @@ import {
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
   createMiniAppClosePaymentPeriodHandler,
+  createMiniAppRefreshUtilityPlanHandler,
   createMiniAppDeletePurchaseHandler,
   createMiniAppDeleteUtilityBillHandler,
   createMiniAppOpenCycleHandler,
@@ -513,6 +514,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
     generateDashboard: async () => createDashboardStub(),
     ensureDashboardMaterialized: async () => null,
     refreshUtilityBillingPlan: async () => null,
+    previewUtilityBillingPlanRefresh: async () => null,
     generateBillingAuditExport: async () => null,
     generateStatement: async () => null,
     manuallyResolvePurchase: async () => ({
@@ -2064,5 +2066,76 @@ describe('utility billing action handlers', () => {
         period: '2026-03'
       }
     ])
+  })
+
+  test('previews a utility plan redraw without applying it', async () => {
+    const repository = onboardingRepository()
+    const calls: string[] = []
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => {
+        calls.push('generate')
+        return createDashboardStub()
+      },
+      previewUtilityBillingPlanRefresh: async () => {
+        calls.push('preview')
+        return createDashboardStub()
+      },
+      refreshUtilityBillingPlan: async () => {
+        calls.push('apply')
+        return createDashboardStub()
+      }
+    } as unknown as FinanceCommandService
+    const handler = createMiniAppRefreshUtilityPlanHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/refresh-plan', {
+        method: 'POST',
+        headers: { origin: 'http://localhost:5173', 'content-type': 'application/json' },
+        body: JSON.stringify({ initData: initData(), period: '2026-03' })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, authorized: true, applied: false })
+    // Looking at a redraw must not be the thing that performs it.
+    expect(calls).toEqual(['generate', 'preview'])
+  })
+
+  test('applies a utility plan redraw only when asked to', async () => {
+    const repository = onboardingRepository()
+    const calls: string[] = []
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => createDashboardStub(),
+      previewUtilityBillingPlanRefresh: async () => createDashboardStub(),
+      refreshUtilityBillingPlan: async () => {
+        calls.push('apply')
+        return createDashboardStub()
+      }
+    } as unknown as FinanceCommandService
+    const handler = createMiniAppRefreshUtilityPlanHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/billing/utilities/refresh-plan', {
+        method: 'POST',
+        headers: { origin: 'http://localhost:5173', 'content-type': 'application/json' },
+        body: JSON.stringify({ initData: initData(), period: '2026-03', apply: true })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, applied: true })
+    expect(calls).toEqual(['apply'])
   })
 })

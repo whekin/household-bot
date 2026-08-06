@@ -283,6 +283,7 @@ function createFinanceService(): FinanceCommandService {
     }),
     ensureDashboardMaterialized: async () => null,
     refreshUtilityBillingPlan: async () => null,
+    previewUtilityBillingPlanRefresh: async () => null,
     generateBillingAuditExport: async () => null,
     generateStatement: async () => null,
     manuallyResolvePurchase: async () => ({

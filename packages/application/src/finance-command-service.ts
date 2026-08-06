@@ -1695,6 +1695,8 @@ async function ensureUtilityBillingPlan(input: {
    * standing instruction no longer matches what members actually owe.
    */
   forceRecompute?: boolean
+  /** Draw the plan but persist nothing, so a redraw can be shown before it is applied. */
+  dryRun?: boolean
   readOnly?: boolean
   convertedUtilityBills: readonly {
     bill: Awaited<ReturnType<FinanceRepository['listUtilityBillsForCycle']>>[number]
@@ -1772,7 +1774,7 @@ async function ensureUtilityBillingPlan(input: {
   // We SHOULD recompute if:
   // - Inputs changed (new bills, changed purchases, etc.) AND the plan is NOT locked yet.
   const shouldRecompute =
-    !input.readOnly &&
+    (!input.readOnly || input.dryRun === true) &&
     (input.forceRecompute === true ||
       !activePlan ||
       (!isLocked && !input.skipRebalance && hasPendingOffPlanFact) ||
@@ -1892,7 +1894,9 @@ async function ensureUtilityBillingPlan(input: {
     }
   }
 
-  if (input.readOnly) {
+  // A preview stops here: the caller wants to show what a redraw would do, and
+  // seeing it must not be the thing that changes it.
+  if (input.dryRun || input.readOnly) {
     return {
       record: activePlan,
       computed
@@ -2791,6 +2795,7 @@ async function buildFinanceDashboard(
     todayOverride?: string
     skipPlanRebalance?: boolean
     forcePlanRefresh?: boolean
+    previewPlanRefresh?: boolean
   } = {}
 ): Promise<FinanceDashboard | null> {
   const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
@@ -3064,6 +3069,7 @@ async function buildFinanceDashboard(
     convertedUtilityBills,
     purchaseIds: [...currentCyclePurchaseIds],
     ...(options.forcePlanRefresh && isOpenCycle ? { forceRecompute: true } : {}),
+    ...(options.previewPlanRefresh && isOpenCycle ? { forceRecompute: true, dryRun: true } : {}),
     ...(options.skipPlanRebalance || !isOpenCycle ? { skipRebalance: true } : {}),
     ...(!isOpenCycle ? { readOnly: true } : {})
   })
@@ -3708,6 +3714,8 @@ export interface FinanceCommandService {
    * explicit way to reissue one after the inputs moved underneath it.
    */
   refreshUtilityBillingPlan(periodArg?: string): Promise<FinanceDashboard | null>
+  /** The same redraw, computed and returned without being saved. */
+  previewUtilityBillingPlanRefresh(periodArg?: string): Promise<FinanceDashboard | null>
   generateBillingAuditExport(periodArg?: string): Promise<FinanceBillingAuditExport | null>
   generateStatement(periodArg?: string): Promise<string | null>
 }
@@ -5027,6 +5035,10 @@ export function createFinanceCommandService(
 
     async refreshUtilityBillingPlan(periodArg) {
       return await buildFinanceDashboard(dependencies, periodArg, { forcePlanRefresh: true })
+    },
+
+    async previewUtilityBillingPlanRefresh(periodArg) {
+      return await buildFinanceDashboard(dependencies, periodArg, { previewPlanRefresh: true })
     },
 
     async generateBillingAuditExport(periodArg) {
