@@ -4844,6 +4844,30 @@ describe('createFinanceCommandService', () => {
       (summary) => summary.memberId === 'alisa'
     )
     expect(alisaAfter?.assignedThisCycle.amountMinor).toBe(0n)
+
+    // The redraw supersedes the plan her payment was recorded against, which
+    // leaves that payment attached to a plan nobody is on any more. The next
+    // input change re-plans, and it still has to see the bill as covered — or it
+    // hands one she already settled to whoever still owes.
+    repository.utilityBills = [
+      ...repository.utilityBills,
+      {
+        id: 'bill-c',
+        cycleId: 'cycle-2026-08',
+        billName: 'Cleaning',
+        amountMinor: 500n,
+        currency: 'GEL',
+        createdByMemberId: 'alisa',
+        createdAt: instantFromIso('2026-08-02T09:00:00.000Z')
+      }
+    ]
+
+    const rebuilt = await service.generateDashboard('2026-08')
+    const electricity = rebuilt?.utilityBillingPlan?.categories.filter(
+      (category) => category.billName === 'Electricity'
+    )
+    expect(electricity?.map((category) => category.assignedMemberId)).toEqual(['alisa'])
+    expect(electricity?.[0]?.paidAmount.amountMinor).toBe(4000n)
     expect(refreshed?.utilityBillingPlan?.version).toBeGreaterThan(
       planned?.utilityBillingPlan?.version ?? 0
     )

@@ -1744,7 +1744,16 @@ async function ensureUtilityBillingPlan(input: {
     (validMatchedFacts.length > 0 || (activePlan.status === 'settled' && activePlanHasCategories))
 
   // On-plan payments lock the plan; off-plan facts only rebalance draft plans.
-  const offPlanFacts = vendorFacts.filter((fact) => !fact.matchedPlan)
+  //
+  // A fact belongs to the plan it was recorded against, so once that plan is
+  // superseded its facts stop matching the current one. A forced redraw creates
+  // exactly that state while payments exist, and counting such a fact as neither
+  // matched nor off-plan would drop it from coverage — handing a bill somebody
+  // already settled to a housemate on the next recompute.
+  const offPlanFacts = vendorFacts.filter(
+    (fact) =>
+      !fact.matchedPlan || (activePlan !== null && !utilityFactMatchesPlan(fact, activePlan))
+  )
   const hadOffPlanFact = offPlanFacts.length > 0
   const hasPendingOffPlanFact =
     !activePlan ||
