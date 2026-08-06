@@ -248,6 +248,68 @@ describe('payment reminder content', () => {
     expect(JSON.stringify(content.replyMarkup)).toContain('I paid my bills')
   })
 
+  test('does not tick a split bill as paid for the member who did not pay it', () => {
+    const baseDashboard = dashboard()
+    const gel = (major: string) => Money.fromMajor(major, 'GEL')
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        utilityBillingPlan: {
+          ...baseDashboard.utilityBillingPlan!,
+          // One bill split two ways. Bob covered his part; Alice has not paid.
+          categories: [
+            {
+              utilityBillId: 'gas',
+              billName: 'Gas',
+              billTotal: gel('120.00'),
+              assignedAmount: gel('20.00'),
+              assignedMemberId: 'alice',
+              assignedDisplayName: 'Alice <A>',
+              paidAmount: gel('100.00'),
+              isFullAssignment: false,
+              splitGroupId: 'gas'
+            },
+            {
+              utilityBillId: 'gas',
+              billName: 'Gas',
+              billTotal: gel('120.00'),
+              assignedAmount: gel('100.00'),
+              assignedMemberId: 'bob',
+              assignedDisplayName: 'Bob',
+              paidAmount: gel('100.00'),
+              isFullAssignment: false,
+              splitGroupId: 'gas'
+            }
+          ],
+          vendorPayments: [
+            {
+              id: 'fact-1',
+              utilityBillId: 'gas',
+              billName: 'Gas',
+              payerMemberId: 'bob',
+              payerDisplayName: 'Bob',
+              amount: gel('100.00'),
+              matchedPlan: true,
+              recordedAt: baseDashboard.utilityBillingPlan!.categories[0]!.billTotal
+                ? new Date().toISOString()
+                : new Date().toISOString()
+            }
+          ]
+        }
+      },
+      viewMode: 'compact'
+    } as never)
+
+    // Bob's line is ticked, Alice's is not — the bill total says 100.00 is paid,
+    // but none of it came from her.
+    expect(content.text).toContain('✅ Gas · 100.00 ₾')
+    expect(content.text).toContain('• Gas · 20.00 ₾')
+  })
+
   test('flags a shared-purchase balance once nothing is left to pay on the plan', () => {
     const baseDashboard = dashboard()
     const utilitiesPeriod = baseDashboard.paymentPeriods!.find(

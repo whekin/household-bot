@@ -229,7 +229,16 @@ function utilitiesByMemberLines(input: {
         : `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`
     )
     for (const category of memberCategories) {
-      const billPaid = category.paidAmount.amountMinor >= category.assignedAmount.amountMinor
+      // `paidAmount` is the whole bill's payments, whoever made them, so on a
+      // split bill one member paying their share would tick everyone else's line
+      // as well. Count only what this member put toward this bill.
+      const paidByThisMember = (plan?.vendorPayments ?? [])
+        .filter(
+          (payment) =>
+            payment.utilityBillId === category.utilityBillId && payment.payerMemberId === memberId
+        )
+        .reduce((sum, payment) => sum + payment.amount.amountMinor, 0n)
+      const billPaid = paidByThisMember >= category.assignedAmount.amountMinor
       lines.push(
         `${billPaid ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
       )
