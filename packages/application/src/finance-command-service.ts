@@ -1783,12 +1783,18 @@ async function ensureUtilityBillingPlan(input: {
   // Orphan matched facts are ignored unless they reference the selected current plan.
   // A forced redraw is the exception: every payment already made has to count as
   // coverage, or a bill somebody has settled would be reassigned to a housemate.
-  const vendorPaymentsForCompute = input.forceRecompute ? vendorFacts : offPlanFacts
-  const billCoveragePaymentsForCompute = input.forceRecompute
-    ? vendorFacts
-    : activePlan
-      ? offPlanFacts
-      : []
+  // A bill that has been paid is paid whether or not a plan still stands over it.
+  // Deleting any payment invalidates the plan for the cycle, and while none was
+  // active these lists came out empty — so the next draw read somebody else's
+  // settled bill as open and handed it back into the pot.
+  //
+  // Deleted plan *rows* stay excluded, which is the case a5b9d44 guarded: facts
+  // orphaned that way have no plan left to be read against, and a fresh plan
+  // should be drawn over the full bills rather than born settled from history
+  // nobody can see. A superseded plan is still there to be read.
+  const everyFactCounts = input.forceRecompute === true || (!activePlan && existingPlans.length > 0)
+  const vendorPaymentsForCompute = everyFactCounts ? vendorFacts : offPlanFacts
+  const billCoveragePaymentsForCompute = everyFactCounts ? vendorFacts : offPlanFacts
 
   let computed = shouldRecompute
     ? (() => {

@@ -4743,6 +4743,98 @@ describe('createFinanceCommandService', () => {
     ).toBe(true)
   })
 
+  test('a settled bill stays with its payer once no plan is active', async () => {
+    // The state a deleted payment leaves behind: the cycle's plan has been
+    // superseded, while somebody else's payment for another bill is untouched.
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      { id: 'alisa', telegramUserId: '1', displayName: 'Alisa', rentShareWeight: 1, isAdmin: true },
+      { id: 'dima', telegramUserId: '2', displayName: 'Dima', rentShareWeight: 1, isAdmin: false }
+    ]
+    repository.cycles = [{ id: 'cycle-2026-08', period: '2026-08', currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = { paymentBalanceAdjustmentPolicy: 'utilities' }
+    repository.memberPresenceDays = [
+      { memberId: 'alisa', period: '2026-08', daysPresent: 31 },
+      { memberId: 'dima', period: '2026-08', daysPresent: 31 }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'bill-a',
+        cycleId: 'cycle-2026-08',
+        billName: 'Electricity',
+        amountMinor: 4000n,
+        currency: 'GEL',
+        createdByMemberId: 'alisa',
+        createdAt: instantFromIso('2026-08-01T09:00:00.000Z')
+      },
+      {
+        id: 'bill-b',
+        cycleId: 'cycle-2026-08',
+        billName: 'Gas',
+        amountMinor: 2000n,
+        currency: 'GEL',
+        createdByMemberId: 'alisa',
+        createdAt: instantFromIso('2026-08-01T09:00:01.000Z')
+      }
+    ]
+    repository.utilityBillingPlans = [
+      {
+        cycleId: 'cycle-2026-08',
+        version: 1,
+        status: 'superseded',
+        dueDate: '2026-08-05',
+        currency: 'GEL',
+        maxCategoriesPerMemberApplied: 2,
+        updatedFromPlanId: null,
+        reason: null,
+        payload: {
+          categories: [],
+          purchaseIds: [],
+          memberSummaries: [],
+          fairShareByMember: []
+        }
+      }
+    ]
+    repository.utilityVendorPaymentFacts = [
+      {
+        id: 'fact-electricity',
+        cycleId: 'cycle-2026-08',
+        utilityBillId: 'bill-a',
+        billName: 'Electricity',
+        payerMemberId: 'alisa',
+        amountMinor: 4000n,
+        currency: 'GEL',
+        plannedForMemberId: 'alisa',
+        planVersion: 1,
+        matchedPlan: true,
+        paymentRecordId: null,
+        recordedByMemberId: 'alisa',
+        recordedAt: instantFromIso('2026-08-03T09:00:00.000Z'),
+        createdAt: instantFromIso('2026-08-03T09:00:00.000Z')
+      }
+    ]
+
+    const service = createService(repository)
+    const dashboard = await service.generateDashboard('2026-08')
+    const categories = dashboard?.utilityBillingPlan?.categories ?? []
+
+    // Electricity is paid. Drawing a fresh plan must leave it with Alisa rather
+    // than read it as open and hand it to whoever still owes.
+    expect(
+      categories
+        .filter((category) => category.billName === 'Electricity')
+        .map((category) => category.assignedMemberId)
+    ).toEqual(['alisa'])
+    expect(
+      categories
+        .filter((category) => category.billName === 'Gas')
+        .map((category) => category.assignedMemberId)
+    ).toEqual(['dima'])
+  })
+
   test('refreshUtilityBillingPlan redraws around what has already been paid', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [
