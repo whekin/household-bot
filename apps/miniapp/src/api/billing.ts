@@ -470,3 +470,51 @@ export async function deleteMiniAppPayment(initData: string, paymentId: string):
     throw miniAppApiError(response, payload, 'Failed to delete payment')
   }
 }
+
+export type MiniAppUtilityPlanShape = {
+  version: number
+  categories: {
+    billName: string
+    assignedMemberId: string
+    displayName: string
+    amountMajor: string
+    isPaid: boolean
+  }[]
+  members: { memberId: string; displayName: string; toPayNowMajor: string }[]
+}
+
+/**
+ * Two calls on purpose: without `apply` the server computes the redraw and
+ * saves nothing, so the split can be compared before members are told it moved.
+ */
+export async function refreshMiniAppUtilityPlan(
+  initData: string,
+  input: { period: string; apply?: boolean }
+): Promise<{
+  applied: boolean
+  current: MiniAppUtilityPlanShape | null
+  proposed: MiniAppUtilityPlanShape | null
+}> {
+  const { response, payload } = await postMiniApp<{
+    ok: boolean
+    authorized?: boolean
+    applied?: boolean
+    current?: MiniAppUtilityPlanShape | null
+    proposed?: MiniAppUtilityPlanShape | null
+    error?: string
+  }>('/api/miniapp/billing/utilities/refresh-plan', {
+    initData,
+    period: input.period,
+    ...(input.apply ? { apply: true } : {})
+  })
+
+  if (!response.ok || !payload.authorized) {
+    throw miniAppApiError(response, payload, 'Failed to refresh the utility plan')
+  }
+
+  return {
+    applied: payload.applied === true,
+    current: payload.current ?? null,
+    proposed: payload.proposed ?? null
+  }
+}

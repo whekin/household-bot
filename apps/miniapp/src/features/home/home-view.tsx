@@ -21,6 +21,7 @@ import {
   UtilitiesBillsPanel
 } from './stage-panels'
 import { MemberCloseList, AdminCloseConfirmSheet } from './member-close-list'
+import { RefreshPlanSheet } from './refresh-plan-sheet'
 import { PurchaseStream } from './purchase-stream'
 import { QUICK_PURCHASE_COMPOSER_ID, QuickPurchaseComposer } from './quick-purchase-composer'
 
@@ -40,6 +41,7 @@ export function HomeView() {
   const { showToast } = useToast()
 
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
+  const [refreshPlanOpen, setRefreshPlanOpen] = useState(false)
   const [processing, setProcessing] = useState(false)
 
   const currentMemberId = session.member.id
@@ -165,6 +167,7 @@ export function HomeView() {
           model={model}
           loading={processing}
           onOpenAdminClose={() => setAdminConfirmOpen(true)}
+          onOpenRefreshPlan={() => setRefreshPlanOpen(true)}
         />
       ) : null}
 
@@ -179,6 +182,14 @@ export function HomeView() {
         model={model}
         currentMemberId={currentMemberId}
         onAddPurchase={scrollToComposer}
+      />
+
+      <RefreshPlanSheet
+        open={refreshPlanOpen}
+        period={model.period}
+        currency={dashboard.currency}
+        onOpenChange={setRefreshPlanOpen}
+        onApplied={() => void refresh()}
       />
 
       <AdminCloseConfirmSheet

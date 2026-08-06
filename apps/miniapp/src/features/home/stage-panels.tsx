@@ -1,4 +1,4 @@
-import { CircleDollarSign } from 'lucide-react'
+import { CircleDollarSign, RefreshCw } from 'lucide-react'
 
 import { useDashboard } from '@/app/dashboard-context'
 import { Badge } from '@/components/ui/badge'
@@ -232,11 +232,13 @@ export function HouseholdSummaryPanel({ model }: { model: TodayViewModel }) {
 export function AdminClosePanel({
   model,
   loading,
-  onOpenAdminClose
+  onOpenAdminClose,
+  onOpenRefreshPlan
 }: {
   model: TodayViewModel
   loading: boolean
   onOpenAdminClose: () => void
+  onOpenRefreshPlan: () => void
 }) {
   const { copy, locale } = useI18n()
   const { dashboard } = useDashboard()
@@ -263,6 +265,18 @@ export function AdminClosePanel({
         </span>
         <span className="font-mono text-sm font-semibold text-foreground">
           {formatMoneyLabel(model.remainingMajor, dashboard.currency, locale)}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        disabled={loading}
+        onClick={onOpenRefreshPlan}
+        className="flex w-full items-center justify-between gap-3 rounded-xl bg-elevated px-3 py-3 transition-colors active:bg-field-hover disabled:opacity-50"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-primary">
+          <RefreshCw className="size-4" />
+          {copy.todayAdminRefreshPlan}
         </span>
       </button>
     </Card>
