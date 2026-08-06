@@ -234,3 +234,55 @@ export function AdminCloseConfirmSheet({
     </Sheet>
   )
 }
+
+/**
+ * Closing a check writes a payment, and a row that acts on a single tap gives no
+ * moment to notice it was the wrong row. The body says where to undo it, because
+ * finding that out afterwards is the part that alarms people.
+ */
+export function MemberCloseConfirmSheet({
+  line,
+  loading,
+  onOpenChange,
+  onConfirm
+}: {
+  line: TodayMemberCloseLine | null
+  loading: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) {
+  const { copy, locale } = useI18n()
+  const { dashboard } = useDashboard()
+  const currency = dashboard?.currency ?? 'GEL'
+
+  return (
+    <Sheet
+      open={line !== null}
+      onOpenChange={onOpenChange}
+      title={copy.todayCloseConfirmTitle}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            <X className="size-4" aria-hidden />
+            {copy.closeEditorAction}
+          </Button>
+          <Button variant="primary" loading={loading} onClick={onConfirm}>
+            <CheckCircle2 className="size-4" aria-hidden />
+            {copy.todayCloseConfirmAction}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">{copy.todayCloseConfirmBody}</p>
+
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-elevated px-3 py-2.5">
+          <span className="min-w-0 truncate text-sm text-foreground">{line?.displayName}</span>
+          <span className="shrink-0 font-mono text-sm font-semibold text-foreground">
+            {formatMoneyLabel(line?.amountMajor ?? '0.00', currency, locale)}
+          </span>
+        </div>
+      </div>
+    </Sheet>
+  )
+}

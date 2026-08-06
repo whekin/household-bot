@@ -99,6 +99,10 @@ export const en = {
   todayOpenPurchases: 'All purchases',
   todayAdminCloseAll: 'Close whole period',
   todayAdminRefreshPlan: 'Redraw the split',
+  todayCloseConfirmTitle: 'Close this check?',
+  todayCloseConfirmBody:
+    'Records the payment for this member. To undo it, delete the payment from the Activity tab.',
+  todayCloseConfirmAction: 'Close the check',
   todayRefreshPlanTitle: 'Redraw the split',
   todayRefreshPlanBody:
     'Recalculates who pays which bill from what everyone owes right now. Bills already paid stay with whoever paid them.',
@@ -251,6 +255,10 @@ export const ru: Record<keyof typeof en, string> = {
   todayOpenPurchases: 'Все покупки',
   todayAdminCloseAll: 'Закрыть весь период',
   todayAdminRefreshPlan: 'Пересчитать раскладку',
+  todayCloseConfirmTitle: 'Закрыть этот счёт?',
+  todayCloseConfirmBody:
+    'Запишет оплату за участника. Чтобы отменить, удали этот платёж во вкладке «Журнал».',
+  todayCloseConfirmAction: 'Закрыть счёт',
   todayRefreshPlanTitle: 'Пересчитать раскладку',
   todayRefreshPlanBody:
     'Пересоберёт, кто какой счёт платит, из текущих долгов. Уже оплаченные счета останутся за теми, кто их закрыл.',
