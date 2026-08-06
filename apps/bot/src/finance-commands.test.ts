@@ -1960,6 +1960,100 @@ describe('createFinanceCommandsService', () => {
     ])
   })
 
+  test('does not call a member paid when the plan simply assigns them nothing', async () => {
+    const repository = createRepository()
+    const financeService: FinanceCommandService = {
+      ...createFinanceService(),
+      getMemberByTelegramUserId: async () => ({
+        id: 'member-1',
+        telegramUserId: '123456',
+        displayName: 'Стас',
+        rentShareWeight: 1,
+        isAdmin: false
+      }),
+      generateCurrentBillPlan: async () => ({
+        period: '2026-08',
+        currency: 'GEL',
+        timezone: 'Asia/Tbilisi',
+        billingStage: 'utilities',
+        rentConversion: sameCurrencyRentConversion(),
+        members: [
+          {
+            memberId: 'member-2',
+            displayName: 'Ион',
+            utilityShare: Money.fromMajor('18.57', 'GEL'),
+            // Owed nothing back, so no credit is covering him either.
+            purchaseOffset: Money.fromMajor('11.25', 'GEL'),
+            purchaseDrivers: []
+          }
+        ],
+        utilityBillingPlan: {
+          id: 'utility-plan-8',
+          version: 8,
+          status: 'active',
+          dueDate: '2026-08-05',
+          updatedFromVersion: 7,
+          reason: 'manual_refresh',
+          categories: [],
+          memberSummaries: [
+            {
+              memberId: 'member-2',
+              displayName: 'Ион',
+              fairShare: Money.fromMajor('29.82', 'GEL'),
+              // Nothing assigned and nothing paid: a redraw took his bill away.
+              vendorPaid: Money.zero('GEL'),
+              assignedThisCycle: Money.zero('GEL'),
+              projectedDeltaAfterPlan: Money.fromMajor('-29.82', 'GEL')
+            }
+          ]
+        },
+        rentBillingState: {
+          dueDate: '2026-08-20',
+          memberSummaries: [],
+          paymentDestinations: null
+        }
+      })
+    }
+    const bot = createTelegramBot('000000:test-token', undefined, repository)
+    createFinanceCommandsService({
+      householdConfigurationRepository: repository,
+      financeServiceForHousehold: () => financeService
+    }).register(bot)
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: false
+    }
+
+    const calls: Array<{ method: string; payload: unknown }> = []
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+      return {
+        ok: true,
+        result: {
+          message_id: calls.length,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: -100123456, type: 'supergroup' },
+          text: 'ok'
+        }
+      } as never
+    })
+
+    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+
+    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    expect(text).toContain('В этом цикле платить не нужно')
+    expect(text).not.toContain('Уже оплачено')
+  })
+
   test('renders utility totals and balance-covered members transparently', async () => {
     const repository = createRepository()
     const financeService: FinanceCommandService = {

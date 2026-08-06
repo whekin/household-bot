@@ -1448,13 +1448,20 @@ export function createFinanceCommandsService(options: {
                   entry.summary && entry.summary.vendorPaid.amountMinor > 0n
                 )
                 const isCompactCoveredByBalance = isCoveredByBalance && !isFullyPaid
-                const statusText = isCompactCoveredByBalance
+                // Owing nothing is not the same as having paid. A redraw can take
+                // a member's assignment away entirely, and telling them they paid
+                // for a bill they never touched is worse than saying nothing.
+                const statusText = isFullyPaid
                   ? input.locale === 'ru'
-                    ? 'Закрыто твоим плюсом'
-                    : 'Covered by your credit'
-                  : input.locale === 'ru'
                     ? 'Уже оплачено'
                     : 'Already paid'
+                  : isCompactCoveredByBalance
+                    ? input.locale === 'ru'
+                      ? 'Закрыто твоим плюсом'
+                      : 'Covered by your credit'
+                    : input.locale === 'ru'
+                      ? 'В этом цикле платить не нужно'
+                      : 'Nothing to pay this cycle'
                 const remainingCreditLine =
                   isCompactCoveredByBalance && remainingBalance
                     ? formatRemainingCreditLine({
