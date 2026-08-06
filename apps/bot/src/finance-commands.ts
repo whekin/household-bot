@@ -258,21 +258,36 @@ function formatPurchaseBalanceLine(input: {
   locale: Parameters<typeof getBotTranslations>[0]
   amount: Money
   currency: 'USD' | 'GEL'
+  /** Appends how the balance is settled. Off for inline lists that have no room. */
+  explainSettlement?: boolean
 }): string | null {
   if (input.amount.amountMinor === 0n) {
     return null
   }
 
   const amountText = formatAbsoluteMoney(input.amount, input.currency)
-  if (input.amount.amountMinor < 0n) {
+  const owed = input.amount.amountMinor < 0n
+  // Nobody transfers this to anybody: it lands in the next cycle's utility share.
+  // Left unsaid, the figure reads as a debt to a housemate to go and settle now.
+  const settlesVia = !input.explainSettlement
+    ? ''
+    : owed
+      ? input.locale === 'ru'
+        ? ', вернётся следующими коммуналками'
+        : ', comes back through the next utilities bills'
+      : input.locale === 'ru'
+        ? ', войдёт в следующую коммуналку'
+        : ', goes into the next utilities bill'
+
+  if (owed) {
     return input.locale === 'ru'
-      ? `Покупки: в плюсе ${amountText}`
-      : `Purchases: credit ${amountText}`
+      ? `Покупки: в плюсе ${amountText}${settlesVia}`
+      : `Purchases: credit ${amountText}${settlesVia}`
   }
 
   return input.locale === 'ru'
-    ? `Покупки: остаток ${amountText}`
-    : `Purchases: remaining ${amountText}`
+    ? `Покупки: остаток ${amountText}${settlesVia}`
+    : `Purchases: remaining ${amountText}${settlesVia}`
 }
 
 function formatRemainingCreditLine(input: {
@@ -603,7 +618,7 @@ function formatUtilityAssignmentLine(input: {
       : null
   ].filter(Boolean)
 
-  return detailLines.length > 0 ? `- ${line}\n  ${detailLines.join('\n  ')}` : `- ${line}`
+  return detailLines.length > 0 ? `• ${line}\n  ${detailLines.join('\n  ')}` : `• ${line}`
 }
 
 function formatUtilityAssignmentSummaryLine(input: {
@@ -671,7 +686,8 @@ function formatUtilityMemberBlock(input: {
       ? formatPurchaseBalanceLine({
           locale: input.locale,
           amount: input.balance.purchaseOffset,
-          currency: input.currency
+          currency: input.currency,
+          explainSettlement: true
         })
       : null
 
@@ -680,7 +696,11 @@ function formatUtilityMemberBlock(input: {
       ? `📊 ${[
           `${input.locale === 'ru' ? 'Доля' : 'Share'}: ${formatUserFacingMoney(input.balance.utilityShare.toMajorString(), input.currency)}`,
           purchaseBalanceLine,
-          `${input.locale === 'ru' ? 'План' : 'Plan'}: ${formatUserFacingMoney(input.summary.fairShare.toMajorString(), input.currency)}`
+          // No total here: it is the sum of the two figures beside it, and for a
+          // member the plan assigns nothing it contradicts the line underneath —
+          // a target of 29.82 sitting above "nothing to pay" is what sends people
+          // asking who they owe it to.
+          null
         ]
           .filter(Boolean)
           .join(' · ')}`
@@ -705,7 +725,7 @@ function formatUtilityMemberBlock(input: {
           `${input.locale === 'ru' ? 'Осталось оплатить' : 'Remaining to pay'}: ${formatUserFacingMoney(input.payNow.toMajorString(), input.currency)}`
         ]
     : [
-        input.displayName,
+        `👤 ${input.displayName}`,
         ...(balanceLine ? [balanceLine] : []),
         input.payNow.amountMinor === 0n
           ? input.locale === 'ru'
@@ -1430,7 +1450,8 @@ export function createFinanceCommandsService(options: {
               ? formatPurchaseBalanceLine({
                   locale: input.locale,
                   amount: entry.balance.purchaseOffset,
-                  currency: input.currency
+                  currency: input.currency,
+                  explainSettlement: true
                 })
               : null
             const assignmentSummaryLine =
@@ -1764,7 +1785,8 @@ export function createFinanceCommandsService(options: {
     const purchaseLine = formatPurchaseBalanceLine({
       locale: input.locale,
       amount: member.purchaseOffset,
-      currency: input.dashboard.currency
+      currency: input.dashboard.currency,
+      explainSettlement: true
     })
 
     return [

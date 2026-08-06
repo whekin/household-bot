@@ -248,6 +248,98 @@ describe('payment reminder content', () => {
     expect(JSON.stringify(content.replyMarkup)).toContain('I paid my bills')
   })
 
+  test('reads a covered member as paid rather than as another amount to hand over', () => {
+    const baseDashboard = dashboard()
+    const gel = (major: string) => Money.fromMajor(major, 'GEL')
+    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
+      (summary) => summary.period === '2026-05'
+    )!
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        utilityBillingPlan: {
+          ...baseDashboard.utilityBillingPlan!,
+          categories: [
+            {
+              utilityBillId: 'gas',
+              billName: 'Gas',
+              billTotal: gel('120.00'),
+              assignedAmount: gel('120.00'),
+              assignedMemberId: 'alice',
+              assignedDisplayName: 'Alice <A>',
+              paidAmount: gel('120.00'),
+              isFullAssignment: true,
+              splitGroupId: null
+            }
+          ],
+          vendorPayments: [
+            {
+              id: 'fact-1',
+              utilityBillId: 'gas',
+              billName: 'Gas',
+              payerMemberId: 'alice',
+              payerDisplayName: 'Alice <A>',
+              amount: gel('120.00'),
+              matchedPlan: true,
+              recordedAt: new Date().toISOString()
+            }
+          ]
+        },
+        paymentPeriods: [
+          {
+            ...utilitiesPeriod,
+            kinds: utilitiesPeriod.kinds.map((kind) =>
+              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
+            )
+          }
+        ]
+      } as never,
+      viewMode: 'compact'
+    })
+
+    // Her own money covered it, so the figure beside her name would otherwise be
+    // added to the running total by anyone reading down the list.
+    expect(content.text).toContain('<b>Alice &lt;A&gt;</b> — оплачено')
+    expect(content.text).toContain('✅ Gas · 120.00 ₾')
+  })
+
+  test('says a purchase balance settles through utilities, not between people', () => {
+    const baseDashboard = dashboard()
+    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
+      (summary) => summary.period === '2026-05'
+    )!
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      dashboard: {
+        ...baseDashboard,
+        members: baseDashboard.members.map((member) =>
+          member.memberId === 'alice'
+            ? { ...member, purchaseOffset: Money.fromMajor('11.25', 'GEL') }
+            : { ...member, purchaseOffset: Money.fromMajor('-11.25', 'GEL') }
+        ),
+        paymentPeriods: [
+          {
+            ...utilitiesPeriod,
+            kinds: utilitiesPeriod.kinds.map((kind) =>
+              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
+            )
+          }
+        ]
+      },
+      viewMode: 'compact'
+    })
+
+    expect(content.text).toContain('11.25 ₾ долг по покупкам — войдёт в следующую коммуналку')
+    expect(content.text).toContain('11.25 ₾ в плюсе по покупкам — вернётся следующими коммуналками')
+  })
+
   test('does not tick a split bill as paid for the member who did not pay it', () => {
     const baseDashboard = dashboard()
     const gel = (major: string) => Money.fromMajor(major, 'GEL')

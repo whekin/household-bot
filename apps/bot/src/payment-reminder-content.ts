@@ -223,24 +223,39 @@ function utilitiesByMemberLines(input: {
             )
         : (planSummaryById.get(memberId)?.assignedThisCycle ??
           Money.zero(input.dashboard.currency)))
-    lines.push(
-      total.amountMinor <= 0n
-        ? `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(input.locale === 'ru' ? 'сейчас платить не нужно' : 'nothing to pay now')}`
-        : `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(moneyText(total))}`
-    )
-    for (const category of memberCategories) {
-      // `paidAmount` is the whole bill's payments, whoever made them, so on a
-      // split bill one member paying their share would tick everyone else's line
-      // as well. Count only what this member put toward this bill.
-      const paidByThisMember = (plan?.vendorPayments ?? [])
+    // `paidAmount` is the whole bill's payments, whoever made them, so on a split
+    // bill one member paying their share would tick everyone else's line as well.
+    // Count only what this member put toward this bill.
+    const isPaidByThisMember = (category: (typeof categories)[number]): boolean =>
+      (plan?.vendorPayments ?? [])
         .filter(
           (payment) =>
             payment.utilityBillId === category.utilityBillId && payment.payerMemberId === memberId
         )
-        .reduce((sum, payment) => sum + payment.amount.amountMinor, 0n)
-      const billPaid = paidByThisMember >= category.assignedAmount.amountMinor
+        .reduce((sum, payment) => sum + payment.amount.amountMinor, 0n) >=
+      category.assignedAmount.amountMinor
+    // Their bills are covered by their own money: the amount below their name is
+    // what they contributed, not another sum to hand over. Saying so keeps it out
+    // of the running total a reader adds up from this list.
+    const settledEverythingAssigned =
+      !unresolved && memberCategories.length > 0 && memberCategories.every(isPaidByThisMember)
+
+    lines.push(
+      `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(
+        settledEverythingAssigned
+          ? input.locale === 'ru'
+            ? 'оплачено'
+            : 'paid'
+          : total.amountMinor <= 0n
+            ? input.locale === 'ru'
+              ? 'сейчас платить не нужно'
+              : 'nothing to pay now'
+            : moneyText(total)
+      )}`
+    )
+    for (const category of memberCategories) {
       lines.push(
-        `${billPaid ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
+        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
       )
     }
     // Nothing left to pay on the plan does not mean nothing is owed: shared
@@ -261,15 +276,28 @@ function utilitiesByMemberLines(input: {
         owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
         input.dashboard.currency
       )
+      // Nobody transfers this to anybody. It is settled through the next cycle's
+      // utility share, and without saying so the line reads as a debt to a
+      // housemate that someone should go and pay off right now.
+      const throughUtilities = input.dashboard.paymentBalanceAdjustmentPolicy === 'utilities'
+      const settlesVia = !throughUtilities
+        ? ''
+        : owes
+          ? input.locale === 'ru'
+            ? ' — войдёт в следующую коммуналку'
+            : ' — goes into the next utilities bill'
+          : input.locale === 'ru'
+            ? ' — вернётся следующими коммуналками'
+            : ' — comes back through the next utilities bills'
       lines.push(
         `   ↩ ${escapeHtml(moneyText(amount))} ${escapeHtml(
-          owes
+          (owes
             ? input.locale === 'ru'
               ? 'долг по покупкам'
               : 'owed on shared purchases'
             : input.locale === 'ru'
               ? 'в плюсе по покупкам'
-              : 'in credit on shared purchases'
+              : 'in credit on shared purchases') + settlesVia
         )}`
       )
     }

@@ -2269,17 +2269,17 @@ describe('createFinanceCommandsService', () => {
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     expect(text).toContain('💰 Счета: 310.19 ₾')
     expect(text).toContain('доля 103.40 ₾')
-    expect(text).toContain('\nДима\n')
+    expect(text).toContain('\n👤 Дима\n')
     expect(text).toContain('Осталось оплатить: 77.17 ₾')
     expect(text).toContain('Electricity — 56.86 ₾')
     expect(text).toContain('Gas (Water) — 20.31 ₾ из 253.33 ₾')
     expect(text).toContain('Покупки: в плюсе 1.00 ₾')
     expect(text).not.toContain('Electricity: 56.86 ₾')
     expect(text).not.toContain('Gas (Water): 20.31 ₾')
-    expect(text).toContain('\nСтас\n')
+    expect(text).toContain('\n👤 Стас\n')
     expect(text).toContain('Закрыто твоим плюсом')
     expect(text).toContain('В плюсе после коммуналки: 22.93 ₾')
-    expect(text).toContain('\nИон\n')
+    expect(text).toContain('\n👤 Ион\n')
     expect(text).toContain('Платить не нужно.')
 
     const fullText = text
@@ -2386,7 +2386,9 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
 
     const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(fullText).toContain('Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾ · План: 28.12 ₾')
+    expect(fullText).toContain(
+      'Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾, вернётся следующими коммуналками'
+    )
     expect(fullText).toContain('Осталось оплатить: 28.12 ₾')
     expect(fullText).toContain('Internet — 28.12 ₾ из 35.00 ₾')
   })
@@ -2488,7 +2490,7 @@ describe('createFinanceCommandsService', () => {
     await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('\nДима\n')
+    expect(text).toContain('\n👤 Дима\n')
     expect(text).toContain('Уже оплачено.')
     expect(text).toContain('Покупки: в плюсе 18.00 ₾')
     expect(text).not.toContain('Закрыто твоим плюсом')
