@@ -3713,6 +3713,13 @@ describe('createFinanceCommandService', () => {
         amountMinor: category.assignedAmount.amountMinor
       }))
     ).toEqual([
+      // Alice's off-plan payment stays in the plan as hers, so the card can still
+      // show who covered Gas instead of dropping it once it is no longer owed.
+      {
+        bill: 'Gas',
+        assigned: 'alice',
+        amountMinor: 10000n
+      },
       {
         bill: 'Electricity',
         assigned: 'bob',
@@ -4822,14 +4829,21 @@ describe('createFinanceCommandService', () => {
 
     const refreshed = await service.refreshUtilityBillingPlan('2026-08')
 
-    // Electricity is paid, so it is not handed to anyone a second time; only the
-    // open bill is redrawn.
+    // Electricity is paid, so it is not handed to anyone a second time. It stays
+    // in the plan as Alisa's, or she would look like she had contributed nothing.
     expect(
       refreshed?.utilityBillingPlan?.categories.map((category) => [
         category.billName,
         category.assignedMemberId
       ])
-    ).toEqual([['Gas', 'dima']])
+    ).toEqual([
+      ['Electricity', 'alisa'],
+      ['Gas', 'dima']
+    ])
+    const alisaAfter = refreshed?.utilityBillingPlan?.memberSummaries.find(
+      (summary) => summary.memberId === 'alisa'
+    )
+    expect(alisaAfter?.assignedThisCycle.amountMinor).toBe(0n)
     expect(refreshed?.utilityBillingPlan?.version).toBeGreaterThan(
       planned?.utilityBillingPlan?.version ?? 0
     )

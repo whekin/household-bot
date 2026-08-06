@@ -140,6 +140,51 @@ function candidatePaidByBill(
   return amounts
 }
 
+/**
+ * Bills that were already settled before the plan was drawn, kept as categories
+ * so the card can still show who covered them.
+ *
+ * The search only distributes what is still owed, so a bill paid up front would
+ * otherwise vanish from the plan entirely — leaving the member who paid it
+ * looking like they contributed nothing, and the household unable to see from
+ * the plan whether that bill was handled at all. They carry no assignment, so
+ * nobody is asked to pay them a second time.
+ */
+function coveredBillCategories(input: {
+  currency: CurrencyCode
+  bills: readonly UtilityBillingBill[]
+  paidByBillId: ReadonlyMap<string, bigint>
+  coveragePayments: readonly UtilityVendorPaymentFactInput[]
+}): readonly UtilityBillingCategoryAssignment[] {
+  const payerByBillId = new Map<string, string>()
+  for (const payment of input.coveragePayments) {
+    if (payment.utilityBillId && !payerByBillId.has(payment.utilityBillId)) {
+      payerByBillId.set(payment.utilityBillId, payment.payerMemberId)
+    }
+  }
+
+  return input.bills.flatMap((bill) => {
+    const paidMinor = input.paidByBillId.get(bill.utilityBillId) ?? 0n
+    const payerMemberId = payerByBillId.get(bill.utilityBillId)
+    if (paidMinor < bill.amount.amountMinor || !payerMemberId) {
+      return []
+    }
+
+    return [
+      {
+        utilityBillId: bill.utilityBillId,
+        billName: bill.billName,
+        billTotal: bill.amount,
+        assignedAmount: bill.amount,
+        assignedMemberId: payerMemberId,
+        paidAmount: Money.fromMinor(paidMinor, input.currency),
+        isFullAssignment: true,
+        splitGroupId: null
+      }
+    ]
+  })
+}
+
 function summarizeMembers(input: {
   currency: CurrencyCode
   members: readonly UtilityBillingTargetMember[]
@@ -576,19 +621,27 @@ export function computeUtilityBillingPlan(input: {
     status: best.assignments.length === 0 ? 'settled' : 'active',
     maxCategoriesPerMemberApplied: best.maxCategoriesPerMemberApplied,
     preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
-    categories: best.assignments.map((assignment) => ({
-      utilityBillId: assignment.bill.utilityBillId,
-      billName: assignment.bill.billName,
-      billTotal: Money.fromMinor(assignment.bill.billTotalMinor, input.currency),
-      assignedAmount: Money.fromMinor(assignment.assignedAmountMinor, input.currency),
-      assignedMemberId: assignment.assignedMemberId,
-      paidAmount: Money.fromMinor(assignment.bill.paidAmountMinor, input.currency),
-      isFullAssignment: (assignmentCountByBillId.get(assignment.bill.utilityBillId) ?? 0) === 1,
-      splitGroupId:
-        (assignmentCountByBillId.get(assignment.bill.utilityBillId) ?? 0) > 1
-          ? assignment.bill.utilityBillId
-          : null
-    })),
+    categories: [
+      ...coveredBillCategories({
+        currency: input.currency,
+        bills: input.bills,
+        paidByBillId,
+        coveragePayments: input.billCoveragePayments ?? input.vendorPayments
+      }),
+      ...best.assignments.map((assignment) => ({
+        utilityBillId: assignment.bill.utilityBillId,
+        billName: assignment.bill.billName,
+        billTotal: Money.fromMinor(assignment.bill.billTotalMinor, input.currency),
+        assignedAmount: Money.fromMinor(assignment.assignedAmountMinor, input.currency),
+        assignedMemberId: assignment.assignedMemberId,
+        paidAmount: Money.fromMinor(assignment.bill.paidAmountMinor, input.currency),
+        isFullAssignment: (assignmentCountByBillId.get(assignment.bill.utilityBillId) ?? 0) === 1,
+        splitGroupId:
+          (assignmentCountByBillId.get(assignment.bill.utilityBillId) ?? 0) > 1
+            ? assignment.bill.utilityBillId
+            : null
+      }))
+    ],
     memberSummaries: best.memberSummaries,
     fairShareByMember: input.members.map((member) => ({
       memberId: member.memberId,
