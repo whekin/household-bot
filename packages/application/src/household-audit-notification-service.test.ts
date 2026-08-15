@@ -178,7 +178,7 @@ describe('renderAuditNotification', () => {
           currency: 'GEL'
         }
       }).compactText
-    ).toBe('Stas added purchase: Mr. Proper 12.00 ₾')
+    ).toBe('🛒 Stas added purchase: Mr. Proper 12.00 ₾')
 
     expect(
       renderAuditNotification({
@@ -192,7 +192,7 @@ describe('renderAuditNotification', () => {
           currency: 'GEL'
         }
       }).compactText
-    ).toBe('Стас: добавление покупки Mr. Proper 12.00 ₾')
+    ).toBe('🛒 Стас: добавление покупки Mr. Proper 12.00 ₾')
   })
 
   test('renders expanded purchase details with participants', () => {
@@ -255,7 +255,7 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe('Стас: закрытие аренды за май 2026 г.')
+    expect(rendered.compactText).toBe('📦 Стас: закрытие аренды за май 2026 г.')
     expect(rendered.compactText).not.toContain('2026-05')
     expect(rendered.details?.expandedText).toContain('Период: май 2026 г.')
     expect(rendered.details?.expandedText).toContain('Закрыто для: Стас 469.00 ₾, Дима 469.00 ₾')
@@ -276,7 +276,7 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe('Stas recorded payment: rent 469.00 ₾ (May 2026)')
+    expect(rendered.compactText).toBe('✅ Stas recorded payment: rent 469.00 ₾ (May 2026)')
     expect(rendered.details?.expandedText).toContain('Member: Dima')
     expect(rendered.details?.expandedText).toContain('Period: May 2026')
   })
@@ -301,7 +301,7 @@ describe('renderAuditNotification', () => {
     })
 
     expect(rendered.compactText).toBe(
-      'Stas: запись платежа Stas, Alisa, Ion коммуналка (июль 2026 г.)'
+      '✅ Stas: запись платежа Stas, Alisa, Ion коммуналка (июль 2026 г.)'
     )
     expect(rendered.details?.expandedText).toContain(
       'Закрыто для: Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
@@ -332,7 +332,7 @@ describe('renderAuditNotification', () => {
     })
 
     expect(rendered.compactText).toBe(
-      'Стас: отметил коммуналку по плану: Ион · Gas (Water) 93.06 ₾ июнь 2026 г.'
+      '✅ Стас: отметил коммуналку по плану: Ион · Gas (Water) 93.06 ₾ июнь 2026 г.'
     )
     expect(rendered.details?.expandedText).toContain('Счета: Ион · Gas (Water) 93.06 ₾')
   })
@@ -350,7 +350,9 @@ describe('renderAuditNotification', () => {
         period: '2026-07'
       }
     })
-    expect(utilityBill.compactText).toBe('Stas added utility bill: Electricity 35.84 ₾ (July 2026)')
+    expect(utilityBill.compactText).toBe(
+      '💡 Stas added utility bill: Electricity 35.84 ₾ (July 2026)'
+    )
     expect(utilityBill.details).toBeNull()
 
     const rent = renderAuditNotification({
@@ -364,7 +366,7 @@ describe('renderAuditNotification', () => {
         period: '2026-07'
       }
     })
-    expect(rent.compactText).toBe('Стас: аренда обновлена: 2415.00 ₾ (июль 2026 г.)')
+    expect(rent.compactText).toBe('🏠 Стас: аренда обновлена: 2415.00 ₾ (июль 2026 г.)')
     expect(rent.details).toBeNull()
   })
 
@@ -489,7 +491,7 @@ describe('createHouseholdAuditNotificationService', () => {
 
     expect(sentMessages).toEqual([
       {
-        text: 'Стас: добавление покупки Pizza 30.00 ₾',
+        text: '🛒 Стас: добавление покупки Pizza 30.00 ₾',
         replyMarkup: buildAuditNotificationViewReplyMarkup({
           eventId: event.id,
           locale: 'ru',
@@ -498,7 +500,7 @@ describe('createHouseholdAuditNotificationService', () => {
       }
     ])
     const stored = repository.events.get(event.id)
-    expect(stored?.summaryText).toBe('Стас: добавление покупки Pizza 30.00 ₾')
+    expect(stored?.summaryText).toBe('🛒 Стас: добавление покупки Pizza 30.00 ₾')
     expect(stored ? getAuditNotificationDetails(stored)?.expandedText : null).toContain(
       'Участники: Стас, Дима'
     )

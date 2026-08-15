@@ -153,6 +153,31 @@ function localizedClosedPaymentKind(locale: SupportedLocale, value: string | nul
   return localizedKind(locale, value)
 }
 
+// A leading glyph per event type. Plain text on purpose: this layer stays free of
+// Telegram markup, so the same string works on any delivery surface.
+function eventEmoji(eventType: string): string | null {
+  const byType: Record<string, string> = {
+    'cycle.opened': '📅',
+    'cycle.closed': '📦',
+    'rent.updated': '🏠',
+    'utility_bill.added': '💡',
+    'utility_bill.updated': '💡',
+    'utility_bill.deleted': '🗑',
+    'purchase.added': '🛒',
+    'purchase.updated': '✏️',
+    'purchase.confirmed': '🧾',
+    'purchase.deleted': '🗑',
+    'payment.recorded': '✅',
+    'payment.updated': '✏️',
+    'payment.deleted': '🗑',
+    'payment_period.closed': '📦',
+    'utility_plan.resolved': '✅',
+    'utility_plan.settled': '✅',
+    'utility_vendor_payment.recorded': '🏦'
+  }
+  return byType[eventType] ?? null
+}
+
 function actionText(locale: SupportedLocale, eventType: string): string | null {
   const en: Record<string, string> = {
     'cycle.opened': 'opened period',
@@ -580,19 +605,21 @@ export function renderAuditNotification(input: {
               .join(' ')
           )
         : cleanSummaryText(input.fallbackSummaryText)
+  const emoji = eventEmoji(input.eventType)
+  const decoratedCompactText = emoji ? `${emoji} ${compactText}` : compactText
   const expandedText = buildExpandedText({
     locale: input.locale,
-    compactText,
+    compactText: decoratedCompactText,
     metadata: input.metadata
   })
 
   return {
-    compactText,
+    compactText: decoratedCompactText,
     details:
-      expandedText && expandedText !== compactText
+      expandedText && expandedText !== decoratedCompactText
         ? {
             locale: input.locale,
-            compactText,
+            compactText: decoratedCompactText,
             expandedText
           }
         : null
