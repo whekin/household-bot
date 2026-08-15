@@ -8,7 +8,9 @@ import type {
   TopicMessageHistoryRepository
 } from '@household/ports'
 
+import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
+import { formatUserFacingMoney } from './i18n/money'
 import type {
   PurchaseInterpretationAmountSource,
   PurchaseInterpretation
@@ -586,6 +588,7 @@ async function replyToPurchaseMessage(
   }
 
   const reply = await ctx.reply(text, {
+    parse_mode: 'HTML',
     reply_parameters: {
       message_id: message.message_id
     },
@@ -722,16 +725,21 @@ function formatPurchaseSummary(
     parsedItemDescription: string | null
   }
 ): string {
+  const t = getBotTranslations(locale).purchase
+
   if (
     result.parsedAmountMinor === null ||
     result.parsedCurrency === null ||
     result.parsedItemDescription === null
   ) {
-    return getBotTranslations(locale).purchase.sharedPurchaseFallback
+    return `<b>${escapeHtml(t.sharedPurchaseFallback)}</b>`
   }
 
   const amount = Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency)
-  return `${result.parsedItemDescription} - ${amount.toMajorString()} ${result.parsedCurrency}`
+  return t.summary(
+    escapeHtml(result.parsedItemDescription),
+    formatUserFacingMoney(amount.toMajorString(), result.parsedCurrency)
+  )
 }
 
 function clarificationFallback(locale: BotLocale, result: PurchaseClarificationResult): string {
@@ -767,8 +775,8 @@ function formatPurchaseParticipants(
   const t = getBotTranslations(locale).purchase
   const lines = participants.map((participant) =>
     participant.included
-      ? t.participantIncluded(participant.displayName)
-      : t.participantExcluded(participant.displayName)
+      ? t.participantIncluded(escapeHtml(participant.displayName))
+      : t.participantExcluded(escapeHtml(participant.displayName))
   )
 
   return `${t.participantsHeading}\n${lines.join('\n')}`
@@ -786,7 +794,7 @@ function formatPurchaseCalculationNote(
   }
 
   const t = getBotTranslations(locale).purchase
-  return t.calculatedAmountNote(result.calculationExplanation ?? null)
+  return escapeHtml(t.calculatedAmountNote(result.calculationExplanation ?? null))
 }
 
 function formatPurchasePayer(
@@ -799,7 +807,7 @@ function formatPurchasePayer(
     return null
   }
 
-  return getBotTranslations(locale).purchase.payerSelected(result.payerDisplayName)
+  return getBotTranslations(locale).purchase.payerLine(escapeHtml(result.payerDisplayName))
 }
 
 export function buildPurchaseAcknowledgement(
@@ -820,14 +828,16 @@ export function buildPurchaseAcknowledgement(
         formatPurchaseParticipants(locale, result.participants)
       )
     case 'clarification_needed':
-      return t.clarification(
-        result.clarificationQuestion ??
-          (result.payerCandidates && result.payerCandidates.length > 0
-            ? t.payerFallbackQuestion
-            : clarificationFallback(locale, result))
-      )
+      return `❓ ${escapeHtml(
+        t.clarification(
+          result.clarificationQuestion ??
+            (result.payerCandidates && result.payerCandidates.length > 0
+              ? t.payerFallbackQuestion
+              : clarificationFallback(locale, result))
+        )
+      )}`
     case 'parse_failed':
-      return t.parseFailed
+      return `🤔 ${escapeHtml(t.parseFailed)}`
   }
 }
 
@@ -1077,6 +1087,7 @@ function registerPurchaseProposalCallbacks(
 
       if (ctx.msg) {
         await ctx.editMessageText(buildPurchasePayerSelectionMessage(locale, result), {
+          parse_mode: 'HTML',
           reply_markup: purchaseProposalReplyMarkup(
             locale,
             {
@@ -1148,6 +1159,7 @@ function registerPurchaseProposalCallbacks(
 
     if (ctx.msg) {
       await ctx.editMessageText(buildPurchaseToggleMessage(locale, result), {
+        parse_mode: 'HTML',
         reply_markup: purchaseProposalReplyMarkup(
           locale,
           {
@@ -1222,6 +1234,7 @@ function registerPurchaseProposalCallbacks(
 
       if (!replaced) {
         await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+          parse_mode: 'HTML',
           reply_markup: emptyInlineKeyboard()
         })
       }
@@ -1366,6 +1379,7 @@ function registerPurchaseProposalCallbacks(
 
     if (ctx.msg) {
       await ctx.editMessageText(buildPurchaseActionMessage(locale, result), {
+        parse_mode: 'HTML',
         reply_markup: emptyInlineKeyboard()
       })
     }

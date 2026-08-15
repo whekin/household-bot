@@ -28,6 +28,7 @@ import {
   TELEGRAM_HOME_SETUP_CALLBACK,
   TELEGRAM_HOME_STATUS_CALLBACK
 } from './home-menu'
+import { escapeHtml } from './html'
 import { tryEditMessageText } from './telegram-message-edit'
 
 const APPROVE_MEMBER_CALLBACK_PREFIX = 'approve_member:'
@@ -132,8 +133,19 @@ function pendingMembersReply(
   const t = getBotTranslations(locale).setup
   return {
     text: [
-      t.pendingMembersHeading(result.householdName),
-      ...result.members.map((member, index) => t.pendingMemberLine(member, index)),
+      t.pendingMembersHeading(escapeHtml(result.householdName)),
+      '',
+      ...result.members.map((member, index) =>
+        t.pendingMemberLine(
+          {
+            ...member,
+            displayName: escapeHtml(member.displayName),
+            ...(member.username ? { username: escapeHtml(member.username) } : {})
+          },
+          index
+        )
+      ),
+      '',
       t.pendingMembersHint
     ].join('\n'),
     reply_markup: {
@@ -542,6 +554,7 @@ async function replyWithTelegramHome(input: {
     botUsername: input.ctx.me.username
   })
   const options = {
+    parse_mode: 'HTML' as const,
     reply_markup: reply.reply_markup
   }
   if (input.editMessage && (await tryEditMessageText(input.ctx, reply.text, options))) {
@@ -727,17 +740,17 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     if (result.status === 'active') {
-      await ctx.reply(
-        t.setup.alreadyActiveMember(result.member.displayName),
-        miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
-      )
+      await ctx.reply(t.setup.alreadyActiveMember(escapeHtml(result.member.displayName)), {
+        parse_mode: 'HTML',
+        ...miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
+      })
       return
     }
 
-    await ctx.reply(
-      t.setup.joinRequestSent(result.household.name),
-      miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
-    )
+    await ctx.reply(t.setup.joinRequestSent(escapeHtml(result.household.name)), {
+      parse_mode: 'HTML',
+      ...miniAppReplyMarkup(locale, options.miniAppUrl, ctx.me.username, joinToken, true)
+    })
   })
 
   options.bot.command('setup', async (ctx) => {
@@ -799,10 +812,10 @@ export function registerHouseholdSetupCommands(options: {
       miniAppUrl: options.miniAppUrl,
       botUsername: ctx.me.username
     })
-    const sent = await ctx.reply(
-      reply.text,
-      'reply_markup' in reply ? { reply_markup: reply.reply_markup } : {}
-    )
+    const sent = await ctx.reply(reply.text, {
+      parse_mode: 'HTML',
+      ...('reply_markup' in reply ? { reply_markup: reply.reply_markup } : {})
+    })
 
     if (options.promptRepository) {
       await options.promptRepository.upsertPendingAction({
@@ -863,7 +876,9 @@ export function registerHouseholdSetupCommands(options: {
       'Household setup state reset'
     )
 
-    await ctx.reply(t.setup.unsetupComplete(result.household.householdName))
+    await ctx.reply(t.setup.unsetupComplete(escapeHtml(result.household.householdName)), {
+      parse_mode: 'HTML'
+    })
   })
 
   options.bot.command('pending_members', async (ctx) => {
@@ -895,12 +910,15 @@ export function registerHouseholdSetupCommands(options: {
     }
 
     if (result.members.length === 0) {
-      await ctx.reply(t.setup.pendingMembersEmpty(result.householdName))
+      await ctx.reply(t.setup.pendingMembersEmpty(escapeHtml(result.householdName)), {
+        parse_mode: 'HTML'
+      })
       return
     }
 
     const reply = pendingMembersReply(locale, result)
     await ctx.reply(reply.text, {
+      parse_mode: 'HTML',
       reply_markup: reply.reply_markup
     })
   })
@@ -940,7 +958,13 @@ export function registerHouseholdSetupCommands(options: {
       return
     }
 
-    await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
+    await ctx.reply(
+      t.setup.approvedMember(
+        escapeHtml(result.member.displayName),
+        escapeHtml(result.householdName)
+      ),
+      { parse_mode: 'HTML' }
+    )
   })
 
   options.bot.command('join_link', async (ctx) => {
@@ -991,18 +1015,22 @@ export function registerHouseholdSetupCommands(options: {
       return
     }
 
-    await ctx.reply(t.setup.joinLinkReady(joinDeepLink, household.householdName), {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: t.setup.joinHouseholdButton,
-              url: joinDeepLink
-            }
+    await ctx.reply(
+      t.setup.joinLinkReady(escapeHtml(joinDeepLink), escapeHtml(household.householdName)),
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: t.setup.joinHouseholdButton,
+                url: joinDeepLink
+              }
+            ]
           ]
-        ]
+        }
       }
-    })
+    )
   })
 
   options.bot.command('bind', async (ctx) => {
@@ -1126,10 +1154,14 @@ export function registerHouseholdSetupCommands(options: {
         if (refreshed.status === 'ok') {
           try {
             if (refreshed.members.length === 0) {
-              await ctx.editMessageText(t.setup.pendingMembersEmpty(refreshed.householdName))
+              await ctx.editMessageText(
+                t.setup.pendingMembersEmpty(escapeHtml(refreshed.householdName)),
+                { parse_mode: 'HTML' }
+              )
             } else {
               const reply = pendingMembersReply(locale, refreshed)
               await ctx.editMessageText(reply.text, {
+                parse_mode: 'HTML',
                 reply_markup: reply.reply_markup
               })
             }
@@ -1139,7 +1171,13 @@ export function registerHouseholdSetupCommands(options: {
         }
       }
 
-      await ctx.reply(t.setup.approvedMember(result.member.displayName, result.householdName))
+      await ctx.reply(
+        t.setup.approvedMember(
+          escapeHtml(result.member.displayName),
+          escapeHtml(result.householdName)
+        ),
+        { parse_mode: 'HTML' }
+      )
     }
   )
 
@@ -1436,7 +1474,10 @@ export function registerHouseholdSetupCommands(options: {
     const t = getBotTranslations(locale).home
 
     const text = [t.setupMenuTitle, t.setupMenuBody].join('\n\n')
-    const replyMarkup = buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    const replyMarkup = {
+      parse_mode: 'HTML' as const,
+      ...buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    }
     if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
       await ctx.reply(text, replyMarkup)
     }
@@ -1451,7 +1492,10 @@ export function registerHouseholdSetupCommands(options: {
     const t = getBotTranslations(locale).home
 
     const text = [t.feedbackMenuTitle, t.feedbackMenuBody].join('\n\n')
-    const replyMarkup = buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    const replyMarkup = {
+      parse_mode: 'HTML' as const,
+      ...buildTelegramHomeMenuReplyMarkup(t.menuButton)
+    }
     if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
       await ctx.reply(text, replyMarkup)
     }

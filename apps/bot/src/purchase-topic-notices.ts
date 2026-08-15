@@ -10,6 +10,7 @@ import type {
   HouseholdMemberRecord
 } from '@household/ports'
 
+import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { formatUserFacingMoney } from './i18n/money'
 
@@ -21,6 +22,7 @@ type InlineKeyboardMarkup = {
 
 export interface RenderedPurchaseTopicNotice {
   text: string
+  parseMode: 'HTML'
   replyMarkup?: InlineKeyboardMarkup
 }
 
@@ -65,11 +67,31 @@ function memberStatus(
   return members.find((member) => member.id === memberId)?.status ?? null
 }
 
-function splitLabel(locale: BotLocale, splitMode: string | null | undefined): string {
-  if (splitMode === 'custom_amounts') {
-    return locale === 'ru' ? 'индивидуальные суммы' : 'custom amounts'
+function splitLine(locale: BotLocale, purchase: FinanceParsedPurchaseRecord): string {
+  const t = getBotTranslations(locale).purchase
+  if (purchase.splitMode === 'custom_amounts') {
+    return t.splitCustomLine
   }
-  return locale === 'ru' ? 'поровну' : 'equal'
+  return t.splitEqualLine(perHeadShareText(purchase))
+}
+
+function perHeadShareText(purchase: FinanceParsedPurchaseRecord): string | null {
+  const includedCount = (purchase.participants ?? []).filter(
+    (participant) => participant.included !== false
+  ).length
+  if (includedCount < 2) {
+    return null
+  }
+
+  const shares = Money.fromMinor(purchase.amountMinor, purchase.currency).splitEvenly(includedCount)
+  const first = shares[0]
+  if (!first) {
+    return null
+  }
+
+  const even = shares.every((share) => share.equals(first))
+  const text = formatUserFacingMoney(first.toMajorString(), purchase.currency)
+  return even ? text : `≈ ${text}`
 }
 
 function renderParticipantLines(input: {
@@ -84,22 +106,27 @@ function renderParticipantLines(input: {
 
   const t = getBotTranslations(input.locale).purchase
   const lines = participants.map((participant) => {
-    const displayName = memberName(input.members, participant.memberId) ?? participant.memberId
-    const share =
-      participant.shareAmountMinor !== null
-        ? ` ${moneyText(participant.shareAmountMinor, input.purchase.currency)}`
-        : ''
-    return participant.included === false
-      ? t.participantExcluded(displayName)
-      : `${t.participantIncluded(displayName)}${share}`
+    const displayName = escapeHtml(
+      memberName(input.members, participant.memberId) ?? participant.memberId
+    )
+    if (participant.included === false) {
+      return t.participantExcluded(displayName)
+    }
+    return participant.shareAmountMinor !== null
+      ? t.participantIncludedWithShare(
+          displayName,
+          moneyText(participant.shareAmountMinor, input.purchase.currency)
+        )
+      : t.participantIncluded(displayName)
   })
 
   return `${t.participantsHeading}\n${lines.join('\n')}`
 }
 
-function purchaseSummary(purchase: FinanceParsedPurchaseRecord): string {
-  const description = purchase.description?.trim() || 'shared purchase'
-  return `${description} ${moneyText(purchase.amountMinor, purchase.currency)}`
+function purchaseSummary(locale: BotLocale, purchase: FinanceParsedPurchaseRecord): string {
+  const t = getBotTranslations(locale).purchase
+  const description = purchase.description?.trim() || t.sharedPurchaseFallback
+  return t.summary(escapeHtml(description), moneyText(purchase.amountMinor, purchase.currency))
 }
 
 export function renderPurchaseTopicNotice(input: {
@@ -107,24 +134,17 @@ export function renderPurchaseTopicNotice(input: {
   purchase: FinanceParsedPurchaseRecord
   members: readonly HouseholdMemberRecord[]
 }): RenderedPurchaseTopicNotice {
+  const t = getBotTranslations(input.locale).purchase
   const payer =
     memberName(input.members, input.purchase.payerMemberId) ?? input.purchase.payerMemberId
   const participants = renderParticipantLines(input)
-  const summary = purchaseSummary(input.purchase)
-  const lines =
-    input.locale === 'ru'
-      ? [
-          `Покупка: ${summary}`,
-          `Плательщик: ${payer}`,
-          `Разделение: ${splitLabel(input.locale, input.purchase.splitMode)}`,
-          participants
-        ]
-      : [
-          `Purchase: ${summary}`,
-          `Paid by: ${payer}`,
-          `Split: ${splitLabel(input.locale, input.purchase.splitMode)}`,
-          participants
-        ]
+  const lines = [
+    t.savedCardHeadline(purchaseSummary(input.locale, input.purchase)),
+    payer ? t.payerLine(escapeHtml(payer)) : null,
+    splitLine(input.locale, input.purchase),
+    participants ? '' : null,
+    participants
+  ]
 
   const participantButtons =
     input.purchase.splitMode !== 'custom_amounts'
@@ -155,7 +175,8 @@ export function renderPurchaseTopicNotice(input: {
       : []
 
   return {
-    text: lines.filter((line): line is string => Boolean(line)).join('\n'),
+    text: lines.filter((line): line is string => line !== null).join('\n'),
+    parseMode: 'HTML',
     ...(participantButtons.length > 0
       ? {
           replyMarkup: {
@@ -167,7 +188,7 @@ export function renderPurchaseTopicNotice(input: {
 }
 
 export function renderDeletedPurchaseTopicNotice(locale: BotLocale): string {
-  return locale === 'ru' ? 'Покупка удалена.' : 'Purchase removed.'
+  return getBotTranslations(locale).purchase.removed
 }
 
 function emptyInlineKeyboard(): InlineKeyboardMarkup {
@@ -288,7 +309,10 @@ export function createPurchaseTopicNoticeService(input: {
         inputValue.mapping.telegramChatId,
         Number(inputValue.mapping.telegramMessageId),
         rendered.text,
-        rendered.replyMarkup ? { reply_markup: rendered.replyMarkup } : {}
+        {
+          parse_mode: rendered.parseMode,
+          ...(rendered.replyMarkup ? { reply_markup: rendered.replyMarkup } : {})
+        }
       )
       const repository = input.financeRepositoryForHousehold(inputValue.householdId)
       await repository.upsertPurchaseTopicMessage?.({
@@ -344,6 +368,7 @@ export function createPurchaseTopicNoticeService(input: {
       try {
         const threadId = telegramThreadId(topic.telegramThreadId)
         const message = await input.bot.api.sendMessage(chat.telegramChatId, rendered.text, {
+          parse_mode: rendered.parseMode,
           ...(threadId !== undefined
             ? {
                 message_thread_id: threadId
@@ -403,7 +428,7 @@ export function createPurchaseTopicNoticeService(input: {
           mapping.telegramChatId,
           Number(mapping.telegramMessageId),
           renderDeletedPurchaseTopicNotice(locale),
-          { reply_markup: emptyInlineKeyboard() }
+          { parse_mode: 'HTML', reply_markup: emptyInlineKeyboard() }
         )
         await repository.upsertPurchaseTopicMessage?.({
           purchaseMessageId: purchaseId,
@@ -511,10 +536,10 @@ export function createPurchaseTopicNoticeService(input: {
         binding.householdId
       )
       const rendered = renderPurchaseTopicNotice({ locale, purchase: result.purchase, members })
-      await ctx.editMessageText(
-        rendered.text,
-        rendered.replyMarkup ? { reply_markup: rendered.replyMarkup } : {}
-      )
+      await ctx.editMessageText(rendered.text, {
+        parse_mode: rendered.parseMode,
+        ...(rendered.replyMarkup ? { reply_markup: rendered.replyMarkup } : {})
+      })
       await ctx.answerCallbackQuery()
     }
   )

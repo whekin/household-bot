@@ -7,6 +7,7 @@ import type {
 } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
+import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
 
@@ -27,7 +28,9 @@ function commandArgText(ctx: Context): string {
 }
 
 function feedbackText(locale: BotLocale, sanitizedText: string): string {
-  return [getBotTranslations(locale).anonymousFeedback.title, '', sanitizedText].join('\n')
+  return [getBotTranslations(locale).anonymousFeedback.title, '', escapeHtml(sanitizedText)].join(
+    '\n'
+  )
 }
 
 function cancelReplyMarkup(locale: BotLocale) {
@@ -315,6 +318,7 @@ async function submitAnonymousFeedback(options: {
       householdChat.telegramChatId,
       feedbackText(householdChat.defaultLocale, result.sanitizedText),
       {
+        parse_mode: 'HTML',
         message_thread_id: Number(feedbackTopic.telegramThreadId)
       }
     )

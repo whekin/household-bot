@@ -162,9 +162,10 @@ describe('renderPurchaseTopicNotice', () => {
       purchase: purchase(),
       members
     })
-    expect(en.text).toContain('Purchase: Pizza 30.00 ₾')
-    expect(en.text).toContain('Paid by: Стас')
-    expect(en.text).toContain('- Дима (excluded)')
+    expect(en.text).toContain('🧾 <b>Pizza</b> — <b>30.00 ₾</b>')
+    expect(en.text).toContain('💳 Paid by: <b>Стас</b>')
+    expect(en.text).toContain('• <s>Дима</s> · excluded')
+    expect(en.parseMode).toBe('HTML')
     expect(en.replyMarkup?.inline_keyboard.length).toBe(2)
 
     const ru = renderPurchaseTopicNotice({
@@ -172,16 +173,16 @@ describe('renderPurchaseTopicNotice', () => {
       purchase: purchase(),
       members
     })
-    expect(ru.text).toContain('Покупка: Pizza 30.00 ₾')
-    expect(ru.text).toContain('Плательщик: Стас')
-    expect(ru.text).toContain('- Дима (не участвует)')
+    expect(ru.text).toContain('🧾 <b>Pizza</b> — <b>30.00 ₾</b>')
+    expect(ru.text).toContain('💳 Плательщик: <b>Стас</b>')
+    expect(ru.text).toContain('• <s>Дима</s> · не участвует')
 
     const ruWithFemininePayer = renderPurchaseTopicNotice({
       locale: 'ru',
       purchase: purchase({ payerMemberId: 'member-3' }),
       members
     })
-    expect(ruWithFemininePayer.text).toContain('Плательщик: Алиса')
+    expect(ruWithFemininePayer.text).toContain('💳 Плательщик: <b>Алиса</b>')
     expect(ruWithFemininePayer.text).not.toContain('Оплатил: Алиса')
   })
 
@@ -202,7 +203,8 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
 
-    expect(rendered.text).toContain('индивидуальные суммы')
+    expect(rendered.text).toContain('🧮 Индивидуальные суммы')
+    expect(rendered.text).toContain('• Стас — <b>30.00 ₾</b>')
     expect(rendered.replyMarkup).toBeUndefined()
   })
 
@@ -215,7 +217,7 @@ describe('renderPurchaseTopicNotice', () => {
       )
     })
 
-    expect(rendered.text).toContain('- Дима (не участвует)')
+    expect(rendered.text).toContain('• <s>Дима</s> · не участвует')
     expect(rendered.replyMarkup?.inline_keyboard.length).toBe(1)
     expect(JSON.stringify(rendered.replyMarkup)).not.toContain('participant-2')
   })
@@ -284,7 +286,8 @@ describe('createPurchaseTopicNoticeService', () => {
     expect(calls[0]).toMatchObject({
       method: 'editMessageText',
       payload: {
-        text: expect.stringContaining('- Дима')
+        parse_mode: 'HTML',
+        text: expect.stringContaining('• Дима')
       }
     })
     expect(JSON.stringify(calls[0]?.payload)).toContain('✅ Дима')

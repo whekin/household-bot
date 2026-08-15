@@ -350,10 +350,10 @@ describe('executeAgentTool propose_payment', () => {
     })
 
     expect((result.result as { status?: string }).status).toBe('card_posted')
-    expect(replies[0]?.text).toContain('Дима — уже оплачено')
-    expect(replies[0]?.text).toContain('✅ Алиса — не оплачено')
-    expect(replies[0]?.text).toContain('✅ Ион — не оплачено')
-    expect(replies[0]?.text).toContain('✅ Стас — не оплачено')
+    expect(replies[0]?.text).toContain('✅ <s>Дима</s> · уже оплачено')
+    expect(replies[0]?.text).toContain('☑️ <b>Алиса</b> · не оплачено')
+    expect(replies[0]?.text).toContain('☑️ <b>Ион</b> · не оплачено')
+    expect(replies[0]?.text).toContain('☑️ <b>Стас</b> · не оплачено')
     const payload = pending[0]?.payload as
       | {
           members?: Array<{ memberId: string; paymentStatus: string; selected: boolean }>

@@ -577,12 +577,12 @@ describe('registerHouseholdSetupCommands', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: 'Open the mini app from the button below.',
+      text: '📱 Open the mini app from the button below.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: 'Open mini app',
+              text: '📱 Open mini app',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot'
               }
@@ -921,12 +921,12 @@ describe('registerHouseholdSetupCommands', () => {
     expect(calls[0]?.method).toBe('sendMessage')
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: 'Join request sent for Kojori House. Wait for a household admin to confirm you.',
+      text: '📨 Join request sent for <b>Kojori House</b>. Wait for a household admin to confirm you.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: 'Open mini app',
+              text: '📱 Open mini app',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
@@ -1009,12 +1009,12 @@ describe('registerHouseholdSetupCommands', () => {
 
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: 'Заявка на вступление в Kojori House отправлена. Дождитесь подтверждения от админа дома.',
+      text: '📨 Заявка на вступление в <b>Kojori House</b> отправлена. Дождитесь подтверждения от админа дома.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: 'Открыть мини-приложение',
+              text: '📱 Открыть мини-приложение',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
@@ -1131,14 +1131,14 @@ describe('registerHouseholdSetupCommands', () => {
         chat_id: -100123456
       }
     })
-    expect(sendPayload.text).toContain('New household! **Kojori House** is ready.')
-    expect(sendPayload.text).toContain('Current setup progress: 0/5')
+    expect(sendPayload.text).toContain('🏡 <b>New household: Kojori House</b>')
+    expect(sendPayload.text).toContain('🧩 <b>Setup progress: 0/5</b>')
     expect(sendPayload.text).toContain('⚪ Purchases')
     expect(sendPayload.text).toContain('⚪ Payments')
     expect(sendPayload.text).toContain('⚪ Notifications')
     // Check that join household button exists
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('Join household')
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Create Purchases')
+    expect(JSON.stringify(sendPayload.reply_markup)).toContain('➕ Purchases')
     expect(JSON.stringify(sendPayload.reply_markup)).toContain('setup_topic:create:purchase')
   })
 
@@ -1256,7 +1256,7 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'Purchases topic created and bound: Shared purchases.'
+        text: '✅ Purchases topic created and bound: Shared purchases.'
       }
     })
     expect(calls[3]).toMatchObject({
@@ -1392,7 +1392,7 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,
-        text: 'Setup state reset for Kojori House. Run /setup again to configure topics from scratch.'
+        text: '🧹 Setup state reset for <b>Kojori House</b>. Run /setup again to configure topics from scratch.'
       }
     })
     expect(await repository.listHouseholdTopicBindings('household-1')).toEqual([])
@@ -1497,7 +1497,7 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,
-        text: 'Nothing to reset for this group yet. Run /setup when you are ready.'
+        text: 'ℹ️ Nothing to reset for this group yet. Run /setup when you are ready.'
       }
     })
   })
@@ -1602,12 +1602,12 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,
-        text: 'Join link for Kojori House:\nhttps://t.me/household_test_bot?start=join_test-join-token\n\nAnyone with this link can join the household. Share it carefully.',
+        text: '🔗 <b>Join link · Kojori House</b>\n\n<code>https://t.me/household_test_bot?start=join_test-join-token</code>\n\n<i>Anyone with this link can join the household. Share it carefully.</i>',
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: 'Join household',
+                text: '🤝 Join household',
                 url: 'https://t.me/household_test_bot?start=join_test-join-token'
               }
             ]

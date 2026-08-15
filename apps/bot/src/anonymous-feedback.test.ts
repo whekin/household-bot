@@ -407,10 +407,10 @@ describe('registerAnonymousFeedback', () => {
     expect(calls[0]?.payload).toMatchObject({
       chat_id: '-100222333',
       message_thread_id: 77,
-      text: 'Анонимное сообщение по дому\n\nPlease clean the kitchen tonight.'
+      text: '🕶 <b>Анонимное сообщение по дому</b>\n\nPlease clean the kitchen tonight.'
     })
     expect(calls[1]?.payload).toMatchObject({
-      text: 'Анонимное сообщение отправлено.'
+      text: '✅ Анонимное сообщение отправлено.'
     })
   })
 
@@ -493,10 +493,14 @@ describe('registerAnonymousFeedback', () => {
       .map((call) => call.payload as { text?: string })
 
     expect(
-      sendMessagePayloads.some((payload) => payload.text?.startsWith('Анонимное сообщение по дому'))
+      sendMessagePayloads.some((payload) =>
+        payload.text?.startsWith('🕶 <b>Анонимное сообщение по дому</b>')
+      )
     ).toBe(true)
     expect(
-      sendMessagePayloads.some((payload) => payload.text?.startsWith('Anonymous household note'))
+      sendMessagePayloads.some((payload) =>
+        payload.text?.startsWith('🕶 <b>Anonymous household note</b>')
+      )
     ).toBe(false)
   })
 
@@ -560,7 +564,7 @@ describe('registerAnonymousFeedback', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Используйте /anon в личном чате с ботом.'
+      text: 'ℹ️ Используйте /anon в личном чате с ботом.'
     })
   })
 
@@ -875,15 +879,15 @@ describe('registerAnonymousFeedback', () => {
 
     expect(submit).toHaveBeenCalledTimes(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».'
+      text: '🕶 Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».'
     })
     expect(calls[1]?.payload).toMatchObject({
       chat_id: '-100222333',
       message_thread_id: 77,
-      text: 'Анонимное сообщение по дому\n\nPlease clean the kitchen tonight.'
+      text: '🕶 <b>Анонимное сообщение по дому</b>\n\nPlease clean the kitchen tonight.'
     })
     expect(calls[2]?.payload).toMatchObject({
-      text: 'Анонимное сообщение отправлено.'
+      text: '✅ Анонимное сообщение отправлено.'
     })
   })
 
@@ -948,12 +952,12 @@ describe('registerAnonymousFeedback', () => {
 
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: 'Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».',
+      text: '🕶 Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: 'Отменить',
+              text: '🚫 Отменить',
               callback_data: 'cancel_prompt:anonymous_feedback'
             }
           ]
@@ -1118,7 +1122,7 @@ describe('registerAnonymousFeedback', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
-      text: 'Сейчас действует пауза на анонимные сообщения. Следующее сообщение можно отправить через 6 часов.'
+      text: '⏳ Сейчас действует пауза на анонимные сообщения. Следующее сообщение можно отправить через 6 часов.'
     })
   })
 })

@@ -15,6 +15,7 @@ import type {
   TopicMessageHistoryRepository
 } from '@household/ports'
 
+import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
 import type { AssistantConversationMemoryStore } from './assistant-state'
 import { conversationMemoryKey } from './assistant-state'
@@ -415,7 +416,7 @@ function formatRecordedPaymentText(
 
   return payload.isThirdParty && payload.reportedDisplayName
     ? t.recordedReported(
-        payload.reportedDisplayName,
+        escapeHtml(payload.reportedDisplayName),
         payload.kind,
         amount.toMajorString(),
         amount.currency
@@ -429,10 +430,13 @@ function formatMultiPaymentProposalText(
 ): string {
   const t = getBotTranslations(locale).payments
   const lines = [
-    t.multiProposal(payload.kind, formatPeriodLabel(locale, payload.period)),
+    t.multiProposal(payload.kind, escapeHtml(formatPeriodLabel(locale, payload.period))),
+    '',
     ...payload.members.map((member) =>
-      t.multiMemberLine(member.displayName, member.paymentStatus, member.selected)
-    )
+      t.multiMemberLine(escapeHtml(member.displayName), member.paymentStatus, member.selected)
+    ),
+    '',
+    t.confirmHint
   ]
 
   return lines.join('\n')
@@ -447,13 +451,13 @@ function formatMultiRecordedText(
   const t = getBotTranslations(locale).payments
   const recordedNames = payload.members
     .filter((member) => member.selected && handledMemberIds?.has(member.memberId) !== false)
-    .map((member) => member.displayName)
+    .map((member) => escapeHtml(member.displayName))
     .join(', ')
   const alreadyPaidNames =
     alreadyPaidMemberIds && alreadyPaidMemberIds.size > 0
       ? payload.members
           .filter((member) => alreadyPaidMemberIds.has(member.memberId))
-          .map((member) => member.displayName)
+          .map((member) => escapeHtml(member.displayName))
           .join(', ')
       : ''
   const lines = [
@@ -467,7 +471,7 @@ function formatMultiRecordedText(
         payload.kind,
         payload.members
           .filter((member) => member.selected || member.paymentStatus === 'paid')
-          .map((member) => member.displayName)
+          .map((member) => escapeHtml(member.displayName))
           .join(', ')
       )
 }
@@ -482,18 +486,18 @@ function formatMultiPartialRecordedText(
   const selectedMembers = payload.members.filter((member) => member.selected)
   const recordedNames = selectedMembers
     .filter((member) => recordedMemberIds.has(member.memberId))
-    .map((member) => member.displayName)
+    .map((member) => escapeHtml(member.displayName))
     .join(', ')
   const alreadyPaidNames = selectedMembers
     .filter((member) => alreadyPaidMemberIds.has(member.memberId))
-    .map((member) => member.displayName)
+    .map((member) => escapeHtml(member.displayName))
     .join(', ')
   const failedNames = selectedMembers
     .filter(
       (member) =>
         !recordedMemberIds.has(member.memberId) && !alreadyPaidMemberIds.has(member.memberId)
     )
-    .map((member) => member.displayName)
+    .map((member) => escapeHtml(member.displayName))
     .join(', ')
 
   const lines = [
@@ -538,7 +542,7 @@ async function safeEditPaymentCallbackMessage(
   }
 
   try {
-    await ctx.editMessageText(text, options)
+    await ctx.editMessageText(text, { parse_mode: 'HTML', ...options })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/message is not modified/i.test(message)) {
@@ -874,6 +878,7 @@ async function replyToPaymentMessage(
   }
 
   const reply = await ctx.reply(text, {
+    parse_mode: 'HTML',
     reply_parameters: {
       message_id: message.message_id
     },
@@ -1363,10 +1368,13 @@ export function registerPaymentTopicCallbacks(
 
       if (fullyPaid) {
         await ctx.reply(
-          getBotTranslations(locale).payments.fullyPaid(
-            payload.kind,
-            formatPeriodLabel(locale, payload.period)
-          )
+          `🎉 <b>${escapeHtml(
+            getBotTranslations(locale).payments.fullyPaid(
+              payload.kind,
+              formatPeriodLabel(locale, payload.period)
+            )
+          )}</b>`,
+          { parse_mode: 'HTML' }
         )
       }
     }
@@ -1626,10 +1634,13 @@ export function registerPaymentTopicCallbacks(
 
       if (fullyPaid) {
         await ctx.reply(
-          getBotTranslations(locale).payments.fullyPaid(
-            payload.kind,
-            formatPeriodLabel(locale, payload.period!)
-          )
+          `🎉 <b>${escapeHtml(
+            getBotTranslations(locale).payments.fullyPaid(
+              payload.kind,
+              formatPeriodLabel(locale, payload.period!)
+            )
+          )}</b>`,
+          { parse_mode: 'HTML' }
         )
       }
     }

@@ -981,10 +981,16 @@ export function createFinanceCommandsService(options: {
     const t = getBotTranslations(locale).finance
 
     return [
-      t.statementTitle(dashboard.period),
+      t.statementTitle(escapeHtml(formatBillingPeriodLabel(locale, dashboard.period))),
+      '',
       ...dashboard.members.map((line) =>
-        t.statementLine(line.displayName, line.netDue.toMajorString(), dashboard.currency)
+        t.statementLine(
+          escapeHtml(line.displayName),
+          line.netDue.toMajorString(),
+          dashboard.currency
+        )
       ),
+      '',
       t.statementTotal(dashboard.totalDue.toMajorString(), dashboard.currency)
     ].join('\n')
   }
@@ -1030,7 +1036,7 @@ export function createFinanceCommandsService(options: {
             }
           }
 
-          return `  • ${purchase.title}: ${amountText}${participantsText}`
+          return `  • ${escapeHtml(purchase.title)}: ${amountText}${participantsText}`
         })
 
         if (!balanceLine && purchaseLines.length === 0) {
@@ -1038,7 +1044,7 @@ export function createFinanceCommandsService(options: {
         }
 
         return [
-          `👤 ${member.displayName}`,
+          `👤 <b>${escapeHtml(member.displayName)}</b>`,
           ...(balanceLine ? [balanceLine] : []),
           ...purchaseLines
         ].join('\n')
@@ -1046,7 +1052,7 @@ export function createFinanceCommandsService(options: {
       .filter((block): block is string => block !== null)
 
     return [
-      `🛒 ${locale === 'ru' ? 'Покупки' : 'Purchases'} · ${formatBillingPeriodLabel(locale, dashboard.period)}`,
+      `🛒 <b>${locale === 'ru' ? 'Покупки' : 'Purchases'} · ${escapeHtml(formatBillingPeriodLabel(locale, dashboard.period))}</b>`,
       '',
       ...memberBalances.flatMap((block, index) =>
         index < memberBalances.length - 1 ? [block, ''] : [block]
@@ -1077,6 +1083,7 @@ export function createFinanceCommandsService(options: {
       ctx: input.ctx,
       text: formatBalances(input.locale, dashboard),
       options: {
+        parse_mode: 'HTML',
         reply_markup: homeMenuReplyMarkup(input.locale)
       },
       editMessage: input.editMessage
@@ -3712,7 +3719,7 @@ export function createFinanceCommandsService(options: {
           return
         }
 
-        await ctx.reply(formatStatement(locale, dashboard))
+        await ctx.reply(formatStatement(locale, dashboard), { parse_mode: 'HTML' })
       } catch (error) {
         await ctx.reply(t.statementFailed((error as Error).message))
       }

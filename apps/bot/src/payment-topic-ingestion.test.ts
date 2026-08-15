@@ -513,7 +513,7 @@ describe('buildPaymentAcknowledgement', () => {
         amountMajor: '472.50',
         currency: 'GEL'
       })
-    ).toBe('Оплата аренды сохранена: 472.50 ₾')
+    ).toBe('✅ <b>Оплата аренды записана</b>\n💰 <b>472.50 ₾</b>')
   })
 
   test('returns review acknowledgement', () => {
@@ -846,11 +846,11 @@ describe('publishAgentPaymentProposal', () => {
     expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
     const edit = calls.findLast((call) => call.method === 'editMessageText')
     expect((edit?.payload as { text?: string } | undefined)?.text).toBe(
-      'Записал оплату коммуналки для: Stas, Dima.'
+      '✅ <b>Оплата коммуналки записана</b>\n👥 Stas, Dima'
     )
     const closure = calls.findLast((call) => call.method === 'sendMessage')
     expect((closure?.payload as { text?: string } | undefined)?.text).toBe(
-      'Коммуналка за май 2026 г. полностью закрыта.'
+      '🎉 <b>Коммуналка за май 2026 г. полностью закрыта.</b>'
     )
   })
 
@@ -931,6 +931,6 @@ describe('publishAgentPaymentProposal', () => {
     await bot.handleUpdate(paymentUpdate('оплатил аренду') as never)
 
     const reply = calls.find((call) => call.method === 'sendMessage')
-    expect((reply!.payload as { text: string }).text).toBe('Аренда уже закрыта.')
+    expect((reply!.payload as { text: string }).text).toBe('✅ Аренда уже закрыта.')
   })
 })

@@ -1014,7 +1014,7 @@ describe('createFinanceCommandsService', () => {
       { text: 'Балансы', callback_data: 'status:balances:current' }
     ])
     expect(payload?.reply_markup?.inline_keyboard?.[1]?.[0]).toEqual({
-      text: 'Открыть мини-приложение',
+      text: '📱 Открыть мини-приложение',
       web_app: { url: 'https://app.example/mini?bot=household_test_bot' }
     })
     expect(promptRepository.current()?.payload).toMatchObject({
@@ -1069,7 +1069,7 @@ describe('createFinanceCommandsService', () => {
     const messagePayload = calls.find((call) => call.method === 'editMessageText')?.payload as
       | { text?: string }
       | undefined
-    expect(messagePayload?.text).toContain('🛒 Покупки')
+    expect(messagePayload?.text).toContain('🛒 <b>Покупки')
     expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
   })
 
@@ -1381,9 +1381,9 @@ describe('createFinanceCommandsService', () => {
 
     const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
     const lines = text.split('\n')
-    const stasIndex = lines.indexOf('👤 Стас')
-    const dimaIndex = lines.indexOf('👤 Дима')
-    expect(text).toContain('🛒 Покупки · май 2026')
+    const stasIndex = lines.indexOf('👤 <b>Стас</b>')
+    const dimaIndex = lines.indexOf('👤 <b>Дима</b>')
+    expect(text).toContain('🛒 <b>Покупки · май 2026</b>')
     expect(stasIndex).toBeGreaterThanOrEqual(0)
     expect(lines[stasIndex + 1]).toBe('Покупки: остаток 15.00 ₾')
     expect(dimaIndex).toBeGreaterThanOrEqual(0)

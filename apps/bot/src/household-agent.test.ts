@@ -382,7 +382,7 @@ describe('registerHouseholdAgent in private chats', () => {
 
     const reply = calls.find((call) => call.method === 'sendMessage')
     expect((reply?.payload as { text: string } | undefined)?.text).toBe(
-      'Сейчас не могу ответить. Попробуйте ещё раз через минуту.'
+      '⚠️ Сейчас не могу ответить. Попробуйте ещё раз через минуту.'
     )
   })
 

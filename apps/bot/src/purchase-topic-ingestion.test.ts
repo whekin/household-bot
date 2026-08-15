@@ -221,12 +221,15 @@ describe('buildPurchaseAcknowledgement', () => {
       participants: participants()
     })
 
-    expect(result).toBe(`I think this shared purchase was: toilet paper - 30.00 GEL.
+    expect(result).toBe(`🛒 <b>Looks like a shared purchase</b>
 
-Participants:
-- Mia
-- Dima (excluded)
-Confirm or cancel below.`)
+🧾 <b>toilet paper</b> — <b>30.00 ₾</b>
+
+👥 <b>Participants</b>
+• Mia
+• <s>Dima</s> · excluded
+
+<i>Confirm or cancel below 👇</i>`)
   })
 
   test('shows a calculation note when the llm computed the total', () => {
@@ -243,13 +246,17 @@ Confirm or cancel below.`)
       participants: participants()
     })
 
-    expect(result).toBe(`I think this shared purchase was: water bottles - 30.00 GEL.
-I calculated the total as 5 x 6 lari = 30 lari. Is that right?
+    expect(result).toBe(`🛒 <b>Looks like a shared purchase</b>
 
-Participants:
-- Mia
-- Dima (excluded)
-Confirm or cancel below.`)
+🧾 <b>water bottles</b> — <b>30.00 ₾</b>
+
+🤔 I calculated the total as 5 x 6 lari = 30 lari. Is that right?
+
+👥 <b>Participants</b>
+• Mia
+• <s>Dima</s> · excluded
+
+<i>Confirm or cancel below 👇</i>`)
   })
 
   test('returns explicit clarification text from the interpreter', () => {
@@ -266,7 +273,7 @@ Confirm or cancel below.`)
       parserMode: 'llm'
     })
 
-    expect(result).toBe('Which currency was this purchase in?')
+    expect(result).toBe('❓ Which currency was this purchase in?')
   })
 
   test('returns fallback clarification when the interpreter question is missing', () => {
@@ -283,7 +290,7 @@ Confirm or cancel below.`)
       parserMode: 'llm'
     })
 
-    expect(result).toBe('What amount and currency should I record for this shared purchase?')
+    expect(result).toBe('❓ What amount and currency should I record for this shared purchase?')
   })
 
   test('returns parse failure acknowledgement without guessing values', () => {
@@ -293,7 +300,7 @@ Confirm or cancel below.`)
     })
 
     expect(result).toBe(
-      "I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
+      "🤔 I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
     )
   })
 
@@ -329,12 +336,15 @@ Confirm or cancel below.`)
       'ru'
     )
 
-    expect(result).toBe(`Похоже, это общая покупка: туалетная бумага - 30.00 GEL.
+    expect(result).toBe(`🛒 <b>Похоже, это общая покупка</b>
 
-Участники:
-- Mia
-- Dima (не участвует)
-Подтвердите или отмените ниже.`)
+🧾 <b>туалетная бумага</b> — <b>30.00 ₾</b>
+
+👥 <b>Участники</b>
+• Mia
+• <s>Dima</s> · не участвует
+
+<i>Подтвердите или отмените ниже 👇</i>`)
   })
 })
 

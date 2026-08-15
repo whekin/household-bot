@@ -10,6 +10,7 @@ import type {
   HouseholdConfigurationRepository
 } from '@household/ports'
 
+import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
 
 export interface PaymentProposalPayload {
@@ -329,7 +330,7 @@ function formatPaymentBreakdown(locale: BotLocale, breakdown: PaymentProposalBre
     )
   }
 
-  return lines.join('\n')
+  return [t.breakdownHeading, ...lines].join('\n')
 }
 
 function shouldUseCompactTopicProposal(input: {
@@ -382,7 +383,7 @@ export function formatPaymentProposalText(input: {
         )
       : input.proposal.payload.isThirdParty && input.proposal.payload.reportedDisplayName
         ? getBotTranslations(input.locale).payments.proposalReported(
-            input.proposal.payload.reportedDisplayName,
+            escapeHtml(input.proposal.payload.reportedDisplayName),
             input.proposal.payload.kind,
             amount.toMajorString(),
             amount.currency
@@ -393,16 +394,24 @@ export function formatPaymentProposalText(input: {
             amount.currency
           )
 
+  const confirmHint = getBotTranslations(input.locale).payments.confirmHint
+
   if (
     shouldUseCompactTopicProposal({
       surface: input.surface,
       breakdown: input.proposal.breakdown
     })
   ) {
-    return intro
+    return `${intro}\n\n${confirmHint}`
   }
 
-  return `${intro}\n\n${formatPaymentBreakdown(input.locale, input.proposal.breakdown)}`
+  return [
+    intro,
+    '',
+    formatPaymentBreakdown(input.locale, input.proposal.breakdown),
+    '',
+    confirmHint
+  ].join('\n')
 }
 
 export type AgentPaymentProposalResult =

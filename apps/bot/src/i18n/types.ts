@@ -304,13 +304,17 @@ export interface BotTranslationCatalog {
     clarificationMissingCurrency: string
     clarificationMissingItem: string
     clarificationLowConfidence: string
+    summary: (description: string, amount: string) => string
+    savedCardHeadline: (summary: string) => string
     participantsHeading: string
     participantIncluded: (displayName: string) => string
+    participantIncludedWithShare: (displayName: string, amount: string) => string
     participantExcluded: (displayName: string) => string
     participantToggleIncluded: (displayName: string) => string
     participantToggleExcluded: (displayName: string) => string
-    payerHeading: string
-    payerSelected: (displayName: string) => string
+    splitEqualLine: (perHead: string | null) => string
+    splitCustomLine: string
+    payerLine: (displayName: string) => string
     payerQuestion: string
     payerFallbackQuestion: string
     payerButton: (displayName: string) => string
@@ -324,6 +328,7 @@ export interface BotTranslationCatalog {
     calculatedFixAmountAlreadyRequested: string
     confirmed: (summary: string) => string
     cancelled: (summary: string) => string
+    removed: string
     confirmedToast: string
     cancelledToast: string
     alreadyConfirmed: string
@@ -378,11 +383,13 @@ export interface BotTranslationCatalog {
       amount: string,
       currency: string
     ) => string
+    confirmHint: string
     clarification: string
     unsupportedCurrency: string
     noBalance: string
     alreadySettled: (kind: 'rent' | 'utilities', displayName?: string | null) => string
     purchaseRedirect: string
+    breakdownHeading: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPlannedBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPurchaseBalance: (amount: string, currency: string) => string
