@@ -292,10 +292,14 @@ export async function addMiniAppPayment(
     currency: 'USD' | 'GEL'
     period?: string
   }
-): Promise<void> {
+  // The response carries the rebuilt dashboard, so callers can apply it instead of
+  // asking the server to build the same thing again. Null when the server could not
+  // produce one, and the caller falls back to a full refresh.
+): Promise<MiniAppDashboard | null> {
   const { response, payload } = await postMiniApp<{
     ok: boolean
     authorized?: boolean
+    dashboard?: MiniAppDashboard
     error?: string
   }>('/api/miniapp/admin/payments/add', {
     initData,
@@ -305,6 +309,8 @@ export async function addMiniAppPayment(
   if (!response.ok || !payload.authorized) {
     throw miniAppApiError(response, payload, 'Failed to add payment')
   }
+
+  return payload.dashboard ?? null
 }
 
 export async function closeMiniAppPaymentPeriod(

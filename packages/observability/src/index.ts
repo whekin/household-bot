@@ -51,3 +51,11 @@ export function getLogger(name: string, bindings: Bindings = {}): Logger {
     ...bindings
   })
 }
+
+export {
+  currentQueryMetrics,
+  instrumentRepository,
+  recordQuery,
+  withQueryMetrics,
+  type QueryMetricsSnapshot
+} from './query-metrics'

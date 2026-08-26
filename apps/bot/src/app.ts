@@ -9,7 +9,7 @@ import {
   createLocalePreferenceService,
   createMiniAppAdminService
 } from '@household/application'
-import { configureLogger, getLogger } from '@household/observability'
+import { configureLogger, getLogger, withQueryMetrics } from '@household/observability'
 
 import { registerAdHocNotifications } from './ad-hoc-notifications'
 import { registerAuditNotificationCallbacks } from './audit-notifications'
@@ -880,17 +880,25 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             logger: getLogger('miniapp-billing')
           })
         : undefined,
-    miniAppAddPayment: householdOnboardingService
-      ? createMiniAppAddPaymentHandler({
-          allowedOrigins: runtime.miniAppAllowedOrigins,
-          botToken: runtime.telegramBotToken,
-          onboardingService: householdOnboardingService,
-          financeServiceForHousehold,
-          ...(auditNotificationService ? { auditNotificationService } : {}),
-          ...(livePaymentCardService ? { livePaymentCardService } : {}),
-          logger: getLogger('miniapp-billing')
-        })
-      : undefined,
+    miniAppAddPayment:
+      householdOnboardingService && adHocNotificationService
+        ? createMiniAppAddPaymentHandler({
+            allowedOrigins: runtime.miniAppAllowedOrigins,
+            botToken: runtime.telegramBotToken,
+            onboardingService: householdOnboardingService,
+            financeServiceForHousehold,
+            adHocNotificationService,
+            ...(auditNotificationService ? { auditNotificationService } : {}),
+            ...(livePaymentCardService ? { livePaymentCardService } : {}),
+            ...(householdConfigurationRepositoryClient
+              ? {
+                  householdConfigurationRepository:
+                    householdConfigurationRepositoryClient.repository
+                }
+              : {}),
+            logger: getLogger('miniapp-billing')
+          })
+        : undefined,
     miniAppRefreshUtilityPlan: householdOnboardingService
       ? createMiniAppRefreshUtilityPlanHandler({
           allowedOrigins: runtime.miniAppAllowedOrigins,
@@ -1079,7 +1087,30 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   }
 
   return {
-    fetch: server.fetch,
+    // One log line per request carrying its real query count and query time, so mini
+    // app and webhook latency is attributable to the database rather than guessed at.
+    fetch: async (request) => {
+      const startedAt = performance.now()
+      const url = new URL(request.url)
+      if (url.pathname === '/healthz') {
+        return server.fetch(request)
+      }
+
+      const { result, metrics } = await withQueryMetrics(() => server.fetch(request))
+      logger.info(
+        {
+          event: 'http.request_handled',
+          method: request.method,
+          path: url.pathname,
+          status: result.status,
+          durationMs: Math.round(performance.now() - startedAt),
+          ...metrics
+        },
+        'Handled request'
+      )
+
+      return result
+    },
     runtime,
     shutdown: async () => {
       await Promise.allSettled(shutdownTasks.map((close) => close()))

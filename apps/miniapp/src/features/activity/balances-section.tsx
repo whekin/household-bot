@@ -50,8 +50,14 @@ export function BalancesSection({
 }) {
   const { initData, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, effectiveIsAdmin, memberBalanceVisuals, currentMemberLine, refresh } =
-    useDashboard()
+  const {
+    dashboard,
+    effectiveIsAdmin,
+    memberBalanceVisuals,
+    currentMemberLine,
+    refresh,
+    applyDashboard
+  } = useDashboard()
   const { showToast } = useToast()
 
   const [expanded, setExpanded] = useState(false)
@@ -157,16 +163,21 @@ export function BalancesSection({
           memberId: input.memberId,
           period: input.period
         })
+        await refresh()
       } else {
-        await addMiniAppPayment(initData, {
+        const next = await addMiniAppPayment(initData, {
           memberId: input.memberId,
           kind: input.kind,
           period: input.period,
           amountMajor: input.amountMajor,
           currency
         })
+        // The response already carries the rebuilt dashboard; refetching would ask the
+        // server to build the same thing twice.
+        if (!next || !applyDashboard(next)) {
+          await refresh()
+        }
       }
-      await refresh()
       showToast(copy.quickPaymentSuccess, 'success')
     } catch (error) {
       if (!handleMiniAppRequestError(error)) {

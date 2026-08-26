@@ -3,7 +3,7 @@ import {
   createPaymentConfirmationService
 } from '@household/application'
 import { createDbFinanceRepository } from '@household/adapters-db'
-import type { Logger } from '@household/observability'
+import { instrumentRepository, type Logger } from '@household/observability'
 import type { HouseholdConfigurationRepository } from '@household/ports'
 
 import { createNbgExchangeRateProvider } from '../nbg-exchange-rates'
@@ -37,7 +37,13 @@ export function createFinanceServiceRegistry(options: {
       return existing
     }
 
-    const repositoryClient = createDbFinanceRepository(options.databaseUrl, householdId)
+    const created = createDbFinanceRepository(options.databaseUrl, householdId)
+    // Instrumented below the service's read cache, so cache hits are not counted as
+    // database work and the per-request log stays truthful.
+    const repositoryClient = {
+      ...created,
+      repository: instrumentRepository('finance', created.repository)
+    }
     financeRepositoryClients.set(householdId, repositoryClient)
     options.onClose(repositoryClient.close)
     return repositoryClient

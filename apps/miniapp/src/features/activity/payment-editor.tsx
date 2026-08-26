@@ -34,7 +34,7 @@ export function PaymentEditor({
 }) {
   const { initData, handleMiniAppRequestError } = useSession()
   const { copy, locale } = useI18n()
-  const { dashboard, refresh } = useDashboard()
+  const { dashboard, refresh, applyDashboard } = useDashboard()
   const { showToast } = useToast()
 
   const [draft, setDraft] = useState<PaymentDraft | null>(null)
@@ -99,16 +99,21 @@ export function PaymentEditor({
           amountMajor: draft.amountMajor,
           currency: draft.currency
         })
+        await refresh()
       } else {
-        await addMiniAppPayment(initData, {
+        const next = await addMiniAppPayment(initData, {
           memberId: draft.memberId,
           kind: draft.kind,
           amountMajor: draft.amountMajor,
           currency: draft.currency,
           ...(draft.period ? { period: draft.period } : {})
         })
+        // The response already carries the rebuilt dashboard; refetching would ask the
+        // server to build the same thing twice.
+        if (!next || !applyDashboard(next)) {
+          await refresh()
+        }
       }
-      await refresh()
       showToast(copy.quickPaymentSuccess, 'success')
       onOpenChange(false)
     } catch (error) {
