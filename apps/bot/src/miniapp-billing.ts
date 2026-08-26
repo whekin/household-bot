@@ -2172,28 +2172,32 @@ export function createMiniAppAddPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'No open billing cycle' }, 409, origin)
         }
 
-        await recordMiniAppAuditEvent({
-          service: options.auditNotificationService,
-          logger: options.logger,
-          authMember: auth.member,
-          category: 'payment_events',
-          eventType: 'payment.recorded',
-          summaryText: `${auth.member.displayName} recorded ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)} (${payment.period})`,
-          metadata: {
-            paymentId: payment.paymentId,
-            memberId: payload.memberId,
-            memberDisplayName: targetMember?.displayName ?? payload.memberId,
+        // Independent side effects: the notification does not depend on the refreshed
+        // cards, so running them together keeps one Telegram round trip off the total.
+        await Promise.all([
+          recordMiniAppAuditEvent({
+            service: options.auditNotificationService,
+            logger: options.logger,
+            authMember: auth.member,
+            category: 'payment_events',
+            eventType: 'payment.recorded',
+            summaryText: `${auth.member.displayName} recorded ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)} (${payment.period})`,
+            metadata: {
+              paymentId: payment.paymentId,
+              memberId: payload.memberId,
+              memberDisplayName: targetMember?.displayName ?? payload.memberId,
+              kind: payload.kind,
+              amountMinor: payment.amount.amountMinor.toString(),
+              currency: payment.currency,
+              period: payment.period
+            }
+          }),
+          options.livePaymentCardService?.refresh({
+            householdId: auth.member.householdId,
             kind: payload.kind,
-            amountMinor: payment.amount.amountMinor.toString(),
-            currency: payment.currency,
             period: payment.period
-          }
-        })
-        await options.livePaymentCardService?.refresh({
-          householdId: auth.member.householdId,
-          kind: payload.kind,
-          period: payment.period
-        })
+          }) ?? Promise.resolve()
+        ])
         options.logger?.info(
           {
             event: 'miniapp.payment.record_completed',
@@ -2310,7 +2314,8 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
                 householdConfigurationRepository: options.householdConfigurationRepository
               }
             : {}),
-          periodOverride: result.period
+          periodOverride: result.period,
+          prebuiltDashboard: result.dashboard
         })
 
         if (!dashboard) {
@@ -2322,30 +2327,35 @@ export function createMiniAppClosePaymentPeriodHandler(options: {
         }
 
         if (result.closedMembers.length > 0) {
-          await recordMiniAppAuditEvent({
-            service: options.auditNotificationService,
-            logger: options.logger,
-            authMember: auth.member,
-            category: 'payment_events',
-            eventType: 'payment_period.closed',
-            summaryText: `${auth.member.displayName} closed ${payload.kind} for ${result.period}`,
-            metadata: {
-              period: result.period,
+          // The audit notification and the payment cards touch different systems, so
+          // neither has to wait for the other before the caller gets its response.
+          await Promise.all([
+            recordMiniAppAuditEvent({
+              service: options.auditNotificationService,
+              logger: options.logger,
+              authMember: auth.member,
+              category: 'payment_events',
+              eventType: 'payment_period.closed',
+              summaryText: `${auth.member.displayName} closed ${payload.kind} for ${result.period}`,
+              metadata: {
+                period: result.period,
+                kind: result.kind,
+                closedMembers: result.closedMembers.map((member) => ({
+                  memberId: member.memberId,
+                  displayName: member.displayName,
+                  amountMinor: member.amount.amountMinor.toString(),
+                  currency: member.amount.currency
+                })),
+                skippedMembers: result.skippedMembers
+              }
+            }),
+            options.livePaymentCardService?.refresh({
+              householdId: auth.member.householdId,
               kind: result.kind,
-              closedMembers: result.closedMembers.map((member) => ({
-                memberId: member.memberId,
-                displayName: member.displayName,
-                amountMinor: member.amount.amountMinor.toString(),
-                currency: member.amount.currency
-              })),
-              skippedMembers: result.skippedMembers
-            }
-          })
-          await options.livePaymentCardService?.refresh({
-            householdId: auth.member.householdId,
-            kind: result.kind,
-            period: result.period
-          })
+              period: result.period,
+              dashboard: result.dashboard
+            }) ?? Promise.resolve()
+          ])
         }
 
         return miniAppJsonResponse(
@@ -2750,6 +2760,15 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             origin
           )
         }
+        // Started before the notifications so the card edits overlap them; the two audit
+        // events stay sequential because they are two messages in one conversation.
+        const cardRefresh =
+          options.livePaymentCardService?.refresh({
+            householdId: auth.member.householdId,
+            kind: 'utilities',
+            period: result.period
+          }) ?? Promise.resolve()
+
         await recordMiniAppAuditEvent({
           service: options.auditNotificationService,
           logger: options.logger,
@@ -2785,11 +2804,7 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
             metadata: { period: result.period }
           })
         }
-        await options.livePaymentCardService?.refresh({
-          householdId: auth.member.householdId,
-          kind: 'utilities',
-          period: result.period
-        })
+        await cardRefresh
         options.logger?.info(
           {
             event: 'miniapp.utility_plan.resolve_completed',
@@ -2927,6 +2942,13 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
         })
 
         if (result) {
+          const cardRefresh =
+            options.livePaymentCardService?.refresh({
+              householdId: auth.member.householdId,
+              kind: 'utilities',
+              period: result.period
+            }) ?? Promise.resolve()
+
           await recordMiniAppAuditEvent({
             service: options.auditNotificationService,
             logger: options.logger,
@@ -2956,11 +2978,7 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
               metadata: { period: result.period }
             })
           }
-          await options.livePaymentCardService?.refresh({
-            householdId: auth.member.householdId,
-            kind: 'utilities',
-            period: result.period
-          })
+          await cardRefresh
         }
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
