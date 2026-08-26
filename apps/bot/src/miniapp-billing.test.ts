@@ -14,6 +14,7 @@ import type {
 } from '@household/ports'
 
 import {
+  createMiniAppAddPaymentHandler,
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
@@ -1614,6 +1615,61 @@ describe('createMiniAppDeletePurchaseHandler', () => {
 })
 
 describe('utility billing action handlers', () => {
+  test('add payment returns the rebuilt dashboard and hands it to the card refresh', async () => {
+    const repository = onboardingRepository()
+    let dashboardBuilds = 0
+    const financeService = {
+      ...createFinanceServiceStub(),
+      generateDashboard: async () => {
+        dashboardBuilds += 1
+        return createDashboardStub()
+      }
+    }
+    const refreshCalls: Parameters<LivePaymentCardService['refresh']>[0][] = []
+    const handler = createMiniAppAddPaymentHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: () => financeService,
+      adHocNotificationService,
+      livePaymentCardService: {
+        register: async () => {},
+        refresh: async (input) => {
+          refreshCalls.push(input)
+        }
+      }
+    })
+
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/admin/payments/add', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:5173',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          initData: initData(),
+          memberId: 'member-123456',
+          kind: 'rent',
+          amountMajor: '100.00',
+          currency: 'USD'
+        })
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      authorized: true,
+      dashboard: { period: '2026-03' }
+    })
+    // The card refresh reuses the dashboard rather than building a second one, and the
+    // response carries it so the client does not have to ask for a third.
+    expect(refreshCalls).toHaveLength(1)
+    expect(refreshCalls[0]?.dashboard).toBeDefined()
+    expect(dashboardBuilds).toBe(1)
+  })
+
   test('close payment period records a resident self close and returns refreshed dashboard', async () => {
     const repository = onboardingRepository()
     const calls: Parameters<FinanceCommandService['closePaymentPeriod']>[0][] = []

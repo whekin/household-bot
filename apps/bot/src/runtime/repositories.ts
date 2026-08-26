@@ -8,40 +8,54 @@ import {
   createDbTelegramPaymentCardRepository,
   createDbTopicMessageHistoryRepository
 } from '@household/adapters-db'
+import { instrumentRepository } from '@household/observability'
 
 import type { BotRuntimeConfig } from '../config'
 import { createPurchaseMessageRepository } from '../adapters/purchase-message-repository'
+
+interface RepositoryClient<T> {
+  repository: T
+  close: () => Promise<void>
+}
+
+// Timed at the adapter boundary so the per-request log reflects real database work.
+function instrumented<T extends object>(
+  label: string,
+  client: RepositoryClient<T> | null
+): RepositoryClient<T> | null {
+  return client ? { ...client, repository: instrumentRepository(label, client.repository) } : null
+}
 
 export function createBotRepositoryClients(
   runtime: Pick<BotRuntimeConfig, 'databaseUrl' | 'scheduledDispatch'>
 ) {
   const householdConfiguration = runtime.databaseUrl
-    ? createDbHouseholdConfigurationRepository(runtime.databaseUrl)
+    ? instrumented('householdConfig', createDbHouseholdConfigurationRepository(runtime.databaseUrl))
     : null
   const scheduledDispatch =
     runtime.databaseUrl && runtime.scheduledDispatch
-      ? createDbScheduledDispatchRepository(runtime.databaseUrl)
+      ? instrumented('scheduledDispatch', createDbScheduledDispatchRepository(runtime.databaseUrl))
       : null
   const telegramPendingAction = runtime.databaseUrl
-    ? createDbTelegramPendingActionRepository(runtime.databaseUrl)
+    ? instrumented('pendingAction', createDbTelegramPendingActionRepository(runtime.databaseUrl))
     : null
   const processedBotMessage = runtime.databaseUrl
-    ? createDbProcessedBotMessageRepository(runtime.databaseUrl)
+    ? instrumented('processedMessage', createDbProcessedBotMessageRepository(runtime.databaseUrl))
     : null
   const purchaseMessages = runtime.databaseUrl
-    ? createPurchaseMessageRepository(runtime.databaseUrl)
+    ? instrumented('purchaseMessages', createPurchaseMessageRepository(runtime.databaseUrl))
     : null
   const topicMessageHistory = runtime.databaseUrl
-    ? createDbTopicMessageHistoryRepository(runtime.databaseUrl)
+    ? instrumented('topicHistory', createDbTopicMessageHistoryRepository(runtime.databaseUrl))
     : null
   const adHocNotification = runtime.databaseUrl
-    ? createDbAdHocNotificationRepository(runtime.databaseUrl)
+    ? instrumented('adHocNotification', createDbAdHocNotificationRepository(runtime.databaseUrl))
     : null
   const auditNotification = runtime.databaseUrl
-    ? createDbAuditNotificationRepository(runtime.databaseUrl)
+    ? instrumented('auditNotification', createDbAuditNotificationRepository(runtime.databaseUrl))
     : null
   const paymentCards = runtime.databaseUrl
-    ? createDbTelegramPaymentCardRepository(runtime.databaseUrl)
+    ? instrumented('paymentCards', createDbTelegramPaymentCardRepository(runtime.databaseUrl))
     : null
 
   const closeableClients = [

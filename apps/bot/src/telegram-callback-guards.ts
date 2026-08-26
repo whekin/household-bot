@@ -1,5 +1,5 @@
 import type { Bot, Context, NextFunction } from 'grammy'
-import type { Logger } from '@household/observability'
+import { currentQueryMetrics, withQueryMetrics, type Logger } from '@household/observability'
 
 /**
  * Answer a callback query without letting a failure abort the handler.
@@ -62,20 +62,25 @@ export function registerCallbackQueryGuards(options: { bot: Bot; logger?: Logger
 
   options.bot.on('callback_query', async (ctx: Context, next: NextFunction) => {
     const key = callbackDedupeKey(ctx)
-    const run = async () => {
+    const run = async (): Promise<void> => {
       const startedAt = performance.now()
-      try {
-        await next()
-      } finally {
-        options.logger?.info(
-          {
-            event: 'telegram.callback_handled',
-            data: ctx.callbackQuery?.data ?? null,
-            durationMs: Math.round(performance.now() - startedAt)
-          },
-          'Handled callback query'
-        )
-      }
+      // Collect database timings for this update so a slow button can be attributed to
+      // query count, query latency, or handler work instead of guessed at.
+      await withQueryMetrics(async () => {
+        try {
+          await next()
+        } finally {
+          options.logger?.info(
+            {
+              event: 'telegram.callback_handled',
+              data: ctx.callbackQuery?.data ?? null,
+              durationMs: Math.round(performance.now() - startedAt),
+              ...currentQueryMetrics()
+            },
+            'Handled callback query'
+          )
+        }
+      })
     }
 
     if (!key) {

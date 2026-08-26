@@ -2107,8 +2107,13 @@ export function createMiniAppAddPaymentHandler(options: {
   botToken: string
   financeServiceForHousehold: (householdId: string) => FinanceCommandService
   onboardingService: HouseholdOnboardingService
+  adHocNotificationService: AdHocNotificationService
   auditNotificationService?: HouseholdAuditNotificationService
   livePaymentCardService?: LivePaymentCardService
+  householdConfigurationRepository?: Pick<
+    HouseholdConfigurationRepository,
+    'listHouseholdUtilityCategories'
+  >
   logger?: Logger
 }): {
   handler: (request: Request) => Promise<Response>
@@ -2172,6 +2177,26 @@ export function createMiniAppAddPaymentHandler(options: {
           return miniAppJsonResponse({ ok: false, error: 'No open billing cycle' }, 409, origin)
         }
 
+        // Build the post-payment dashboard once and use it three ways: to refresh the
+        // Telegram cards, to answer this request, and — because the client caches what
+        // comes back — to spare the follow-up GET a fourth build of the same thing.
+        const financeDashboard = await service.generateDashboard(payment.period)
+        const dashboard = financeDashboard
+          ? await loadMiniAppDashboardPayload({
+              householdId: auth.member.householdId,
+              viewerMemberId: auth.member.id,
+              financeService: service,
+              adHocNotificationService: options.adHocNotificationService,
+              ...(options.householdConfigurationRepository
+                ? {
+                    householdConfigurationRepository: options.householdConfigurationRepository
+                  }
+                : {}),
+              periodOverride: payment.period,
+              prebuiltDashboard: financeDashboard
+            })
+          : null
+
         // Independent side effects: the notification does not depend on the refreshed
         // cards, so running them together keeps one Telegram round trip off the total.
         await Promise.all([
@@ -2195,7 +2220,8 @@ export function createMiniAppAddPaymentHandler(options: {
           options.livePaymentCardService?.refresh({
             householdId: auth.member.householdId,
             kind: payload.kind,
-            period: payment.period
+            period: payment.period,
+            ...(financeDashboard ? { dashboard: financeDashboard } : {})
           }) ?? Promise.resolve()
         ])
         options.logger?.info(
@@ -2213,7 +2239,11 @@ export function createMiniAppAddPaymentHandler(options: {
           'Mini app payment record completed'
         )
 
-        return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
+        return miniAppJsonResponse(
+          { ok: true, authorized: true, ...(dashboard ? { dashboard } : {}) },
+          200,
+          origin
+        )
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
       }
