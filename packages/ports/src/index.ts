@@ -63,6 +63,7 @@ export {
   type HouseholdPaymentBalanceAdjustmentPolicy,
   type HouseholdConfigurationRepository,
   type HouseholdBillingSettingsRecord,
+  type HouseholdFactRecord,
   type HouseholdJoinTokenRecord,
   type HouseholdMemberLifecycleStatus,
   type HouseholdMemberRecord,

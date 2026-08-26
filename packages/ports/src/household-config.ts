@@ -1,4 +1,4 @@
-import type { CurrencyCode, SupportedLocale } from '@household/domain'
+import type { CurrencyCode, Instant, SupportedLocale } from '@household/domain'
 import type { ReminderTarget } from './reminders'
 
 export const HOUSEHOLD_TOPIC_ROLES = [
@@ -101,6 +101,17 @@ export interface HouseholdAssistantConfigRecord {
   householdId: string
   assistantContext: string | null
   assistantTone: string | null
+}
+
+export interface HouseholdFactRecord {
+  id: string
+  householdId: string
+  key: string
+  title: string
+  body: string
+  updatedByMemberId: string | null
+  createdAt: Instant
+  updatedAt: Instant
 }
 
 export interface HouseholdUtilityCategoryRecord {
@@ -282,4 +293,13 @@ export interface HouseholdConfigurationRepository {
     memberId: string,
     period: string
   ): Promise<boolean>
+  listHouseholdFacts?(householdId: string): Promise<readonly HouseholdFactRecord[]>
+  upsertHouseholdFact?(input: {
+    householdId: string
+    key: string
+    title: string
+    body: string
+    updatedByMemberId?: string | null
+  }): Promise<HouseholdFactRecord>
+  deleteHouseholdFact?(householdId: string, key: string): Promise<boolean>
 }

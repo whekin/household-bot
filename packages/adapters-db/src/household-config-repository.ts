@@ -2,7 +2,11 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
 import {
+  HOUSEHOLD_FACT_LIMIT,
+  householdFactKey,
+  instantFromDatabaseValue,
   instantToDate,
+  normalizeHouseholdFact,
   normalizeSupportedLocale,
   nowInstant,
   type CurrencyCode
@@ -15,6 +19,7 @@ import {
   type HouseholdMemberPresenceDaysRecord,
   type HouseholdBillingSettingsRecord,
   type HouseholdConfigurationRepository,
+  type HouseholdFactRecord,
   type HouseholdJoinTokenRecord,
   type HouseholdMemberLifecycleStatus,
   type HouseholdMemberRecord,
@@ -28,6 +33,28 @@ import {
   type ReminderTarget,
   type RegisterTelegramHouseholdChatResult
 } from '@household/ports'
+
+function toHouseholdFactRecord(row: {
+  id: string
+  householdId: string
+  key: string
+  title: string
+  body: string
+  updatedByMemberId: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
+}): HouseholdFactRecord {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    key: row.key,
+    title: row.title,
+    body: row.body,
+    updatedByMemberId: row.updatedByMemberId,
+    createdAt: instantFromDatabaseValue(row.createdAt)!,
+    updatedAt: instantFromDatabaseValue(row.updatedAt)!
+  }
+}
 
 function normalizeTopicRole(role: string): HouseholdTopicRole {
   const normalized = role.trim().toLowerCase()
@@ -1221,6 +1248,99 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
       }
 
       return toHouseholdUtilityCategoryRecord(row)
+    },
+
+    async listHouseholdFacts(householdId) {
+      const rows = await db
+        .select({
+          id: schema.householdFacts.id,
+          householdId: schema.householdFacts.householdId,
+          key: schema.householdFacts.key,
+          title: schema.householdFacts.title,
+          body: schema.householdFacts.body,
+          updatedByMemberId: schema.householdFacts.updatedByMemberId,
+          createdAt: schema.householdFacts.createdAt,
+          updatedAt: schema.householdFacts.updatedAt
+        })
+        .from(schema.householdFacts)
+        .where(eq(schema.householdFacts.householdId, householdId))
+        .orderBy(asc(schema.householdFacts.key))
+
+      return rows.map(toHouseholdFactRecord)
+    },
+
+    async upsertHouseholdFact(input) {
+      const fact = normalizeHouseholdFact(input)
+      if (!fact) {
+        throw new Error('Household fact key, title and body are required')
+      }
+      const { key, title, body } = fact
+
+      const columns = {
+        id: schema.householdFacts.id,
+        householdId: schema.householdFacts.householdId,
+        key: schema.householdFacts.key,
+        title: schema.householdFacts.title,
+        body: schema.householdFacts.body,
+        updatedByMemberId: schema.householdFacts.updatedByMemberId,
+        createdAt: schema.householdFacts.createdAt,
+        updatedAt: schema.householdFacts.updatedAt
+      }
+
+      const existing = await db
+        .select({ key: schema.householdFacts.key })
+        .from(schema.householdFacts)
+        .where(eq(schema.householdFacts.householdId, input.householdId))
+
+      if (existing.length >= HOUSEHOLD_FACT_LIMIT && !existing.some((row) => row.key === key)) {
+        throw new Error('Household fact limit reached')
+      }
+
+      const rows = await db
+        .insert(schema.householdFacts)
+        .values({
+          householdId: input.householdId,
+          key,
+          title,
+          body,
+          updatedByMemberId: input.updatedByMemberId ?? null
+        })
+        .onConflictDoUpdate({
+          target: [schema.householdFacts.householdId, schema.householdFacts.key],
+          set: {
+            title,
+            body,
+            updatedByMemberId: input.updatedByMemberId ?? null,
+            updatedAt: instantToDate(nowInstant())
+          }
+        })
+        .returning(columns)
+
+      const row = rows[0]
+      if (!row) {
+        throw new Error('Failed to upsert household fact')
+      }
+
+      return toHouseholdFactRecord(row)
+    },
+
+    async deleteHouseholdFact(householdId, key) {
+      const normalized = householdFactKey(key)
+      if (!normalized) {
+        return false
+      }
+
+      const rows = await db
+        .delete(schema.householdFacts)
+        .where(
+          and(
+            eq(schema.householdFacts.householdId, householdId),
+            eq(schema.householdFacts.key, normalized)
+          )
+        )
+        .returning({ id: schema.householdFacts.id })
+
+      return rows.length > 0
     },
 
     async listHouseholdMembersByTelegramUserId(telegramUserId) {

@@ -107,4 +107,52 @@ describe('createDbHouseholdConfigurationRepository', () => {
     },
     10000
   )
+
+  testIfDatabase(
+    'stores, replaces, lists and deletes household facts',
+    async () => {
+      const repositoryClient = createDbHouseholdConfigurationRepository(databaseUrl!)
+      const registered = await repositoryClient.repository.registerTelegramHouseholdChat({
+        householdName: `Facts Household ${randomUUID()}`,
+        telegramChatId: `-100${Date.now()}`,
+        telegramChatType: 'supergroup'
+      })
+      const householdId = registered.household.householdId
+      createdHouseholdIds.push(householdId)
+
+      const created = await repositoryClient.repository.upsertHouseholdFact!({
+        householdId,
+        key: 'Wi-Fi',
+        title: 'Пароль Wi-Fi',
+        body: 'Сеть Kojori, пароль hunter2'
+      })
+
+      expect(created.key).toBe('wi-fi')
+      expect(created.body).toBe('Сеть Kojori, пароль hunter2')
+
+      const replaced = await repositoryClient.repository.upsertHouseholdFact!({
+        householdId,
+        key: 'wi-fi',
+        title: 'Пароль Wi-Fi',
+        body: 'Новый пароль'
+      })
+
+      expect(replaced.id).toBe(created.id)
+      expect(replaced.body).toBe('Новый пароль')
+
+      const listed = await repositoryClient.repository.listHouseholdFacts!(householdId)
+      expect(listed.map((fact) => fact.key)).toEqual(['wi-fi'])
+
+      expect(await repositoryClient.repository.deleteHouseholdFact!(householdId, 'WiFi')).toBe(
+        false
+      )
+      expect(await repositoryClient.repository.deleteHouseholdFact!(householdId, 'Wi-Fi')).toBe(
+        true
+      )
+      expect(await repositoryClient.repository.listHouseholdFacts!(householdId)).toEqual([])
+
+      await repositoryClient.close()
+    },
+    10000
+  )
 })

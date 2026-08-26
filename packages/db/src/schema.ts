@@ -81,6 +81,28 @@ export const householdUtilityCategories = pgTable(
   })
 )
 
+export const householdFacts = pgTable(
+  'household_facts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    updatedByMemberId: uuid('updated_by_member_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdKeyUnique: uniqueIndex('household_facts_household_key_unique').on(
+      table.householdId,
+      table.key
+    )
+  })
+)
+
 export const householdTelegramChats = pgTable(
   'household_telegram_chats',
   {
