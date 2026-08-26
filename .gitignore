@@ -56,3 +56,6 @@ infra/pulumi/aws/.pulumi
 
 # kiro specs and config
 .kiro
+
+# local database dumps (never commit household data)
+tmp/

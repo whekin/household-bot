@@ -47,6 +47,7 @@
     "infra:aws:typecheck": "bun run --cwd infra/pulumi/aws typecheck",
     "test:e2e": "bun run scripts/e2e/billing-flow.ts",
     "ops:deploy:smoke": "bun run scripts/ops/deploy-smoke.ts",
+    "ops:db:compare": "bun run scripts/ops/compare-database-contents.ts",
     "ops:aws:miniapp:publish": "bun run scripts/ops/publish-miniapp-aws.ts",
     "ops:telegram:webhook": "bun run scripts/ops/telegram-webhook.ts",
     "ops:telegram:commands": "bun run scripts/ops/telegram-commands.ts"

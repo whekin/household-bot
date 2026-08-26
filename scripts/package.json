@@ -9,6 +9,7 @@
     "@aws-sdk/client-scheduler": "^3.913.0",
     "drizzle-orm": "^0.45.1",
     "@household/config": "workspace:*",
-    "@household/db": "workspace:*"
+    "@household/db": "workspace:*",
+    "postgres": "^3.4.7"
   }
 }
