@@ -92,6 +92,9 @@ type DashboardContextValue = {
   effectiveBillingStage: 'utilities' | 'rent' | 'idle'
   testingOverridesActive: boolean
   refresh: () => Promise<void>
+  // Mutations whose response already carries a rebuilt dashboard hand it straight to the
+  // cache, so the screen updates without asking the server to build the same thing again.
+  applyDashboard: (next: MiniAppDashboard) => boolean
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -381,6 +384,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     await invalidateHouseholdQueries(initData)
   }, [initData])
 
+  const applyDashboard = useCallback(
+    (next: MiniAppDashboard) => {
+      // Declines rather than caching a dashboard for a period this screen is not showing;
+      // the caller falls back to a full refresh, which is correct if slower.
+      if (!initData || isDemo) return false
+      const shownPeriod = requestPeriodOverride ?? dashboardQuery.data?.period
+      if (shownPeriod && next.period !== shownPeriod) return false
+
+      queryClient.setQueryData(
+        miniAppQueryKeys.dashboard(initData, requestPeriodOverride, requestTodayOverride),
+        next
+      )
+      return true
+    },
+    [
+      initData,
+      isDemo,
+      queryClient,
+      requestPeriodOverride,
+      requestTodayOverride,
+      dashboardQuery.data?.period
+    ]
+  )
+
   /* ── Derivations ── */
 
   const effectivePeriod = dashboard
@@ -511,7 +538,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     effectiveTodayOverride,
     effectiveBillingStage,
     testingOverridesActive,
-    refresh
+    refresh,
+    applyDashboard
   }
 
   return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>
