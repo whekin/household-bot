@@ -8,6 +8,7 @@ import type {
   FinanceMemberRecord,
   FinancePaymentPurchaseAllocationRecord,
   FinanceParsedPurchaseRecord,
+  FinanceRentRuleRangeRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
   HouseholdBillingSettingsRecord,
@@ -471,12 +472,35 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.rentRulesByPeriod.get(period) ?? this.rentRule
   }
 
+  // Ranges that reproduce this stub's lookup: a per-period rule wins over the fallback
+  // because the resolver picks the latest range that covers the period.
+  async listRentRuleRanges(): Promise<readonly FinanceRentRuleRangeRecord[]> {
+    const ranges = [...this.rentRulesByPeriod].map(([period, rule]) => ({
+      ...rule,
+      effectiveFromPeriod: period,
+      effectiveToPeriod: period
+    }))
+
+    return this.rentRule
+      ? [...ranges, { ...this.rentRule, effectiveFromPeriod: '0000-00', effectiveToPeriod: null }]
+      : ranges
+  }
+
   async getUtilityTotalForCycle(): Promise<bigint> {
     return this.utilityBills.reduce((sum, bill) => sum + bill.amountMinor, 0n)
   }
 
   async listUtilityBillsForCycle(cycleId: string) {
     return this.utilityBills.filter((bill) => !bill.cycleId || bill.cycleId === cycleId)
+  }
+
+  async listUtilityBillsForCycles(cycleIds: readonly string[]) {
+    return await Promise.all(
+      cycleIds.map(async (cycleId) => ({
+        cycleId,
+        bills: await this.listUtilityBillsForCycle(cycleId)
+      }))
+    )
   }
 
   async getActiveUtilityBillingPlan(cycleId: string) {
@@ -521,6 +545,13 @@ class FinanceRepositoryStub implements FinanceRepository {
         payload: plan.payload,
         createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
       }))
+  }
+
+  async listUtilityBillingPlansForCycles(cycleIds: readonly string[]) {
+    const groups = await Promise.all(
+      cycleIds.map((cycleId) => this.listUtilityBillingPlansForCycle(cycleId))
+    )
+    return groups.flat()
   }
 
   async saveUtilityBillingPlan(input: Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]) {
@@ -622,6 +653,11 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listUtilityVendorPaymentFactsForCycle(cycleId: string) {
     return this.utilityVendorPaymentFacts.filter((fact) => fact.cycleId === cycleId)
+  }
+
+  async listUtilityVendorPaymentFactsForCycles(cycleIds: readonly string[]) {
+    const ids = new Set(cycleIds)
+    return this.utilityVendorPaymentFacts.filter((fact) => ids.has(fact.cycleId))
   }
 
   async getUtilityVendorPaymentFact(factId: string) {
@@ -727,6 +763,11 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listPaymentRecordsForCycle(cycleId: string) {
     return this.paymentRecords.filter((payment) => payment.cycleId === cycleId)
+  }
+
+  async listPaymentRecordsForCycles(cycleIds: readonly string[]) {
+    const ids = new Set(cycleIds)
+    return this.paymentRecords.filter((payment) => ids.has(payment.cycleId))
   }
 
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
@@ -6483,5 +6524,85 @@ describe('reverting utility payment state', () => {
     await service.ensureExpectedCycle()
 
     expect([...repository.closedCycleIds].sort()).toEqual(['cycle-old-1', 'cycle-old-2'])
+  })
+})
+
+describe('per-cycle read batching', () => {
+  function countingRepository(repository: FinanceRepositoryStub, counts: Map<string, number>) {
+    return new Proxy(repository, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver)
+        if (typeof value !== 'function' || typeof property !== 'string') {
+          return value
+        }
+
+        return (...args: unknown[]) => {
+          counts.set(property, (counts.get(property) ?? 0) + 1)
+          return (value as (...callArgs: unknown[]) => unknown).apply(target, args)
+        }
+      }
+    })
+  }
+
+  function seedCycles(cycleCount: number) {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    const cycles = Array.from({ length: cycleCount }, (_, index) => ({
+      id: `cycle-${index}`,
+      period: `2025-${String(index + 1).padStart(2, '0')}`,
+      currency: 'GEL' as const
+    }))
+    repository.cycles = cycles
+    repository.openCycleRecord = cycles[cycles.length - 1]!
+    repository.latestCycleRecord = cycles[cycles.length - 1]!
+    repository.cycleByPeriodRecord = cycles[cycles.length - 1]!
+    repository.rentRule = { amountMinor: 200000n, currency: 'GEL' }
+
+    return { repository, cycles }
+  }
+
+  async function countDashboardReads(cycleCount: number) {
+    const counts = new Map<string, number>()
+    const { repository } = seedCycles(cycleCount)
+    const service = createService(
+      countingRepository(repository, counts) as unknown as FinanceRepositoryStub
+    )
+    await service.generateDashboard()
+
+    return counts
+  }
+
+  test('a dashboard costs the same number of reads no matter how many cycles exist', async () => {
+    const [threeCycles, nineCycles] = await Promise.all([
+      countDashboardReads(3),
+      countDashboardReads(9)
+    ])
+
+    const total = (counts: Map<string, number>) =>
+      [...counts.values()].reduce((sum, value) => sum + value, 0)
+
+    expect(total(nineCycles)).toBe(total(threeCycles))
+    // The per-cycle reads are answered in batches, so the one-cycle-at-a-time entry
+    // points never reach the repository.
+    expect(nineCycles.get('listUtilityBillsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listPaymentRecordsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listUtilityBillingPlansForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listUtilityVendorPaymentFactsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('getRentRuleForPeriod') ?? 0).toBe(0)
   })
 })

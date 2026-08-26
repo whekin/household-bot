@@ -262,6 +262,138 @@ export function createDbFinanceRepository(
     }
   }
 
+  // A dashboard reads bills, payments, plans and vendor facts for every billing cycle the
+  // household has ever had. Fetching them one cycle at a time turned a single button press
+  // into hundreds of round trips, so every per-cycle read is expressed as a batch and the
+  // single-cycle entry points are thin wrappers over it.
+  async function selectUtilityBillsForCycles(cycleIds: readonly string[]) {
+    if (cycleIds.length === 0) {
+      return []
+    }
+
+    const rows = await db
+      .select({
+        id: schema.utilityBills.id,
+        cycleId: schema.utilityBills.cycleId,
+        billName: schema.utilityBills.billName,
+        amountMinor: schema.utilityBills.amountMinor,
+        currency: schema.utilityBills.currency,
+        createdByMemberId: schema.utilityBills.createdByMemberId,
+        createdAt: schema.utilityBills.createdAt
+      })
+      .from(schema.utilityBills)
+      .where(inArray(schema.utilityBills.cycleId, [...cycleIds]))
+      .orderBy(schema.utilityBills.createdAt)
+
+    return rows.map((row) => ({
+      cycleId: row.cycleId,
+      bill: {
+        id: row.id,
+        billName: row.billName,
+        amountMinor: row.amountMinor,
+        currency: toCurrencyCode(row.currency),
+        createdByMemberId: row.createdByMemberId,
+        createdAt: instantFromDatabaseValue(row.createdAt)!
+      }
+    }))
+  }
+
+  async function selectUtilityBillingPlansForCycles(cycleIds: readonly string[]) {
+    if (cycleIds.length === 0) {
+      return []
+    }
+
+    const rows = await db
+      .select({
+        id: schema.utilityBillingPlans.id,
+        householdId: schema.utilityBillingPlans.householdId,
+        cycleId: schema.utilityBillingPlans.cycleId,
+        version: schema.utilityBillingPlans.version,
+        status: schema.utilityBillingPlans.status,
+        dueDate: schema.utilityBillingPlans.dueDate,
+        currency: schema.utilityBillingPlans.currency,
+        maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
+        updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
+        reason: schema.utilityBillingPlans.reason,
+        payload: schema.utilityBillingPlans.payload,
+        createdAt: schema.utilityBillingPlans.createdAt
+      })
+      .from(schema.utilityBillingPlans)
+      .where(inArray(schema.utilityBillingPlans.cycleId, [...cycleIds]))
+      .orderBy(schema.utilityBillingPlans.version)
+
+    return rows.map(mapUtilityBillingPlanRecord)
+  }
+
+  async function selectUtilityVendorPaymentFactsForCycles(cycleIds: readonly string[]) {
+    if (cycleIds.length === 0) {
+      return []
+    }
+
+    const rows = await db
+      .select({
+        id: schema.utilityVendorPaymentFacts.id,
+        cycleId: schema.utilityVendorPaymentFacts.cycleId,
+        planId: schema.utilityVendorPaymentFacts.planId,
+        utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+        billName: schema.utilityVendorPaymentFacts.billName,
+        payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+        amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+        currency: schema.utilityVendorPaymentFacts.currency,
+        plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+        planVersion: schema.utilityVendorPaymentFacts.planVersion,
+        matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+        recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+        paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
+        recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+        createdAt: schema.utilityVendorPaymentFacts.createdAt
+      })
+      .from(schema.utilityVendorPaymentFacts)
+      .where(inArray(schema.utilityVendorPaymentFacts.cycleId, [...cycleIds]))
+      .orderBy(schema.utilityVendorPaymentFacts.recordedAt, schema.utilityVendorPaymentFacts.id)
+
+    return rows.map((row) => ({
+      ...row,
+      currency: toCurrencyCode(row.currency),
+      matchedPlan: row.matchedPlan === 1,
+      recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+      createdAt: instantFromDatabaseValue(row.createdAt)!
+    }))
+  }
+
+  async function selectPaymentRecordsForCycles(cycleIds: readonly string[]) {
+    if (cycleIds.length === 0) {
+      return []
+    }
+
+    const rows = await db
+      .select({
+        id: schema.paymentRecords.id,
+        cycleId: schema.paymentRecords.cycleId,
+        cyclePeriod: schema.billingCycles.period,
+        memberId: schema.paymentRecords.memberId,
+        kind: schema.paymentRecords.kind,
+        amountMinor: schema.paymentRecords.amountMinor,
+        currency: schema.paymentRecords.currency,
+        recordedAt: schema.paymentRecords.recordedAt
+      })
+      .from(schema.paymentRecords)
+      .innerJoin(schema.billingCycles, eq(schema.paymentRecords.cycleId, schema.billingCycles.id))
+      .where(inArray(schema.paymentRecords.cycleId, [...cycleIds]))
+      .orderBy(schema.paymentRecords.recordedAt)
+
+    return rows.map((row) => ({
+      id: row.id,
+      cycleId: row.cycleId,
+      cyclePeriod: row.cyclePeriod,
+      memberId: row.memberId,
+      kind: row.kind === 'utilities' ? ('utilities' as const) : ('rent' as const),
+      amountMinor: row.amountMinor,
+      currency: toCurrencyCode(row.currency),
+      recordedAt: instantFromDatabaseValue(row.recordedAt)!
+    }))
+  }
+
   const repository: FinanceRepository = {
     async getMemberByTelegramUserId(telegramUserId) {
       const rows = await db
@@ -1294,6 +1426,24 @@ export function createDbFinanceRepository(
       }
     },
 
+    async listRentRuleRanges() {
+      const rows = await db
+        .select({
+          amountMinor: schema.rentRules.amountMinor,
+          currency: schema.rentRules.currency,
+          effectiveFromPeriod: schema.rentRules.effectiveFromPeriod,
+          effectiveToPeriod: schema.rentRules.effectiveToPeriod
+        })
+        .from(schema.rentRules)
+        .where(eq(schema.rentRules.householdId, householdId))
+        .orderBy(desc(schema.rentRules.effectiveFromPeriod))
+
+      return rows.map((row) => ({
+        ...row,
+        currency: toCurrencyCode(row.currency)
+      }))
+    },
+
     async getRentRuleStartingAtPeriod(period) {
       const rows = await db
         .select({
@@ -1325,23 +1475,27 @@ export function createDbFinanceRepository(
     },
 
     async listUtilityBillsForCycle(cycleId) {
-      const rows = await db
-        .select({
-          id: schema.utilityBills.id,
-          billName: schema.utilityBills.billName,
-          amountMinor: schema.utilityBills.amountMinor,
-          currency: schema.utilityBills.currency,
-          createdByMemberId: schema.utilityBills.createdByMemberId,
-          createdAt: schema.utilityBills.createdAt
-        })
-        .from(schema.utilityBills)
-        .where(eq(schema.utilityBills.cycleId, cycleId))
-        .orderBy(schema.utilityBills.createdAt)
+      const rows = await selectUtilityBillsForCycles([cycleId])
+      return rows.map((row) => row.bill)
+    },
 
-      return rows.map((row) => ({
-        ...row,
-        currency: toCurrencyCode(row.currency),
-        createdAt: instantFromDatabaseValue(row.createdAt)!
+    async listUtilityBillsForCycles(cycleIds) {
+      const rows = await selectUtilityBillsForCycles(cycleIds)
+      const billsByCycleId = new Map<string, (typeof rows)[number]['bill'][]>()
+      for (const row of rows) {
+        const bills = billsByCycleId.get(row.cycleId)
+        if (bills) {
+          bills.push(row.bill)
+          continue
+        }
+        billsByCycleId.set(row.cycleId, [row.bill])
+      }
+
+      // Every requested cycle gets an entry, so a caller can tell "no bills" apart from
+      // "not fetched" without re-checking its own request.
+      return cycleIds.map((cycleId) => ({
+        cycleId,
+        bills: billsByCycleId.get(cycleId) ?? []
       }))
     },
 
@@ -1379,26 +1533,11 @@ export function createDbFinanceRepository(
     },
 
     async listUtilityBillingPlansForCycle(cycleId) {
-      const rows = await db
-        .select({
-          id: schema.utilityBillingPlans.id,
-          householdId: schema.utilityBillingPlans.householdId,
-          cycleId: schema.utilityBillingPlans.cycleId,
-          version: schema.utilityBillingPlans.version,
-          status: schema.utilityBillingPlans.status,
-          dueDate: schema.utilityBillingPlans.dueDate,
-          currency: schema.utilityBillingPlans.currency,
-          maxCategoriesPerMemberApplied: schema.utilityBillingPlans.maxCategoriesPerMemberApplied,
-          updatedFromPlanId: schema.utilityBillingPlans.updatedFromPlanId,
-          reason: schema.utilityBillingPlans.reason,
-          payload: schema.utilityBillingPlans.payload,
-          createdAt: schema.utilityBillingPlans.createdAt
-        })
-        .from(schema.utilityBillingPlans)
-        .where(eq(schema.utilityBillingPlans.cycleId, cycleId))
-        .orderBy(schema.utilityBillingPlans.version)
+      return await selectUtilityBillingPlansForCycles([cycleId])
+    },
 
-      return rows.map(mapUtilityBillingPlanRecord)
+    async listUtilityBillingPlansForCycles(cycleIds) {
+      return await selectUtilityBillingPlansForCycles(cycleIds)
     },
 
     async saveUtilityBillingPlan(input) {
@@ -1572,35 +1711,11 @@ export function createDbFinanceRepository(
     },
 
     async listUtilityVendorPaymentFactsForCycle(cycleId) {
-      const rows = await db
-        .select({
-          id: schema.utilityVendorPaymentFacts.id,
-          cycleId: schema.utilityVendorPaymentFacts.cycleId,
-          planId: schema.utilityVendorPaymentFacts.planId,
-          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
-          billName: schema.utilityVendorPaymentFacts.billName,
-          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
-          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
-          currency: schema.utilityVendorPaymentFacts.currency,
-          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
-          planVersion: schema.utilityVendorPaymentFacts.planVersion,
-          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
-          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
-          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
-          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
-          createdAt: schema.utilityVendorPaymentFacts.createdAt
-        })
-        .from(schema.utilityVendorPaymentFacts)
-        .where(eq(schema.utilityVendorPaymentFacts.cycleId, cycleId))
-        .orderBy(schema.utilityVendorPaymentFacts.recordedAt, schema.utilityVendorPaymentFacts.id)
+      return await selectUtilityVendorPaymentFactsForCycles([cycleId])
+    },
 
-      return rows.map((row) => ({
-        ...row,
-        currency: toCurrencyCode(row.currency),
-        matchedPlan: row.matchedPlan === 1,
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
-        createdAt: instantFromDatabaseValue(row.createdAt)!
-      }))
+    async listUtilityVendorPaymentFactsForCycles(cycleIds) {
+      return await selectUtilityVendorPaymentFactsForCycles(cycleIds)
     },
 
     async getUtilityVendorPaymentFact(factId) {
@@ -1862,32 +1977,11 @@ export function createDbFinanceRepository(
     },
 
     async listPaymentRecordsForCycle(cycleId) {
-      const rows = await db
-        .select({
-          id: schema.paymentRecords.id,
-          cycleId: schema.paymentRecords.cycleId,
-          cyclePeriod: schema.billingCycles.period,
-          memberId: schema.paymentRecords.memberId,
-          kind: schema.paymentRecords.kind,
-          amountMinor: schema.paymentRecords.amountMinor,
-          currency: schema.paymentRecords.currency,
-          recordedAt: schema.paymentRecords.recordedAt
-        })
-        .from(schema.paymentRecords)
-        .innerJoin(schema.billingCycles, eq(schema.paymentRecords.cycleId, schema.billingCycles.id))
-        .where(eq(schema.paymentRecords.cycleId, cycleId))
-        .orderBy(schema.paymentRecords.recordedAt)
+      return await selectPaymentRecordsForCycles([cycleId])
+    },
 
-      return rows.map((row) => ({
-        id: row.id,
-        cycleId: row.cycleId,
-        cyclePeriod: row.cyclePeriod,
-        memberId: row.memberId,
-        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
-        amountMinor: row.amountMinor,
-        currency: toCurrencyCode(row.currency),
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!
-      }))
+    async listPaymentRecordsForCycles(cycleIds) {
+      return await selectPaymentRecordsForCycles(cycleIds)
     },
 
     async listParsedPurchasesForRange(start, end) {

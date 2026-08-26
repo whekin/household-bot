@@ -9,6 +9,7 @@ import type {
   FinancePaymentPurchaseAllocationRecord,
   FinancePaymentRecord,
   FinanceParsedPurchaseRecord,
+  FinanceRentRuleRangeRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
   SettlementSnapshotRecord,
@@ -1123,6 +1124,129 @@ interface FinanceCommandServiceDependencies {
   exchangeRateProvider: ExchangeRateProvider
 }
 
+// Those per-cycle loops ask for one cycle at a time, so a household with a year of
+// history issued a query per cycle per table even though they all run concurrently.
+// Requests that land in the same tick are collected and answered by a single batched
+// read, which keeps a dashboard flat in the number of cycles rather than linear.
+//
+// Pure coalescing, no caching: `memoizeReads` above it owns the caching, including
+// dropping it on writes.
+function createBatchQueue<R>(
+  loadMany: (keys: readonly string[]) => Promise<ReadonlyMap<string, readonly R[]>>
+): (key: string) => Promise<readonly R[]> {
+  let pending: {
+    key: string
+    resolve: (records: readonly R[]) => void
+    reject: (error: unknown) => void
+  }[] = []
+
+  async function flush() {
+    const batch = pending
+    pending = []
+
+    try {
+      const grouped = await loadMany([...new Set(batch.map((entry) => entry.key))])
+      for (const entry of batch) {
+        entry.resolve(grouped.get(entry.key) ?? [])
+      }
+    } catch (error) {
+      for (const entry of batch) {
+        entry.reject(error)
+      }
+    }
+  }
+
+  return (key) =>
+    new Promise((resolve, reject) => {
+      if (pending.length === 0) {
+        queueMicrotask(flush)
+      }
+      pending.push({ key, resolve, reject })
+    })
+}
+
+function groupBy<R>(records: readonly R[], keyOf: (record: R) => string): ReadonlyMap<string, R[]> {
+  const grouped = new Map<string, R[]>()
+  for (const record of records) {
+    const existing = grouped.get(keyOf(record))
+    if (existing) {
+      existing.push(record)
+      continue
+    }
+    grouped.set(keyOf(record), [record])
+  }
+
+  return grouped
+}
+
+function batchPerCycleReads(repository: FinanceRepository): FinanceRepository {
+  const loadBills = createBatchQueue(async (cycleIds) => {
+    const groups = await repository.listUtilityBillsForCycles(cycleIds)
+    return new Map(groups.map((group) => [group.cycleId, group.bills]))
+  })
+  const loadPaymentRecords = createBatchQueue(async (cycleIds) =>
+    groupBy(await repository.listPaymentRecordsForCycles(cycleIds), (record) => record.cycleId)
+  )
+  const loadBillingPlans = createBatchQueue(async (cycleIds) =>
+    groupBy(await repository.listUtilityBillingPlansForCycles(cycleIds), (plan) => plan.cycleId)
+  )
+  const loadVendorFacts = createBatchQueue(async (cycleIds) =>
+    groupBy(
+      await repository.listUtilityVendorPaymentFactsForCycles(cycleIds),
+      (fact) => fact.cycleId
+    )
+  )
+
+  // Rent rules are few and cover period ranges, so one read answers every period the
+  // operation asks about.
+  let rentRuleRanges: Promise<readonly FinanceRentRuleRangeRecord[]> | null = null
+
+  const overrides: Partial<FinanceRepository> = {
+    listUtilityBillsForCycle: (cycleId) => loadBills(cycleId),
+    listPaymentRecordsForCycle: (cycleId) => loadPaymentRecords(cycleId),
+    listUtilityBillingPlansForCycle: (cycleId) => loadBillingPlans(cycleId),
+    listUtilityVendorPaymentFactsForCycle: (cycleId) => loadVendorFacts(cycleId),
+    async getRentRuleForPeriod(period) {
+      rentRuleRanges ??= repository.listRentRuleRanges()
+      const ranges = await rentRuleRanges.catch((error: unknown) => {
+        rentRuleRanges = null
+        throw error
+      })
+
+      // Same rule the database applies: the latest range that covers the period.
+      const match = [...ranges]
+        .sort((left, right) => right.effectiveFromPeriod.localeCompare(left.effectiveFromPeriod))
+        .find(
+          (range) =>
+            range.effectiveFromPeriod.localeCompare(period) <= 0 &&
+            (range.effectiveToPeriod === null || range.effectiveToPeriod.localeCompare(period) >= 0)
+        )
+
+      return match ? { amountMinor: match.amountMinor, currency: match.currency } : null
+    }
+  }
+
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const override = Reflect.get(overrides, property) as unknown
+      const value = Reflect.get(target, property, receiver)
+      if (typeof value !== 'function' || typeof property !== 'string') {
+        return value
+      }
+
+      if (READ_METHOD_PATTERN.test(property)) {
+        return typeof override === 'function' ? override : value.bind(target)
+      }
+
+      // A write can move a rent rule boundary, so the cached ranges have to go with it.
+      return (...args: unknown[]) => {
+        rentRuleRanges = null
+        return value.apply(target, args)
+      }
+    }
+  })
+}
+
 // A single dashboard build fans out across three per-cycle loops that each need the
 // same rent rules, bills, plans and payment records, and one Telegram button press
 // can rebuild the dashboard several times over. Reading those rows once per operation
@@ -1196,7 +1320,7 @@ function withOperationReadCache(dependencies: FinanceCommandServiceDependencies)
   return {
     dependencies: {
       ...dependencies,
-      repository: memoizeReads(dependencies.repository, entries),
+      repository: memoizeReads(batchPerCycleReads(dependencies.repository), entries),
       householdConfigurationRepository: memoizeReads(
         dependencies.householdConfigurationRepository,
         entries
