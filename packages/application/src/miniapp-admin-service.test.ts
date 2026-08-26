@@ -387,6 +387,7 @@ describe('createMiniAppAdminService', () => {
         }
       ],
       categories: [],
+      facts: [],
       members: [
         {
           id: 'member-123456',

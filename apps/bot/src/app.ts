@@ -38,6 +38,8 @@ import {
   createMiniAppUpdateMemberPresenceDaysHandler,
   createMiniAppUpdateOwnDisplayNameHandler,
   createMiniAppUpdateSettingsHandler,
+  createMiniAppUpsertFactHandler,
+  createMiniAppDeleteFactHandler,
   createMiniAppUpsertUtilityCategoryHandler
 } from './miniapp-admin'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
@@ -513,6 +515,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     registerAgentActionCallbacks(bot, {
       promptRepository: telegramPendingActionRepositoryClient.repository,
       financeServiceForHousehold,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      onHouseholdFactsChanged: (householdId) => householdContextCache.invalidate(householdId),
       ...(auditNotificationService ? { auditNotificationService } : {}),
       logger: getLogger('agent-actions')
     })
@@ -675,6 +679,26 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           botToken: runtime.telegramBotToken,
           onboardingService: householdOnboardingService,
           miniAppAdminService: miniAppAdminService!,
+          logger: getLogger('miniapp-admin')
+        })
+      : undefined,
+    miniAppUpsertFact: householdOnboardingService
+      ? createMiniAppUpsertFactHandler({
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          botToken: runtime.telegramBotToken,
+          onboardingService: householdOnboardingService,
+          miniAppAdminService: miniAppAdminService!,
+          onFactsUpdated: (householdId) => householdContextCache.invalidate(householdId),
+          logger: getLogger('miniapp-admin')
+        })
+      : undefined,
+    miniAppDeleteFact: householdOnboardingService
+      ? createMiniAppDeleteFactHandler({
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          botToken: runtime.telegramBotToken,
+          onboardingService: householdOnboardingService,
+          miniAppAdminService: miniAppAdminService!,
+          onFactsUpdated: (householdId) => householdContextCache.invalidate(householdId),
           logger: getLogger('miniapp-admin')
         })
       : undefined,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import type { FinanceCommandService } from '@household/application'
-import { Money } from '@household/domain'
+import { instantFromIso, Money } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   TelegramPendingActionRecord,
@@ -343,6 +343,46 @@ describe('registerHouseholdAgent in private chats', () => {
       ?.content
     expect(contextPrompt).toContain('Household custom instructions:')
     expect(contextPrompt).toContain('Call the household cat the financial director.')
+  })
+
+  test('lists stored fact keys in the context prompt without their bodies', async () => {
+    const model = mockAgentModel('Пароль в закрепе')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const bot = createAgentBot(calls)
+
+    registerHouseholdAgent(bot, {
+      ...agentOptions,
+      householdConfigurationRepository: {
+        ...createHouseholdRepositoryFake(1),
+        listHouseholdFacts: async () => [
+          {
+            id: 'fact-wifi',
+            householdId: 'household-1',
+            key: 'wifi',
+            title: 'Wi-Fi',
+            body: 'Сеть Kojori, пароль hunter2',
+            updatedByMemberId: null,
+            createdAt: instantFromIso('2026-07-01T10:00:00.000Z'),
+            updatedAt: instantFromIso('2026-07-01T10:00:00.000Z')
+          }
+        ]
+      },
+      financeServiceForHousehold: () => createFinanceServiceFake(),
+      contextCache: new HouseholdContextCache()
+    })
+
+    await bot.handleUpdate(dmUpdate('какой пароль от вайфая'))
+
+    const requestBody = JSON.parse(model.calls[0]?.body ?? '{}') as {
+      input?: Array<{ role?: string; content?: string }>
+      tools?: Array<{ name?: string }>
+    }
+    const contextPrompt = requestBody.input?.filter((message) => message.role === 'system')[1]
+      ?.content
+    expect(contextPrompt).toContain('Stored household facts')
+    expect(contextPrompt).toContain('wifi — Wi-Fi')
+    expect(contextPrompt).not.toContain('hunter2')
+    expect(requestBody.tools?.map((tool) => tool.name)).toContain('get_household_facts')
   })
 
   test('tells non-members there is no household', async () => {

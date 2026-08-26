@@ -12,6 +12,7 @@ import type {
 import {
   agentToolDefinitions,
   executeAgentTool,
+  householdFactToolsAvailable,
   type AgentMessageRecord,
   type AgentToolContext
 } from './agent-tools'
@@ -73,6 +74,8 @@ const AGENT_SYSTEM_PROMPT = [
   '- Treat “не смешно”, “давай другой”, or a request for something funnier as feedback on the previous attempt: acknowledge it briefly if useful, then change both the premise and the joke structure instead of producing the same template with different nouns. Never claim that a joke will definitely make someone laugh.',
   '- When a member reports a completed payment, use propose_payment. "за себя и за X" means covered_member_ids includes X. "за всех" / "for everyone" / "for all" means covered_member_ids includes every other member id (whether or not each has already paid separately — the tool figures out who still needs recording). If the payer is someone else ("Ион оплатил"), set payer_member_id to that member.',
   '- When a member reports a completed shared purchase, use propose_purchase.',
+  '- For non-financial household questions (Wi-Fi, door codes, trash days, landlord, appliances, house rules), call get_household_facts and answer only from it. Never guess such an answer. If the fact is missing, say so and offer to remember it.',
+  '- When a member tells you to remember or correct such a detail, use set_household_fact; use delete_household_fact when they ask you to forget one. Both only post a confirmation card.',
   '- Plans, intentions, and future talk ("надо оплатить", "завтра закину") are NOT completed facts: do not post cards for them; reply briefly only if addressed.',
   '- Rent is billed in its source currency; the settlement-currency figure is only fixed on the rent reminder day (get_bill_status reports fxRateStatus). While provisional, quote per-member rent in the source currency (e.g. "175 USD") and give the settlement amount only as approximate.',
   '- When asked whether a rent change was applied or what rent is configured for a period, always call get_rent_settings. Never use the household default as the effective current-period amount.',
@@ -480,7 +483,7 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
 
       const cachedContext = options.contextCache
         ? await options.contextCache.get(target.householdId, async () => {
-            const [settings, assistantConfig] = await Promise.all([
+            const [settings, assistantConfig, facts] = await Promise.all([
               options.householdConfigurationRepository.getHouseholdBillingSettings(
                 target.householdId
               ),
@@ -488,11 +491,15 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
                 ? options.householdConfigurationRepository.getHouseholdAssistantConfig(
                     target.householdId
                   )
-                : Promise.resolve(null)
+                : Promise.resolve(null),
+              options.householdConfigurationRepository.listHouseholdFacts
+                ? options.householdConfigurationRepository.listHouseholdFacts(target.householdId)
+                : Promise.resolve([])
             ])
             return {
               householdContext: assistantConfig?.assistantContext ?? null,
               assistantTone: assistantConfig?.assistantTone ?? null,
+              factIndex: facts.map((fact) => ({ key: fact.key, title: fact.title })),
               defaultCurrency: settings.settlementCurrency === 'USD' ? 'USD' : ('GEL' as const),
               timezone: settings.timezone,
               locale: target.locale,
@@ -527,6 +534,11 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           : null,
         cachedContext?.assistantTone
           ? `Household custom instructions:\n${cachedContext.assistantTone}`
+          : null,
+        cachedContext?.factIndex?.length
+          ? `Stored household facts (call get_household_facts to read one; never answer from this list alone): ${cachedContext.factIndex
+              .map((fact) => `${fact.key} — ${fact.title}`)
+              .join('; ')}`
           : null,
         recentMessages.length > 0
           ? `Recent messages in this thread:\n${recentMessages
@@ -594,7 +606,10 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
           userMessage: record.rawText,
           tools: agentToolDefinitions({
             purchaseToolsAvailable: options.purchaseRepository !== undefined,
-            adminToolsAvailable: senderMember.isAdmin
+            adminToolsAvailable: senderMember.isAdmin,
+            factToolsAvailable: householdFactToolsAvailable(
+              options.householdConfigurationRepository
+            )
           }),
           executeTool: (call) => executeAgentTool(toolContext, call),
           ...(options.logger ? { logger: options.logger } : {})

@@ -3,6 +3,7 @@ import type {
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
   HouseholdAuditNotificationRepository,
+  HouseholdFactRecord,
   HouseholdMemberLifecycleStatus,
   HouseholdMemberRecord,
   HouseholdPendingMemberRecord,
@@ -11,7 +12,15 @@ import type {
   HouseholdUtilityCategoryRecord,
   HouseholdNotificationSettingsRecord
 } from '@household/ports'
-import { BillingPeriod, Money, nowInstant, type CurrencyCode } from '@household/domain'
+import {
+  BillingPeriod,
+  HOUSEHOLD_FACT_LIMIT,
+  Money,
+  householdFactKey,
+  normalizeHouseholdFact,
+  nowInstant,
+  type CurrencyCode
+} from '@household/domain'
 import type { ScheduledDispatchService } from './scheduled-dispatch-service'
 
 function isValidDay(value: number): boolean {
@@ -69,6 +78,7 @@ export interface MiniAppAdminService {
         settings: HouseholdBillingSettingsRecord
         assistantConfig: HouseholdAssistantConfigRecord
         categories: readonly HouseholdUtilityCategoryRecord[]
+        facts: readonly HouseholdFactRecord[]
         members: readonly HouseholdMemberRecord[]
         topics: readonly HouseholdTopicBindingRecord[]
         notificationSettings: HouseholdNotificationSettingsRecord
@@ -133,6 +143,32 @@ export interface MiniAppAdminService {
     | {
         status: 'rejected'
         reason: 'not_admin' | 'invalid_category'
+      }
+  >
+  upsertFact(input: {
+    householdId: string
+    actorIsAdmin: boolean
+    key?: string
+    title: string
+    body: string
+  }): Promise<
+    | {
+        status: 'ok'
+        fact: HouseholdFactRecord
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'invalid_fact' | 'fact_limit_reached' | 'unsupported'
+      }
+  >
+  deleteFact(input: { householdId: string; actorIsAdmin: boolean; key: string }): Promise<
+    | {
+        status: 'ok'
+        deleted: boolean
+      }
+    | {
+        status: 'rejected'
+        reason: 'not_admin' | 'invalid_fact' | 'unsupported'
       }
   >
   listPendingMembers(input: { householdId: string; actorIsAdmin: boolean }): Promise<
@@ -384,13 +420,16 @@ export function createMiniAppAdminService(
         throw new Error('Failed to resolve household chat for mini app settings')
       }
 
-      const [settings, assistantConfig, categories, members, topics, notificationSettings] =
+      const [settings, assistantConfig, categories, facts, members, topics, notificationSettings] =
         await Promise.all([
           repository.getHouseholdBillingSettings(input.householdId),
           repository.getHouseholdAssistantConfig
             ? repository.getHouseholdAssistantConfig(input.householdId)
             : Promise.resolve(defaultAssistantConfig(input.householdId)),
           repository.listHouseholdUtilityCategories(input.householdId),
+          repository.listHouseholdFacts
+            ? repository.listHouseholdFacts(input.householdId)
+            : Promise.resolve([]),
           repository.listHouseholdMembers(input.householdId),
           repository.listHouseholdTopicBindings(input.householdId),
           auditNotificationRepository
@@ -404,6 +443,7 @@ export function createMiniAppAdminService(
         settings,
         assistantConfig,
         categories,
+        facts,
         members,
         topics,
         notificationSettings
@@ -643,6 +683,84 @@ export function createMiniAppAdminService(
       return {
         status: 'ok',
         category
+      }
+    },
+
+    async upsertFact(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      if (!repository.upsertHouseholdFact || !repository.listHouseholdFacts) {
+        return {
+          status: 'rejected',
+          reason: 'unsupported'
+        }
+      }
+
+      const fact = normalizeHouseholdFact({
+        ...(input.key !== undefined ? { key: input.key } : {}),
+        title: input.title,
+        body: input.body
+      })
+      if (!fact) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_fact'
+        }
+      }
+
+      const existing = await repository.listHouseholdFacts(input.householdId)
+      if (
+        existing.length >= HOUSEHOLD_FACT_LIMIT &&
+        !existing.some((entry) => entry.key === fact.key)
+      ) {
+        return {
+          status: 'rejected',
+          reason: 'fact_limit_reached'
+        }
+      }
+
+      return {
+        status: 'ok',
+        fact: await repository.upsertHouseholdFact({
+          householdId: input.householdId,
+          key: fact.key,
+          title: fact.title,
+          body: fact.body
+        })
+      }
+    },
+
+    async deleteFact(input) {
+      if (!input.actorIsAdmin) {
+        return {
+          status: 'rejected',
+          reason: 'not_admin'
+        }
+      }
+
+      if (!repository.deleteHouseholdFact) {
+        return {
+          status: 'rejected',
+          reason: 'unsupported'
+        }
+      }
+
+      const key = householdFactKey(input.key)
+      if (!key) {
+        return {
+          status: 'rejected',
+          reason: 'invalid_fact'
+        }
+      }
+
+      return {
+        status: 'ok',
+        deleted: await repository.deleteHouseholdFact(input.householdId, key)
       }
     },
 

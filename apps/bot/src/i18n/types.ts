@@ -365,6 +365,8 @@ export interface BotTranslationCatalog {
     summarizeDeletePurchase: (description: string, amount: string, currency: string) => string
     summarizeSetPurchaseParticipants: (description: string, names: string) => string
     summarizeSetPeriodRent: (amount: string, currency: string, periods: readonly string[]) => string
+    summarizeSetHouseholdFact: (title: string, body: string, previousBody: string | null) => string
+    summarizeDeleteHouseholdFact: (title: string) => string
   }
   payments: {
     topicMissing: string

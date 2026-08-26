@@ -5,7 +5,10 @@ import type {
 import { BillingPeriod, Money, nowInstant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
 import type { Logger } from '@household/observability'
-import type { TelegramPendingActionRepository } from '@household/ports'
+import type {
+  HouseholdConfigurationRepository,
+  TelegramPendingActionRepository
+} from '@household/ports'
 
 import { getBotTranslations, type BotLocale } from './i18n'
 
@@ -21,6 +24,8 @@ export type AgentActionType =
   | 'delete_purchase'
   | 'set_purchase_participants'
   | 'set_period_rent'
+  | 'set_household_fact'
+  | 'delete_household_fact'
 
 export interface AgentActionPayload {
   actionId: string
@@ -94,7 +99,9 @@ export function parseAgentActionPayload(
       payload.actionType !== 'update_purchase' &&
       payload.actionType !== 'delete_purchase' &&
       payload.actionType !== 'set_purchase_participants' &&
-      payload.actionType !== 'set_period_rent') ||
+      payload.actionType !== 'set_period_rent' &&
+      payload.actionType !== 'set_household_fact' &&
+      payload.actionType !== 'delete_household_fact') ||
     !payload.params ||
     typeof payload.params !== 'object' ||
     Array.isArray(payload.params)
@@ -130,11 +137,40 @@ function readStringArray(params: Record<string, unknown>, key: string): readonly
 
 export async function executeAgentAction(
   financeService: FinanceCommandService,
-  payload: AgentActionPayload
+  payload: AgentActionPayload,
+  householdConfigurationRepository?: HouseholdConfigurationRepository
 ): Promise<boolean> {
   const params = payload.params
 
   switch (payload.actionType) {
+    case 'set_household_fact': {
+      const key = readString(params, 'key')
+      const title = readString(params, 'title')
+      const body = readString(params, 'body')
+      const actorMemberId = readString(params, 'actorMemberId')
+      if (!key || !title || !body || !householdConfigurationRepository?.upsertHouseholdFact) {
+        return false
+      }
+
+      await householdConfigurationRepository.upsertHouseholdFact({
+        householdId: payload.householdId,
+        key,
+        title,
+        body,
+        updatedByMemberId: actorMemberId
+      })
+      return true
+    }
+
+    case 'delete_household_fact': {
+      const key = readString(params, 'key')
+      if (!key || !householdConfigurationRepository?.deleteHouseholdFact) {
+        return false
+      }
+
+      return householdConfigurationRepository.deleteHouseholdFact(payload.householdId, key)
+    }
+
     case 'update_payment': {
       const paymentId = readString(params, 'paymentId')
       const memberId = readString(params, 'memberId')
@@ -281,6 +317,8 @@ export function registerAgentActionCallbacks(
   options: {
     promptRepository: TelegramPendingActionRepository
     financeServiceForHousehold: (householdId: string) => FinanceCommandService
+    householdConfigurationRepository?: HouseholdConfigurationRepository
+    onHouseholdFactsChanged?: (householdId: string) => void
     auditNotificationService?: HouseholdAuditNotificationService
     logger?: Logger
   }
@@ -345,7 +383,8 @@ export function registerAgentActionCallbacks(
     try {
       succeeded = await executeAgentAction(
         options.financeServiceForHousehold(payload.householdId),
-        payload
+        payload,
+        options.householdConfigurationRepository
       )
     } catch (error) {
       options.logger?.error(
@@ -360,6 +399,10 @@ export function registerAgentActionCallbacks(
       AGENT_ACTION
     )
 
+    if (succeeded && payload.actionType.endsWith('household_fact')) {
+      options.onHouseholdFactsChanged?.(payload.householdId)
+    }
+
     const resultText = succeeded ? t.actionConfirmed(payload.summaryText) : t.actionFailed
     await ctx.answerCallbackQuery({ text: resultText })
     await ctx.editMessageText(resultText, {
@@ -373,7 +416,7 @@ export function registerAgentActionCallbacks(
         actorDisplayName: actor.displayName,
         eventType: `agent.${payload.actionType}`,
         category:
-          payload.actionType === 'set_period_rent'
+          payload.actionType === 'set_period_rent' || payload.actionType.endsWith('household_fact')
             ? 'period_events'
             : payload.actionType.endsWith('payment')
               ? 'payment_events'

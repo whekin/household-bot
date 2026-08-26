@@ -1,13 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
 import { createHouseholdOnboardingService, createMiniAppAdminService } from '@household/application'
+import { instantFromIso } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
+  HouseholdFactRecord,
   HouseholdTopicBindingRecord
 } from '@household/ports'
 
 import {
   createMiniAppApproveMemberHandler,
+  createMiniAppDeleteFactHandler,
   createMiniAppDemoteMemberHandler,
   createMiniAppRejectMemberHandler,
   createMiniAppPendingMembersHandler,
@@ -17,11 +20,12 @@ import {
   createMiniAppUpdateMemberPresenceDaysHandler,
   createMiniAppUpdateOwnDisplayNameHandler,
   createMiniAppUpdateMemberStatusHandler,
-  createMiniAppUpdateSettingsHandler
+  createMiniAppUpdateSettingsHandler,
+  createMiniAppUpsertFactHandler
 } from './miniapp-admin'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
-function onboardingRepository(): HouseholdConfigurationRepository {
+function onboardingRepository(facts: HouseholdFactRecord[] = []): HouseholdConfigurationRepository {
   const household = {
     householdId: 'household-1',
     householdName: 'Kojori House',
@@ -195,6 +199,34 @@ function onboardingRepository(): HouseholdConfigurationRepository {
       assistantContext: input.assistantContext ?? 'House in Kojori',
       assistantTone: input.assistantTone ?? 'Playful'
     }),
+    listHouseholdFacts: async () => facts,
+    upsertHouseholdFact: async (input) => {
+      const fact: HouseholdFactRecord = {
+        id: `fact-${input.key}`,
+        householdId: input.householdId,
+        key: input.key,
+        title: input.title,
+        body: input.body,
+        updatedByMemberId: input.updatedByMemberId ?? null,
+        createdAt: instantFromIso('2026-07-01T10:00:00.000Z'),
+        updatedAt: instantFromIso('2026-07-01T10:00:00.000Z')
+      }
+      const index = facts.findIndex((entry) => entry.key === input.key)
+      if (index >= 0) {
+        facts[index] = fact
+      } else {
+        facts.push(fact)
+      }
+      return fact
+    },
+    deleteHouseholdFact: async (_householdId, key) => {
+      const index = facts.findIndex((entry) => entry.key === key)
+      if (index < 0) {
+        return false
+      }
+      facts.splice(index, 1)
+      return true
+    },
     listHouseholdUtilityCategories: async () => [],
     upsertHouseholdUtilityCategory: async (input) => ({
       id: input.slug ?? 'utility-category-1',
@@ -569,6 +601,7 @@ describe('createMiniAppSettingsHandler', () => {
         }
       ],
       categories: [],
+      facts: [],
       assistantUsage: [],
       members: [
         {
@@ -1142,5 +1175,165 @@ describe('createMiniAppUpdateMemberStatusHandler', () => {
         daysPresent: 7
       }
     })
+  })
+})
+
+describe('household fact mini app handlers', () => {
+  function adminRepository(facts: HouseholdFactRecord[]) {
+    const repository = onboardingRepository(facts)
+    repository.listHouseholdMembersByTelegramUserId = async (telegramUserId) => [
+      {
+        id: `member-${telegramUserId}`,
+        householdId: 'household-1',
+        telegramUserId,
+        displayName: telegramUserId === '123456' ? 'Stan' : 'Mia',
+        status: 'active',
+        preferredLocale: null,
+        householdDefaultLocale: 'ru',
+        rentShareWeight: 1,
+        isAdmin: telegramUserId === '123456'
+      }
+    ]
+    return repository
+  }
+
+  function adminInitData() {
+    return buildMiniAppInitData('test-bot-token', Math.floor(Date.now() / 1000), {
+      id: 123456,
+      first_name: 'Stan',
+      username: 'stanislav',
+      language_code: 'ru'
+    })
+  }
+
+  function memberInitData() {
+    return buildMiniAppInitData('test-bot-token', Math.floor(Date.now() / 1000), {
+      id: 555777,
+      first_name: 'Mia',
+      username: 'mia',
+      language_code: 'ru'
+    })
+  }
+
+  function factRequest(path: string, body: Record<string, unknown>) {
+    return new Request(`http://localhost${path}`, {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    })
+  }
+
+  test('stores a fact and invalidates the agent context cache', async () => {
+    const facts: HouseholdFactRecord[] = []
+    const repository = adminRepository(facts)
+    const invalidated: string[] = []
+    const handler = createMiniAppUpsertFactHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      miniAppAdminService: createMiniAppAdminService(repository),
+      onFactsUpdated: (householdId) => invalidated.push(householdId)
+    })
+
+    const response = await handler.handler(
+      factRequest('/api/miniapp/admin/facts/upsert', {
+        initData: adminInitData(),
+        key: 'Wi-Fi',
+        title: 'Пароль Wi-Fi',
+        body: 'Сеть Kojori, пароль hunter2'
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      authorized: true,
+      fact: {
+        key: 'wi-fi',
+        title: 'Пароль Wi-Fi',
+        body: 'Сеть Kojori, пароль hunter2',
+        updatedAt: '2026-07-01T10:00:00Z'
+      }
+    })
+    expect(facts.map((fact) => fact.key)).toEqual(['wi-fi'])
+    expect(invalidated).toEqual(['household-1'])
+  })
+
+  test('rejects a fact whose key cannot be slugged', async () => {
+    const repository = adminRepository([])
+    const handler = createMiniAppUpsertFactHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      factRequest('/api/miniapp/admin/facts/upsert', {
+        initData: adminInitData(),
+        title: 'Пароль',
+        body: 'hunter2'
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ ok: false, error: 'Invalid household fact' })
+  })
+
+  test('refuses non-admin members', async () => {
+    const repository = adminRepository([])
+    const handler = createMiniAppUpsertFactHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      factRequest('/api/miniapp/admin/facts/upsert', {
+        initData: memberInitData(),
+        key: 'wifi',
+        title: 'Wi-Fi',
+        body: 'hunter2'
+      })
+    )
+
+    expect(response.status).toBe(403)
+  })
+
+  test('deletes a stored fact', async () => {
+    const facts: HouseholdFactRecord[] = [
+      {
+        id: 'fact-wifi',
+        householdId: 'household-1',
+        key: 'wifi',
+        title: 'Wi-Fi',
+        body: 'hunter2',
+        updatedByMemberId: null,
+        createdAt: instantFromIso('2026-07-01T10:00:00.000Z'),
+        updatedAt: instantFromIso('2026-07-01T10:00:00.000Z')
+      }
+    ]
+    const repository = adminRepository(facts)
+    const handler = createMiniAppDeleteFactHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      miniAppAdminService: createMiniAppAdminService(repository)
+    })
+
+    const response = await handler.handler(
+      factRequest('/api/miniapp/admin/facts/delete', {
+        initData: adminInitData(),
+        key: 'WiFi'
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, authorized: true, deleted: true })
+    expect(facts).toHaveLength(0)
   })
 })

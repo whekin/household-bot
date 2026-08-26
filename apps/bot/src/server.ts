@@ -68,6 +68,18 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppUpsertFact?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
+  miniAppDeleteFact?:
+    | {
+        path?: string
+        handler: (request: Request) => Promise<Response>
+      }
+    | undefined
   miniAppPromoteMember?:
     | {
         path?: string
@@ -284,6 +296,8 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
     options.miniAppUpdateSettings?.path ?? '/api/miniapp/admin/settings/update'
   const miniAppUpsertUtilityCategoryPath =
     options.miniAppUpsertUtilityCategory?.path ?? '/api/miniapp/admin/utility-categories/upsert'
+  const miniAppUpsertFactPath = options.miniAppUpsertFact?.path ?? '/api/miniapp/admin/facts/upsert'
+  const miniAppDeleteFactPath = options.miniAppDeleteFact?.path ?? '/api/miniapp/admin/facts/delete'
   const miniAppPromoteMemberPath =
     options.miniAppPromoteMember?.path ?? '/api/miniapp/admin/members/promote'
   const miniAppDemoteMemberPath =
@@ -394,6 +408,14 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
         url.pathname === miniAppUpsertUtilityCategoryPath
       ) {
         return await options.miniAppUpsertUtilityCategory.handler(request)
+      }
+
+      if (options.miniAppUpsertFact && url.pathname === miniAppUpsertFactPath) {
+        return await options.miniAppUpsertFact.handler(request)
+      }
+
+      if (options.miniAppDeleteFact && url.pathname === miniAppDeleteFactPath) {
+        return await options.miniAppDeleteFact.handler(request)
       }
 
       if (options.miniAppPromoteMember && url.pathname === miniAppPromoteMemberPath) {

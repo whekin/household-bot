@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
-import { instantFromIso, Money } from '@household/domain'
+import { HOUSEHOLD_FACT_LIMIT, instantFromIso, Money } from '@household/domain'
 import type { Context } from 'grammy'
 
 import type { FinanceCommandService } from '@household/application'
 import type {
   HouseholdConfigurationRepository,
+  HouseholdFactRecord,
   TelegramPendingActionRecord,
   TelegramPendingActionRepository
 } from '@household/ports'
@@ -19,7 +20,11 @@ import {
   type AgentMessageRecord,
   type AgentToolContext
 } from './agent-tools'
-import { canResolveAgentAction, type AgentActionPayload } from './agent-confirmations'
+import {
+  canResolveAgentAction,
+  executeAgentAction,
+  type AgentActionPayload
+} from './agent-confirmations'
 
 describe('explicitAmountFromMessage', () => {
   test('accepts an amount with currency written in the message', () => {
@@ -372,11 +377,13 @@ describe('admin rent agent tool', () => {
   test('is only exposed to admins', () => {
     const adminTools = agentToolDefinitions({
       purchaseToolsAvailable: false,
-      adminToolsAvailable: true
+      adminToolsAvailable: true,
+      factToolsAvailable: false
     })
     const memberTools = agentToolDefinitions({
       purchaseToolsAvailable: false,
-      adminToolsAvailable: false
+      adminToolsAvailable: false,
+      factToolsAvailable: false
     })
 
     expect(adminTools.some((tool) => tool.name === 'propose_period_rent')).toBe(true)
@@ -585,5 +592,292 @@ describe('rent settings agent context', () => {
         { period: '2026-08', amount: null, source: 'unconfigured' }
       ]
     })
+  })
+})
+
+function createFactToolContext(input: {
+  facts: HouseholdFactRecord[]
+  pending: TelegramPendingActionRecord[]
+  cards: string[]
+  isAdmin?: boolean
+}): AgentToolContext {
+  const context = createAllMembersPaymentToolContext({
+    rawText: 'бот, запомни пароль от вайфая',
+    replies: [],
+    pending: input.pending
+  })
+
+  context.householdConfigurationRepository = {
+    ...context.householdConfigurationRepository,
+    listHouseholdFacts: async () => input.facts,
+    upsertHouseholdFact: async ({ key, title, body, updatedByMemberId }) => {
+      const fact: HouseholdFactRecord = {
+        id: `fact-${key}`,
+        householdId: 'household-1',
+        key,
+        title,
+        body,
+        updatedByMemberId: updatedByMemberId ?? null,
+        createdAt: instantFromIso('2026-07-06T19:00:00.000Z'),
+        updatedAt: instantFromIso('2026-07-06T19:00:00.000Z')
+      }
+      const index = input.facts.findIndex((entry) => entry.key === key)
+      if (index >= 0) {
+        input.facts[index] = fact
+      } else {
+        input.facts.push(fact)
+      }
+      return fact
+    },
+    deleteHouseholdFact: async (_householdId, key) => {
+      const index = input.facts.findIndex((entry) => entry.key === key)
+      if (index < 0) {
+        return false
+      }
+      input.facts.splice(index, 1)
+      return true
+    }
+  } as HouseholdConfigurationRepository
+  context.postCard = async (text) => {
+    input.cards.push(text)
+  }
+  if (input.isAdmin === false) {
+    context.senderMember = { ...context.senderMember, isAdmin: false }
+  }
+
+  return context
+}
+
+function storedFact(key: string, title: string, body: string): HouseholdFactRecord {
+  return {
+    id: `fact-${key}`,
+    householdId: 'household-1',
+    key,
+    title,
+    body,
+    updatedByMemberId: null,
+    createdAt: instantFromIso('2026-07-01T10:00:00.000Z'),
+    updatedAt: instantFromIso('2026-07-01T10:00:00.000Z')
+  }
+}
+
+describe('household fact agent tools', () => {
+  test('are exposed only when the repository supports facts', () => {
+    const withFacts = agentToolDefinitions({
+      purchaseToolsAvailable: false,
+      adminToolsAvailable: false,
+      factToolsAvailable: true
+    })
+    const withoutFacts = agentToolDefinitions({
+      purchaseToolsAvailable: false,
+      adminToolsAvailable: false,
+      factToolsAvailable: false
+    })
+
+    expect(withFacts.map((tool) => tool.name)).toContain('get_household_facts')
+    expect(withFacts.map((tool) => tool.name)).toContain('set_household_fact')
+    expect(withFacts.map((tool) => tool.name)).toContain('delete_household_fact')
+    expect(withoutFacts.map((tool) => tool.name)).not.toContain('get_household_facts')
+  })
+
+  test('get_household_facts returns every fact when no keys are requested', async () => {
+    const context = createFactToolContext({
+      facts: [
+        storedFact('wifi', 'Wi-Fi', 'Сеть Kojori, пароль hunter2'),
+        storedFact('trash-day', 'Мусор', 'Вывозят по вторникам и пятницам')
+      ],
+      pending: [],
+      cards: []
+    })
+
+    const result = await executeAgentTool(context, { name: 'get_household_facts', arguments: {} })
+
+    expect(result.result).toEqual({
+      facts: [
+        { key: 'wifi', title: 'Wi-Fi', body: 'Сеть Kojori, пароль hunter2' },
+        { key: 'trash-day', title: 'Мусор', body: 'Вывозят по вторникам и пятницам' }
+      ]
+    })
+  })
+
+  test('get_household_facts reports unknown keys instead of inventing answers', async () => {
+    const context = createFactToolContext({
+      facts: [storedFact('wifi', 'Wi-Fi', 'пароль hunter2')],
+      pending: [],
+      cards: []
+    })
+
+    const result = await executeAgentTool(context, {
+      name: 'get_household_facts',
+      arguments: { keys: ['wifi', 'Door Code'] }
+    })
+
+    expect(result.result).toEqual({
+      facts: [{ key: 'wifi', title: 'Wi-Fi', body: 'пароль hunter2' }],
+      missing: ['door-code']
+    })
+  })
+
+  test('set_household_fact posts a confirmation card and stores nothing yet', async () => {
+    const facts: HouseholdFactRecord[] = []
+    const pending: TelegramPendingActionRecord[] = []
+    const cards: string[] = []
+    const context = createFactToolContext({ facts, pending, cards })
+
+    const result = await executeAgentTool(context, {
+      name: 'set_household_fact',
+      arguments: { key: 'wifi', title: 'Wi-Fi', body: 'Сеть Kojori, пароль hunter2' }
+    })
+
+    expect(result.cardPosted).toBe(true)
+    expect(facts).toHaveLength(0)
+    expect(cards[0]).toContain('запомнить «Wi-Fi»')
+
+    const payload = pending[0]?.payload as AgentActionPayload | undefined
+    expect(payload?.actionType).toBe('set_household_fact')
+    expect(payload?.params).toEqual({
+      key: 'wifi',
+      title: 'Wi-Fi',
+      body: 'Сеть Kojori, пароль hunter2',
+      actorMemberId: 'stas'
+    })
+  })
+
+  test('set_household_fact summarizes a replacement with the previous body', async () => {
+    const cards: string[] = []
+    const context = createFactToolContext({
+      facts: [storedFact('wifi', 'Wi-Fi', 'старый пароль')],
+      pending: [],
+      cards
+    })
+
+    await executeAgentTool(context, {
+      name: 'set_household_fact',
+      arguments: { key: 'wifi', title: 'Wi-Fi', body: 'новый пароль' }
+    })
+
+    expect(cards[0]).toContain('было: старый пароль')
+    expect(cards[0]).toContain('новый пароль')
+  })
+
+  test('set_household_fact rejects a key that cannot be slugged', async () => {
+    const context = createFactToolContext({ facts: [], pending: [], cards: [] })
+
+    const result = await executeAgentTool(context, {
+      name: 'set_household_fact',
+      arguments: { key: 'пароль', title: 'Пароль', body: 'hunter2' }
+    })
+
+    expect(result.result).toEqual({ error: 'key_must_be_a_latin_slug' })
+  })
+
+  test('set_household_fact refuses to grow the knowledge base past the limit', async () => {
+    const facts = Array.from({ length: HOUSEHOLD_FACT_LIMIT }, (_, index) =>
+      storedFact(`fact-${index}`, `Fact ${index}`, 'body')
+    )
+    const context = createFactToolContext({ facts, pending: [], cards: [] })
+
+    const result = await executeAgentTool(context, {
+      name: 'set_household_fact',
+      arguments: { key: 'wifi', title: 'Wi-Fi', body: 'hunter2' }
+    })
+
+    expect(result.result).toEqual({ error: 'fact_limit_reached' })
+  })
+
+  test('delete_household_fact requires an existing key', async () => {
+    const context = createFactToolContext({
+      facts: [storedFact('wifi', 'Wi-Fi', 'hunter2')],
+      pending: [],
+      cards: []
+    })
+
+    const result = await executeAgentTool(context, {
+      name: 'delete_household_fact',
+      arguments: { key: 'door-code' }
+    })
+
+    expect(result.result).toEqual({ error: 'unknown_fact_key', knownKeys: ['wifi'] })
+  })
+
+  test('delete_household_fact posts a confirmation card for a known key', async () => {
+    const facts = [storedFact('wifi', 'Wi-Fi', 'hunter2')]
+    const pending: TelegramPendingActionRecord[] = []
+    const cards: string[] = []
+    const context = createFactToolContext({ facts, pending, cards })
+
+    const result = await executeAgentTool(context, {
+      name: 'delete_household_fact',
+      arguments: { key: 'WiFi' }
+    })
+
+    expect(result.cardPosted).toBe(true)
+    expect(facts).toHaveLength(1)
+    expect(cards[0]).toContain('забыть «Wi-Fi»')
+    expect((pending[0]?.payload as AgentActionPayload | undefined)?.params).toEqual({ key: 'wifi' })
+  })
+})
+
+describe('executeAgentAction household facts', () => {
+  test('stores the fact on confirm', async () => {
+    const facts: HouseholdFactRecord[] = []
+    const context = createFactToolContext({ facts, pending: [], cards: [] })
+
+    const succeeded = await executeAgentAction(
+      context.financeService,
+      {
+        actionId: 'a1',
+        actionType: 'set_household_fact',
+        householdId: 'household-1',
+        requesterTelegramUserId: '10004',
+        locale: 'ru',
+        summaryText: 'запомнить «Wi-Fi»',
+        params: { key: 'wifi', title: 'Wi-Fi', body: 'hunter2', actorMemberId: 'stas' }
+      },
+      context.householdConfigurationRepository
+    )
+
+    expect(succeeded).toBe(true)
+    expect(facts).toEqual([
+      expect.objectContaining({ key: 'wifi', body: 'hunter2', updatedByMemberId: 'stas' })
+    ])
+  })
+
+  test('deletes the fact on confirm', async () => {
+    const facts = [storedFact('wifi', 'Wi-Fi', 'hunter2')]
+    const context = createFactToolContext({ facts, pending: [], cards: [] })
+
+    const succeeded = await executeAgentAction(
+      context.financeService,
+      {
+        actionId: 'a2',
+        actionType: 'delete_household_fact',
+        householdId: 'household-1',
+        requesterTelegramUserId: '10004',
+        locale: 'ru',
+        summaryText: 'забыть «Wi-Fi»',
+        params: { key: 'wifi' }
+      },
+      context.householdConfigurationRepository
+    )
+
+    expect(succeeded).toBe(true)
+    expect(facts).toEqual([])
+  })
+
+  test('fails when the repository cannot store facts', async () => {
+    const context = createFactToolContext({ facts: [], pending: [], cards: [] })
+
+    const succeeded = await executeAgentAction(context.financeService, {
+      actionId: 'a3',
+      actionType: 'set_household_fact',
+      householdId: 'household-1',
+      requesterTelegramUserId: '10004',
+      locale: 'ru',
+      summaryText: 'запомнить «Wi-Fi»',
+      params: { key: 'wifi', title: 'Wi-Fi', body: 'hunter2' }
+    })
+
+    expect(succeeded).toBe(false)
   })
 })

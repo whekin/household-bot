@@ -3,6 +3,7 @@ import type { Logger } from '@household/observability'
 import {
   HOUSEHOLD_MEMBER_LIFECYCLE_STATUSES,
   type HouseholdBillingSettingsRecord,
+  type HouseholdFactRecord,
   type HouseholdMemberLifecycleStatus,
   type HouseholdNotificationSettingsRecord
 } from '@household/ports'
@@ -195,6 +196,34 @@ async function readSettingsUpdatePayload(request: Request): Promise<{
         }
       : {}),
     timezone: parsed.timezone
+  }
+}
+
+async function readFactPayload(request: Request): Promise<{
+  initData: string
+  key?: string
+  title?: string
+  body?: string
+}> {
+  const clonedRequest = request.clone()
+  const payload = await readMiniAppRequestPayload(request)
+  if (!payload.initData) {
+    throw new Error('Missing initData')
+  }
+
+  const text = await clonedRequest.text()
+  let parsed: { key?: string; title?: string; body?: string }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('Invalid JSON body')
+  }
+
+  return {
+    initData: payload.initData,
+    ...(typeof parsed.key === 'string' ? { key: parsed.key } : {}),
+    ...(typeof parsed.title === 'string' ? { title: parsed.title } : {}),
+    ...(typeof parsed.body === 'string' ? { body: parsed.body } : {})
   }
 }
 
@@ -460,6 +489,65 @@ function serializeAssistantConfig(config: {
   }
 }
 
+async function authenticateFactAdmin(
+  sessionService: ReturnType<typeof createMiniAppSessionService>,
+  initData: string,
+  origin: string | undefined
+): Promise<Response | NonNullable<MiniAppSessionResult['member']>> {
+  const session = await sessionService.authenticate({ initData })
+  if (!session) {
+    return miniAppJsonResponse({ ok: false, error: 'Invalid Telegram init data' }, 401, origin)
+  }
+
+  if (
+    !session.authorized ||
+    !session.member ||
+    session.member.status !== 'active' ||
+    !session.member.isAdmin
+  ) {
+    return miniAppJsonResponse(
+      { ok: false, error: 'Admin access required for active household members' },
+      403,
+      origin
+    )
+  }
+
+  return session.member
+}
+
+function factRejectionMessage(
+  reason: 'not_admin' | 'invalid_fact' | 'fact_limit_reached' | 'unsupported'
+): string {
+  switch (reason) {
+    case 'not_admin':
+      return 'Admin access required'
+    case 'fact_limit_reached':
+      return 'Household fact limit reached'
+    case 'unsupported':
+      return 'Household facts are not available'
+    case 'invalid_fact':
+      return 'Invalid household fact'
+  }
+}
+
+function factRejectionStatus(
+  reason: 'not_admin' | 'invalid_fact' | 'fact_limit_reached' | 'unsupported'
+): number {
+  if (reason === 'not_admin') {
+    return 403
+  }
+  return reason === 'unsupported' ? 501 : 400
+}
+
+function serializeFact(fact: HouseholdFactRecord) {
+  return {
+    key: fact.key,
+    title: fact.title,
+    body: fact.body,
+    updatedAt: fact.updatedAt.toString()
+  }
+}
+
 function serializeNotificationSettings(settings: HouseholdNotificationSettingsRecord) {
   return {
     householdId: settings.householdId,
@@ -643,6 +731,7 @@ export function createMiniAppSettingsHandler(options: {
             notificationSettings: serializeNotificationSettings(result.notificationSettings),
             topics: result.topics,
             categories: result.categories,
+            facts: result.facts.map(serializeFact),
             members: result.members,
             assistantUsage:
               options.assistantUsageTracker?.listHouseholdUsage(member.householdId) ?? []
@@ -898,6 +987,132 @@ export function createMiniAppUpsertUtilityCategoryHandler(options: {
             authorized: true,
             category: result.category
           },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppUpsertFactHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  onFactsUpdated?: (householdId: string) => void
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readFactPayload(request)
+        const member = await authenticateFactAdmin(sessionService, payload.initData, origin)
+        if (member instanceof Response) {
+          return member
+        }
+
+        const result = await options.miniAppAdminService.upsertFact({
+          householdId: member.householdId,
+          actorIsAdmin: member.isAdmin,
+          ...(payload.key !== undefined ? { key: payload.key } : {}),
+          title: payload.title ?? '',
+          body: payload.body ?? ''
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            { ok: false, error: factRejectionMessage(result.reason) },
+            factRejectionStatus(result.reason),
+            origin
+          )
+        }
+
+        options.onFactsUpdated?.(member.householdId)
+
+        return miniAppJsonResponse(
+          { ok: true, authorized: true, fact: serializeFact(result.fact) },
+          200,
+          origin
+        )
+      } catch (error) {
+        return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppDeleteFactHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  miniAppAdminService: MiniAppAdminService
+  onFactsUpdated?: (householdId: string) => void
+  logger?: Logger
+}): {
+  handler: (request: Request) => Promise<Response>
+} {
+  const sessionService = createMiniAppSessionService({
+    botToken: options.botToken,
+    onboardingService: options.onboardingService
+  })
+
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+
+      if (request.method === 'OPTIONS') {
+        return miniAppJsonResponse({ ok: true }, 204, origin)
+      }
+
+      if (request.method !== 'POST') {
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      }
+
+      try {
+        const payload = await readFactPayload(request)
+        const member = await authenticateFactAdmin(sessionService, payload.initData, origin)
+        if (member instanceof Response) {
+          return member
+        }
+
+        const result = await options.miniAppAdminService.deleteFact({
+          householdId: member.householdId,
+          actorIsAdmin: member.isAdmin,
+          key: payload.key ?? ''
+        })
+
+        if (result.status === 'rejected') {
+          return miniAppJsonResponse(
+            { ok: false, error: factRejectionMessage(result.reason) },
+            factRejectionStatus(result.reason),
+            origin
+          )
+        }
+
+        options.onFactsUpdated?.(member.householdId)
+
+        return miniAppJsonResponse(
+          { ok: true, authorized: true, deleted: result.deleted },
           200,
           origin
         )

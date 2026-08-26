@@ -412,7 +412,12 @@ export const ruBotTranslations: BotTranslationCatalog = {
     summarizeSetPurchaseParticipants: (description, names) =>
       `изменить участников покупки «${description}»: ${names}`,
     summarizeSetPeriodRent: (amount, currency, periods) =>
-      `установить аренду ${formatUserFacingMoney(amount, currency)} для ${periods.join(', ')}`
+      `установить аренду ${formatUserFacingMoney(amount, currency)} для ${periods.join(', ')}`,
+    summarizeSetHouseholdFact: (title, body, previousBody) =>
+      previousBody === null
+        ? `запомнить «${title}»: ${body}`
+        : `заменить «${title}» (было: ${previousBody}) на: ${body}`,
+    summarizeDeleteHouseholdFact: (title) => `забыть «${title}»`
   },
   payments: {
     topicMissing:

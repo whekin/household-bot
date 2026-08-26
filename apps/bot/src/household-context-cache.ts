@@ -1,8 +1,14 @@
 import type { BotLocale } from './i18n'
 
+export interface CachedHouseholdFact {
+  key: string
+  title: string
+}
+
 export interface CachedHouseholdContext {
   householdContext: string | null
   assistantTone: string | null
+  factIndex?: readonly CachedHouseholdFact[]
   defaultCurrency: 'GEL' | 'USD'
   timezone: string
   locale: BotLocale

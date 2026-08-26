@@ -406,7 +406,12 @@ export const enBotTranslations: BotTranslationCatalog = {
     summarizeSetPurchaseParticipants: (description, names) =>
       `set participants of "${description}" to: ${names}`,
     summarizeSetPeriodRent: (amount, currency, periods) =>
-      `set rent to ${formatUserFacingMoney(amount, currency)} for ${periods.join(', ')}`
+      `set rent to ${formatUserFacingMoney(amount, currency)} for ${periods.join(', ')}`,
+    summarizeSetHouseholdFact: (title, body, previousBody) =>
+      previousBody === null
+        ? `remember "${title}": ${body}`
+        : `replace "${title}" (was: ${previousBody}) with: ${body}`,
+    summarizeDeleteHouseholdFact: (title) => `forget "${title}"`
   },
   payments: {
     topicMissing:

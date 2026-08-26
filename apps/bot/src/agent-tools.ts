@@ -3,7 +3,15 @@ import {
   type FinanceCommandService,
   type FinanceDashboard
 } from '@household/application'
-import { BillingPeriod, Money, nowInstant, type Instant } from '@household/domain'
+import {
+  BillingPeriod,
+  HOUSEHOLD_FACT_LIMIT,
+  Money,
+  householdFactKey,
+  normalizeHouseholdFact,
+  nowInstant,
+  type Instant
+} from '@household/domain'
 import type { Context } from 'grammy'
 import type { Logger } from '@household/observability'
 import type {
@@ -11,6 +19,7 @@ import type {
   FinancePaymentKind,
   HouseholdBillingSettingsRecord,
   HouseholdConfigurationRepository,
+  HouseholdFactRecord,
   TelegramPendingActionRepository,
   TopicMessageHistoryRepository
 } from '@household/ports'
@@ -807,6 +816,128 @@ async function requestConfirmedAction(
   }
 }
 
+const FACT_BODY_BUDGET = 6000
+
+export function householdFactToolsAvailable(repository: HouseholdConfigurationRepository): boolean {
+  return Boolean(repository.listHouseholdFacts)
+}
+
+async function listFacts(
+  context: AgentToolContext
+): Promise<readonly HouseholdFactRecord[] | null> {
+  const list = context.householdConfigurationRepository.listHouseholdFacts
+  if (!list) {
+    return null
+  }
+
+  return list.call(context.householdConfigurationRepository, context.householdId)
+}
+
+async function getHouseholdFacts(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const facts = await listFacts(context)
+  if (facts === null) {
+    return { error: 'facts_unavailable' }
+  }
+
+  const requestedKeys = readStringArrayArgument(args, 'keys')
+  const wanted = requestedKeys?.map((key) => householdFactKey(key)).filter(Boolean) ?? null
+  const selected = wanted ? facts.filter((fact) => wanted.includes(fact.key)) : facts
+  const missing = wanted ? wanted.filter((key) => !facts.some((fact) => fact.key === key)) : []
+
+  let budget = FACT_BODY_BUDGET
+  let truncated = false
+  const entries: Array<{ key: string; title: string; body: string }> = []
+  for (const fact of selected) {
+    if (budget <= 0) {
+      truncated = true
+      break
+    }
+    entries.push({
+      key: fact.key,
+      title: fact.title,
+      body: fact.body.slice(0, budget)
+    })
+    budget -= fact.body.length
+  }
+
+  return {
+    facts: entries,
+    ...(missing.length > 0 ? { missing } : {}),
+    ...(truncated ? { truncated: true } : {})
+  }
+}
+
+async function setHouseholdFactTool(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<ToolSessionToolResult> {
+  const title = readStringArgument(args, 'title')
+  const body = readStringArgument(args, 'body')
+  if (!title || !body) {
+    return { result: { error: 'title_and_body_required' } }
+  }
+
+  const fact = normalizeHouseholdFact({
+    key: readStringArgument(args, 'key'),
+    title,
+    body
+  })
+  if (!fact) {
+    return { result: { error: 'key_must_be_a_latin_slug' } }
+  }
+
+  const facts = await listFacts(context)
+  if (facts === null) {
+    return { result: { error: 'facts_unavailable' } }
+  }
+
+  const existing = facts.find((entry) => entry.key === fact.key)
+  if (!existing && facts.length >= HOUSEHOLD_FACT_LIMIT) {
+    return { result: { error: 'fact_limit_reached' } }
+  }
+
+  const summary = getBotTranslations(context.locale).agent.summarizeSetHouseholdFact(
+    fact.title,
+    fact.body,
+    existing?.body ?? null
+  )
+  return requestConfirmedAction(context, 'set_household_fact', summary, {
+    key: fact.key,
+    title: fact.title,
+    body: fact.body,
+    actorMemberId: context.senderMember.id
+  })
+}
+
+async function deleteHouseholdFactTool(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<ToolSessionToolResult> {
+  const requestedKey = readStringArgument(args, 'key')
+  const key = requestedKey ? householdFactKey(requestedKey) : ''
+  if (!key) {
+    return { result: { error: 'key_required' } }
+  }
+
+  const facts = await listFacts(context)
+  if (facts === null) {
+    return { result: { error: 'facts_unavailable' } }
+  }
+
+  const existing = facts.find((entry) => entry.key === key)
+  if (!existing) {
+    return { result: { error: 'unknown_fact_key', knownKeys: facts.map((fact) => fact.key) } }
+  }
+
+  const summary = getBotTranslations(context.locale).agent.summarizeDeleteHouseholdFact(
+    existing.title
+  )
+  return requestConfirmedAction(context, 'delete_household_fact', summary, { key })
+}
+
 async function proposePeriodRent(
   context: AgentToolContext,
   args: Record<string, unknown>
@@ -1169,6 +1300,7 @@ const MEMBER_ID_NOTE =
 export function agentToolDefinitions(input: {
   purchaseToolsAvailable: boolean
   adminToolsAvailable: boolean
+  factToolsAvailable: boolean
 }): readonly ToolSessionToolDefinition[] {
   const definitions: ToolSessionToolDefinition[] = [
     {
@@ -1365,6 +1497,53 @@ export function agentToolDefinitions(input: {
     )
   }
 
+  if (input.factToolsAvailable) {
+    definitions.push(
+      {
+        name: 'get_household_facts',
+        description: [
+          'Stored household knowledge that is not accounting data: Wi-Fi credentials, door codes, trash days, landlord contacts, appliance quirks, house rules.',
+          'Call this for any household question the finance tools do not answer, and answer only from what it returns — never guess a fact.',
+          'Omit keys to read every fact; pass keys to read specific ones.'
+        ].join(' '),
+        parameters: {
+          type: 'object',
+          properties: { keys: { type: 'array', items: { type: 'string' } } },
+          additionalProperties: false
+        }
+      },
+      {
+        name: 'set_household_fact',
+        description: [
+          'Post a confirmation card that stores or replaces one household fact. Nothing is remembered until a person presses Confirm.',
+          'Use when a member tells the bot to remember something ("запомни, пароль от вайфая X"), or corrects a fact you returned.',
+          'key: short latin slug identifying the fact (e.g. wifi, trash-day); reuse the existing key when updating. title: short human label. body: the answer itself, written out fully.'
+        ].join(' '),
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            title: { type: 'string' },
+            body: { type: 'string' }
+          },
+          required: ['key', 'title', 'body'],
+          additionalProperties: false
+        }
+      },
+      {
+        name: 'delete_household_fact',
+        description:
+          'Post a confirmation card that forgets one stored household fact. Nothing changes until confirmed. Find the key via get_household_facts.',
+        parameters: {
+          type: 'object',
+          properties: { key: { type: 'string' } },
+          required: ['key'],
+          additionalProperties: false
+        }
+      }
+    )
+  }
+
   if (input.adminToolsAvailable) {
     definitions.push({
       name: 'propose_period_rent',
@@ -1428,6 +1607,12 @@ export async function executeAgentTool(
       return proposeNotification(context, call.arguments)
     case 'propose_period_rent':
       return proposePeriodRent(context, call.arguments)
+    case 'get_household_facts':
+      return { result: await getHouseholdFacts(context, call.arguments) }
+    case 'set_household_fact':
+      return setHouseholdFactTool(context, call.arguments)
+    case 'delete_household_fact':
+      return deleteHouseholdFactTool(context, call.arguments)
     default:
       return { result: { error: 'unknown_tool' } }
   }
