@@ -105,10 +105,7 @@ export function createDbAuditNotificationRepository(databaseUrl: string): {
   repository: HouseholdAuditNotificationRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 3,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: HouseholdAuditNotificationRepository = {
     async createAuditEvent(input) {
@@ -259,6 +256,6 @@ export function createDbAuditNotificationRepository(databaseUrl: string): {
 
   return {
     repository,
-    close: () => queryClient.end()
+    close: () => closeDbClient()
   }
 }

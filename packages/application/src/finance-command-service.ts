@@ -1123,6 +1123,121 @@ interface FinanceCommandServiceDependencies {
   exchangeRateProvider: ExchangeRateProvider
 }
 
+// A single dashboard build fans out across three per-cycle loops that each need the
+// same rent rules, bills, plans and payment records, and one Telegram button press
+// can rebuild the dashboard several times over. Reading those rows once per operation
+// instead of once per call site is the difference between a couple of hundred database
+// round trips and a couple of dozen.
+//
+// Only `get*`/`list*` are treated as reads. Anything else is a mutation and drops the
+// whole cache, so a read that follows a write inside the same operation still sees the
+// new rows. Promises are cached (not values) so concurrent callers share one query.
+const READ_METHOD_PATTERN = /^(get|list)/
+
+interface OperationReadCache {
+  reset(): void
+}
+
+function memoizeReads<T extends object>(target: T, cache: Map<string, Promise<unknown>>): T {
+  const bound = new Map<PropertyKey, unknown>()
+
+  return new Proxy(target, {
+    get(source, property, receiver) {
+      const value = Reflect.get(source, property, receiver)
+      if (typeof value !== 'function' || typeof property !== 'string') {
+        return value
+      }
+
+      const cached = bound.get(property)
+      if (cached) {
+        return cached
+      }
+
+      const isRead = READ_METHOD_PATTERN.test(property)
+      const wrapped = (...args: unknown[]) => {
+        if (!isRead) {
+          // Conservative: any mutation invalidates every cached read, including ones
+          // it cannot possibly affect. Cheap, and it cannot serve stale rows.
+          cache.clear()
+          return value.apply(source, args)
+        }
+
+        const key = `${property}(${stableCacheKey(args)})`
+        const hit = cache.get(key)
+        if (hit) {
+          return hit
+        }
+
+        const pending = Promise.resolve(value.apply(source, args)).catch((error: unknown) => {
+          // A rejected read must not be replayed to later callers.
+          cache.delete(key)
+          throw error
+        })
+        cache.set(key, pending)
+        return pending
+      }
+
+      bound.set(property, wrapped)
+      return wrapped
+    }
+  })
+}
+
+function stableCacheKey(args: readonly unknown[]): string {
+  return JSON.stringify(args, (_key, value) => (typeof value === 'bigint' ? `${value}n` : value))
+}
+
+function withOperationReadCache(dependencies: FinanceCommandServiceDependencies): {
+  dependencies: FinanceCommandServiceDependencies
+  cache: OperationReadCache
+} {
+  const entries = new Map<string, Promise<unknown>>()
+
+  return {
+    dependencies: {
+      ...dependencies,
+      repository: memoizeReads(dependencies.repository, entries),
+      householdConfigurationRepository: memoizeReads(
+        dependencies.householdConfigurationRepository,
+        entries
+      ),
+      exchangeRateProvider: memoizeReads(dependencies.exchangeRateProvider, entries)
+    },
+    cache: {
+      reset() {
+        entries.clear()
+      }
+    }
+  }
+}
+
+// Every public entry point starts a fresh operation, so the cache never outlives a
+// single service call and cannot leak state between Telegram updates.
+function withOperationBoundary<T extends object>(service: T, cache: OperationReadCache): T {
+  const bound = new Map<PropertyKey, unknown>()
+
+  return new Proxy(service, {
+    get(source, property, receiver) {
+      const value = Reflect.get(source, property, receiver)
+      if (typeof value !== 'function') {
+        return value
+      }
+
+      const cached = bound.get(property)
+      if (cached) {
+        return cached
+      }
+
+      const wrapped = (...args: unknown[]) => {
+        cache.reset()
+        return value.apply(source, args)
+      }
+      bound.set(property, wrapped)
+      return wrapped
+    }
+  })
+}
+
 interface ResolvedMemberCycleParticipation {
   memberId: string
   daysPresent: number
@@ -2423,18 +2538,28 @@ async function computeMemberOverduePayments(input: {
     (cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0
   )
 
-  for (const cycle of cycles) {
-    const [baseLines, utilityPlans, vendorFacts] = await Promise.all([
-      buildCycleBaseMemberLines({
-        dependencies: input.dependencies,
-        cycle,
-        members: input.members,
-        memberPresenceDays: input.memberPresenceDays,
-        settings: input.settings
-      }),
-      input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
-      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
-    ])
+  // Every cycle is independent, so fetch them all at once. Serially awaiting one cycle
+  // at a time made the whole dashboard scale with round-trip latency times cycle count.
+  const cycleReads = await Promise.all(
+    cycles.map(async (cycle) => {
+      const [baseLines, utilityPlans, vendorFacts] = await Promise.all([
+        buildCycleBaseMemberLines({
+          dependencies: input.dependencies,
+          cycle,
+          members: input.members,
+          memberPresenceDays: input.memberPresenceDays,
+          settings: input.settings
+        }),
+        input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
+        input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      ])
+
+      return { cycle, baseLines, utilityPlans, vendorFacts }
+    })
+  )
+
+  // Folded back in cycle order so the reported `periods` lists stay ordered.
+  for (const { cycle, baseLines, utilityPlans, vendorFacts } of cycleReads) {
     const rentDueDate = billingPeriodLockDate(
       BillingPeriod.fromString(cycle.period),
       input.settings.rentDueDay
@@ -2511,6 +2636,178 @@ async function computeMemberOverduePayments(input: {
   )
 }
 
+// One cycle of the payment-period view. Split out of buildPaymentPeriodSummaries so
+// the cycles can be resolved concurrently instead of one await at a time.
+async function buildCyclePaymentPeriodSummary(input: {
+  dependencies: FinanceCommandServiceDependencies
+  cycle: FinanceCycleRecord
+  currentCycle: FinanceCycleRecord
+  members: readonly HouseholdMemberRecord[]
+  memberPresenceDays: readonly HouseholdMemberPresenceDaysRecord[]
+  settings: HouseholdBillingSettingsRecord
+  localDate: Temporal.PlainDate
+  memberNameById: ReadonlyMap<string, string>
+}): Promise<FinanceDashboardPaymentPeriodSummary> {
+  const { cycle, localDate, memberNameById } = input
+  const [baseLines, utilityBills, utilityPlans, vendorFacts] = await Promise.all([
+    buildCycleBaseMemberLines({
+      dependencies: input.dependencies,
+      cycle,
+      members: input.members,
+      memberPresenceDays: input.memberPresenceDays,
+      settings: input.settings
+    }),
+    input.dependencies.repository.listUtilityBillsForCycle(cycle.id),
+    input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
+    input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+  ])
+
+  // Bills are not required to be denominated in the cycle currency, so they have to be
+  // converted before they can be summed. Adding them raw threw CURRENCY_MISMATCH and
+  // took the whole dashboard — and therefore every button — down with it.
+  const convertedUtilityBills = await Promise.all(
+    utilityBills.map((bill) =>
+      convertIntoCycleCurrency(input.dependencies, {
+        cycle,
+        period: BillingPeriod.fromString(cycle.period),
+        lockDay: input.settings.utilitiesReminderDay,
+        timezone: input.settings.timezone,
+        amount: Money.fromMinor(bill.amountMinor, bill.currency)
+      })
+    )
+  )
+  const utilityTotal = convertedUtilityBills.reduce(
+    (sum, converted) => sum.add(converted.settlementAmount),
+    Money.zero(cycle.currency)
+  )
+  const rentDueDate = billingPeriodLockDate(
+    BillingPeriod.fromString(cycle.period),
+    input.settings.rentDueDay
+  )
+  const rentReminderDate = billingPeriodLockDate(
+    BillingPeriod.fromString(cycle.period),
+    input.settings.rentWarningDay
+  )
+  const utilitiesDueDate = billingPeriodLockDate(
+    BillingPeriod.fromString(cycle.period),
+    input.settings.utilitiesDueDay
+  )
+  const utilityPlanSummaryByMemberId = (() => {
+    const plan = currentUtilityBillingPlanRecord(utilityPlans)
+    return plan ? utilityPlanPaymentSummariesByMemberId({ plan, vendorFacts }) : null
+  })()
+  const rentIsActionable =
+    cycle.period !== input.currentCycle.period ||
+    Temporal.PlainDate.compare(localDate, rentReminderDate) >= 0
+
+  const rentMembers = baseLines.map((line) => {
+    const dueMinor = actionablePaymentDueMinor({
+      kind: 'rent',
+      baseMinor: line.rentShare.amountMinor,
+      purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+      settings: input.settings
+    })
+    const remainingMinor = effectiveRemainingMinor(dueMinor, line.rentPaid.amountMinor)
+    return {
+      memberId: line.memberId,
+      displayName: memberNameById.get(line.memberId) ?? line.memberId,
+      suggestedAmount: Money.fromMinor(
+        roundSuggestedPaymentMinor('rent', remainingMinor),
+        cycle.currency
+      ),
+      baseDue: Money.fromMinor(dueMinor, cycle.currency),
+      paid: line.rentPaid,
+      remaining: Money.fromMinor(remainingMinor, cycle.currency),
+      effectivelySettled: remainingMinor === 0n
+    } satisfies FinanceDashboardPaymentMemberSummary
+  })
+  const visibleRentMembers = rentIsActionable ? rentMembers : []
+
+  const utilitiesMembers = baseLines.map((line) => {
+    const plannedSummary = utilityPlanSummaryByMemberId?.get(line.memberId) ?? null
+    if (plannedSummary) {
+      const effectivePlannedSummary = utilityPlanRemainingAfterRecordedPayments({
+        plannedSummary,
+        recordedPaid: line.utilityPaid
+      })
+
+      return {
+        memberId: line.memberId,
+        displayName: memberNameById.get(line.memberId) ?? line.memberId,
+        suggestedAmount: effectivePlannedSummary.remaining,
+        baseDue: effectivePlannedSummary.baseDue,
+        paid: effectivePlannedSummary.paid,
+        remaining: effectivePlannedSummary.remaining,
+        effectivelySettled: effectivePlannedSummary.remaining.amountMinor === 0n
+      } satisfies FinanceDashboardPaymentMemberSummary
+    }
+
+    const dueMinor = adjustedPaymentBaseMinor({
+      kind: 'utilities',
+      baseMinor: line.utilityShare.amountMinor,
+      purchaseOffsetMinor: line.purchaseOffset.amountMinor,
+      settings: input.settings
+    })
+    const remainingMinor = effectiveRemainingMinor(dueMinor, line.utilityPaid.amountMinor)
+    return {
+      memberId: line.memberId,
+      displayName: memberNameById.get(line.memberId) ?? line.memberId,
+      suggestedAmount: Money.fromMinor(remainingMinor, cycle.currency),
+      baseDue: Money.fromMinor(dueMinor, cycle.currency),
+      paid: line.utilityPaid,
+      remaining: Money.fromMinor(remainingMinor, cycle.currency),
+      effectivelySettled: remainingMinor === 0n
+    } satisfies FinanceDashboardPaymentMemberSummary
+  })
+
+  const hasOverdueBalance =
+    (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 &&
+      rentMembers.some((member) => !member.effectivelySettled)) ||
+    (Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
+      utilitiesMembers.some((member) => !member.effectivelySettled))
+
+  return {
+    period: cycle.period,
+    utilityTotal,
+    hasOverdueBalance,
+    isCurrentPeriod: cycle.period === input.currentCycle.period,
+    kinds: [
+      {
+        kind: 'rent',
+        totalDue: rentMembers.reduce(
+          (sum, member) => sum.add(member.baseDue),
+          Money.zero(cycle.currency)
+        ),
+        totalPaid: rentMembers.reduce(
+          (sum, member) => sum.add(member.paid),
+          Money.zero(cycle.currency)
+        ),
+        totalRemaining: rentMembers.reduce(
+          (sum, member) => sum.add(member.remaining),
+          Money.zero(cycle.currency)
+        ),
+        unresolvedMembers: visibleRentMembers.filter((member) => !member.effectivelySettled)
+      },
+      {
+        kind: 'utilities',
+        totalDue: utilitiesMembers.reduce(
+          (sum, member) => sum.add(member.baseDue),
+          Money.zero(cycle.currency)
+        ),
+        totalPaid: utilitiesMembers.reduce(
+          (sum, member) => sum.add(member.paid),
+          Money.zero(cycle.currency)
+        ),
+        totalRemaining: utilitiesMembers.reduce(
+          (sum, member) => sum.add(member.remaining),
+          Money.zero(cycle.currency)
+        ),
+        unresolvedMembers: utilitiesMembers.filter((member) => !member.effectivelySettled)
+      }
+    ]
+  }
+}
+
 async function buildPaymentPeriodSummaries(input: {
   dependencies: FinanceCommandServiceDependencies
   currentCycle: FinanceCycleRecord
@@ -2527,155 +2824,22 @@ async function buildPaymentPeriodSummaries(input: {
     .filter((cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0)
     .sort((left, right) => right.period.localeCompare(left.period))
 
-  const summaries: FinanceDashboardPaymentPeriodSummary[] = []
-
-  for (const cycle of cycles) {
-    const [baseLines, utilityBills, utilityPlans, vendorFacts] = await Promise.all([
-      buildCycleBaseMemberLines({
+  // One await per cycle serialized the whole summary build behind round-trip latency.
+  // Promise.all preserves input order, so the newest-first sort above still holds.
+  return Promise.all(
+    cycles.map((cycle) =>
+      buildCyclePaymentPeriodSummary({
         dependencies: input.dependencies,
         cycle,
+        currentCycle: input.currentCycle,
         members: input.members,
         memberPresenceDays: input.memberPresenceDays,
-        settings: input.settings
-      }),
-      input.dependencies.repository.listUtilityBillsForCycle(cycle.id),
-      input.dependencies.repository.listUtilityBillingPlansForCycle(cycle.id),
-      input.dependencies.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
-    ])
-
-    const utilityTotal = utilityBills.reduce(
-      (sum, bill) => sum.add(Money.fromMinor(bill.amountMinor, bill.currency)),
-      Money.zero(cycle.currency)
-    )
-    const rentDueDate = billingPeriodLockDate(
-      BillingPeriod.fromString(cycle.period),
-      input.settings.rentDueDay
-    )
-    const rentReminderDate = billingPeriodLockDate(
-      BillingPeriod.fromString(cycle.period),
-      input.settings.rentWarningDay
-    )
-    const utilitiesDueDate = billingPeriodLockDate(
-      BillingPeriod.fromString(cycle.period),
-      input.settings.utilitiesDueDay
-    )
-    const utilityPlanSummaryByMemberId = (() => {
-      const plan = currentUtilityBillingPlanRecord(utilityPlans)
-      return plan ? utilityPlanPaymentSummariesByMemberId({ plan, vendorFacts }) : null
-    })()
-    const rentIsActionable =
-      cycle.period !== input.currentCycle.period ||
-      Temporal.PlainDate.compare(localDate, rentReminderDate) >= 0
-
-    const rentMembers = baseLines.map((line) => {
-      const dueMinor = actionablePaymentDueMinor({
-        kind: 'rent',
-        baseMinor: line.rentShare.amountMinor,
-        purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-        settings: input.settings
+        settings: input.settings,
+        localDate,
+        memberNameById
       })
-      const remainingMinor = effectiveRemainingMinor(dueMinor, line.rentPaid.amountMinor)
-      return {
-        memberId: line.memberId,
-        displayName: memberNameById.get(line.memberId) ?? line.memberId,
-        suggestedAmount: Money.fromMinor(
-          roundSuggestedPaymentMinor('rent', remainingMinor),
-          cycle.currency
-        ),
-        baseDue: Money.fromMinor(dueMinor, cycle.currency),
-        paid: line.rentPaid,
-        remaining: Money.fromMinor(remainingMinor, cycle.currency),
-        effectivelySettled: remainingMinor === 0n
-      } satisfies FinanceDashboardPaymentMemberSummary
-    })
-    const visibleRentMembers = rentIsActionable ? rentMembers : []
-
-    const utilitiesMembers = baseLines.map((line) => {
-      const plannedSummary = utilityPlanSummaryByMemberId?.get(line.memberId) ?? null
-      if (plannedSummary) {
-        const effectivePlannedSummary = utilityPlanRemainingAfterRecordedPayments({
-          plannedSummary,
-          recordedPaid: line.utilityPaid
-        })
-
-        return {
-          memberId: line.memberId,
-          displayName: memberNameById.get(line.memberId) ?? line.memberId,
-          suggestedAmount: effectivePlannedSummary.remaining,
-          baseDue: effectivePlannedSummary.baseDue,
-          paid: effectivePlannedSummary.paid,
-          remaining: effectivePlannedSummary.remaining,
-          effectivelySettled: effectivePlannedSummary.remaining.amountMinor === 0n
-        } satisfies FinanceDashboardPaymentMemberSummary
-      }
-
-      const dueMinor = adjustedPaymentBaseMinor({
-        kind: 'utilities',
-        baseMinor: line.utilityShare.amountMinor,
-        purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-        settings: input.settings
-      })
-      const remainingMinor = effectiveRemainingMinor(dueMinor, line.utilityPaid.amountMinor)
-      return {
-        memberId: line.memberId,
-        displayName: memberNameById.get(line.memberId) ?? line.memberId,
-        suggestedAmount: Money.fromMinor(remainingMinor, cycle.currency),
-        baseDue: Money.fromMinor(dueMinor, cycle.currency),
-        paid: line.utilityPaid,
-        remaining: Money.fromMinor(remainingMinor, cycle.currency),
-        effectivelySettled: remainingMinor === 0n
-      } satisfies FinanceDashboardPaymentMemberSummary
-    })
-
-    const hasOverdueBalance =
-      (Temporal.PlainDate.compare(localDate, rentDueDate) > 0 &&
-        rentMembers.some((member) => !member.effectivelySettled)) ||
-      (Temporal.PlainDate.compare(localDate, utilitiesDueDate) > 0 &&
-        utilitiesMembers.some((member) => !member.effectivelySettled))
-
-    summaries.push({
-      period: cycle.period,
-      utilityTotal,
-      hasOverdueBalance,
-      isCurrentPeriod: cycle.period === input.currentCycle.period,
-      kinds: [
-        {
-          kind: 'rent',
-          totalDue: rentMembers.reduce(
-            (sum, member) => sum.add(member.baseDue),
-            Money.zero(cycle.currency)
-          ),
-          totalPaid: rentMembers.reduce(
-            (sum, member) => sum.add(member.paid),
-            Money.zero(cycle.currency)
-          ),
-          totalRemaining: rentMembers.reduce(
-            (sum, member) => sum.add(member.remaining),
-            Money.zero(cycle.currency)
-          ),
-          unresolvedMembers: visibleRentMembers.filter((member) => !member.effectivelySettled)
-        },
-        {
-          kind: 'utilities',
-          totalDue: utilitiesMembers.reduce(
-            (sum, member) => sum.add(member.baseDue),
-            Money.zero(cycle.currency)
-          ),
-          totalPaid: utilitiesMembers.reduce(
-            (sum, member) => sum.add(member.paid),
-            Money.zero(cycle.currency)
-          ),
-          totalRemaining: utilitiesMembers.reduce(
-            (sum, member) => sum.add(member.remaining),
-            Money.zero(cycle.currency)
-          ),
-          unresolvedMembers: utilitiesMembers.filter((member) => !member.effectivelySettled)
-        }
-      ]
-    })
-  }
-
-  return summaries
+    )
+  )
 }
 
 async function getCycleKindBaseRemaining(input: {
@@ -2725,53 +2889,54 @@ async function resolveAutomaticPaymentTargets(input: {
   const cycles = (await input.dependencies.repository.listCycles()).filter(
     (cycle) => cycle.period.localeCompare(input.currentCycle.period) <= 0
   )
-  const overdueTargets: {
-    cycle: FinanceCycleRecord
-    baseRemainingMinor: bigint
-    allowOverflow: boolean
-  }[] = []
+  // Cycles are independent here too, so resolve them concurrently and keep the
+  // order Promise.all guarantees — the caller relies on the last target overflowing.
+  const candidates = await Promise.all(
+    cycles.map(async (cycle) => {
+      const baseLine = (
+        await buildCycleBaseMemberLines({
+          dependencies: input.dependencies,
+          cycle,
+          members: input.members,
+          memberPresenceDays: input.memberPresenceDays,
+          settings: input.settings
+        })
+      ).find((line) => line.memberId === input.memberId)
 
-  for (const cycle of cycles) {
-    const baseLine = (
-      await buildCycleBaseMemberLines({
-        dependencies: input.dependencies,
+      if (!baseLine) {
+        return null
+      }
+
+      const dueDate = billingPeriodLockDate(
+        BillingPeriod.fromString(cycle.period),
+        input.kind === 'rent' ? input.settings.rentDueDay : input.settings.utilitiesDueDay
+      )
+      if (Temporal.PlainDate.compare(localDate, dueDate) <= 0) {
+        return null
+      }
+
+      const remainingMinor =
+        input.kind === 'rent'
+          ? effectiveRemainingMinor(baseLine.rentShare.amountMinor, baseLine.rentPaid.amountMinor)
+          : effectiveRemainingMinor(
+              baseLine.utilityShare.amountMinor,
+              baseLine.utilityPaid.amountMinor
+            )
+
+      if (remainingMinor <= 0n) {
+        return null
+      }
+
+      return {
         cycle,
-        members: input.members,
-        memberPresenceDays: input.memberPresenceDays,
-        settings: input.settings
-      })
-    ).find((line) => line.memberId === input.memberId)
-
-    if (!baseLine) {
-      continue
-    }
-
-    const dueDate = billingPeriodLockDate(
-      BillingPeriod.fromString(cycle.period),
-      input.kind === 'rent' ? input.settings.rentDueDay : input.settings.utilitiesDueDay
-    )
-    if (Temporal.PlainDate.compare(localDate, dueDate) <= 0) {
-      continue
-    }
-
-    const remainingMinor =
-      input.kind === 'rent'
-        ? effectiveRemainingMinor(baseLine.rentShare.amountMinor, baseLine.rentPaid.amountMinor)
-        : effectiveRemainingMinor(
-            baseLine.utilityShare.amountMinor,
-            baseLine.utilityPaid.amountMinor
-          )
-
-    if (remainingMinor <= 0n) {
-      continue
-    }
-
-    overdueTargets.push({
-      cycle,
-      baseRemainingMinor: remainingMinor,
-      allowOverflow: false
+        baseRemainingMinor: remainingMinor,
+        allowOverflow: false
+      }
     })
-  }
+  )
+  const overdueTargets = candidates.filter(
+    (target): target is NonNullable<typeof target> => target !== null
+  )
 
   const currentCycleAlreadyIncluded = overdueTargets.some(
     (target) => target.cycle.id === input.currentCycle.id
@@ -2792,6 +2957,38 @@ async function resolveAutomaticPaymentTargets(input: {
       allowOverflow: true
     }
   ]
+}
+
+// `inputHash` alone is not enough: it deliberately ignores payments, while the archive
+// metadata and the line totals do not. Compare the whole payload instead.
+function isSameSettlementSnapshot(
+  left: SettlementSnapshotRecord,
+  right: SettlementSnapshotRecord
+): boolean {
+  return settlementSnapshotFingerprint(left) === settlementSnapshotFingerprint(right)
+}
+
+function settlementSnapshotFingerprint(snapshot: SettlementSnapshotRecord): string {
+  return JSON.stringify(
+    {
+      inputHash: snapshot.inputHash,
+      totalDueMinor: snapshot.totalDueMinor.toString(),
+      currency: snapshot.currency,
+      metadata: snapshot.metadata,
+      lines: [...snapshot.lines]
+        .map((line) => ({
+          memberId: line.memberId,
+          rentShareMinor: line.rentShareMinor.toString(),
+          utilityShareMinor: line.utilityShareMinor.toString(),
+          purchaseOffsetMinor: line.purchaseOffsetMinor.toString(),
+          netDueMinor: line.netDueMinor.toString(),
+          explanations: line.explanations
+        }))
+        // Stored lines come back in database order, computed ones in settlement order.
+        .sort((first, second) => first.memberId.localeCompare(second.memberId))
+    },
+    (_key, value) => (typeof value === 'bigint' ? value.toString() : value)
+  )
 }
 
 async function buildFinanceDashboard(
@@ -3293,13 +3490,21 @@ async function buildFinanceDashboard(
   }
 
   if (isOpenCycle) {
-    await dependencies.repository.replaceSettlementSnapshot({
+    const nextSnapshot: SettlementSnapshotRecord = {
       ...settlementSnapshotBase,
       metadata: {
         ...settlementSnapshotBase.metadata,
         [CYCLE_HISTORY_ARCHIVE_KEY]: cycleHistoryArchiveMetadata(dashboard)
       }
-    })
+    }
+
+    // Reading the dashboard used to rewrite the snapshot every single time, so a
+    // read-only button press paid for a write transaction. Skip the write when the
+    // stored snapshot already matches what we just computed.
+    const storedSnapshot = await dependencies.repository.getSettlementSnapshot(cycle.id)
+    if (!storedSnapshot || !isSameSettlementSnapshot(storedSnapshot, nextSnapshot)) {
+      await dependencies.repository.replaceSettlementSnapshot(nextSnapshot)
+    }
   }
 
   return dashboard
@@ -3727,8 +3932,9 @@ export interface FinanceCommandService {
 }
 
 export function createFinanceCommandService(
-  dependencies: FinanceCommandServiceDependencies
+  rawDependencies: FinanceCommandServiceDependencies
 ): FinanceCommandService {
+  const { dependencies, cache: operationCache } = withOperationReadCache(rawDependencies)
   const { repository, householdConfigurationRepository } = dependencies
 
   async function ensureExpectedCycle(referenceInstant = nowInstant()): Promise<FinanceCycleRecord> {
@@ -3956,7 +4162,7 @@ export function createFinanceCommandService(
     }
   }
 
-  return {
+  const service: FinanceCommandService = {
     getMemberByTelegramUserId(telegramUserId) {
       return repository.getMemberByTelegramUserId(telegramUserId)
     },
@@ -5564,4 +5770,6 @@ export function createFinanceCommandService(
       }
     }
   }
+
+  return withOperationBoundary(service, operationCache)
 }

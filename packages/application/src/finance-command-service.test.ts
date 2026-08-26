@@ -1320,6 +1320,101 @@ describe('createFinanceCommandService', () => {
     ])
   })
 
+  test('generateDashboard stops rewriting the snapshot when nothing changed', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.openCycleRecord = cycle
+    repository.latestCycleRecord = cycle
+    repository.cycles = [cycle]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.rentRule = { amountMinor: 100_000n, currency: 'GEL' }
+
+    const service = createService(repository)
+    await service.generateDashboard('2026-03')
+    const writesAfterFirstRead = repository.replaceSnapshotCalls
+    expect(writesAfterFirstRead).toBe(1)
+
+    // Reading the dashboard is not supposed to cost a write transaction every time.
+    await service.generateDashboard('2026-03')
+    expect(repository.replaceSnapshotCalls).toBe(writesAfterFirstRead)
+
+    // A real change still lands.
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 40_000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-20T10:00:00.000Z')
+      }
+    ]
+    await service.generateDashboard('2026-03')
+    expect(repository.replaceSnapshotCalls).toBe(writesAfterFirstRead + 1)
+  })
+
+  test('generateDashboard converts utility bills booked outside the cycle currency', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.openCycleRecord = cycle
+    repository.latestCycleRecord = cycle
+    repository.cycles = [cycle]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'utility-gel',
+        billName: 'Electricity',
+        amountMinor: 12000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-02T09:00:00.000Z')
+      },
+      {
+        id: 'utility-usd',
+        billName: 'Internet',
+        amountMinor: 1000n,
+        currency: 'USD',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-03T09:00:00.000Z')
+      }
+    ]
+
+    // A foreign-currency bill used to reach Money.add unconverted and throw
+    // CURRENCY_MISMATCH, which took down the dashboard and every button built on it.
+    const dashboard = await createService(repository).generateDashboard('2026-03')
+
+    const period = dashboard?.paymentPeriods?.find((summary) => summary.period === '2026-03')
+    expect(period?.utilityTotal.currency).toBe('GEL')
+    // 120.00 GEL + 10.00 USD at 2.70 = 147.00 GEL
+    expect(period?.utilityTotal.amountMinor).toBe(14700n)
+  })
+
   test('generateDashboard prefers the open cycle over a later latest cycle', async () => {
     const repository = new FinanceRepositoryStub()
     repository.members = [

@@ -67,10 +67,7 @@ export function createDbScheduledDispatchRepository(databaseUrl: string): {
   repository: ScheduledDispatchRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 3,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: ScheduledDispatchRepository = {
     async createScheduledDispatch(input) {
@@ -266,7 +263,7 @@ export function createDbScheduledDispatchRepository(databaseUrl: string): {
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

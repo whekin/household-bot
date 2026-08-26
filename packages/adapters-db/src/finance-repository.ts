@@ -142,10 +142,7 @@ export function createDbFinanceRepository(
   repository: FinanceRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 5,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   async function loadPurchaseParticipants(purchaseIds: readonly string[]): Promise<
     ReadonlyMap<
@@ -2294,7 +2291,7 @@ export function createDbFinanceRepository(
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

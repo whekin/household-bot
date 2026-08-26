@@ -10,6 +10,7 @@ import type {
 } from '@household/ports'
 import { InputFile, type Bot, type Context } from 'grammy'
 
+import { ackCallbackQuery } from './telegram-callback-guards'
 import { getBotTranslations, type BotLocale } from './i18n'
 import { formatUserFacingMoney } from './i18n/money'
 import { escapeHtml } from './html'
@@ -2828,12 +2829,13 @@ export function createFinanceCommandsService(options: {
     bot.callbackQuery(
       new RegExp(`^${BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const payload = ctx.callbackQuery.data.slice(BILL_SHOW_CALLBACK_PREFIX.length)
         const [choiceIndexRaw, modeRaw, detailRaw] = payload.split(':')
         const telegramUserId = ctx.from?.id?.toString()
         const choiceIndex = Number(choiceIndexRaw)
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || !telegramUserId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -2866,7 +2868,6 @@ export function createFinanceCommandsService(options: {
             ? choice.memberId
             : null
         if (!householdId || !memberId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -2882,7 +2883,6 @@ export function createFinanceCommandsService(options: {
           options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
         ])
         if (!plan) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -2921,18 +2921,18 @@ export function createFinanceCommandsService(options: {
           },
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
     bot.callbackQuery(
       new RegExp(`^${PERSONAL_BILL_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const choiceIndex = Number(
           ctx.callbackQuery.data.slice(PERSONAL_BILL_SHOW_CALLBACK_PREFIX.length)
         )
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -2961,7 +2961,6 @@ export function createFinanceCommandsService(options: {
             ? pendingAction.payload.periodArg
             : undefined
         if (!householdId || !memberId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -2982,16 +2981,16 @@ export function createFinanceCommandsService(options: {
           ...(periodArg ? { periodArg } : {}),
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
     bot.callbackQuery(
       new RegExp(`^${BILL_JSON_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const choiceIndex = Number(ctx.callbackQuery.data.slice(BILL_JSON_CALLBACK_PREFIX.length))
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3020,7 +3019,6 @@ export function createFinanceCommandsService(options: {
             ? pendingAction.payload.periodArg
             : undefined
         if (!householdId || !memberId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3032,7 +3030,6 @@ export function createFinanceCommandsService(options: {
           (member) => member.householdId === householdId && member.id === memberId && member.isAdmin
         )
         if (!membership) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3047,7 +3044,6 @@ export function createFinanceCommandsService(options: {
           requesterDisplayName: membership.displayName,
           ...(periodArg ? { periodArg } : {})
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
@@ -3067,14 +3063,14 @@ export function createFinanceCommandsService(options: {
             : null
         const telegramUserId = ctx.from?.id?.toString()
         if (!householdId || !memberId || !telegramUserId) {
-          await ctx.answerCallbackQuery()
+          await ackCallbackQuery(ctx)
           return
         }
 
         const service = options.financeServiceForHousehold(householdId)
         const actingMember = await service.getMemberByTelegramUserId(telegramUserId)
         if (!actingMember || (!actingMember.isAdmin && actingMember.id !== memberId)) {
-          await ctx.answerCallbackQuery()
+          await ackCallbackQuery(ctx)
           return
         }
 
@@ -3168,7 +3164,7 @@ export function createFinanceCommandsService(options: {
           options.householdConfigurationRepository.getHouseholdBillingSettings(householdId)
         ])
         if (!plan) {
-          await ctx.answerCallbackQuery()
+          await ackCallbackQuery(ctx)
           return
         }
 
@@ -3210,9 +3206,10 @@ export function createFinanceCommandsService(options: {
     bot.callbackQuery(
       new RegExp(`^${STATUS_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const choiceIndex = Number(ctx.callbackQuery.data.slice(STATUS_SHOW_CALLBACK_PREFIX.length))
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3241,7 +3238,6 @@ export function createFinanceCommandsService(options: {
             ? pendingAction.payload.periodArg
             : undefined
         if (!householdId || !memberId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3253,7 +3249,6 @@ export function createFinanceCommandsService(options: {
           (item) => item.householdId === householdId && item.id === memberId
         )
         if (!membership) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3274,17 +3269,17 @@ export function createFinanceCommandsService(options: {
           ...(periodArg ? { periodArg } : {}),
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
     bot.callbackQuery(
       new RegExp(`^${STATUS_DETAILS_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const callbackPeriod = ctx.callbackQuery.data.slice(STATUS_DETAILS_CALLBACK_PREFIX.length)
         const target = await resolveStatusCallbackTarget({ ctx, callbackPeriod })
         if (!target) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3299,17 +3294,17 @@ export function createFinanceCommandsService(options: {
           detailMode: 'full',
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
     bot.callbackQuery(
       new RegExp(`^${STATUS_BALANCES_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const callbackPeriod = ctx.callbackQuery.data.slice(STATUS_BALANCES_CALLBACK_PREFIX.length)
         const target = await resolveStatusCallbackTarget({ ctx, callbackPeriod })
         if (!target) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3325,11 +3320,12 @@ export function createFinanceCommandsService(options: {
           ...(target.periodArg ? { periodArg: target.periodArg } : {}),
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 
     bot.callbackQuery(TELEGRAM_HOME_MY_BILL_CALLBACK, async (ctx) => {
+      // Read-only re-render: stop the spinner before the work, not after it.
+      await ackCallbackQuery(ctx)
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
@@ -3339,10 +3335,11 @@ export function createFinanceCommandsService(options: {
         locale,
         editMessage: true
       })
-      await ctx.answerCallbackQuery()
     })
 
     bot.callbackQuery(TELEGRAM_HOME_MY_BILL_FULL_CALLBACK, async (ctx) => {
+      // Read-only re-render: stop the spinner before the work, not after it.
+      await ackCallbackQuery(ctx)
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
@@ -3355,10 +3352,11 @@ export function createFinanceCommandsService(options: {
         detailMode: 'full',
         editMessage: true
       })
-      await ctx.answerCallbackQuery()
     })
 
     bot.callbackQuery(TELEGRAM_HOME_STATUS_CALLBACK, async (ctx) => {
+      // Read-only re-render: stop the spinner before the work, not after it.
+      await ackCallbackQuery(ctx)
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
@@ -3368,10 +3366,11 @@ export function createFinanceCommandsService(options: {
         locale,
         editMessage: true
       })
-      await ctx.answerCallbackQuery()
     })
 
     bot.callbackQuery(TELEGRAM_HOME_BALANCES_CALLBACK, async (ctx) => {
+      // Read-only re-render: stop the spinner before the work, not after it.
+      await ackCallbackQuery(ctx)
       const locale = await resolveReplyLocale({
         ctx,
         repository: options.householdConfigurationRepository
@@ -3381,17 +3380,17 @@ export function createFinanceCommandsService(options: {
         locale,
         editMessage: true
       })
-      await ctx.answerCallbackQuery()
     })
 
     bot.callbackQuery(
       new RegExp(`^${HOME_BALANCE_SHOW_CALLBACK_PREFIX.replace(':', '\\:')}`),
       async (ctx) => {
+        // Read-only re-render: stop the spinner before the work, not after it.
+        await ackCallbackQuery(ctx)
         const choiceIndex = Number(
           ctx.callbackQuery.data.slice(HOME_BALANCE_SHOW_CALLBACK_PREFIX.length)
         )
         if (!Number.isInteger(choiceIndex) || choiceIndex < 0) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3408,7 +3407,6 @@ export function createFinanceCommandsService(options: {
             ? choice.householdId
             : null
         if (!householdId) {
-          await ctx.answerCallbackQuery()
           return
         }
 
@@ -3423,7 +3421,6 @@ export function createFinanceCommandsService(options: {
           service: options.financeServiceForHousehold(householdId),
           editMessage: true
         })
-        await ctx.answerCallbackQuery()
       }
     )
 

@@ -8,10 +8,7 @@ export function createDbTopicMessageHistoryRepository(databaseUrl: string): {
   repository: TopicMessageHistoryRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 3,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: TopicMessageHistoryRepository = {
     async saveMessage(input) {
@@ -93,7 +90,7 @@ export function createDbTopicMessageHistoryRepository(databaseUrl: string): {
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

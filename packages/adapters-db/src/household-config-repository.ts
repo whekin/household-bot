@@ -336,10 +336,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
   repository: HouseholdConfigurationRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 5,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const defaultUtilityCategories = [
     { slug: 'internet', name: 'Internet', sortOrder: 0 },
@@ -1709,7 +1706,7 @@ export function createDbHouseholdConfigurationRepository(databaseUrl: string): {
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

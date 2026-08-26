@@ -90,10 +90,7 @@ export function createDbAdHocNotificationRepository(databaseUrl: string): {
   repository: AdHocNotificationRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 3,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: AdHocNotificationRepository = {
     async createNotification(input) {
@@ -298,7 +295,7 @@ export function createDbAdHocNotificationRepository(databaseUrl: string): {
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

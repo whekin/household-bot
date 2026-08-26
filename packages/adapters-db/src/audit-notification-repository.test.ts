@@ -21,6 +21,7 @@ describe('createDbAuditNotificationRepository', () => {
     }
 
     const { db, queryClient } = createDbClient(databaseUrl, {
+      dedicated: true,
       max: 1,
       prepare: false
     })
@@ -31,6 +32,7 @@ describe('createDbAuditNotificationRepository', () => {
 
   testIfDatabase('stores notification settings and audit events', async () => {
     const dbClient = createDbClient(databaseUrl!, {
+      dedicated: true,
       max: 1,
       prepare: false
     })

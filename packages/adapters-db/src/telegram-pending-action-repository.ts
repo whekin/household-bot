@@ -40,10 +40,7 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
   repository: TelegramPendingActionRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 5,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: TelegramPendingActionRepository = {
     async upsertPendingAction(input) {
@@ -248,7 +245,7 @@ export function createDbTelegramPendingActionRepository(databaseUrl: string): {
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

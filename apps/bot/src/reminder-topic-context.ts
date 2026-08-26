@@ -16,6 +16,9 @@ export interface ReminderTopicActorContext {
   telegramThreadId: string | null
   actorTelegramUserId: string
   member: FinanceMemberRecord
+  // Resolving the actor already had to look this binding up. Handing it back keeps
+  // callers from asking the database for the same row a second time.
+  topicRole: HouseholdTopicRole | null
 }
 
 function callbackMessage(ctx: Context) {
@@ -54,14 +57,16 @@ export async function resolveReminderTopicActorContext(input: {
 
   const telegramChatId = message.chat.id.toString()
   const telegramThreadId = messageThreadId(message)
-  const topicBinding = telegramThreadId
-    ? await input.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-        telegramChatId,
-        telegramThreadId
-      })
-    : null
-  const chatBinding =
-    await input.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
+  // Neither lookup depends on the other, and callbacks are latency-bound.
+  const [topicBinding, chatBinding] = await Promise.all([
+    telegramThreadId
+      ? input.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
+          telegramChatId,
+          telegramThreadId
+        })
+      : Promise.resolve(null),
+    input.householdConfigurationRepository.getTelegramHouseholdChat(telegramChatId)
+  ])
   const householdId = topicBinding?.householdId ?? chatBinding?.householdId ?? null
   if (!householdId) {
     return null
@@ -115,6 +120,7 @@ export async function resolveReminderTopicActorContext(input: {
     telegramChatId,
     telegramThreadId,
     actorTelegramUserId,
-    member
+    member,
+    topicRole: topicBinding?.role ?? null
   }
 }
