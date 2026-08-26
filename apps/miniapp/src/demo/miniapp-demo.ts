@@ -163,6 +163,26 @@ const adminSettings: MiniAppAdminSettingsPayload = {
       note: null
     }
   ],
+  facts: [
+    {
+      key: 'wifi',
+      title: 'Wi-Fi',
+      body: 'Network Kojori-5G, password hunter2hunter2',
+      updatedAt: '2026-07-01T10:00:00Z'
+    },
+    {
+      key: 'trash-day',
+      title: 'Trash',
+      body: 'Collected Tuesday and Friday mornings; bins go out the night before.',
+      updatedAt: '2026-07-02T08:30:00Z'
+    },
+    {
+      key: 'landlord',
+      title: 'Landlord',
+      body: 'Giorgi, +995 555 12 34 56. Text before calling.',
+      updatedAt: '2026-06-20T17:05:00Z'
+    }
+  ],
   members: [
     { id: 'demo-member', displayName: 'Stas', status: 'active', rentShareWeight: 1, isAdmin: true },
     {

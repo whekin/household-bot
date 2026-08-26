@@ -3,6 +3,7 @@ import type {
   MiniAppAdminSettingsPayload,
   MiniAppAssistantConfig,
   MiniAppBillingSettings,
+  MiniAppHouseholdFact,
   MiniAppMember,
   MiniAppMemberPresenceDaysRecord,
   MiniAppNotificationSettings,
@@ -79,6 +80,7 @@ export async function fetchMiniAppAdminSettings(
     notificationSettings?: MiniAppNotificationSettings
     topics?: MiniAppTopicBinding[]
     categories?: MiniAppUtilityCategory[]
+    facts?: MiniAppHouseholdFact[]
     members?: MiniAppMember[]
     error?: string
   }>('/api/miniapp/admin/settings', {
@@ -94,6 +96,7 @@ export async function fetchMiniAppAdminSettings(
     !payload.notificationSettings ||
     !payload.topics ||
     !payload.categories ||
+    !payload.facts ||
     !payload.members
   ) {
     throw miniAppApiError(response, payload, 'Failed to load admin settings')
@@ -106,8 +109,48 @@ export async function fetchMiniAppAdminSettings(
     notificationSettings: payload.notificationSettings,
     topics: payload.topics,
     categories: payload.categories,
+    facts: payload.facts,
     members: payload.members
   }
+}
+
+export async function upsertMiniAppHouseholdFact(
+  initData: string,
+  input: { key?: string; title: string; body: string }
+): Promise<MiniAppHouseholdFact> {
+  const { response, payload } = await postMiniApp<{
+    ok: boolean
+    authorized?: boolean
+    fact?: MiniAppHouseholdFact
+    error?: string
+  }>('/api/miniapp/admin/facts/upsert', {
+    initData,
+    ...input
+  })
+
+  if (!response.ok || !payload.authorized || !payload.fact) {
+    throw miniAppApiError(response, payload, 'Failed to save household fact')
+  }
+
+  return payload.fact
+}
+
+export async function deleteMiniAppHouseholdFact(initData: string, key: string): Promise<boolean> {
+  const { response, payload } = await postMiniApp<{
+    ok: boolean
+    authorized?: boolean
+    deleted?: boolean
+    error?: string
+  }>('/api/miniapp/admin/facts/delete', {
+    initData,
+    key
+  })
+
+  if (!response.ok || !payload.authorized) {
+    throw miniAppApiError(response, payload, 'Failed to delete household fact')
+  }
+
+  return payload.deleted === true
 }
 
 export async function updateMiniAppBillingSettings(

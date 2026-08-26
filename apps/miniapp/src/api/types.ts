@@ -300,6 +300,13 @@ export interface MiniAppDashboard {
   }[]
 }
 
+export interface MiniAppHouseholdFact {
+  key: string
+  title: string
+  body: string
+  updatedAt: string
+}
+
 export interface MiniAppAdminSettingsPayload {
   householdName: string
   settings: MiniAppBillingSettings
@@ -307,6 +314,7 @@ export interface MiniAppAdminSettingsPayload {
   notificationSettings: MiniAppNotificationSettings
   topics: readonly MiniAppTopicBinding[]
   categories: readonly MiniAppUtilityCategory[]
+  facts: readonly MiniAppHouseholdFact[]
   members: readonly MiniAppMember[]
 }
 

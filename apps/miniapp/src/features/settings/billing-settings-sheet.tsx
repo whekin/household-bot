@@ -15,9 +15,11 @@ import { nextCyclePeriod } from '@/lib/dates'
 import { minorToMajorString } from '@/lib/money'
 import { searchTimezones } from '@/lib/timezones'
 import {
+  deleteMiniAppHouseholdFact,
   updateMiniAppBillingSettings,
   fetchMiniAppBillingCycle,
   updateMiniAppCycleRent,
+  upsertMiniAppHouseholdFact,
   type MiniAppAdminSettingsPayload,
   type MiniAppAdminCycleState,
   type MiniAppRentPaymentDestination
@@ -98,6 +100,20 @@ export function buildBillingFormValue(
   }
 }
 
+type FactDraft = {
+  key: string
+  title: string
+  body: string
+}
+
+function buildFactDrafts(settings: MiniAppAdminSettingsPayload | null): FactDraft[] {
+  return (settings?.facts ?? []).map((fact) => ({
+    key: fact.key,
+    title: fact.title,
+    body: fact.body
+  }))
+}
+
 function SectionTitle({ children }: { children: string }) {
   return (
     <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-primary">{children}</p>
@@ -118,6 +134,7 @@ export function BillingSettingsSheet({
   const { showToast } = useToast()
 
   const [form, setForm] = useState<BillingFormState>(() => buildBillingFormValue(adminSettings))
+  const [facts, setFacts] = useState<FactDraft[]>(() => buildFactDrafts(adminSettings))
   const [rentPeriods, setRentPeriods] = useState<RentPeriodDraft[]>([])
   const [loadingRentPeriods, setLoadingRentPeriods] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -132,6 +149,7 @@ export function BillingSettingsSheet({
     // matching the legacy editor behaviour.
     const defaults = buildBillingFormValue(adminSettingsRef.current)
     setForm(defaults)
+    setFacts(buildFactDrafts(adminSettingsRef.current))
 
     const currentPeriod = dashboard?.period ?? cycleState?.cycle?.period ?? null
     const followingPeriod = currentPeriod ? nextCyclePeriod(currentPeriod) : null
@@ -183,6 +201,40 @@ export function BillingSettingsSheet({
     { key: 'purchaseEvents', label: copy.notificationPurchaseEvents },
     { key: 'paymentEvents', label: copy.notificationPaymentEvents }
   ] as const
+
+  function updateFact(index: number, patch: Partial<FactDraft>) {
+    setFacts((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index]!, ...patch }
+      return next
+    })
+  }
+
+  /** Facts have their own endpoints, so they are synced as a diff against the saved list. */
+  async function saveFacts(initDataValue: string) {
+    const savedKeys = (adminSettingsRef.current?.facts ?? []).map((fact) => fact.key)
+    const keptKeys = new Set(facts.map((fact) => fact.key.trim()).filter(Boolean))
+
+    for (const key of savedKeys) {
+      if (!keptKeys.has(key)) {
+        await deleteMiniAppHouseholdFact(initDataValue, key)
+      }
+    }
+
+    for (const fact of facts) {
+      const title = fact.title.trim()
+      const body = fact.body.trim()
+      if (!title || !body) {
+        continue
+      }
+
+      await upsertMiniAppHouseholdFact(initDataValue, {
+        ...(fact.key.trim() ? { key: fact.key.trim() } : {}),
+        title,
+        body
+      })
+    }
+  }
 
   function updateDestination(index: number, patch: Partial<MiniAppRentPaymentDestination>) {
     setForm((prev) => {
@@ -240,6 +292,15 @@ export function BillingSettingsSheet({
     setSaving(true)
     try {
       await updateMiniAppBillingSettings(initData, form)
+      try {
+        await saveFacts(initData)
+      } catch (error) {
+        if (!handleMiniAppRequestError(error)) {
+          showToast(copy.householdFactsSaveError, 'error')
+        }
+        await refresh()
+        return
+      }
       await Promise.all(
         rentPeriods
           .filter((draft) => draft.dirty)
@@ -494,6 +555,68 @@ export function BillingSettingsSheet({
               }
             />
           </Field>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <SectionTitle>{copy.householdFactsTitle}</SectionTitle>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setFacts((prev) => [...prev, { key: '', title: '', body: '' }])}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              {copy.householdFactAddAction}
+            </Button>
+          </div>
+          <p className="text-xs text-faint">{copy.householdFactsBody}</p>
+
+          {facts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{copy.householdFactsEmpty}</p>
+          ) : (
+            <div className="space-y-3">
+              {facts.map((fact, index) => (
+                <div key={index} className="space-y-3 rounded-xl bg-elevated p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {fact.title || copy.householdFactAddAction}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setFacts((prev) => prev.filter((_, currentIndex) => currentIndex !== index))
+                      }
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      {copy.householdFactRemoveAction}
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={copy.householdFactKeyLabel} hint={copy.householdFactKeyHint}>
+                      <Input
+                        value={fact.key}
+                        onChange={(event) => updateFact(index, { key: event.target.value })}
+                      />
+                    </Field>
+                    <Field label={copy.householdFactTitleLabel}>
+                      <Input
+                        value={fact.title}
+                        onChange={(event) => updateFact(index, { title: event.target.value })}
+                      />
+                    </Field>
+                  </div>
+                  <Field label={copy.householdFactBodyLabel}>
+                    <Textarea
+                      value={fact.body}
+                      maxLength={2000}
+                      onChange={(event) => updateFact(index, { body: event.target.value })}
+                    />
+                  </Field>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="space-y-3">
