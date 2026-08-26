@@ -124,6 +124,14 @@ function repository(
       amountMinor: 70000n,
       currency: 'USD'
     }),
+    listRentRuleRanges: async () => [
+      {
+        amountMinor: 70000n,
+        currency: 'USD',
+        effectiveFromPeriod: '0000-00',
+        effectiveToPeriod: null
+      }
+    ],
     getUtilityTotalForCycle: async () => 12000n,
     listUtilityBillsForCycle: async () => [
       {
@@ -135,6 +143,20 @@ function repository(
         createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
       }
     ],
+    listUtilityBillsForCycles: async (cycleIds) =>
+      cycleIds.map((cycleId) => ({
+        cycleId,
+        bills: [
+          {
+            id: 'utility-1',
+            billName: 'Electricity',
+            amountMinor: 12000n,
+            currency: 'GEL' as const,
+            createdByMemberId: member?.id ?? 'member-1',
+            createdAt: instantFromIso('2026-03-12T12:00:00.000Z')
+          }
+        ]
+      })),
     listPaymentRecordsForCycle: async () => [
       {
         id: 'payment-1',
@@ -147,6 +169,21 @@ function repository(
         recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
       }
     ],
+    listPaymentRecordsForCycles: async (cycleIds) =>
+      cycleIds.includes(cycle.id)
+        ? [
+            {
+              id: 'payment-1',
+              cycleId: cycle.id,
+              cyclePeriod: cycle.period,
+              memberId: member?.id ?? 'member-1',
+              kind: 'rent' as const,
+              amountMinor: 50000n,
+              currency: 'GEL' as const,
+              recordedAt: instantFromIso('2026-03-18T12:00:00.000Z')
+            }
+          ]
+        : [],
     listParsedPurchasesForRange: async () => [
       {
         id: 'purchase-1',
@@ -177,6 +214,7 @@ function repository(
     createManualPurchaseAllocations: async () => {},
     getActiveUtilityBillingPlan: async () => latestUtilityPlan,
     listUtilityBillingPlansForCycle: async () => (latestUtilityPlan ? [latestUtilityPlan] : []),
+    listUtilityBillingPlansForCycles: async () => (latestUtilityPlan ? [latestUtilityPlan] : []),
     saveUtilityBillingPlan: async (input) => {
       latestUtilityPlan = {
         id: 'utility-plan-1',
@@ -226,6 +264,7 @@ function repository(
       return latestUtilityPlan
     },
     listUtilityVendorPaymentFactsForCycle: async () => [],
+    listUtilityVendorPaymentFactsForCycles: async () => [],
     getUtilityVendorPaymentFact: async () => null,
     deleteUtilityVendorPaymentFact: async () => true,
     attachUtilityVendorPaymentFactsToPayment: async () => {},
@@ -1031,8 +1070,9 @@ describe('createMiniAppDashboardHandler', () => {
       isAdmin: true
     })
 
-    // Simulate missing rent rule
+    // Simulate missing rent rule: no rule for the period, and no rule range covering it.
     financeRepository.getRentRuleForPeriod = async () => null
+    financeRepository.listRentRuleRanges = async () => []
 
     const financeService = createFinanceCommandService({
       householdId: 'household-1',

@@ -1,5 +1,6 @@
 import type {
   FinanceCommandService,
+  FinanceDashboard,
   HouseholdAuditNotificationService
 } from '@household/application'
 import type { Logger } from '@household/observability'
@@ -96,6 +97,9 @@ export function registerPaymentReminderActions(options: {
   miniAppUrl?: string
   logger?: Logger
 }): void {
+  // Resolving the actor is a handful of indexed lookups; building the dashboard is
+  // the expensive part. Keep them separate so the mutating handlers, which get a
+  // fresh dashboard back from the mutation anyway, never pay for it twice.
   async function resolveAction(ctx: Context, match: CallbackMatch) {
     const actorContext = await resolveReminderTopicActorContext({
       ctx,
@@ -112,50 +116,56 @@ export function registerPaymentReminderActions(options: {
       return null
     }
 
-    const t = getBotTranslations(actorContext.locale).reminders
-    const kind = match[1]
     const period = match[2]
     const service = options.financeServiceForHousehold(actorContext.householdId)
-    const dashboard = await service.generateDashboard(period)
-    const paymentPeriod = dashboard?.paymentPeriods?.find((summary) => summary.period === period)
-    if (!dashboard || !paymentPeriod) {
+
+    return {
+      actorContext,
+      dashboard: null as FinanceDashboard | null,
+      kind: match[1],
+      period,
+      service,
+      t: getBotTranslations(actorContext.locale).reminders,
+      topicRole: actorContext.topicRole,
+      async loadDashboard(): Promise<FinanceDashboard | null> {
+        const dashboard = await service.generateDashboard(period)
+        const paymentPeriod = dashboard?.paymentPeriods?.find(
+          (summary) => summary.period === period
+        )
+        return dashboard && paymentPeriod ? dashboard : null
+      }
+    }
+  }
+
+  async function resolveActionWithDashboard(ctx: Context, match: CallbackMatch) {
+    const action = await resolveAction(ctx, match)
+    if (!action) {
+      return null
+    }
+
+    const dashboard = await action.loadDashboard()
+    if (!dashboard) {
       await safeAnswerCallback(
         ctx,
-        { text: t.reminderUnavailable, show_alert: true },
+        { text: action.t.reminderUnavailable, show_alert: true },
         options.logger
       )
       return null
     }
 
-    const message =
-      ctx.callbackQuery && 'message' in ctx.callbackQuery ? ctx.callbackQuery.message : undefined
-    const telegramThreadId =
-      message && 'message_thread_id' in message && message.message_thread_id !== undefined
-        ? message.message_thread_id.toString()
-        : null
-    const topicBinding = telegramThreadId
-      ? await options.householdConfigurationRepository.findHouseholdTopicByTelegramContext({
-          telegramChatId: actorContext.telegramChatId,
-          telegramThreadId
-        })
-      : null
-
-    return {
-      actorContext,
-      dashboard,
-      kind,
-      period,
-      service,
-      t,
-      topicRole: topicBinding?.role ?? null
-    }
+    action.dashboard = dashboard
+    return action
   }
 
   async function refresh(
     ctx: Context,
-    action: NonNullable<Awaited<ReturnType<typeof resolveAction>>>,
+    action: NonNullable<Awaited<ReturnType<typeof resolveActionWithDashboard>>>,
     viewMode: PaymentReminderViewMode
   ) {
+    if (!action.dashboard) {
+      return
+    }
+
     const buildContent =
       action.topicRole === 'payments'
         ? buildPaymentInstructionContent
@@ -174,12 +184,13 @@ export function registerPaymentReminderActions(options: {
   }
 
   options.bot.callbackQuery(PAYMENT_REMINDER_DETAILS_PATTERN, async (ctx) => {
-    const action = await resolveAction(ctx, ctx.match as CallbackMatch)
+    // Purely a view switch, so clear the button's spinner before doing any work.
+    await safeAnswerCallback(ctx, undefined, options.logger)
+    const action = await resolveActionWithDashboard(ctx, ctx.match as CallbackMatch)
     if (!action) {
       return
     }
 
-    await safeAnswerCallback(ctx, undefined, options.logger)
     await refresh(ctx, action, (ctx.match as CallbackMatch)[3] ?? 'compact')
   })
 
@@ -193,7 +204,13 @@ export function registerPaymentReminderActions(options: {
       return
     }
 
+    // Answer on the cheap admin check rather than after the dashboard build.
     await safeAnswerCallback(ctx, { text: action.t.confirmPrompt }, options.logger)
+    const dashboard = await action.loadDashboard()
+    if (!dashboard) {
+      return
+    }
+    action.dashboard = dashboard
     await refresh(ctx, action, 'confirm-close')
   })
 
@@ -209,8 +226,9 @@ export function registerPaymentReminderActions(options: {
       actorMemberId: action.actorContext.member.id,
       periodArg: action.period
     })
-    const nextDashboard = result?.dashboard ?? action.dashboard
-    action.dashboard = nextDashboard
+    // closePaymentPeriod already computed a post-mutation dashboard; only fall back to
+    // building one when it bailed out without producing anything.
+    action.dashboard = result?.dashboard ?? (await action.loadDashboard())
     const closed = result?.closedMembers.length ?? 0
     await safeAnswerCallback(
       ctx,
@@ -238,7 +256,8 @@ export function registerPaymentReminderActions(options: {
       await options.livePaymentCardService.refresh({
         householdId: action.actorContext.householdId,
         kind: action.kind,
-        period: action.period
+        period: action.period,
+        ...(action.dashboard ? { dashboard: action.dashboard } : {})
       })
     }
 
@@ -261,7 +280,7 @@ export function registerPaymentReminderActions(options: {
       actorMemberId: action.actorContext.member.id,
       periodArg: action.period
     })
-    action.dashboard = result?.dashboard ?? action.dashboard
+    action.dashboard = result?.dashboard ?? (await action.loadDashboard())
     await safeAnswerCallback(
       ctx,
       {
@@ -276,7 +295,8 @@ export function registerPaymentReminderActions(options: {
       await options.livePaymentCardService.refresh({
         householdId: action.actorContext.householdId,
         kind: action.kind,
-        period: action.period
+        period: action.period,
+        ...(action.dashboard ? { dashboard: action.dashboard } : {})
       })
     }
     await refresh(ctx, action, 'compact')

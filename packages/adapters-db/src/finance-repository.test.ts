@@ -20,6 +20,7 @@ describe('createDbFinanceRepository', () => {
     }
 
     const { db, queryClient } = createDbClient(databaseUrl, {
+      dedicated: true,
       max: 1,
       prepare: false
     })
@@ -32,6 +33,7 @@ describe('createDbFinanceRepository', () => {
     'uses sourceKey idempotency while preserving original Telegram provenance',
     async () => {
       const { db, queryClient } = createDbClient(databaseUrl!, {
+        dedicated: true,
         max: 1,
         prepare: false
       })
@@ -131,6 +133,7 @@ describe('createDbFinanceRepository', () => {
 
   testIfDatabase('addPaymentRecordIfNew is idempotent by key', async () => {
     const { db, queryClient } = createDbClient(databaseUrl!, {
+      dedicated: true,
       max: 1,
       prepare: false
     })
@@ -197,6 +200,7 @@ describe('createDbFinanceRepository', () => {
 
   testIfDatabase('keeps purchase author unchanged when the payer changes', async () => {
     const { db, queryClient } = createDbClient(databaseUrl!, {
+      dedicated: true,
       max: 1,
       prepare: false
     })
@@ -273,6 +277,7 @@ describe('createDbFinanceRepository', () => {
 
   testIfDatabase('reads a complete settlement snapshot with archive metadata', async () => {
     const { db, queryClient } = createDbClient(databaseUrl!, {
+      dedicated: true,
       max: 1,
       prepare: false
     })

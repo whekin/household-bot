@@ -39,7 +39,8 @@ export function HomeView() {
     effectiveBillingStage,
     effectivePeriod,
     effectiveTodayOverride,
-    refresh
+    refresh,
+    applyDashboard
   } = useDashboard()
   const { copy } = useI18n()
   const { showToast } = useToast()
@@ -76,13 +77,17 @@ export function HomeView() {
 
     setProcessing(true)
     try {
-      await closeMiniAppPaymentPeriod(initData, {
+      const result = await closeMiniAppPaymentPeriod(initData, {
         period: input.period,
         kind: input.kind,
         ...(input.memberIds ? { memberIds: input.memberIds } : {}),
         ...(input.allMembers ? { allMembers: true } : {})
       })
-      await refresh()
+      // The close response already carries the rebuilt dashboard, so refetching it would
+      // ask the server to build the same thing twice.
+      if (!applyDashboard(result.dashboard)) {
+        await refresh()
+      }
       setAdminConfirmOpen(false)
       showToast(input.successMessage, 'success')
     } catch (error) {

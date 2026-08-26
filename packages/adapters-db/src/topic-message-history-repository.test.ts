@@ -20,6 +20,7 @@ describe('createDbTopicMessageHistoryRepository', () => {
     }
 
     const { db, queryClient } = createDbClient(databaseUrl, {
+      dedicated: true,
       max: 1,
       prepare: false
     })

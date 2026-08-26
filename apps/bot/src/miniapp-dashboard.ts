@@ -1,6 +1,7 @@
 import type {
   AdHocNotificationService,
   FinanceCommandService,
+  FinanceDashboard,
   HouseholdOnboardingService
 } from '@household/application'
 import { Money } from '@household/domain'
@@ -130,11 +131,16 @@ export async function loadMiniAppDashboardPayload(input: {
   >
   periodOverride?: string
   todayOverride?: string
+  // A mutation that already produced a dashboard for this period passes it here rather
+  // than paying for a second build; the dashboard is the most expensive read in the app.
+  prebuiltDashboard?: FinanceDashboard | undefined
 }) {
-  const dashboard = await input.financeService.generateDashboard(
-    input.periodOverride,
-    input.todayOverride ? { todayOverride: input.todayOverride } : {}
-  )
+  const dashboard =
+    input.prebuiltDashboard ??
+    (await input.financeService.generateDashboard(
+      input.periodOverride,
+      input.todayOverride ? { todayOverride: input.todayOverride } : {}
+    ))
   if (!dashboard) {
     return null
   }

@@ -5,6 +5,7 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import { resolveReplyLocale } from './bot-locale'
 import { buildTelegramHomeMenuReplyMarkup, TELEGRAM_HOME_HELP_CALLBACK } from './home-menu'
 import { getBotTranslations } from './i18n'
+import { ackCallbackQuery, registerCallbackQueryGuards } from './telegram-callback-guards'
 import { tryEditMessageText } from './telegram-message-edit'
 import { formatTelegramHelpText, type TelegramHelpOptions } from './telegram-commands'
 
@@ -59,6 +60,8 @@ export function createTelegramBot(
   capabilities: TelegramBotFeatureCapabilities = {}
 ): Bot {
   const bot = new Bot(token)
+  // Registered first so it wraps every callback handler added later.
+  registerCallbackQueryGuards({ bot, ...(logger ? { logger } : {}) })
   const helpCapabilities = {
     homeMenuAvailable: capabilities.homeMenuAvailable ?? true,
     miniAppAvailable: capabilities.miniAppAvailable ?? false,
@@ -99,6 +102,7 @@ export function createTelegramBot(
     )
   })
   bot.callbackQuery(TELEGRAM_HOME_HELP_CALLBACK, async (ctx) => {
+    await ackCallbackQuery(ctx, undefined, logger)
     const locale = await resolveReplyLocale({
       ctx,
       repository: householdConfigurationRepository
@@ -121,7 +125,6 @@ export function createTelegramBot(
     if (!(await tryEditMessageText(ctx, text, replyMarkup))) {
       await ctx.reply(text, replyMarkup)
     }
-    await ctx.answerCallbackQuery()
   })
   bot.catch((error) => {
     logger?.error(

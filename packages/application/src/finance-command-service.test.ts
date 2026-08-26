@@ -8,6 +8,7 @@ import type {
   FinanceMemberRecord,
   FinancePaymentPurchaseAllocationRecord,
   FinanceParsedPurchaseRecord,
+  FinanceRentRuleRangeRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
   HouseholdBillingSettingsRecord,
@@ -471,12 +472,35 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.rentRulesByPeriod.get(period) ?? this.rentRule
   }
 
+  // Ranges that reproduce this stub's lookup: a per-period rule wins over the fallback
+  // because the resolver picks the latest range that covers the period.
+  async listRentRuleRanges(): Promise<readonly FinanceRentRuleRangeRecord[]> {
+    const ranges = [...this.rentRulesByPeriod].map(([period, rule]) => ({
+      ...rule,
+      effectiveFromPeriod: period,
+      effectiveToPeriod: period
+    }))
+
+    return this.rentRule
+      ? [...ranges, { ...this.rentRule, effectiveFromPeriod: '0000-00', effectiveToPeriod: null }]
+      : ranges
+  }
+
   async getUtilityTotalForCycle(): Promise<bigint> {
     return this.utilityBills.reduce((sum, bill) => sum + bill.amountMinor, 0n)
   }
 
   async listUtilityBillsForCycle(cycleId: string) {
     return this.utilityBills.filter((bill) => !bill.cycleId || bill.cycleId === cycleId)
+  }
+
+  async listUtilityBillsForCycles(cycleIds: readonly string[]) {
+    return await Promise.all(
+      cycleIds.map(async (cycleId) => ({
+        cycleId,
+        bills: await this.listUtilityBillsForCycle(cycleId)
+      }))
+    )
   }
 
   async getActiveUtilityBillingPlan(cycleId: string) {
@@ -521,6 +545,13 @@ class FinanceRepositoryStub implements FinanceRepository {
         payload: plan.payload,
         createdAt: instantFromIso('2026-03-01T00:00:00.000Z')
       }))
+  }
+
+  async listUtilityBillingPlansForCycles(cycleIds: readonly string[]) {
+    const groups = await Promise.all(
+      cycleIds.map((cycleId) => this.listUtilityBillingPlansForCycle(cycleId))
+    )
+    return groups.flat()
   }
 
   async saveUtilityBillingPlan(input: Parameters<FinanceRepository['saveUtilityBillingPlan']>[0]) {
@@ -622,6 +653,11 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listUtilityVendorPaymentFactsForCycle(cycleId: string) {
     return this.utilityVendorPaymentFacts.filter((fact) => fact.cycleId === cycleId)
+  }
+
+  async listUtilityVendorPaymentFactsForCycles(cycleIds: readonly string[]) {
+    const ids = new Set(cycleIds)
+    return this.utilityVendorPaymentFacts.filter((fact) => ids.has(fact.cycleId))
   }
 
   async getUtilityVendorPaymentFact(factId: string) {
@@ -727,6 +763,11 @@ class FinanceRepositoryStub implements FinanceRepository {
 
   async listPaymentRecordsForCycle(cycleId: string) {
     return this.paymentRecords.filter((payment) => payment.cycleId === cycleId)
+  }
+
+  async listPaymentRecordsForCycles(cycleIds: readonly string[]) {
+    const ids = new Set(cycleIds)
+    return this.paymentRecords.filter((payment) => ids.has(payment.cycleId))
   }
 
   async listParsedPurchasesForRange(): Promise<readonly FinanceParsedPurchaseRecord[]> {
@@ -1318,6 +1359,101 @@ describe('createFinanceCommandService', () => {
       99000n,
       102000n
     ])
+  })
+
+  test('generateDashboard stops rewriting the snapshot when nothing changed', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.openCycleRecord = cycle
+    repository.latestCycleRecord = cycle
+    repository.cycles = [cycle]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.rentRule = { amountMinor: 100_000n, currency: 'GEL' }
+
+    const service = createService(repository)
+    await service.generateDashboard('2026-03')
+    const writesAfterFirstRead = repository.replaceSnapshotCalls
+    expect(writesAfterFirstRead).toBe(1)
+
+    // Reading the dashboard is not supposed to cost a write transaction every time.
+    await service.generateDashboard('2026-03')
+    expect(repository.replaceSnapshotCalls).toBe(writesAfterFirstRead)
+
+    // A real change still lands.
+    repository.paymentRecords = [
+      {
+        id: 'payment-1',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        memberId: 'alice',
+        kind: 'rent',
+        amountMinor: 40_000n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-03-20T10:00:00.000Z')
+      }
+    ]
+    await service.generateDashboard('2026-03')
+    expect(repository.replaceSnapshotCalls).toBe(writesAfterFirstRead + 1)
+  })
+
+  test('generateDashboard converts utility bills booked outside the cycle currency', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = {
+      id: 'cycle-2026-03',
+      period: '2026-03',
+      currency: 'GEL' as const
+    }
+    repository.openCycleRecord = cycle
+    repository.latestCycleRecord = cycle
+    repository.cycles = [cycle]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.utilityBills = [
+      {
+        id: 'utility-gel',
+        billName: 'Electricity',
+        amountMinor: 12000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-02T09:00:00.000Z')
+      },
+      {
+        id: 'utility-usd',
+        billName: 'Internet',
+        amountMinor: 1000n,
+        currency: 'USD',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-03T09:00:00.000Z')
+      }
+    ]
+
+    // A foreign-currency bill used to reach Money.add unconverted and throw
+    // CURRENCY_MISMATCH, which took down the dashboard and every button built on it.
+    const dashboard = await createService(repository).generateDashboard('2026-03')
+
+    const period = dashboard?.paymentPeriods?.find((summary) => summary.period === '2026-03')
+    expect(period?.utilityTotal.currency).toBe('GEL')
+    // 120.00 GEL + 10.00 USD at 2.70 = 147.00 GEL
+    expect(period?.utilityTotal.amountMinor).toBe(14700n)
   })
 
   test('generateDashboard prefers the open cycle over a later latest cycle', async () => {
@@ -6388,5 +6524,85 @@ describe('reverting utility payment state', () => {
     await service.ensureExpectedCycle()
 
     expect([...repository.closedCycleIds].sort()).toEqual(['cycle-old-1', 'cycle-old-2'])
+  })
+})
+
+describe('per-cycle read batching', () => {
+  function countingRepository(repository: FinanceRepositoryStub, counts: Map<string, number>) {
+    return new Proxy(repository, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver)
+        if (typeof value !== 'function' || typeof property !== 'string') {
+          return value
+        }
+
+        return (...args: unknown[]) => {
+          counts.set(property, (counts.get(property) ?? 0) + 1)
+          return (value as (...callArgs: unknown[]) => unknown).apply(target, args)
+        }
+      }
+    })
+  }
+
+  function seedCycles(cycleCount: number) {
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '1',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      },
+      {
+        id: 'bob',
+        telegramUserId: '2',
+        displayName: 'Bob',
+        rentShareWeight: 1,
+        isAdmin: false
+      }
+    ]
+    const cycles = Array.from({ length: cycleCount }, (_, index) => ({
+      id: `cycle-${index}`,
+      period: `2025-${String(index + 1).padStart(2, '0')}`,
+      currency: 'GEL' as const
+    }))
+    repository.cycles = cycles
+    repository.openCycleRecord = cycles[cycles.length - 1]!
+    repository.latestCycleRecord = cycles[cycles.length - 1]!
+    repository.cycleByPeriodRecord = cycles[cycles.length - 1]!
+    repository.rentRule = { amountMinor: 200000n, currency: 'GEL' }
+
+    return { repository, cycles }
+  }
+
+  async function countDashboardReads(cycleCount: number) {
+    const counts = new Map<string, number>()
+    const { repository } = seedCycles(cycleCount)
+    const service = createService(
+      countingRepository(repository, counts) as unknown as FinanceRepositoryStub
+    )
+    await service.generateDashboard()
+
+    return counts
+  }
+
+  test('a dashboard costs the same number of reads no matter how many cycles exist', async () => {
+    const [threeCycles, nineCycles] = await Promise.all([
+      countDashboardReads(3),
+      countDashboardReads(9)
+    ])
+
+    const total = (counts: Map<string, number>) =>
+      [...counts.values()].reduce((sum, value) => sum + value, 0)
+
+    expect(total(nineCycles)).toBe(total(threeCycles))
+    // The per-cycle reads are answered in batches, so the one-cycle-at-a-time entry
+    // points never reach the repository.
+    expect(nineCycles.get('listUtilityBillsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listPaymentRecordsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listUtilityBillingPlansForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('listUtilityVendorPaymentFactsForCycle') ?? 0).toBe(0)
+    expect(nineCycles.get('getRentRuleForPeriod') ?? 0).toBe(0)
   })
 })

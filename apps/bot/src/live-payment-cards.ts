@@ -1,4 +1,4 @@
-import type { FinanceCommandService } from '@household/application'
+import type { FinanceCommandService, FinanceDashboard } from '@household/application'
 import { nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
@@ -26,6 +26,9 @@ export interface LivePaymentCardService {
     householdId: string
     kind: TelegramPaymentCardKind
     period: string
+    // Callers that just mutated the period already hold a fresh dashboard. Reusing it
+    // saves a full rebuild — the single most expensive read in the bot.
+    dashboard?: FinanceDashboard
   }): Promise<void>
 }
 
@@ -53,8 +56,13 @@ export function createLivePaymentCardService(options: {
 
     async refresh(input) {
       const [dashboard, cards] = await Promise.all([
-        options.financeServiceForHousehold(input.householdId).generateDashboard(input.period),
-        options.repository.listPaymentCards(input)
+        input.dashboard ??
+          options.financeServiceForHousehold(input.householdId).generateDashboard(input.period),
+        options.repository.listPaymentCards({
+          householdId: input.householdId,
+          kind: input.kind,
+          period: input.period
+        })
       ])
       if (!dashboard) {
         return

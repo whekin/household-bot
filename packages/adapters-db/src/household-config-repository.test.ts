@@ -18,6 +18,7 @@ describe('createDbHouseholdConfigurationRepository', () => {
     }
 
     const { db, queryClient } = createDbClient(databaseUrl, {
+      dedicated: true,
       max: 1,
       prepare: false
     })
@@ -89,6 +90,7 @@ describe('createDbHouseholdConfigurationRepository', () => {
       expect(bindings).toHaveLength(2)
 
       const verificationClient = createDbClient(databaseUrl!, {
+        dedicated: true,
         max: 1,
         prepare: false
       })

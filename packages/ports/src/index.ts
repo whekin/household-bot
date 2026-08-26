@@ -105,6 +105,7 @@ export type {
   FinanceSettlementSnapshotLineRecord,
   FinanceMemberRecord,
   FinanceParsedPurchaseRecord,
+  FinanceRentRuleRangeRecord,
   FinanceRentRuleRecord,
   FinanceRepository,
   FinanceUtilityBillRecord,

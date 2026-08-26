@@ -34,6 +34,13 @@ export interface FinanceRentRuleRecord {
   currency: CurrencyCode
 }
 
+// The period range each rule covers, so a caller that needs the rule for many periods
+// can read the household's rules once and resolve the rest without another round trip.
+export interface FinanceRentRuleRangeRecord extends FinanceRentRuleRecord {
+  effectiveFromPeriod: string
+  effectiveToPeriod: string | null
+}
+
 export interface FinanceParsedPurchaseRecord {
   id: string
   cycleId: string | null
@@ -412,11 +419,18 @@ export interface FinanceRepository {
   deletePaymentRecord(paymentId: string): Promise<boolean>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>
   getRentRuleStartingAtPeriod(period: string): Promise<FinanceRentRuleRecord | null>
+  listRentRuleRanges(): Promise<readonly FinanceRentRuleRangeRecord[]>
   getUtilityTotalForCycle(cycleId: string): Promise<bigint>
   listUtilityBillsForCycle(cycleId: string): Promise<readonly FinanceUtilityBillRecord[]>
+  listUtilityBillsForCycles(
+    cycleIds: readonly string[]
+  ): Promise<readonly { cycleId: string; bills: readonly FinanceUtilityBillRecord[] }[]>
   getActiveUtilityBillingPlan(cycleId: string): Promise<FinanceUtilityBillingPlanRecord | null>
   listUtilityBillingPlansForCycle(
     cycleId: string
+  ): Promise<readonly FinanceUtilityBillingPlanRecord[]>
+  listUtilityBillingPlansForCycles(
+    cycleIds: readonly string[]
   ): Promise<readonly FinanceUtilityBillingPlanRecord[]>
   saveUtilityBillingPlan(input: {
     cycleId: string
@@ -446,6 +460,9 @@ export interface FinanceRepository {
   ): Promise<FinanceUtilityBillingPlanRecord | null>
   listUtilityVendorPaymentFactsForCycle(
     cycleId: string
+  ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
+  listUtilityVendorPaymentFactsForCycles(
+    cycleIds: readonly string[]
   ): Promise<readonly FinanceUtilityVendorPaymentFactRecord[]>
   getUtilityVendorPaymentFact(factId: string): Promise<FinanceUtilityVendorPaymentFactRecord | null>
   deleteUtilityVendorPaymentFact(factId: string): Promise<boolean>
@@ -501,6 +518,7 @@ export interface FinanceRepository {
     recordedAt: Instant
   }): Promise<FinanceUtilityReimbursementFactRecord>
   listPaymentRecordsForCycle(cycleId: string): Promise<readonly FinancePaymentRecord[]>
+  listPaymentRecordsForCycles(cycleIds: readonly string[]): Promise<readonly FinancePaymentRecord[]>
   listParsedPurchasesForRange(
     start: Instant,
     end: Instant

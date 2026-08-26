@@ -24,10 +24,7 @@ export function createDbAnonymousFeedbackRepository(
   repository: AnonymousFeedbackRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 5,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   const repository: AnonymousFeedbackRepository = {
     async getMemberByTelegramUserId(telegramUserId) {
@@ -167,7 +164,7 @@ export function createDbAnonymousFeedbackRepository(
   return {
     repository,
     close: async () => {
-      await queryClient.end({ timeout: 5 })
+      await closeDbClient()
     }
   }
 }

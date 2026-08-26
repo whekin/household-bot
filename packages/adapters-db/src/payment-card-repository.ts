@@ -12,10 +12,7 @@ export function createDbTelegramPaymentCardRepository(databaseUrl: string): {
   repository: TelegramPaymentCardRepository
   close: () => Promise<void>
 } {
-  const { db, queryClient } = createDbClient(databaseUrl, {
-    max: 3,
-    prepare: false
-  })
+  const { db, close: closeDbClient } = createDbClient(databaseUrl)
 
   return {
     repository: {
@@ -87,6 +84,6 @@ export function createDbTelegramPaymentCardRepository(databaseUrl: string): {
           )
       }
     },
-    close: () => queryClient.end()
+    close: () => closeDbClient()
   }
 }

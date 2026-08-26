@@ -24,9 +24,10 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL is required for db seed')
 }
 
-const { db, queryClient } = createDbClient(databaseUrl, {
-  max: 2,
-  prepare: false
+// A one-shot script owns its pool outright.
+const { db, close: closeDbClient } = createDbClient(databaseUrl, {
+  dedicated: true,
+  max: 2
 })
 
 const LEGACY_FIXTURE_HOUSEHOLD_IDS = ['11111111-1111-4111-8111-111111111111'] as const
@@ -344,5 +345,5 @@ try {
   await seed()
   console.log('Seed completed')
 } finally {
-  await queryClient.end({ timeout: 5 })
+  await closeDbClient()
 }
