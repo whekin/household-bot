@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import { AppHeader, TabBar, type TabId } from '@/components/layout'
 import { BlockedScreen, LoadingScreen, OnboardingScreen } from '@/components/session-states'
@@ -12,6 +12,10 @@ import { DashboardProvider } from './dashboard-context'
 import { miniAppQueryClient } from './query-client'
 import { SessionProvider, useSession } from './session-context'
 import { ThemeProvider } from './theme-context'
+
+const RoutinesView = lazy(() =>
+  import('@/features/routines/routines-view').then((module) => ({ default: module.RoutinesView }))
+)
 
 const TAB_HASHES: Record<TabId, string> = {
   home: '',
@@ -28,6 +32,12 @@ function tabFromHash(): TabId {
 }
 
 function AuthenticatedApp() {
+  const [routinesOpen, setRoutinesOpen] = useState(window.location.hash === '#routines')
+  useEffect(() => {
+    const open = () => setRoutinesOpen(true)
+    window.addEventListener('miniapp:routines', open)
+    return () => window.removeEventListener('miniapp:routines', open)
+  }, [])
   const [tab, setTab] = useState<TabId>(tabFromHash)
 
   useEffect(() => {
@@ -42,24 +52,35 @@ function AuthenticatedApp() {
   }, [])
 
   useEffect(() => {
-    const hash = TAB_HASHES[tab]
+    const hash = routinesOpen ? '#routines' : TAB_HASHES[tab]
     if (window.location.hash !== hash) {
       history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`)
     }
     window.scrollTo({ top: 0 })
-  }, [tab])
+  }, [tab, routinesOpen])
 
   return (
     <DashboardProvider>
       <div className="pb-[calc(84px+env(safe-area-inset-bottom))]">
         <AppHeader />
         <main className="mx-auto max-w-lg space-y-4 px-4 pt-4">
-          {tab === 'home' ? <HomeView /> : null}
-          {tab === 'activity' ? <ActivityView /> : null}
-          {tab === 'settings' ? <SettingsView /> : null}
+          {routinesOpen ? (
+            <Suspense fallback={<p role="status">…</p>}>
+              <RoutinesView onBack={() => setRoutinesOpen(false)} />
+            </Suspense>
+          ) : null}
+          {!routinesOpen && tab === 'home' ? <HomeView /> : null}
+          {!routinesOpen && tab === 'activity' ? <ActivityView /> : null}
+          {!routinesOpen && tab === 'settings' ? <SettingsView /> : null}
         </main>
       </div>
-      <TabBar tab={tab} onChange={setTab} />
+      <TabBar
+        tab={tab}
+        onChange={(next) => {
+          setRoutinesOpen(false)
+          setTab(next)
+        }}
+      />
     </DashboardProvider>
   )
 }

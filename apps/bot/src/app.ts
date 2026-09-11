@@ -1,3 +1,4 @@
+import { createRoutineRuntime } from './routine-runtime'
 import { webhookCallback } from 'grammy'
 
 import {
@@ -91,6 +92,7 @@ import { createAnonymousFeedbackServiceRegistry } from './runtime/anonymous-feed
 
 export interface BotRuntimeApp {
   readonly fetch: (request: Request) => Promise<Response>
+  readonly runRoutineTick: () => Promise<void>
   readonly shutdown: () => Promise<void>
   readonly runtime: BotRuntimeConfig
 }
@@ -170,6 +172,20 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         repository: householdConfigurationRepositoryClient.repository
       })
     : null
+  const routineRuntime =
+    repositoryClients.routines &&
+    householdConfigurationRepositoryClient &&
+    householdOnboardingService
+      ? createRoutineRuntime({
+          bot,
+          repository: repositoryClients.routines.repository,
+          households: householdConfigurationRepositoryClient.repository,
+          onboardingService: householdOnboardingService,
+          botToken: runtime.telegramBotToken,
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          report: (event, error) => logger.warn({ event, error }, 'Routine operation failed')
+        })
+      : null
   const scheduledDispatchRuntime = createScheduledDispatchRuntime({
     runtime,
     repository: scheduledDispatchRepositoryClient?.repository ?? null,
@@ -383,6 +399,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   if (householdConfigurationRepositoryClient) {
     registerHouseholdSetupCommands({
       bot,
+      ...(routineRuntime ? { routineBindButtons: routineRuntime.bindButtons } : {}),
       householdSetupService: createHouseholdSetupService(
         householdConfigurationRepositoryClient.repository,
         scheduledDispatchService ?? undefined
@@ -572,6 +589,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   }
 
   const server = createBotWebhookServer({
+    miniAppRoutines: routineRuntime?.handler,
     webhookPath: runtime.telegramWebhookPath,
     webhookSecret: runtime.telegramWebhookSecret,
     webhookHandler,
@@ -1024,6 +1042,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             }).authorize,
             handler: async (request, jobPath) => {
               if (jobPath === 'dispatch-due') {
+                await routineRuntime?.delivery.tick()
                 return scheduledDispatchHandler
                   ? scheduledDispatchHandler.handleDueDispatches(request)
                   : new Response('Not Found', { status: 404 })
@@ -1046,6 +1065,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               }).authorize,
               handler: async (request, jobPath) => {
                 if (jobPath === 'dispatch-due') {
+                  await routineRuntime?.delivery.tick()
                   return scheduledDispatchHandler
                     ? scheduledDispatchHandler.handleDueDispatches(request)
                     : new Response('Not Found', { status: 404 })
@@ -1078,6 +1098,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
 
     const tick = async () => {
       try {
+        await routineRuntime?.delivery.tick()
         await scheduledDispatchHandler.handleDueDispatches(
           new Request('http://internal/jobs/dispatch-due?limit=25')
         )
@@ -1110,6 +1131,24 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     )
   }
 
+  if (routineRuntime && !runtime.scheduledDispatch) {
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    const tick = async () => {
+      try {
+        await routineRuntime.delivery.tick()
+      } catch (error) {
+        logger.warn({ error }, 'Routine tick failed')
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), 30_000)
+    }
+    timer = setTimeout(() => void tick(), 1000)
+    shutdownTasks.push(async () => {
+      stopped = true
+      clearTimeout(timer)
+    })
+  }
+
   return {
     // One log line per request carrying its real query count and query time, so mini
     // app and webhook latency is attributable to the database rather than guessed at.
@@ -1136,6 +1175,9 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       return result
     },
     runtime,
+    runRoutineTick: async () => {
+      await routineRuntime?.delivery.tick()
+    },
     shutdown: async () => {
       await Promise.allSettled(shutdownTasks.map((close) => close()))
     }

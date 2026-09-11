@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing/routines": "./src/routine-test-fixtures.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

@@ -1,4 +1,5 @@
 import {
+  createDbRoutineRepository,
   createDbAdHocNotificationRepository,
   createDbAuditNotificationRepository,
   createDbHouseholdConfigurationRepository,
@@ -58,7 +59,12 @@ export function createBotRepositoryClients(
     ? instrumented('paymentCards', createDbTelegramPaymentCardRepository(runtime.databaseUrl))
     : null
 
+  const routines = runtime.databaseUrl
+    ? instrumented('routines', createDbRoutineRepository(runtime.databaseUrl))
+    : null
+
   const closeableClients = [
+    routines,
     householdConfiguration,
     scheduledDispatch,
     telegramPendingAction,
@@ -71,6 +77,7 @@ export function createBotRepositoryClients(
   ]
 
   return {
+    routines,
     householdConfiguration,
     scheduledDispatch,
     telegramPendingAction,

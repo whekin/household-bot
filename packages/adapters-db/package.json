@@ -16,5 +16,8 @@
     "@household/domain": "workspace:*",
     "@household/ports": "workspace:*",
     "drizzle-orm": "^0.45.1"
+  },
+  "devDependencies": {
+    "@household/application": "workspace:*"
   }
 }

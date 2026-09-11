@@ -1,3 +1,4 @@
+import { RoutinesEntry } from '@/features/routines/routines-entry'
 import { useMemo, useState } from 'react'
 
 import { closeMiniAppPaymentPeriod } from '@/api'
@@ -157,6 +158,7 @@ export function HomeView() {
 
   return (
     <div className="space-y-4">
+      <RoutinesEntry />
       <StageBanner
         model={model}
         currentMemberLine={currentMemberCloseLine}

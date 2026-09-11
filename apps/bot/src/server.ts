@@ -2,6 +2,7 @@ export interface BotWebhookServerOptions {
   webhookPath: string
   webhookSecret: string
   webhookHandler: (request: Request) => Promise<Response> | Response
+  miniAppRoutines?: { path?: string; handler: (request: Request) => Promise<Response> } | undefined
   miniAppAuth?:
     | {
         path?: string
@@ -362,6 +363,12 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
       if (url.pathname === '/healthz') {
         return json({ ok: true })
       }
+
+      if (
+        options.miniAppRoutines &&
+        url.pathname === (options.miniAppRoutines.path ?? '/api/miniapp/routines')
+      )
+        return options.miniAppRoutines.handler(request)
 
       if (options.miniAppAuth && url.pathname === miniAppAuthPath) {
         return await options.miniAppAuth.handler(request)

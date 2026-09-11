@@ -138,8 +138,9 @@ module "bot_api_service" {
 
   env = merge(
     {
-      NODE_ENV  = var.environment
-      DB_SCHEMA = var.db_schema
+      NODE_ENV                      = var.environment
+      DB_SCHEMA                     = var.db_schema
+      SCHEDULER_OIDC_ALLOWED_EMAILS = google_service_account.bot_runtime.email
     },
     var.bot_assistant_model == null ? {} : {
       ASSISTANT_MODEL = var.bot_assistant_model
@@ -275,4 +276,23 @@ resource "google_project_iam_member" "github_deployer_roles" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.github_deployer[0].email}"
+}
+
+# Keep household routine cards and reminders current independently of finance dispatches.
+resource "google_cloud_scheduler_job" "routine_tick" {
+  count    = var.scheduled_dispatch_public_base_url == null ? 0 : 1
+  project  = var.project_id
+  region   = var.region
+  name     = "${local.name_prefix}-routine-tick"
+  schedule = "* * * * *"
+
+  http_target {
+    http_method = "POST"
+    uri         = "${module.bot_api_service.uri}/jobs/dispatch-due"
+    oidc_token {
+      service_account_email = google_service_account.bot_runtime.email
+      audience              = module.bot_api_service.uri
+    }
+  }
+  depends_on = [google_project_service.enabled]
 }

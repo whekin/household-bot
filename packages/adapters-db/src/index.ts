@@ -8,3 +8,4 @@ export { createDbProcessedBotMessageRepository } from './processed-bot-message-r
 export { createDbScheduledDispatchRepository } from './scheduled-dispatch-repository'
 export { createDbTelegramPendingActionRepository } from './telegram-pending-action-repository'
 export { createDbTopicMessageHistoryRepository } from './topic-message-history-repository'
+export { createDbRoutineRepository } from './routine-repository'

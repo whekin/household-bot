@@ -78,3 +78,10 @@ export {
   type ParsedPaymentConfirmation
 } from './payment-confirmation-parser'
 export { buildMemberPaymentGuidance, type MemberPaymentGuidance } from './payment-guidance'
+export {
+  createRoutineService,
+  RoutineError,
+  materializeRoutineDay,
+  routineDate
+} from './routine-service'
+export type { RoutineService, RoutineActor } from './routine-service'

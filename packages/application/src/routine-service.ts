@@ -1,0 +1,251 @@
+import {
+  applyRoutineAction,
+  normalizeRoutine,
+  routineOccurrencesForDate,
+  Temporal,
+  type RoutineAction,
+  type RoutineDefinition,
+  type RoutineProgress
+} from '@household/domain'
+import type {
+  HouseholdMemberRecord,
+  RoutineDocument,
+  RoutineRepository,
+  RoutineRow
+} from '@household/ports'
+
+export class RoutineError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400
+  ) {
+    super(message)
+  }
+}
+export type RoutineActor = Pick<
+  HouseholdMemberRecord,
+  'id' | 'householdId' | 'displayName' | 'status' | 'isAdmin' | 'telegramUserId'
+>
+export function routineDate(doc: Pick<RoutineDocument, 'timezone'>, now: string): string {
+  return Temporal.Instant.from(now).toZonedDateTimeISO(doc.timezone).toPlainDate().toString()
+}
+export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
+  const date = routineDate(doc, now)
+  if (doc.nextDefinition && doc.nextDefinition.effectiveDate <= date) {
+    doc.definition = doc.nextDefinition.definition
+    doc.nextDefinition = null
+  }
+  if (!doc.days.some((day) => day.date === date)) {
+    const rows = routineOccurrencesForDate({
+      definition: doc.definition,
+      localDate: date,
+      timezone: doc.timezone
+    }).map((seed, index): RoutineRow => ({
+      id: `${date.replaceAll('-', '')}${index.toString(36)}`,
+      taskId: seed.taskId,
+      title: seed.title,
+      localTime: seed.localTime,
+      dueAt: seed.dueAt?.toString() ?? null,
+      reminderEnabled: seed.reminderEnabled,
+      claimEnabled: seed.claimEnabled,
+      reminderSuppressed: false,
+      version: 0,
+      status: 'pending',
+      actorId: null,
+      actorName: null,
+      actedAt: null,
+      expiresAt: null
+    }))
+    doc.days.push({ date, title: doc.definition.title, rows })
+  }
+  // Keep a month of history; old Telegram buttons are rejected before lookup.
+  const cutoff = Temporal.PlainDate.from(date).subtract({ days: 30 }).toString()
+  doc.days = doc.days.filter((day) => day.date >= cutoff)
+  doc.messages = doc.messages.filter((message) => message.date >= cutoff)
+  doc.actionIds = doc.actionIds.slice(-1000)
+}
+function progress(row: RoutineRow): RoutineProgress {
+  if (row.status === 'completed')
+    return {
+      status: 'completed',
+      memberId: row.actorId!,
+      completedAt: Temporal.Instant.from(row.actedAt!)
+    }
+  if (row.status === 'claimed')
+    return {
+      status: 'claimed',
+      memberId: row.actorId!,
+      claimedAt: Temporal.Instant.from(row.actedAt!),
+      expiresAt: Temporal.Instant.from(row.expiresAt!)
+    }
+  return { status: 'pending' }
+}
+export function createRoutineService(
+  repository: RoutineRepository,
+  clock = () => Temporal.Now.instant().toString()
+) {
+  function authorize(actor: RoutineActor, admin = false) {
+    if (actor.status !== 'active' || (admin && !actor.isAdmin))
+      throw new RoutineError('Недостаточно прав', 403)
+  }
+  return {
+    repository,
+    async list(actor: RoutineActor) {
+      authorize(actor)
+      const docs = await repository.list(actor.householdId)
+      return Promise.all(
+        docs.map((doc) =>
+          repository.change(doc.id, actor.householdId, (d) => materializeRoutineDay(d, clock()))
+        )
+      )
+    },
+    async save(
+      actor: RoutineActor,
+      input: {
+        id: string
+        expectedRevision: number
+        definition: RoutineDefinition
+        publishTime: string
+        timezone: string
+      }
+    ) {
+      authorize(actor, true)
+      if (!/^[a-f0-9]{16}$/.test(input.id))
+        throw new RoutineError('Некорректный идентификатор списка')
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.publishTime))
+        throw new RoutineError('Укажите время публикации')
+      let definition: RoutineDefinition
+      try {
+        definition = normalizeRoutine(input.definition)
+      } catch {
+        throw new RoutineError(
+          'Проверьте названия и расписание: до 20 отметок в день, время ЧЧ:ММ, без повторов'
+        )
+      }
+      const now = clock()
+      routineDate({ timezone: input.timezone }, now)
+      if (input.expectedRevision === 0) {
+        const existing = await repository.get(input.id)
+        if (existing) {
+          if (existing.householdId !== actor.householdId)
+            throw new RoutineError('Список недоступен', 404)
+          return existing
+        }
+        const doc: RoutineDocument = {
+          id: input.id,
+          householdId: actor.householdId,
+          revision: 1,
+          definition,
+          nextDefinition: null,
+          timezone: input.timezone,
+          publishTime: input.publishTime,
+          paused: false,
+          destination: null,
+          topicCreation: null,
+          subscriptions: {},
+          days: [],
+          messages: [],
+          actionIds: [],
+          lease: null,
+          createdAt: now,
+          resumedAt: now
+        }
+        materializeRoutineDay(doc, now)
+        return repository.create(doc)
+      }
+      return repository.change(input.id, actor.householdId, (doc) => {
+        if (doc.revision !== input.expectedRevision)
+          throw new RoutineError('Список уже изменён. Обновите данные; ваш черновик сохранён.', 409)
+        materializeRoutineDay(doc, now)
+        doc.nextDefinition = {
+          effectiveDate: Temporal.PlainDate.from(routineDate(doc, now)).add({ days: 1 }).toString(),
+          definition
+        }
+        doc.publishTime = input.publishTime
+        doc.revision += 1
+      })
+    },
+    async pause(actor: RoutineActor, id: string, paused: boolean, expectedRevision: number) {
+      authorize(actor, true)
+      return repository.change(id, actor.householdId, (doc) => {
+        if (doc.revision !== expectedRevision)
+          throw new RoutineError('Список уже изменён. Обновите данные.', 409)
+        doc.paused = paused
+        doc.resumedAt = clock()
+        doc.revision += 1
+      })
+    },
+    async subscribe(actor: RoutineActor, id: string, enabled: boolean) {
+      authorize(actor)
+      return repository.change(id, actor.householdId, (doc) => {
+        for (const message of enabled ? doc.messages : []) {
+          if (message.chatId === actor.telegramUserId && message.status === 'blocked') {
+            message.status = message.messageId === null ? 'sending' : 'sent'
+            message.error = null
+            message.retryAt = null
+          }
+        }
+        doc.subscriptions[actor.id] = {
+          telegramUserId: actor.telegramUserId,
+          enabled,
+          blocked: false
+        }
+      })
+    },
+    async act(
+      actor: RoutineActor,
+      input: {
+        id: string
+        rowId: string
+        version: number
+        action: RoutineAction
+        requestId: string
+      }
+    ) {
+      authorize(actor)
+      if (
+        !['claim', 'release', 'complete', 'reopen'].includes(input.action) ||
+        !input.requestId ||
+        input.requestId.length > 160
+      )
+        throw new RoutineError('Некорректное действие')
+      return repository.change(input.id, actor.householdId, (doc) => {
+        const requestKey = `${actor.id}:${input.requestId}`
+        if (doc.actionIds.includes(requestKey)) return
+        const now = clock()
+        materializeRoutineDay(doc, now)
+        const day = doc.days.find((d) => d.date === routineDate(doc, now))!
+        const row = day.rows.find((r) => r.id === input.rowId)
+        if (!row) throw new RoutineError('Эта карточка устарела. Откройте дела на сегодня.', 409)
+        if (doc.paused) throw new RoutineError('Список на паузе', 409)
+        const result = applyRoutineAction({
+          state: { version: row.version, progress: progress(row) },
+          expectedVersion: input.version,
+          action: input.action,
+          memberId: actor.id,
+          claimEnabled: row.claimEnabled,
+          now: Temporal.Instant.from(now)
+        })
+        if (result.status === 'conflict')
+          throw new RoutineError('Уже отмечено другим участником. Карточка обновляется.', 409)
+        if (result.status === 'claimed_by_other')
+          throw new RoutineError('Этим уже занимается другой участник', 409)
+        if (result.status === 'claim_disabled')
+          throw new RoutineError('Для этого дела взятие выключено')
+        if (result.status === 'changed') {
+          if (input.action === 'reopen' && row.dueAt && Date.parse(row.dueAt) <= Date.parse(now))
+            row.reminderSuppressed = true
+          row.version = result.state.version
+          const next = result.state.progress
+          row.status = next.status
+          row.actorId = next.status === 'pending' ? null : actor.id
+          row.actorName = next.status === 'pending' ? null : actor.displayName
+          row.actedAt = next.status === 'pending' ? null : now
+          row.expiresAt = next.status === 'claimed' ? next.expiresAt.toString() : null
+        }
+        doc.actionIds.push(requestKey)
+      })
+    }
+  }
+}
+export type RoutineService = ReturnType<typeof createRoutineService>

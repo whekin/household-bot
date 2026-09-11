@@ -127,3 +127,11 @@ export type {
   TopicMessageHistoryRecord,
   TopicMessageHistoryRepository
 } from './topic-message-history'
+export type {
+  RoutineRow,
+  RoutineDay,
+  RoutineDestination,
+  RoutineMessage,
+  RoutineDocument,
+  RoutineRepository
+} from './routines'

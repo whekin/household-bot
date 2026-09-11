@@ -274,3 +274,15 @@ export const secretIds = {
   schedulerSharedSecret: secrets.schedulerSharedSecret.id,
   openaiApiKey: secrets.openaiApiKey.id
 }
+
+// Recurring routines must wake even when there are no finance one-shot dispatches.
+new aws.scheduler.Schedule(`${appName}-${environment}-routine-tick`, {
+  groupName: schedulerGroup.name,
+  scheduleExpression: 'rate(1 minute)',
+  flexibleTimeWindow: { mode: 'OFF' },
+  target: {
+    arn: lambda.arn,
+    roleArn: schedulerInvokeRole.arn,
+    input: JSON.stringify({ source: 'household.routine-tick' })
+  }
+})

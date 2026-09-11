@@ -1096,3 +1096,18 @@ export type PaymentPurchaseAllocation = typeof paymentPurchaseAllocations.$infer
 export type HouseholdNotificationSettings = typeof householdNotificationSettings.$inferSelect
 export type HouseholdAuditEvent = typeof householdAuditEvents.$inferSelect
 export type Settlement = typeof settlements.$inferSelect
+
+// A household routine is a small aggregate. Locking one row atomically persists
+// configuration, occurrence versions, deduplication and durable delivery intents.
+export const householdRoutines = pgTable(
+  'household_routines',
+  {
+    id: text('id').primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    document: jsonb('document').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({ householdIdx: index('household_routines_household_idx').on(table.householdId) })
+)

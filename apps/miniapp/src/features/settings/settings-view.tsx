@@ -1,3 +1,4 @@
+import { RoutinesEntry } from '@/features/routines/routines-entry'
 import {
   CalendarRange,
   ChevronRight,
@@ -192,6 +193,7 @@ export function SettingsView() {
       </div>
 
       <ProfileCard />
+      <RoutinesEntry />
 
       {effectiveIsAdmin ? <AdminArea /> : null}
 

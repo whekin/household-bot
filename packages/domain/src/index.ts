@@ -40,3 +40,23 @@ export type {
   PurchaseSplitMode,
   UtilitySplitMode
 } from './settlement-primitives'
+export {
+  ROUTINE_CLAIM_MINUTES,
+  ROUTINE_DAILY_OCCURRENCE_LIMIT,
+  normalizeRoutine,
+  routineOccurrencesForDate,
+  effectiveRoutineProgress,
+  applyRoutineAction,
+  pickRoutineFocus
+} from './routines'
+export type {
+  RoutineFocus,
+  RoutineFocusCandidate,
+  RoutineTask,
+  RoutineDefinition,
+  RoutineOccurrenceSeed,
+  RoutineProgress,
+  RoutineOccurrenceState,
+  RoutineAction,
+  RoutineActionResult
+} from './routines'

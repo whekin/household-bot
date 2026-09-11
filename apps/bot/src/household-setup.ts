@@ -482,6 +482,10 @@ function telegramHomeReply(input: {
       }
     ]
   ]
+  if (input.isPrivate)
+    rows.push([
+      { text: input.locale === 'ru' ? '☑️ Дела' : '☑️ Routines', callback_data: 'home:routines' }
+    ])
   const webAppUrl = input.isPrivate
     ? buildOpenMiniAppUrl(input.miniAppUrl, input.botUsername)
     : null
@@ -565,6 +569,10 @@ async function replyWithTelegramHome(input: {
 }
 
 export function registerHouseholdSetupCommands(options: {
+  routineBindButtons?: (
+    householdId: string,
+    threadId: number
+  ) => Promise<import('grammy/types').InlineKeyboardButton[][]>
   bot: Bot
   householdSetupService: HouseholdSetupService
   householdOnboardingService: HouseholdOnboardingService
@@ -1075,7 +1083,10 @@ export function registerHouseholdSetupCommands(options: {
     const configuredRoles = new Set(bindings.map((b) => b.role))
     const availableRoles = HOUSEHOLD_TOPIC_ROLE_ORDER.filter((role) => !configuredRoles.has(role))
 
-    if (availableRoles.length === 0) {
+    const routineRows =
+      (await options.routineBindButtons?.(household.householdId, ctx.message.message_thread_id)) ??
+      []
+    if (availableRoles.length === 0 && routineRows.length === 0) {
       await ctx.reply(t.setup.allRolesConfigured)
       return
     }
@@ -1089,7 +1100,7 @@ export function registerHouseholdSetupCommands(options: {
 
     await ctx.reply(t.setup.bindSelectRole, {
       reply_markup: {
-        inline_keyboard: rows
+        inline_keyboard: [...rows, ...routineRows]
       }
     })
   })

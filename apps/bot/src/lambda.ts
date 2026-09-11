@@ -56,14 +56,22 @@ async function handleScheduledDispatchEvent(
 }
 
 export async function handler(
-  event: LambdaFunctionUrlRequest | ScheduledDispatchLambdaEvent
+  event:
+    | LambdaFunctionUrlRequest
+    | ScheduledDispatchLambdaEvent
+    | { source: 'household.routine-tick' }
 ): Promise<LambdaFunctionUrlResponse> {
+  if ('source' in event && event.source === 'household.routine-tick') {
+    const app = await appPromise
+    await app.runRoutineTick()
+    return { statusCode: 200, body: '{"ok":true}' }
+  }
   if (isScheduledDispatchLambdaEvent(event)) {
     return handleScheduledDispatchEvent(event)
   }
 
   const app = await appPromise
-  return handleLambdaFunctionUrlEvent(event, app.fetch)
+  return handleLambdaFunctionUrlEvent(event as LambdaFunctionUrlRequest, app.fetch)
 }
 
 async function postRuntimeResponse(

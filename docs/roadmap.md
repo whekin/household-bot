@@ -145,6 +145,16 @@ Exit criteria:
 - Incident/debug workflow is documented.
 - Repo can be reviewed as a coherent system design case study.
 
+## Shared routines — in progress
+
+Spec: [HOUSEBOT-093](specs/HOUSEBOT-093-shared-routines.md).
+
+- Configurable household tasks, daily Telegram cards and optional reminders.
+- Shared completion/claim state across group and private chat.
+- Mini-app configuration and per-member notification subscriptions.
+- Current checkpoint: domain, persistence, Telegram delivery, scheduler and mini-app UI
+  implemented; validated locally, production rollout pending.
+
 ## Deferred (Post-v1)
 
 - House wiki pages (Wi-Fi, rules, how-to).

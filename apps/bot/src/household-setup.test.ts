@@ -657,11 +657,14 @@ describe('registerHouseholdSetupCommands', () => {
       { text: '🛒 Balances', callback_data: 'home:balances' },
       { text: '🔎 Full bill', callback_data: 'home:my_bill_full' }
     ])
-    expect(payload?.reply_markup?.inline_keyboard?.[2]?.[0]).toEqual({
+    expect(payload?.reply_markup?.inline_keyboard?.[2]).toEqual([
+      { text: '☑️ Routines', callback_data: 'home:routines' }
+    ])
+    expect(payload?.reply_markup?.inline_keyboard?.[3]?.[0]).toEqual({
       text: '📱 Mini app',
       web_app: { url: 'https://miniapp.example.app/?bot=household_test_bot' }
     })
-    expect(payload?.reply_markup?.inline_keyboard?.[3]).toEqual([
+    expect(payload?.reply_markup?.inline_keyboard?.[4]).toEqual([
       { text: '❔ Help', callback_data: 'home:help' }
     ])
   })
