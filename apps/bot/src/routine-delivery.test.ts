@@ -356,3 +356,35 @@ test('a deleted daily card can be recreated by explicitly opening it again', asy
   await f.delivery.requestCard(f.doc.id, routineActor.householdId, '100')
   expect(f.calls.filter((c) => c.method === 'send')).toHaveLength(2)
 })
+
+test('a night window keeps yesterday card actionable and sends only one reminder inside its window', async () => {
+  const f = await fixture()
+  const doc = await f.service.save(routineActor, {
+    ...routineInput,
+    id: 'aabbccddeeff0022',
+    definition: {
+      ...routineInput.definition,
+      dayStart: '04:00',
+      tasks: [
+        { ...routineInput.definition.tasks[0]!, times: ['00:00-02:00'], reminderEnabled: true }
+      ]
+    }
+  })
+  await f.delivery.bind(doc.id, routineActor.householdId, {
+    chatId: '-1001',
+    threadId: 136,
+    name: 'Ночь'
+  })
+  f.setNow('2026-09-10T20:30:00Z') // 00:30 next calendar day, still routine day September 10
+  await f.delivery.tick()
+  const live = (await f.repository.get(doc.id))!
+  expect(live.days.map((day) => day.date)).toEqual(['2026-09-10'])
+  expect(
+    renderRoutineCard(live, live.days[0]!, '2026-09-10T20:30:00Z').reply_markup.inline_keyboard
+      .length
+  ).toBeGreaterThan(0)
+  expect(f.calls.filter((call) => call.method === 'send')).toHaveLength(2)
+  f.setNow('2026-09-10T21:00:00Z')
+  await f.delivery.tick()
+  expect(f.calls.filter((call) => call.method === 'send')).toHaveLength(2)
+})

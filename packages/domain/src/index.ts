@@ -60,3 +60,11 @@ export type {
   RoutineAction,
   RoutineActionResult
 } from './routines'
+
+export {
+  parseRoutineTime,
+  routineDayDate,
+  routineTimeInstant,
+  pickRoutineQuickTarget
+} from './routines'
+export type { RoutineQuickAction } from './routines'

@@ -5,7 +5,11 @@ import {
   type HouseholdOnboardingService,
   type RoutineActor
 } from '@household/application'
-import type { RoutineDefinition, RoutineAction } from '@household/domain'
+import {
+  pickRoutineQuickTarget,
+  type RoutineDefinition,
+  type RoutineAction
+} from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   RoutineDocument,
@@ -23,6 +27,7 @@ import { createRoutineDelivery } from './routine-delivery'
 import { parseRoutineTopicLink } from './routine-topic-link'
 
 export function routineClientView(doc: RoutineDocument, actor: RoutineActor) {
+  const now = new Date().toISOString()
   return {
     id: doc.id,
     revision: doc.revision,
@@ -33,12 +38,14 @@ export function routineClientView(doc: RoutineDocument, actor: RoutineActor) {
     timezone: doc.timezone,
     destination: doc.destination,
     day: (() => {
-      const day = doc.days.find((day) => day.date === routineDate(doc, new Date().toISOString()))
+      const day = doc.days.find((day) => day.date === routineDate(doc, now))
       return day
         ? {
             ...day,
             rows: day.rows.map((row) =>
-              row.status === 'claimed' && row.expiresAt && Date.parse(row.expiresAt) <= Date.now()
+              row.status === 'claimed' &&
+              row.expiresAt &&
+              Date.parse(row.expiresAt) <= Date.parse(now)
                 ? {
                     ...row,
                     status: 'pending' as const,
@@ -57,14 +64,14 @@ export function routineClientView(doc: RoutineDocument, actor: RoutineActor) {
       const message = doc.messages.find(
         (m) =>
           m.rowId === null &&
-          m.date === routineDate(doc, new Date().toISOString()) &&
+          m.date === routineDate(doc, now) &&
           m.chatId === doc.destination!.chatId &&
           m.threadId === doc.destination!.threadId
       )
       return message?.status === 'sent'
         ? 'ready'
         : message?.status === 'unknown'
-          ? doc.lease && Date.parse(doc.lease.until) > Date.now()
+          ? doc.lease && Date.parse(doc.lease.until) > Date.parse(now)
             ? 'pending'
             : 'unknown'
           : message?.status === 'blocked' || message?.status === 'removed'
@@ -75,11 +82,40 @@ export function routineClientView(doc: RoutineDocument, actor: RoutineActor) {
       doc.messages.some(
         (m) =>
           m.rowId === null &&
-          m.date === routineDate(doc, new Date().toISOString()) &&
+          m.date === routineDate(doc, now) &&
           m.chatId === actor.telegramUserId &&
           m.status === 'unknown'
       ) &&
-      (!doc.lease || Date.parse(doc.lease.until) <= Date.now()),
+      (!doc.lease || Date.parse(doc.lease.until) <= Date.parse(now)),
+    quickTargets: (
+      doc.days.find((day) => day.date === routineDate(doc, now))?.quickActions ?? []
+    ).flatMap((action) => {
+      const day = doc.days.find((day) => day.date === routineDate(doc, now))!
+      const target = pickRoutineQuickTarget(day.rows, action.id, now)
+      return target
+        ? [
+            {
+              ...action,
+              rowId: target.id,
+              version: target.version,
+              completed: target.status === 'completed'
+            }
+          ]
+        : []
+    }),
+    lastActions: (
+      doc.days.find((day) => day.date === routineDate(doc, now))?.quickActions ?? []
+    ).map((action) => {
+      const last = doc.days
+        .flatMap((day) => day.rows)
+        .filter((row) => row.activityId === action.id && row.status === 'completed' && row.actedAt)
+        .sort((a, b) => Date.parse(b.actedAt!) - Date.parse(a.actedAt!))[0]
+      return {
+        label: action.summaryLabel,
+        at: last?.actedAt ?? null,
+        actorName: last?.actorName ?? null
+      }
+    }),
     subscribed: doc.subscriptions[actor.id]?.enabled ?? false,
     dmBlocked: doc.subscriptions[actor.id]?.blocked ?? false,
     errors: [
@@ -349,48 +385,62 @@ export function createRoutineRuntime(options: {
         .catch(() => {})
     }
   })
-  bot.callbackQuery(/^rt:([a-f0-9]{16}):(\d{8}[a-z0-9]+):([a-z0-9]+):([ducr])$/, async (ctx) => {
-    const id = ctx.match[1]!
-    try {
-      const doc = await repository.get(id)
-      if (!doc) throw new RoutineError('Список не найден')
-      const actor = await actorFor(doc.householdId, String(ctx.from!.id))
-      const source = doc.messages.find(
-        (m) =>
-          m.chatId === String(ctx.chat?.id) &&
-          m.messageId === ctx.msg?.message_id &&
-          m.status === 'sent'
-      )
-      if (
-        !source ||
-        (source.threadId !== null &&
-          (doc.destination?.chatId !== source.chatId ||
-            doc.destination.threadId !== source.threadId))
-      )
-        throw new RoutineError('Эта карточка больше не активна', 409)
-      await service.act(actor, {
-        id,
-        rowId: ctx.match[2]!,
-        version: parseInt(ctx.match[3]!, 36),
-        action: ({ d: 'complete', u: 'reopen', c: 'claim', r: 'release' } as const)[
-          ctx.match[4] as 'd' | 'u' | 'c' | 'r'
-        ],
-        requestId: ctx.callbackQuery.id
-      })
-      await ctx.answerCallbackQuery({ text: 'Сохранено' })
-    } catch (error) {
-      await ctx
-        .answerCallbackQuery({
-          text:
-            error instanceof RoutineError
-              ? error.message
-              : 'Не удалось сохранить. Попробуйте ещё раз.',
-          show_alert: true
+  bot.callbackQuery(
+    /^rtq?:([a-f0-9]{16}):(\d{8}[a-z0-9]+):([a-z0-9]+):([A-Za-z0-9_-]{1,12})$/,
+    async (ctx) => {
+      const id = ctx.match[1]!
+      try {
+        const doc = await repository.get(id)
+        if (!doc) throw new RoutineError('Список не найден')
+        const actor = await actorFor(doc.householdId, String(ctx.from!.id))
+        const source = doc.messages.find(
+          (m) =>
+            m.chatId === String(ctx.chat?.id) &&
+            m.messageId === ctx.msg?.message_id &&
+            m.status === 'sent'
+        )
+        if (
+          !source ||
+          (source.threadId !== null &&
+            (doc.destination?.chatId !== source.chatId ||
+              doc.destination.threadId !== source.threadId))
+        )
+          throw new RoutineError('Эта карточка больше не активна', 409)
+        await service.act(actor, {
+          id,
+          rowId: ctx.match[2]!,
+          version: parseInt(ctx.match[3]!, 36),
+          ...(ctx.callbackQuery.data.startsWith('rtq:') ? { activityId: ctx.match[4]! } : {}),
+          action: ctx.callbackQuery.data.startsWith('rtq:')
+            ? 'complete'
+            : ({ d: 'complete', u: 'reopen', c: 'claim', r: 'release' } as const)[
+                ctx.match[4] as 'd' | 'u' | 'c' | 'r'
+              ],
+          requestId: ctx.callbackQuery.id
         })
-        .catch(() => {})
+        await ctx.answerCallbackQuery({
+          text:
+            ctx.callbackQuery.data.startsWith('rtq:') &&
+            doc.days
+              .flatMap((day) => day.rows)
+              .some((row) => row.id === ctx.match[2] && row.status === 'completed')
+              ? 'Уже отмечено — повтор не добавлен'
+              : 'Сохранено'
+        })
+      } catch (error) {
+        await ctx
+          .answerCallbackQuery({
+            text:
+              error instanceof RoutineError
+                ? error.message
+                : 'Не удалось сохранить. Попробуйте ещё раз.',
+            show_alert: true
+          })
+          .catch(() => {})
+      }
+      await refresh(id)
     }
-    await refresh(id)
-  })
+  )
   bot.callbackQuery(/^rtx:([a-f0-9]{16})$/, async (ctx) => {
     const id = ctx.match[1]!
     try {
@@ -494,6 +544,7 @@ export function createRoutineRuntime(options: {
             rowId?: string
             version?: number
             action?: RoutineAction
+            activityId?: string
             requestId?: string
             mode?: string
             link?: string
@@ -532,12 +583,16 @@ export function createRoutineRuntime(options: {
                 throw new RoutineError('Укажите настройку уведомлений')
               await service.subscribe(actor, id!, body.enabled)
               break
+            case 'quick_complete':
             case 'act':
               await service.act(actor, {
                 id: id!,
                 rowId: body.rowId!,
                 version: body.version!,
-                action: body.action!,
+                action: body.operation === 'quick_complete' ? 'complete' : body.action!,
+                ...(body.operation === 'quick_complete'
+                  ? { activityId: body.activityId ?? 'invalid' }
+                  : {}),
                 requestId: body.requestId!
               })
               break

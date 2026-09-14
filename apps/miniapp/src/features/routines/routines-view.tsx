@@ -108,6 +108,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
     }
     try {
       if (session.mode === 'demo') {
+        const { createDemoDay, refreshDemoActions } = await import('./routine-demo')
         const next = structuredClone(dataRef.current ?? demoData())
         const doc = next.routines.find((r) => r.id === body.id)
         if (body.operation === 'save') {
@@ -123,27 +124,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
               definition,
               destination: null,
               groupStatus: 'none',
-              day: {
-                date: new Date().toISOString().slice(0, 10),
-                title: definition.title,
-                rows: definition.tasks.flatMap((task) =>
-                  (task.times.length ? task.times : [null]).map((time, index) => ({
-                    id: `demo-${task.id}-${index}`,
-                    taskId: task.id,
-                    title: task.title,
-                    localTime: time,
-                    dueAt: null,
-                    reminderEnabled: task.reminderEnabled,
-                    claimEnabled: task.claimEnabled,
-                    version: 0,
-                    status: 'pending' as const,
-                    actorId: null,
-                    actorName: null,
-                    actedAt: null,
-                    expiresAt: null
-                  }))
-                )
-              }
+              day: createDemoDay(definition)
             })
         }
         if (doc && body.operation === 'pause') {
@@ -151,16 +132,18 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
           doc.revision++
         }
         if (doc && body.operation === 'subscribe') doc.subscribed = Boolean(body.enabled)
-        if (doc && body.operation === 'act') {
+        if (doc && (body.operation === 'act' || body.operation === 'quick_complete')) {
           const row = doc.day?.rows.find((r) => r.id === body.rowId)
-          if (row) {
+          if (row && !(body.operation === 'quick_complete' && row.status === 'completed')) {
             row.status =
-              body.action === 'complete'
+              body.operation === 'quick_complete' || body.action === 'complete'
                 ? 'completed'
                 : body.action === 'claim'
                   ? 'claimed'
                   : 'pending'
             row.actorName = session.member.displayName
+            row.actorId = session.member.id
+            row.actedAt = new Date().toISOString()
             row.version++
           }
         }
@@ -171,6 +154,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
               : { chatId: '-1001', threadId: 136, name: String(body.name || 'Топик по ссылке') }
           doc.revision++
         }
+        next.routines.forEach(refreshDemoActions)
         store(next)
       } else {
         const { response, payload } = await postMiniApp<RoutinesResponse>('/api/miniapp/routines', {
@@ -511,6 +495,49 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                 </p>
               )}
             </div>
+            {routine.lastActions?.length || routine.quickTargets?.length ? (
+              <div className="space-y-3 px-4 pb-4">
+                {routine.lastActions?.map((last) => (
+                  <p className="text-sm text-muted-foreground" key={last.label}>
+                    {last.label}:{' '}
+                    {last.at
+                      ? `${new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: routine.timezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(last.at))}, ${last.actorName ?? ''}`
+                      : t('пока нет отметок', 'nothing recorded yet')}
+                  </p>
+                ))}
+                {routine.quickTargets?.map((target) => (
+                  <Button
+                    key={target.id}
+                    className="min-h-11 w-full"
+                    variant="primary"
+                    disabled={busy || routine.paused}
+                    onClick={async () => {
+                      if (
+                        await request({
+                          operation: 'quick_complete',
+                          id: routine.id,
+                          activityId: target.id,
+                          rowId: target.rowId,
+                          version: target.version,
+                          requestId: crypto.randomUUID()
+                        })
+                      )
+                        setNotice(
+                          target.completed
+                            ? t(
+                                'Уже отмечено — повтор не добавлен',
+                                'Already recorded — no duplicate added'
+                              )
+                            : t('Выполнение записано', 'Completion recorded')
+                        )
+                    }}
+                  >
+                    {target.completed ? '✓ ' : ''}
+                    {target.label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
             <div className="divide-y divide-border border-y border-border">
               {routine.day?.rows.map((row) => (
                 <div key={row.id} className="px-4 py-1">
@@ -541,8 +568,11 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                       >
                         {row.title}
                       </span>
+                      {row.note && (
+                        <span className="mt-1 block text-xs text-muted-foreground">{row.note}</span>
+                      )}
                       <span className="mt-0.5 block text-xs text-faint">
-                        {row.localTime ?? t('В течение дня', 'Any time')}
+                        {row.localTime?.replace('-', '–') ?? t('В течение дня', 'Any time')}
                         {row.actorName && row.status !== 'pending'
                           ? ` · ${row.actorName}${row.status === 'claimed' ? t(' занимается', ' is handling it') : ''}`
                           : ''}

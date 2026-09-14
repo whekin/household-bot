@@ -1,5 +1,5 @@
 import { materializeRoutineDay, routineDate, RoutineError } from '@household/application'
-import { Temporal } from '@household/domain'
+import { routineTimeInstant, Temporal } from '@household/domain'
 import type {
   HouseholdConfigurationRepository,
   RoutineDestination,
@@ -98,10 +98,6 @@ export function createRoutineDelivery(options: {
       await change((doc) => {
         const now = clock()
         const date = routineDate(doc, now)
-        const localTime = Temporal.Instant.from(now)
-          .toZonedDateTimeISO(doc.timezone)
-          .toPlainTime()
-          .toString({ smallestUnit: 'minute' })
         const targets: Array<{ chatId: string; threadId: number | null }> = []
         if (!doc.paused && doc.destination) targets.push(doc.destination)
         for (const sub of Object.values(doc.subscriptions))
@@ -124,17 +120,24 @@ export function createRoutineDelivery(options: {
             })
         }
         for (const target of targets) {
-          if (day.rows.length > 0 && localTime >= doc.publishTime) add(target, null)
+          if (
+            day.rows.length > 0 &&
+            Temporal.Instant.compare(
+              Temporal.Instant.from(now),
+              routineTimeInstant(date, doc.publishTime, doc.timezone, day.dayStart ?? '00:00')
+            ) >= 0
+          )
+            add(target, null)
           for (const row of day.rows)
             if (
               !row.reminderSuppressed &&
               row.reminderEnabled &&
               row.dueAt &&
               row.status !== 'completed' &&
-              Date.parse(row.dueAt) >= Date.parse(doc.resumedAt) &&
+              Date.parse(row.windowEndsAt ?? row.dueAt) >= Date.parse(doc.resumedAt) &&
               Date.parse(row.dueAt) <= Date.parse(now) &&
               Temporal.Instant.from(now).epochMilliseconds -
-                Temporal.Instant.from(row.dueAt).epochMilliseconds <=
+                Temporal.Instant.from(row.windowEndsAt ?? row.dueAt).epochMilliseconds <=
                 15 * 60_000
             ) {
               add(target, null)
@@ -171,7 +174,7 @@ export function createRoutineDelivery(options: {
             (!group && !subscribed) ||
             (message.messageId === null &&
               row?.dueAt &&
-              Date.parse(clock()) - Date.parse(row.dueAt) > 15 * 60_000))
+              Date.parse(clock()) - Date.parse(row.windowEndsAt ?? row.dueAt) > 15 * 60_000))
         )
         const content = renderRoutineCard(doc, day, clock(), row, message.expanded ?? false)
         if (retired || clean) content.reply_markup = { inline_keyboard: [] }

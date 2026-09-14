@@ -1,5 +1,8 @@
 import {
   applyRoutineAction,
+  routineDayDate,
+  routineTimeInstant,
+  pickRoutineQuickTarget,
   normalizeRoutine,
   routineOccurrencesForDate,
   Temporal,
@@ -26,14 +29,49 @@ export type RoutineActor = Pick<
   HouseholdMemberRecord,
   'id' | 'householdId' | 'displayName' | 'status' | 'isAdmin' | 'telegramUserId'
 >
-export function routineDate(doc: Pick<RoutineDocument, 'timezone'>, now: string): string {
-  return Temporal.Instant.from(now).toZonedDateTimeISO(doc.timezone).toPlainDate().toString()
+export function routineDate(
+  doc: Pick<RoutineDocument, 'timezone'> &
+    Partial<Pick<RoutineDocument, 'definition' | 'nextDefinition' | 'activeDayExtension'>>,
+  now: string
+): string {
+  if (doc.activeDayExtension && Date.parse(now) < Date.parse(doc.activeDayExtension.until))
+    return doc.activeDayExtension.date
+  const current = routineDayDate(doc.timezone, doc.definition?.dayStart ?? '00:00', now)
+  const pending = doc.nextDefinition
+  if (!pending) return current
+  const nextDate = routineDayDate(doc.timezone, pending.definition.dayStart ?? '00:00', now)
+  if (nextDate >= pending.effectiveDate) return nextDate
+  // When moving midnight later, keep the previous card open until the new boundary.
+  return current >= pending.effectiveDate
+    ? Temporal.PlainDate.from(pending.effectiveDate).subtract({ days: 1 }).toString()
+    : current
 }
 export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
-  const date = routineDate(doc, now)
-  if (doc.nextDefinition && doc.nextDefinition.effectiveDate <= date) {
+  if (doc.activeDayExtension && Date.parse(now) >= Date.parse(doc.activeDayExtension.until))
+    delete doc.activeDayExtension
+  if (
+    doc.nextDefinition &&
+    routineDayDate(doc.timezone, doc.nextDefinition.definition.dayStart ?? '00:00', now) >=
+      doc.nextDefinition.effectiveDate
+  ) {
     doc.definition = doc.nextDefinition.definition
     doc.nextDefinition = null
+  }
+  const date = routineDate(doc, now)
+  // Freeze only an extension already being observed, not a future proposed change.
+  if (
+    !doc.activeDayExtension &&
+    doc.nextDefinition &&
+    routineDayDate(doc.timezone, doc.definition.dayStart ?? '00:00', now) > date
+  ) {
+    doc.activeDayExtension = {
+      date,
+      until: routineTimeInstant(
+        doc.nextDefinition.effectiveDate,
+        doc.nextDefinition.definition.dayStart ?? '00:00',
+        doc.timezone
+      ).toString()
+    }
   }
   if (!doc.days.some((day) => day.date === date)) {
     const rows = routineOccurrencesForDate({
@@ -46,6 +84,9 @@ export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
       title: seed.title,
       localTime: seed.localTime,
       dueAt: seed.dueAt?.toString() ?? null,
+      windowEndsAt: seed.windowEndsAt?.toString() ?? null,
+      ...(seed.note ? { note: seed.note } : {}),
+      ...(seed.activityId ? { activityId: seed.activityId } : {}),
       reminderEnabled: seed.reminderEnabled,
       claimEnabled: seed.claimEnabled,
       reminderSuppressed: false,
@@ -56,7 +97,13 @@ export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
       actedAt: null,
       expiresAt: null
     }))
-    doc.days.push({ date, title: doc.definition.title, rows })
+    doc.days.push({
+      date,
+      title: doc.definition.title,
+      rows,
+      dayStart: doc.definition.dayStart ?? '00:00',
+      quickActions: doc.definition.quickActions ?? []
+    })
   }
   // Keep a month of history; old Telegram buttons are rejected before lookup.
   const cutoff = Temporal.PlainDate.from(date).subtract({ days: 30 }).toString()
@@ -158,7 +205,16 @@ export function createRoutineService(
           throw new RoutineError('Список уже изменён. Обновите данные; ваш черновик сохранён.', 409)
         materializeRoutineDay(doc, now)
         doc.nextDefinition = {
-          effectiveDate: Temporal.PlainDate.from(routineDate(doc, now)).add({ days: 1 }).toString(),
+          effectiveDate: Temporal.PlainDate.from(
+            [
+              routineDate(doc, now),
+              routineDayDate(doc.timezone, definition.dayStart ?? '00:00', now)
+            ]
+              .sort()
+              .at(-1)!
+          )
+            .add({ days: 1 })
+            .toString(),
           definition
         }
         doc.publishTime = input.publishTime
@@ -200,6 +256,7 @@ export function createRoutineService(
         version: number
         action: RoutineAction
         requestId: string
+        activityId?: string
       }
     ) {
       authorize(actor)
@@ -218,6 +275,16 @@ export function createRoutineService(
         const row = day.rows.find((r) => r.id === input.rowId)
         if (!row) throw new RoutineError('Эта карточка устарела. Откройте дела на сегодня.', 409)
         if (doc.paused) throw new RoutineError('Список на паузе', 409)
+        if (input.activityId) {
+          if (
+            input.action !== 'complete' ||
+            !day.quickActions?.some((action) => action.id === input.activityId)
+          )
+            throw new RoutineError('Быстрое действие недоступно', 409)
+          const target = pickRoutineQuickTarget(day.rows, input.activityId, now)
+          if (target?.id !== row.id)
+            throw new RoutineError('Подходящее дело изменилось. Обновите карточку.', 409)
+        }
         const result = applyRoutineAction({
           state: { version: row.version, progress: progress(row) },
           expectedVersion: input.version,

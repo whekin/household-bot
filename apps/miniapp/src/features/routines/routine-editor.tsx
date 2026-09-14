@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { normalizeRoutine, type RoutineDefinition, type RoutineTask } from '@household/domain'
+import {
+  normalizeRoutine,
+  type RoutineDefinition,
+  type RoutineTask,
+  type RoutineQuickAction
+} from '@household/domain'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n/context'
@@ -34,6 +39,10 @@ export function RoutineEditor({
   const [tasks, setTasks] = useState<readonly RoutineTask[]>(
     routine?.definition.tasks ?? [freshTask()]
   )
+  const [dayStart, setDayStart] = useState(routine?.definition.dayStart ?? '00:00')
+  const [quickActions, setQuickActions] = useState<readonly RoutineQuickAction[]>(
+    routine?.definition.quickActions ?? []
+  )
   const [publishTime, setPublishTime] = useState(routine?.publishTime ?? '08:00')
   const [validation, setValidation] = useState<string | null>(null)
   const [presetsVisible, setPresetsVisible] = useState(!routine)
@@ -64,11 +73,11 @@ export function RoutineEditor({
     if (Object.keys(errors).length) return
     let definition: RoutineDefinition
     try {
-      definition = normalizeRoutine({ title, tasks })
+      definition = normalizeRoutine({ title, tasks, dayStart, quickActions })
     } catch {
       setValidation(
         t(
-          'Проверьте расписание: до 20 отметок в день, время без повторов.',
+          'Проверьте расписание: окна не должны пересекаться между собой или с границей дня. У каждой быстрой кнопки должны быть название, подпись и хотя бы одно дело.',
           'Check the schedule: up to 20 daily items, with distinct times.'
         )
       )
@@ -85,6 +94,16 @@ export function RoutineEditor({
         void submit()
       }}
     >
+      {!presetsVisible && (
+        <Button
+          className="min-h-11"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => setPresetsVisible(true)}
+        >
+          {t('Выбрать шаблон для черновика', 'Choose a preset for this draft')}
+        </Button>
+      )}
       {presetsVisible && (
         <div className="space-y-2 rounded-2xl bg-elevated p-4">
           <p className="text-sm font-medium">{t('Быстрый старт', 'Quick start')}</p>
@@ -99,6 +118,8 @@ export function RoutineEditor({
                   setTitle(definition.title)
                   setTasks(definition.tasks)
                   setPublishTime(preset.publishTime)
+                  setDayStart(preset.dayStart)
+                  setQuickActions(definition.quickActions ?? [])
                   setFieldErrors({})
                   setValidation(null)
                   setPresetsVisible(false)
@@ -183,6 +204,35 @@ export function RoutineEditor({
                 · {task.times.length ? task.times.join(', ') : t('в течение дня', 'any time')}
               </summary>
               <div className="space-y-4 pt-3">
+                <label className="block space-y-1 text-sm" htmlFor={`note-${task.id}`}>
+                  <span>{t('Условие или заметка', 'Condition or note')}</span>
+                  <Input
+                    id={`note-${task.id}`}
+                    value={task.note ?? ''}
+                    maxLength={120}
+                    placeholder={t('Например, если просит', 'For example, if needed')}
+                    onChange={(e) => update(task.id, { note: e.target.value })}
+                  />
+                </label>
+                {quickActions.length > 0 && (
+                  <label className="block space-y-1 text-sm" htmlFor={`activity-${task.id}`}>
+                    <span>{t('Быстрое действие', 'Quick action')}</span>
+                    <select
+                      id={`activity-${task.id}`}
+                      className="min-h-11 w-full rounded-lg border border-border bg-field px-3"
+                      value={task.activityId ?? ''}
+                      onChange={(e) => update(task.id, { activityId: e.target.value })}
+                    >
+                      <option value="">{t('Без быстрого действия', 'None')}</option>
+                      {quickActions.map((action) => (
+                        <option key={action.id} value={action.id}>
+                          {action.label || t('Новая кнопка', 'New button')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
                 <div className="grid grid-cols-7 gap-1">
                   {weekdays.map((name, i) => (
                     <button
@@ -210,20 +260,46 @@ export function RoutineEditor({
                 </p>
                 {task.times.map((time, i) => (
                   <div className="flex items-center gap-2" key={i}>
-                    <label className="sr-only" htmlFor={`time-${task.id}-${i}`}>
-                      {t('Время', 'Time')} {i + 1}
+                    <label
+                      className="min-w-0 flex-1 text-xs text-faint"
+                      htmlFor={`time-${task.id}-${i}`}
+                    >
+                      {t('С', 'From')}
+                      <Input
+                        type="time"
+                        required
+                        id={`time-${task.id}-${i}`}
+                        value={time.split(/[-–]/)[0] ?? ''}
+                        onChange={(e) => {
+                          const end = time.split(/[-–]/)[1]
+                          update(task.id, {
+                            times: task.times.map((v, j) =>
+                              i === j ? `${e.target.value}${end ? `-${end}` : ''}` : v
+                            )
+                          })
+                        }}
+                      />
                     </label>
-                    <Input
-                      type="time"
-                      required
-                      id={`time-${task.id}-${i}`}
-                      value={time}
-                      onChange={(e) =>
-                        update(task.id, {
-                          times: task.times.map((v, j) => (i === j ? e.target.value : v))
-                        })
-                      }
-                    />
+                    <label
+                      className="min-w-0 flex-1 text-xs text-faint"
+                      htmlFor={`end-${task.id}-${i}`}
+                    >
+                      {t('До (необязательно)', 'Until (optional)')}
+                      <Input
+                        type="time"
+                        id={`end-${task.id}-${i}`}
+                        value={time.split(/[-–]/)[1] ?? ''}
+                        onChange={(e) =>
+                          update(task.id, {
+                            times: task.times.map((v, j) =>
+                              i === j
+                                ? `${time.split(/[-–]/)[0]}${e.target.value ? `-${e.target.value}` : ''}`
+                                : v
+                            )
+                          })
+                        }
+                      />
+                    </label>
                     <Button
                       variant="ghost"
                       className="min-h-11"
@@ -301,6 +377,93 @@ export function RoutineEditor({
           {t('Добавить дело', 'Add task')}
         </Button>
       </fieldset>
+      <section className="space-y-3 rounded-2xl border border-border p-4">
+        <h2 className="font-semibold">{t('Быстрые действия', 'Quick actions')}</h2>
+        <p className="text-xs text-faint">
+          {t(
+            'Кнопка отмечает ближайшее дело из выбранной группы. Привяжите дела к кнопке в их расписании. Повтор не закроет следующее дело.',
+            'A button completes the nearest task in its group. Assign tasks in their schedule. Repeated taps do not complete another task.'
+          )}
+        </p>
+        {quickActions.map((action) => (
+          <div className="space-y-2 border-t border-border pt-3" key={action.id}>
+            <label className="block text-sm" htmlFor={`quick-label-${action.id}`}>
+              {t('Текст кнопки', 'Button label')}
+              <Input
+                id={`quick-label-${action.id}`}
+                maxLength={40}
+                value={action.label}
+                onChange={(e) =>
+                  setQuickActions((actions) =>
+                    actions.map((item) =>
+                      item.id === action.id ? { ...item, label: e.target.value } : item
+                    )
+                  )
+                }
+              />
+            </label>
+            <label className="block text-sm" htmlFor={`quick-summary-${action.id}`}>
+              {t('Подпись последней отметки', 'Last completion label')}
+              <Input
+                id={`quick-summary-${action.id}`}
+                maxLength={40}
+                placeholder={t('Последнее кормление', 'Last feeding')}
+                value={action.summaryLabel}
+                onChange={(e) =>
+                  setQuickActions((actions) =>
+                    actions.map((item) =>
+                      item.id === action.id ? { ...item, summaryLabel: e.target.value } : item
+                    )
+                  )
+                }
+              />
+            </label>
+            <Button
+              className="min-h-11"
+              variant="ghost"
+              onClick={() => {
+                setQuickActions((actions) => actions.filter((item) => item.id !== action.id))
+                setTasks((items) =>
+                  items.map((item) =>
+                    item.activityId === action.id ? { ...item, activityId: '' } : item
+                  )
+                )
+              }}
+            >
+              {t('Удалить кнопку', 'Remove button')}
+            </Button>
+          </div>
+        ))}
+        <Button
+          className="min-h-11"
+          disabled={quickActions.length >= 3 || busy}
+          onClick={() =>
+            setQuickActions((actions) => [
+              ...actions,
+              { id: crypto.randomUUID().slice(0, 8), label: '', summaryLabel: '' }
+            ])
+          }
+        >
+          {t('Добавить кнопку', 'Add button')}
+        </Button>
+      </section>
+      <label className="block space-y-2 text-sm" htmlFor="routine-day-start">
+        <span>{t('Новый день начинается в', 'New day starts at')}</span>
+        <Input
+          id="routine-day-start"
+          type="time"
+          required
+          disabled={busy}
+          value={dayStart}
+          onChange={(e) => setDayStart(e.target.value)}
+        />
+        <span className="block text-xs text-faint">
+          {t(
+            'Дела до этого времени относятся к предыдущему вечеру. Например, при 04:00 кормление в 01:00 остаётся во вчерашней карточке.',
+            'Tasks before this time belong to the previous evening. With 04:00, a 01:00 task stays on the previous day’s card.'
+          )}
+        </span>
+      </label>
       <div className="space-y-2">
         <label htmlFor="publish-time" className="text-sm font-medium">
           {t('Публиковать карточку дня', 'Publish daily card')}

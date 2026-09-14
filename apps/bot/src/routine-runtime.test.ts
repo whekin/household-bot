@@ -3,7 +3,7 @@ import { Bot } from 'grammy'
 import type { HouseholdOnboardingService } from '@household/application'
 import type { HouseholdConfigurationRepository, HouseholdMemberRecord } from '@household/ports'
 import { routineMemoryRepository, routineInput } from '@household/application/testing/routines'
-import { createRoutineRuntime } from './routine-runtime'
+import { createRoutineRuntime, routineClientView } from './routine-runtime'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 function fixture() {
@@ -346,4 +346,76 @@ test('expanding a day card is shared on that message and only for household memb
         String(c.payload.text).includes('Доступ только участникам дома')
     )
   ).toBe(true)
+})
+
+test('quick feeding callback records a matching task and bottle completion does not replace its summary', async () => {
+  const f = fixture()
+  const definition = {
+    title: 'Уход',
+    dayStart: '04:00',
+    quickActions: [{ id: 'feed', label: 'Покормил сейчас', summaryLabel: 'Последнее кормление' }],
+    tasks: [
+      { ...routineInput.definition.tasks[0]!, activityId: 'feed', times: ['09:00-10:00'] },
+      {
+        ...routineInput.definition.tasks[0]!,
+        id: 'bottles',
+        title: 'Бутылки',
+        times: ['23:30-01:00']
+      }
+    ]
+  }
+  expect((await f.api({ operation: 'save', ...routineInput, definition })).status).toBe(200)
+  await f.api({
+    operation: 'bind',
+    id: routineInput.id,
+    expectedRevision: 1,
+    mode: 'link',
+    link: 'https://t.me/c/2636668636/136/4223'
+  })
+  const doc = (await f.repository.get(routineInput.id))!
+  const row = doc.days[0]!.rows[0]!
+  const message = doc.messages.find((m) => m.threadId === 136)!
+  await f.bot.handleUpdate({
+    update_id: 99,
+    callback_query: {
+      id: 'quick-feed',
+      from: { id: 200, is_bot: false, first_name: 'Сэм' },
+      chat_instance: 'test',
+      data: `rtq:${doc.id}:${row.id}:0:feed`,
+      message: {
+        message_id: message.messageId!,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: -1002636668636, type: 'supergroup', title: 'Дом' },
+        message_thread_id: 136
+      }
+    }
+  })
+  const fed = (await f.repository.get(doc.id))!.days[0]!.rows[0]!
+  expect(fed.actorName).toBe('Сэм')
+  const bottles = doc.days[0]!.rows[1]!
+  await f.api({
+    operation: 'act',
+    id: doc.id,
+    rowId: bottles.id,
+    version: 0,
+    action: 'complete',
+    requestId: 'bottle'
+  })
+  const view = (await (await f.api({ operation: 'list' })).json()) as {
+    routines: ReturnType<typeof routineClientView>[]
+  }
+  expect(view.routines[0]!.lastActions).toEqual([
+    { label: 'Последнее кормление', at: fed.actedAt, actorName: 'Сэм' }
+  ])
+  expect(view.routines[0]!.quickTargets[0]!.completed).toBe(true)
+  const repeat = await f.api({
+    operation: 'quick_complete',
+    id: doc.id,
+    rowId: row.id,
+    version: 1,
+    activityId: 'feed',
+    requestId: 'repeat-feed'
+  })
+  expect(repeat.status).toBe(200)
+  expect((await f.repository.get(doc.id))!.days[0]!.rows[0]!.actedAt).toBe(fed.actedAt)
 })

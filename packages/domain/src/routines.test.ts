@@ -5,6 +5,8 @@ import {
   applyRoutineAction,
   effectiveRoutineProgress,
   normalizeRoutine,
+  routineDayDate,
+  pickRoutineQuickTarget,
   pickRoutineFocus,
   routineOccurrencesForDate,
   type RoutineAction,
@@ -254,4 +256,105 @@ describe('routine focus', () => {
   test('treats the exact slot minute as due', () => {
     expect(pickRoutineFocus([slot('13:00')], now)?.state).toBe('due')
   })
+})
+
+describe('flexible routine windows', () => {
+  test('anchors after-midnight slots to the previous routine day', () => {
+    const definition = {
+      title: 'Ночь',
+      dayStart: '04:00',
+      tasks: [{ ...task, times: ['23:30-01:00', '01:30-02:00'] }]
+    }
+    const rows = routineOccurrencesForDate({
+      definition,
+      localDate: '2026-09-15',
+      timezone: 'Asia/Tbilisi'
+    })
+    expect(rows[0]?.dueAt?.toString()).toBe('2026-09-15T19:30:00Z')
+    expect(rows[0]?.windowEndsAt?.toString()).toBe('2026-09-15T21:00:00Z')
+    expect(rows[1]?.dueAt?.toString()).toBe('2026-09-15T21:30:00Z')
+    expect(rows[1]?.localDate).toBe('2026-09-15')
+  })
+  test('orders slots relative to the configured day start', () => {
+    const definition = normalizeRoutine({
+      title: 'День',
+      dayStart: '04:00',
+      tasks: [{ ...task, times: ['01:00', '09:00–10:00', '23:00'] }]
+    })
+    expect(definition.tasks[0]?.times).toEqual(['09:00-10:00', '23:00', '01:00'])
+  })
+  test.each(
+    [
+      ['09:00-09:00'],
+      ['23:30-04:30'],
+      ['09:00-10:00', '09:30'],
+      ['09:00-10:00', '09:00–10:00']
+    ].map((times) => ({ times }))
+  )('rejects zero-length, overlapping and cross-boundary windows %j', ({ times }) => {
+    expect(() =>
+      normalizeRoutine({ title: 'День', dayStart: '04:00', tasks: [{ ...task, times }] })
+    ).toThrow()
+  })
+  test('marks an open window as due, not overdue', () => {
+    const row = {
+      status: 'pending' as const,
+      dueAt: '2026-09-15T05:00:00Z',
+      windowEndsAt: '2026-09-15T06:00:00Z'
+    }
+    expect(pickRoutineFocus([row], '2026-09-15T05:59:00Z')?.state).toBe('due')
+    expect(pickRoutineFocus([row], '2026-09-15T06:01:00Z')?.state).toBe('overdue')
+  })
+})
+
+test('routine day boundary follows wall time across DST and month changes', () => {
+  expect(routineDayDate('Asia/Tbilisi', '04:00', '2026-10-01T23:59:59+04:00')).toBe('2026-10-01')
+  expect(routineDayDate('Asia/Tbilisi', '04:00', '2026-10-01T03:59:59+04:00')).toBe('2026-09-30')
+  expect(routineDayDate('Asia/Tbilisi', '04:00', '2026-10-01T04:00:00+04:00')).toBe('2026-10-01')
+  expect(routineDayDate('Europe/Berlin', '04:00', '2026-03-29T03:30:00+02:00')).toBe('2026-03-28')
+})
+
+test('quick target selects the closest matching window and never skips a completed closest row', () => {
+  const rows = [
+    {
+      id: 'morning',
+      activityId: 'feed',
+      status: 'pending' as const,
+      dueAt: '2026-09-15T05:00:00Z',
+      windowEndsAt: '2026-09-15T06:00:00Z'
+    },
+    {
+      id: 'midday',
+      activityId: 'feed',
+      status: 'completed' as const,
+      dueAt: '2026-09-15T08:00:00Z',
+      windowEndsAt: '2026-09-15T09:00:00Z'
+    },
+    {
+      id: 'bottles',
+      activityId: 'water',
+      status: 'pending' as const,
+      dueAt: '2026-09-15T08:30:00Z'
+    }
+  ]
+  expect(pickRoutineQuickTarget(rows, 'feed', '2026-09-15T08:30:00Z')?.id).toBe('midday')
+  expect(pickRoutineQuickTarget(rows, 'feed', '2026-09-15T07:00:00Z')?.id).toBe('morning')
+  expect(pickRoutineQuickTarget(rows, 'unknown', '2026-09-15T08:30:00Z')).toBeNull()
+})
+
+test('DST missing start never produces a window ending before its start', () => {
+  const rows = routineOccurrencesForDate({
+    definition: { title: 'DST', tasks: [{ ...task, times: ['02:30-03:00'] }] },
+    localDate: '2026-03-29',
+    timezone: 'Europe/Berlin'
+  })
+  expect(rows[0]?.dueAt?.toString()).toBe('2026-03-29T01:30:00Z')
+  expect(rows[0]?.windowEndsAt?.toString()).toBe('2026-03-29T02:00:00Z')
+})
+
+test('a boundary in the repeated DST hour never rolls the routine date backwards', () => {
+  expect(routineDayDate('Europe/Berlin', '02:30', '2026-10-25T02:15:00+02:00')).toBe('2026-10-24')
+  expect(routineDayDate('Europe/Berlin', '02:30', '2026-10-25T02:45:00+02:00')).toBe('2026-10-25')
+  expect(routineDayDate('Europe/Berlin', '02:30', '2026-10-25T02:15:00+01:00')).toBe('2026-10-25')
+  expect(routineDayDate('Europe/Berlin', '02:30', '2026-03-29T03:15:00+02:00')).toBe('2026-03-28')
+  expect(routineDayDate('Europe/Berlin', '02:30', '2026-03-29T03:30:00+02:00')).toBe('2026-03-29')
 })

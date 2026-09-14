@@ -1,4 +1,5 @@
-import { pickRoutineFocus, Temporal } from '@household/domain'
+import { routineDate } from '@household/application'
+import { pickRoutineQuickTarget, pickRoutineFocus, Temporal } from '@household/domain'
 import type { RoutineDay, RoutineDocument, RoutineRow } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
@@ -33,11 +34,14 @@ function localTime(instant: string, timezone: string): string {
     .toPlainTime()
     .toString({ smallestUnit: 'minute' })
 }
-function lastCompletion(doc: RoutineDocument, date: string) {
+function lastCompletion(doc: RoutineDocument, date: string, activityId?: string) {
   return doc.days
     .filter((day) => day.date <= date)
     .flatMap((day) => day.rows)
-    .filter((row) => row.status === 'completed' && row.actedAt)
+    .filter(
+      (row) =>
+        row.status === 'completed' && row.actedAt && (!activityId || row.activityId === activityId)
+    )
     .sort((a, b) => Date.parse(a.actedAt!) - Date.parse(b.actedAt!))
     .at(-1)
 }
@@ -48,15 +52,27 @@ export function renderRoutineCard(
   reminderRow?: RoutineRow,
   expanded = false
 ) {
-  const active =
-    !doc.paused &&
-    day.date ===
-      Temporal.Instant.from(now).toZonedDateTimeISO(doc.timezone).toPlainDate().toString()
-  const rowLabel = (row: RoutineRow) => `${row.localTime ? `${row.localTime} · ` : ''}${row.title}`
+  const active = !doc.paused && day.date === routineDate(doc, now)
+  const rowLabel = (row: RoutineRow) =>
+    `${row.localTime ? `${row.localTime.replace('-', '–')} · ` : ''}${row.title}`
   const rows = reminderRow ? [reminderRow] : day.rows
   const open = day.rows.filter((row) => row.status !== 'completed')
   const focus = active && !reminderRow ? pickRoutineFocus(day.rows, now) : null
   const previous = !reminderRow ? lastCompletion(doc, day.date) : undefined
+  const quickActions = day.quickActions ?? []
+  const lastLine = (activityId: string, label: string) => {
+    const last = lastCompletion(doc, day.date, activityId)
+    if (!last) return `${label}: пока нет отметок`
+    const date = Temporal.Instant.from(last.actedAt!)
+      .toZonedDateTimeISO(doc.timezone)
+      .toPlainDate()
+      .toString()
+    const currentDate = Temporal.Instant.from(now)
+      .toZonedDateTimeISO(doc.timezone)
+      .toPlainDate()
+      .toString()
+    return `${label}: ${date !== currentDate ? `${date.slice(8)}.${date.slice(5, 7)} ` : ''}${localTime(last.actedAt!, doc.timezone)}, ${(last.actorName ?? 'участник').slice(0, 40).replace(/[\r\n]/g, ' ')}`
+  }
   // Absolute times only: a relative "N minutes ago" would rewrite the card every minute.
   const nextLine = () => {
     if (!active || !day.rows.length) return null
@@ -67,7 +83,8 @@ export function renderRoutineCard(
   const summary = reminderRow
     ? []
     : [
-        previous
+        ...quickActions.map((action) => lastLine(action.id, action.summaryLabel)),
+        previous && !quickActions.length
           ? `Последнее: ${localTime(previous.actedAt!, doc.timezone)}, ${(previous.actorName ?? 'участник').slice(0, 40).replace(/[\r\n]/g, ' ')}`
           : null,
         nextLine()
@@ -81,8 +98,9 @@ export function renderRoutineCard(
       const claimed = routineRowClaimed(row, now)
       const actor = (row.actorName ?? '').slice(0, 40).replace(/[\r\n]/g, ' ')
       const time = row.actedAt ? localTime(row.actedAt, doc.timezone) : ''
-      return `${row.status === 'completed' ? '✓' : claimed ? '◷' : '☐'} ${rowLabel(row)}${row.status === 'completed' ? ` — ${actor}, ${time}` : claimed ? ` — ${actor} занимается` : ''}`
+      return `${row.status === 'completed' ? '✓' : claimed ? '◷' : '☐'} ${rowLabel(row)}${row.status === 'completed' ? ` — ${actor}, ${time}` : claimed ? ` — ${actor} занимается` : ''}${!reminderRow && row.note ? `\n  ↳ ${row.note.slice(0, 40)}${row.note.length > 40 ? '…' : ''}` : ''}`
     }),
+    ...(reminderRow?.note ? [`Условие: ${reminderRow.note}`] : []),
     ...(!rows.length ? ['На сегодня дел нет'] : [])
   ].join('\n')
   const rowButton = (row: RoutineRow) => ({
@@ -140,6 +158,22 @@ export function renderRoutineCard(
                 ? [[{ text: '⌃ Свернуть', callback_data: routineExpandCallback(doc) }]]
                 : [])
             ]
+  }
+  if (active && !reminderRow) {
+    const quickButtons = quickActions.flatMap((action) => {
+      const target = pickRoutineQuickTarget(day.rows, action.id, now)
+      return target
+        ? [
+            [
+              {
+                text: action.label,
+                callback_data: `rtq:${doc.id}:${target.id}:${target.version.toString(36)}:${action.id}`
+              }
+            ]
+          ]
+        : []
+    })
+    keyboard.inline_keyboard.unshift(...quickButtons)
   }
   return { text, reply_markup: keyboard, notify: Boolean(reminderRow) }
 }

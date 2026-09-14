@@ -1,4 +1,4 @@
-import type { RoutineDefinition } from '@household/domain'
+import type { RoutineDefinition, RoutineQuickAction } from '@household/domain'
 
 export interface RoutineRow {
   id: string
@@ -6,6 +6,9 @@ export interface RoutineRow {
   title: string
   localTime: string | null
   dueAt: string | null
+  windowEndsAt?: string | null
+  note?: string
+  activityId?: string
   reminderEnabled: boolean
   claimEnabled: boolean
   reminderSuppressed: boolean
@@ -20,6 +23,8 @@ export interface RoutineDay {
   date: string
   title: string
   rows: RoutineRow[]
+  dayStart?: string
+  quickActions?: readonly RoutineQuickAction[]
 }
 export interface RoutineDestination {
   chatId: string
@@ -47,6 +52,8 @@ export interface RoutineDocument {
   revision: number
   definition: RoutineDefinition
   nextDefinition: { effectiveDate: string; definition: RoutineDefinition } | null
+  /** Once a delayed boundary is in effect, editing tomorrow cannot close tonight early. */
+  activeDayExtension?: { date: string; until: string }
   timezone: string
   publishTime: string
   paused: boolean

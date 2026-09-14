@@ -111,3 +111,125 @@ describe('shared routine application', () => {
     expect(doc.days.map((d) => d.date)).toEqual(['2026-11-01'])
   })
 })
+
+test('moving day start later keeps last evening open until the new boundary', async () => {
+  let now = '2026-09-15T18:00:00+04:00'
+  const service = createRoutineService(routineMemoryRepository(), () => now)
+  const doc = await service.save(routineActor, routineInput)
+  await service.save(routineActor, {
+    ...routineInput,
+    expectedRevision: 1,
+    definition: {
+      ...routineInput.definition,
+      dayStart: '04:00',
+      tasks: [{ ...routineInput.definition.tasks[0]!, times: ['00:00-02:00'] }]
+    }
+  })
+  now = '2026-09-16T01:00:00+04:00'
+  const during = (await service.list(routineActor))[0]!
+  expect(during.days.map((day) => day.date)).toEqual(['2026-09-15'])
+  await service.act(routineActor, {
+    id: doc.id,
+    rowId: doc.days[0]!.rows[0]!.id,
+    version: 0,
+    action: 'complete',
+    requestId: 'night'
+  })
+  now = '2026-09-16T04:00:00+04:00'
+  const after = (await service.list(routineActor))[0]!
+  expect(after.days.map((day) => day.date)).toEqual(['2026-09-15', '2026-09-16'])
+  expect(after.days[1]?.rows[0]?.dueAt).toBe('2026-09-16T20:00:00Z')
+})
+
+test('a new 04:00 routine accepts yesterday card actions at 01:00 but not after 04:00', async () => {
+  let now = '2026-09-15T20:00:00+04:00'
+  const repository = routineMemoryRepository()
+  const service = createRoutineService(repository, () => now)
+  const definition = {
+    ...routineInput.definition,
+    dayStart: '04:00',
+    quickActions: [{ id: 'feed', label: 'Покормил сейчас', summaryLabel: 'Последнее кормление' }],
+    tasks: [{ ...routineInput.definition.tasks[0]!, activityId: 'feed', times: ['00:00-02:00'] }]
+  }
+  const doc = await service.save(routineActor, { ...routineInput, definition })
+  now = '2026-09-16T01:00:00+04:00'
+  const input = {
+    id: doc.id,
+    rowId: doc.days[0]!.rows[0]!.id,
+    version: 0,
+    action: 'complete' as const,
+    activityId: 'feed',
+    requestId: 'quick'
+  }
+  const completed = await service.act(routineActor, input)
+  expect(completed.days[0]?.rows[0]?.actedAt).toBe(now)
+  await expect(
+    service.act({ ...routineActor, id: 'sam' }, { ...input, requestId: 'other' })
+  ).rejects.toThrow('Уже отмечено')
+  await service.act(routineActor, { ...input, version: 1, requestId: 'fresh-repeat' })
+  expect((await repository.get(doc.id))?.days[0]?.rows[0]?.version).toBe(1)
+  now = '2026-09-16T04:00:00+04:00'
+  await expect(
+    service.act(routineActor, { ...input, version: 1, requestId: 'old-card' })
+  ).rejects.toThrow('устарела')
+})
+
+test('moving the boundary earlier during the night never activates a saved definition retroactively', async () => {
+  let now = '2026-09-15T20:00:00+04:00'
+  const service = createRoutineService(routineMemoryRepository(), () => now)
+  await service.save(routineActor, {
+    ...routineInput,
+    definition: { ...routineInput.definition, dayStart: '04:00' }
+  })
+  now = '2026-09-16T01:00:00+04:00'
+  const doc = await service.save(routineActor, {
+    ...routineInput,
+    expectedRevision: 1,
+    definition: { ...routineInput.definition, dayStart: '00:00' }
+  })
+  expect(doc.nextDefinition?.effectiveDate).toBe('2026-09-17')
+  expect((await service.list(routineActor))[0]?.definition.dayStart).toBe('04:00')
+})
+
+test('replacing a pending boundary edit during its active extension cannot close tonight early', async () => {
+  let now = '2026-09-15T18:00:00+04:00'
+  const service = createRoutineService(routineMemoryRepository(), () => now)
+  const first = await service.save(routineActor, routineInput)
+  await service.save(routineActor, {
+    ...routineInput,
+    expectedRevision: 1,
+    definition: { ...routineInput.definition, dayStart: '04:00' }
+  })
+  now = '2026-09-16T01:00:00+04:00'
+  await service.save(routineActor, { ...routineInput, expectedRevision: 2 })
+  const afterEdit = (await service.list(routineActor))[0]!
+  expect(afterEdit.days.map((day) => day.date)).toEqual(['2026-09-15'])
+  expect(afterEdit.nextDefinition?.effectiveDate).toBe('2026-09-17')
+  await service.act(routineActor, {
+    id: first.id,
+    rowId: first.days[0]!.rows[0]!.id,
+    version: 0,
+    action: 'complete',
+    requestId: 'after-edit'
+  })
+  now = '2026-09-16T04:00:00+04:00'
+  const next = (await service.list(routineActor))[0]!
+  expect(next.days.map((day) => day.date)).toEqual(['2026-09-15', '2026-09-16'])
+  expect(next.activeDayExtension).toBeUndefined()
+})
+
+test('a future boundary extension can still be cancelled before it starts', async () => {
+  let now = '2026-09-15T18:00:00+04:00'
+  const service = createRoutineService(routineMemoryRepository(), () => now)
+  await service.save(routineActor, routineInput)
+  await service.save(routineActor, {
+    ...routineInput,
+    expectedRevision: 1,
+    definition: { ...routineInput.definition, dayStart: '04:00' }
+  })
+  now = '2026-09-15T23:00:00+04:00'
+  await service.save(routineActor, { ...routineInput, expectedRevision: 2 })
+  now = '2026-09-16T00:01:00+04:00'
+  const next = (await service.list(routineActor))[0]!
+  expect(next.days.map((day) => day.date)).toEqual(['2026-09-15', '2026-09-16'])
+})

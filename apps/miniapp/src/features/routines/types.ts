@@ -1,4 +1,4 @@
-import type { RoutineDefinition } from '@household/domain'
+import type { RoutineDefinition, RoutineQuickAction } from '@household/domain'
 export interface RoutineView {
   id: string
   revision: number
@@ -10,6 +10,7 @@ export interface RoutineView {
   destination: { chatId: string; threadId: number; name: string } | null
   day: {
     date: string
+    quickActions?: readonly RoutineQuickAction[]
     title: string
     rows: Array<{
       id: string
@@ -17,6 +18,9 @@ export interface RoutineView {
       title: string
       localTime: string | null
       dueAt: string | null
+      windowEndsAt?: string | null
+      note?: string
+      activityId?: string
       reminderEnabled: boolean
       claimEnabled: boolean
       version: number
@@ -28,6 +32,14 @@ export interface RoutineView {
     }>
   } | null
   groupStatus: 'none' | 'pending' | 'ready' | 'error' | 'unknown'
+  quickTargets?: Array<{
+    id: string
+    label: string
+    rowId: string
+    version: number
+    completed: boolean
+  }>
+  lastActions?: Array<{ label: string; at: string | null; actorName: string | null }>
   subscribed: boolean
   dmBlocked: boolean
   privateCardUnknown: boolean
