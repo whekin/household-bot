@@ -303,44 +303,46 @@ export async function loadMiniAppDashboardPayload(input: {
         purchaseCount: contributor.purchaseCount
       }))
     })),
-    ledger: dashboard.ledger.map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      title: entry.title,
-      memberId: entry.memberId,
-      paymentKind: entry.paymentKind,
-      amountMajor: entry.amount.toMajorString(),
-      currency: entry.currency,
-      displayAmountMajor: entry.displayAmount.toMajorString(),
-      displayCurrency: entry.displayCurrency,
-      fxRateMicros: entry.fxRateMicros?.toString() ?? null,
-      fxEffectiveDate: entry.fxEffectiveDate,
-      actorDisplayName: entry.actorDisplayName,
-      occurredAt: entry.occurredAt,
-      ...(entry.kind === 'purchase'
-        ? {
-            payerMemberId: entry.payerMemberId ?? undefined,
-            createdByMemberId: entry.createdByMemberId ?? null,
-            purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
-            originPeriod: entry.originPeriod ?? null,
-            isCurrentCyclePurchase: entry.isCurrentCyclePurchase ?? false,
-            hasRecordedAllocations: entry.hasRecordedAllocations ?? false,
-            resolutionStatus: entry.resolutionStatus ?? 'unresolved',
-            resolvedAt: entry.resolvedAt ?? null,
-            outstandingByMember:
-              entry.outstandingByMember?.map((outstanding) => ({
-                memberId: outstanding.memberId,
-                amountMajor: outstanding.amount.toMajorString()
-              })) ?? [],
-            purchaseParticipants:
-              entry.purchaseParticipants?.map((participant) => ({
-                memberId: participant.memberId,
-                included: participant.included,
-                shareAmountMajor: participant.shareAmount?.toMajorString() ?? null
-              })) ?? []
-          }
-        : {})
-    })),
+    ledger: dashboard.ledger
+      .filter((entry) => entry.kind !== 'transfer')
+      .map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        title: entry.title,
+        memberId: entry.memberId,
+        paymentKind: entry.paymentKind,
+        amountMajor: entry.amount.toMajorString(),
+        currency: entry.currency,
+        displayAmountMajor: entry.displayAmount.toMajorString(),
+        displayCurrency: entry.displayCurrency,
+        fxRateMicros: entry.fxRateMicros?.toString() ?? null,
+        fxEffectiveDate: entry.fxEffectiveDate,
+        actorDisplayName: entry.actorDisplayName,
+        occurredAt: entry.occurredAt,
+        ...(entry.kind === 'purchase'
+          ? {
+              payerMemberId: entry.payerMemberId ?? undefined,
+              createdByMemberId: entry.createdByMemberId ?? null,
+              purchaseSplitMode: entry.purchaseSplitMode ?? 'equal',
+              originPeriod: entry.originPeriod ?? null,
+              isCurrentCyclePurchase: entry.isCurrentCyclePurchase ?? false,
+              hasRecordedAllocations: entry.hasRecordedAllocations ?? false,
+              resolutionStatus: entry.resolutionStatus ?? 'unresolved',
+              resolvedAt: entry.resolvedAt ?? null,
+              outstandingByMember:
+                entry.outstandingByMember?.map((outstanding) => ({
+                  memberId: outstanding.memberId,
+                  amountMajor: outstanding.amount.toMajorString()
+                })) ?? [],
+              purchaseParticipants:
+                entry.purchaseParticipants?.map((participant) => ({
+                  memberId: participant.memberId,
+                  included: participant.included,
+                  shareAmountMajor: participant.shareAmount?.toMajorString() ?? null
+                })) ?? []
+            }
+          : {})
+      })),
     notifications: notifications.map((notification) => ({
       id: notification.id,
       summaryText: notification.notificationText,

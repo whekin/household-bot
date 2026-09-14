@@ -189,6 +189,7 @@ export interface BotWebhookServerOptions {
         handler: (request: Request) => Promise<Response>
       }
     | undefined
+  miniAppRepayments?: { handler: (request: Request) => Promise<Response> } | undefined
   miniAppAddPayment?:
     | {
         path?: string
@@ -506,6 +507,9 @@ export function createBotWebhookServer(options: BotWebhookServerOptions): {
         return await options.miniAppDeletePurchase.handler(request)
       }
 
+      if (options.miniAppRepayments && url.pathname === '/api/miniapp/repayments') {
+        return await options.miniAppRepayments.handler(request)
+      }
       if (options.miniAppAddPayment && url.pathname === miniAppAddPaymentPath) {
         return await options.miniAppAddPayment.handler(request)
       }

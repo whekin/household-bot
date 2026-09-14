@@ -1,3 +1,4 @@
+export * from './repayments'
 export { REMINDER_TYPES, type ReminderTarget, type ReminderType } from './reminders'
 export {
   HOUSEHOLD_AUDIT_DELIVERY_STATUSES,

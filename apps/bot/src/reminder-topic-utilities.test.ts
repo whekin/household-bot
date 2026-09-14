@@ -217,6 +217,7 @@ function createFinanceService(): FinanceCommandService & {
 } {
   return {
     addedUtilityBills: [],
+    repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async () => ({
       id: 'member-1',
       telegramUserId: '10002',

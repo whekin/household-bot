@@ -12,6 +12,7 @@ import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
 import { canEditLedgerEntry, formatMoneyLabel } from '@/lib/ledger-helpers'
 import { haptics } from '@/telegram/webapp'
+import { RepaymentsSection } from './repayments-section'
 import { BalancesSection } from './balances-section'
 import { CycleHistoryArchive } from './cycle-history'
 import { LedgerList } from './ledger-list'
@@ -181,6 +182,7 @@ export function ActivityView() {
   return (
     <>
       <BalancesSection onCustomPayment={openCustomPayment} />
+      <RepaymentsSection />
       <UtilityPlanSection />
 
       {effectiveIsAdmin ? (

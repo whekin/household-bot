@@ -1,3 +1,4 @@
+export { RepaymentError, type RepaymentCommand } from './repayment-service'
 export { calculateMonthlySettlement } from './settlement-engine'
 export {
   createAdHocNotificationService,

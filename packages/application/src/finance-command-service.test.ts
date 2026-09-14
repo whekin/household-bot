@@ -16,7 +16,7 @@ import type {
   SettlementSnapshotRecord
 } from '@household/ports'
 
-import { createFinanceCommandService } from './finance-command-service'
+import { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
 import { createPaymentConfirmationService } from './payment-confirmation-service'
 
 function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
@@ -132,6 +132,25 @@ class FinanceRepositoryStub implements FinanceRepository {
   > = []
   paymentPurchaseAllocations: readonly FinancePaymentPurchaseAllocationRecord[] = []
 
+  repayments: import('@household/ports').MemberRepayment[] = []
+  async listRepayments() {
+    return this.repayments
+  }
+  async addRepayment(input: Omit<import('@household/ports').MemberRepayment, 'createdAt'>) {
+    const record = { ...input, createdAt: '2026-09-15T00:00:00Z' }
+    this.repayments.push(record)
+    return record
+  }
+  async transitionRepayment(
+    id: string,
+    expected: import('@household/ports').MemberRepayment['status'],
+    next: import('@household/ports').MemberRepayment['status']
+  ) {
+    const record = this.repayments.find((record) => record.id === id && record.status === expected)
+    if (!record) return false
+    record.status = next
+    return true
+  }
   async getMemberByTelegramUserId(): Promise<FinanceMemberRecord | null> {
     return this.member
   }
@@ -6680,5 +6699,189 @@ describe('per-cycle read batching', () => {
     expect(nineCycles.get('listUtilityBillingPlansForCycle') ?? 0).toBe(0)
     expect(nineCycles.get('listUtilityVendorPaymentFactsForCycle') ?? 0).toBe(0)
     expect(nineCycles.get('getRentRuleForPeriod') ?? 0).toBe(0)
+  })
+})
+
+describe('member repayment accounting', () => {
+  function repaymentFixture(amountMinor = 20000n) {
+    const repository = new FinanceRepositoryStub()
+    seedPurchaseMutationFixture(repository)
+    repository.openCycleRecord = { id: 'cycle-2026-03', period: '2026-03', currency: 'GEL' }
+    repository.cycleByPeriodRecord = repository.openCycleRecord
+    repository.latestCycleRecord = repository.openCycleRecord
+    repository.purchases = [
+      {
+        id: 'large-purchase',
+        cycleId: 'cycle-2026-03',
+        cyclePeriod: '2026-03',
+        payerMemberId: 'alice',
+        amountMinor: 135000n,
+        currency: 'GEL',
+        description: 'Appliance',
+        occurredAt: instantFromIso('2026-03-01T00:00:00Z'),
+        splitMode: 'equal',
+        participants: ['alice', 'bob', 'carol'].map((memberId) => ({
+          memberId,
+          shareAmountMinor: null
+        }))
+      }
+    ]
+    repository.repayments = [
+      {
+        id: '00000000-0000-4000-8000-000000000002',
+        kind: 'transfer',
+        fromMemberId: 'bob',
+        toMemberId: 'alice',
+        amountMinor,
+        currency: 'GEL',
+        occurredOn: '2026-03-05',
+        status: 'pending',
+        requestId: null,
+        createdAt: '2026-03-05T00:00:00Z'
+      }
+    ]
+    return { repository, service: createService(repository) }
+  }
+  const offsets = (
+    dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
+  ) =>
+    Object.fromEntries(
+      dashboard.members.map((member) => [member.memberId, member.purchaseOffset.amountMinor])
+    )
+
+  test('real billing payments allocate only the remaining debt and preserve transfer source references', async () => {
+    const { repository, service } = repaymentFixture()
+    repository.repayments[0]!.status = 'confirmed'
+    repository.utilityBills = [
+      {
+        id: 'bill',
+        billName: 'Electricity',
+        amountMinor: 30000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso('2026-03-01T00:00:00Z')
+      }
+    ]
+    await service.addPayment('bob', 'utilities', '350', 'GEL', '2026-03')
+    expect(repository.lastReplacedPaymentPurchaseAllocations?.allocations).toEqual([
+      { purchaseId: 'large-purchase', memberId: 'bob', amountMinor: 25000n }
+    ])
+    const excess = repaymentFixture(100000n)
+    excess.repository.repayments[0]!.status = 'confirmed'
+    excess.repository.utilityBills = repository.utilityBills
+    await excess.service.addPayment('alice', 'utilities', '200', 'GEL', '2026-03')
+    expect(excess.repository.lastReplacedPaymentPurchaseAllocations?.allocations).toEqual([
+      {
+        purchaseId: excess.repository.repayments[0]!.id,
+        sourceKind: 'transfer',
+        memberId: 'alice',
+        amountMinor: 55000n
+      }
+    ])
+  })
+
+  test('confirming a backdated transfer updates the current balance without changing the closed archive', async () => {
+    const { repository, service } = repaymentFixture()
+    const march = repository.openCycleRecord!
+    await service.generateDashboard('2026-03')
+    await repository.closeCycle(march.id)
+    const april: FinanceCycleRecord = { id: 'cycle-2026-04', period: '2026-04', currency: 'GEL' }
+    repository.cycles = [march, april]
+    repository.openCycleRecord = april
+    repository.latestCycleRecord = april
+    const archiveBefore = await service.listCycleHistory()
+    const snapshotBefore = await repository.getSettlementSnapshot(march.id)
+    expect(archiveBefore).toHaveLength(1)
+
+    await service.repayments.execute('alice', {
+      action: 'confirm',
+      id: repository.repayments[0]!.id
+    })
+    // Historical dashboard queries are live accounting views; they must never
+    // rewrite the separate, frozen archive displayed in billing-cycle history.
+    await service.generateDashboard('2026-03')
+    expect(await repository.getSettlementSnapshot(march.id)).toEqual(snapshotBefore)
+    expect(await service.listCycleHistory()).toEqual(archiveBefore)
+    expect(offsets((await service.generateDashboard('2026-04'))!)).toEqual({
+      alice: -70000n,
+      bob: 25000n,
+      carol: 45000n
+    })
+  })
+
+  test('partial receipt moves only sender and recipient balances without changing spending', async () => {
+    const { repository, service } = repaymentFixture()
+    const before = (await service.generateDashboard('2026-03'))!
+    expect(offsets(before)).toEqual({ alice: -90000n, bob: 45000n, carol: 45000n })
+    repository.repayments[0]!.status = 'confirmed'
+    const after = (await service.generateDashboard('2026-03'))!
+    expect(offsets(after)).toEqual({ alice: -70000n, bob: 25000n, carol: 45000n })
+    expect(after.totalDue.amountMinor).toBe(before.totalDue.amountMinor)
+    expect(
+      after.ledger
+        .filter((entry) => entry.kind === 'purchase')
+        .map((entry) => entry.amount.amountMinor)
+    ).toEqual([135000n])
+    expect(
+      after.ledger
+        .find((entry) => entry.id === 'large-purchase')
+        ?.outstandingByMember?.find((member) => member.memberId === 'bob')?.amount.amountMinor
+    ).toBe(25000n)
+  })
+  test('later billing allocations clear only the remainder and do not resurrect transferred debt', async () => {
+    const { repository, service } = repaymentFixture()
+    repository.repayments[0]!.status = 'confirmed'
+    repository.paymentPurchaseAllocations = [
+      {
+        id: 'allocation',
+        paymentRecordId: 'utility-payment',
+        purchaseId: 'large-purchase',
+        memberId: 'bob',
+        amountMinor: 25000n,
+        resolutionCycleId: 'cycle-2026-03',
+        resolutionMethod: 'utilities_plan',
+        resolutionPlanId: null,
+        recordedAt: instantFromIso('2026-03-10T00:00:00Z')
+      }
+    ]
+    expect(offsets((await service.generateDashboard('2026-03'))!)).toEqual({
+      alice: -45000n,
+      bob: 0n,
+      carol: 45000n
+    })
+    repository.openCycleRecord = { id: 'cycle-2026-04', period: '2026-04', currency: 'GEL' }
+    repository.cycleByPeriodRecord = repository.openCycleRecord
+    expect(offsets((await service.generateDashboard('2026-04'))!)).toEqual({
+      alice: -45000n,
+      bob: 0n,
+      carol: 45000n
+    })
+  })
+  test('excess payment becomes sender credit and can be resolved by a later payment', async () => {
+    const { repository, service } = repaymentFixture(50000n)
+    repository.repayments[0]!.status = 'confirmed'
+    expect(offsets((await service.generateDashboard('2026-03'))!)).toEqual({
+      alice: -40000n,
+      bob: -5000n,
+      carol: 45000n
+    })
+    repository.paymentPurchaseAllocations = [
+      {
+        id: 'allocation',
+        paymentRecordId: 'utility-payment',
+        purchaseId: repository.repayments[0]!.id,
+        memberId: 'alice',
+        amountMinor: 5000n,
+        resolutionCycleId: 'cycle-2026-03',
+        resolutionMethod: 'utilities_plan',
+        resolutionPlanId: null,
+        recordedAt: instantFromIso('2026-03-10T00:00:00Z')
+      }
+    ]
+    expect(offsets((await service.generateDashboard('2026-03'))!)).toEqual({
+      alice: -45000n,
+      bob: 0n,
+      carol: 45000n
+    })
   })
 })

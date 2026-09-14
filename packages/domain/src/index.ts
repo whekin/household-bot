@@ -68,3 +68,5 @@ export {
   pickRoutineQuickTarget
 } from './routines'
 export type { RoutineQuickAction } from './routines'
+
+export { netRepaymentObligations } from './repayment-netting'

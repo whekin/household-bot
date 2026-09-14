@@ -154,6 +154,7 @@ function createPromptRepository(): TelegramPendingActionRepository {
 
 function createFinanceService(): FinanceCommandService {
   return {
+    repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async (telegramUserId) =>
       telegramUserId === '20002'
         ? {

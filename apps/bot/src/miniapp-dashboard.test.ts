@@ -31,6 +31,9 @@ function repository(
     null
 
   return {
+    listRepayments: async () => [],
+    addRepayment: async (input) => ({ ...input, createdAt: '2026-09-15T00:00:00Z' }),
+    transitionRepayment: async () => false,
     getMemberByTelegramUserId: async () => member,
     listMembers: async () => [
       member ?? {

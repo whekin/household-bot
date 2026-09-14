@@ -46,6 +46,7 @@ import {
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
 import {
   createMiniAppAddPaymentHandler,
+  createMiniAppRepaymentsHandler,
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
@@ -921,6 +922,14 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             logger: getLogger('miniapp-billing')
           })
         : undefined,
+    miniAppRepayments: householdOnboardingService
+      ? createMiniAppRepaymentsHandler({
+          allowedOrigins: runtime.miniAppAllowedOrigins,
+          botToken: runtime.telegramBotToken,
+          onboardingService: householdOnboardingService,
+          financeServiceForHousehold
+        })
+      : undefined,
     miniAppAddPayment:
       householdOnboardingService && adHocNotificationService
         ? createMiniAppAddPaymentHandler({

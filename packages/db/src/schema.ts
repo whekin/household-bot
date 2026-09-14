@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   bigint,
+  check,
   date,
   index,
   integer,
@@ -895,6 +896,36 @@ export const utilityReimbursementFacts = pgTable(
   })
 )
 
+export const memberRepayments = pgTable(
+  'member_repayments',
+  {
+    id: uuid('id').primaryKey(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    fromMemberId: uuid('from_member_id').references(() => members.id, { onDelete: 'restrict' }),
+    toMemberId: uuid('to_member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'restrict' }),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    occurredOn: date('occurred_on').notNull(),
+    status: text('status').notNull(),
+    requestId: uuid('request_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    householdIdx: index('member_repayments_household_idx').on(table.householdId, table.createdAt),
+    amountCheck: check('member_repayments_positive_amount', sql`${table.amountMinor} > 0`),
+    currencyCheck: check('member_repayments_currency', sql`${table.currency} in ('GEL', 'USD')`),
+    shapeCheck: check(
+      'member_repayments_shape',
+      sql`(${table.kind} = 'request' and ${table.fromMemberId} is null and ${table.requestId} is null and ${table.status} in ('open', 'closed')) or (${table.kind} = 'transfer' and ${table.fromMemberId} is not null and ${table.fromMemberId} <> ${table.toMemberId} and ${table.status} in ('pending', 'confirmed', 'cancelled'))`
+    )
+  })
+)
+
 export const paymentPurchaseAllocations = pgTable(
   'payment_purchase_allocations',
   {
@@ -902,9 +933,8 @@ export const paymentPurchaseAllocations = pgTable(
     paymentRecordId: uuid('payment_record_id')
       .notNull()
       .references(() => paymentRecords.id, { onDelete: 'cascade' }),
-    purchaseId: uuid('purchase_id')
-      .notNull()
-      .references(() => purchaseMessages.id, { onDelete: 'cascade' }),
+    purchaseId: uuid('purchase_id').references(() => purchaseMessages.id, { onDelete: 'cascade' }),
+    transferId: uuid('transfer_id').references(() => memberRepayments.id, { onDelete: 'restrict' }),
     memberId: uuid('member_id')
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
@@ -919,6 +949,10 @@ export const paymentPurchaseAllocations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
+    sourceCheck: check(
+      'payment_allocations_one_source',
+      sql`num_nonnulls(${table.purchaseId}, ${table.transferId}) = 1`
+    ),
     paymentIdx: index('payment_purchase_allocations_payment_idx').on(table.paymentRecordId),
     purchaseMemberIdx: index('payment_purchase_allocations_purchase_member_idx').on(
       table.purchaseId,

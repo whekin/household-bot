@@ -1,3 +1,5 @@
+import { createRepaymentService } from './repayment-service'
+import { netRepaymentObligations } from '@household/domain'
 import { createHash } from 'node:crypto'
 
 import type {
@@ -368,7 +370,7 @@ export interface FinanceClosePaymentPeriodResult {
 
 export interface FinanceDashboardLedgerEntry {
   id: string
-  kind: 'purchase' | 'utility' | 'payment'
+  kind: 'purchase' | 'transfer' | 'utility' | 'payment'
   title: string
   memberId: string | null
   amount: Money
@@ -1439,8 +1441,11 @@ interface ConvertedCycleMoney {
   fxEffectiveDate: string | null
 }
 
+// Shared settlement inputs; transfers are never persisted as purchase messages.
+type SettlementReceivable = FinanceParsedPurchaseRecord & { sourceKind?: 'purchase' | 'transfer' }
+
 interface PurchaseHistoryState {
-  purchase: Awaited<ReturnType<FinanceRepository['listParsedPurchases']>>[number]
+  purchase: SettlementReceivable
   converted: ConvertedCycleMoney
   outstandingByMemberId: ReadonlyMap<string, Money>
   outstandingTotal: Money
@@ -3176,11 +3181,38 @@ async function buildFinanceDashboard(
     presenceDays: memberPresenceDays,
     period: cycle.period
   })
-  const [allPurchases, utilityBills, paymentPurchaseAllocations] = await Promise.all([
+  const [purchases, utilityBills, paymentPurchaseAllocations, repayments] = await Promise.all([
     dependencies.repository.listParsedPurchases(),
     dependencies.repository.listUtilityBillsForCycle(cycle.id),
-    dependencies.repository.listPaymentPurchaseAllocations()
+    dependencies.repository.listPaymentPurchaseAllocations(),
+    dependencies.repository.listRepayments()
   ])
+  // A direct transfer creates an equal reverse obligation. Net it against existing
+  // shares below, before any future billing payment can allocate those shares.
+  const allPurchases: SettlementReceivable[] = [
+    ...purchases,
+    ...repayments
+      .filter(
+        (record) =>
+          record.kind === 'transfer' &&
+          record.status === 'confirmed' &&
+          record.occurredOn < end.toString().slice(0, 10)
+      )
+      .map((record) => ({
+        id: record.id,
+        sourceKind: 'transfer' as const,
+        cycleId: null,
+        cyclePeriod: record.occurredOn.slice(0, 7),
+        createdByMemberId: record.fromMemberId,
+        payerMemberId: record.fromMemberId!,
+        amountMinor: record.amountMinor,
+        currency: record.currency,
+        description: 'Direct repayment',
+        occurredAt: Temporal.Instant.from(`${record.occurredOn}T00:00:00Z`),
+        splitMode: 'custom_amounts' as const,
+        participants: [{ memberId: record.toMemberId, shareAmountMinor: record.amountMinor }]
+      }))
+  ]
   const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
   const previousCycle = await dependencies.repository.getCycleByPeriod(period.previous().toString())
   const previousSnapshotLines = previousCycle
@@ -3264,11 +3296,14 @@ async function buildFinanceDashboard(
 
   const purchaseHistory: PurchaseHistoryState[] = convertedPurchases.map(
     ({ purchase, converted }) => {
-      const shareMap = buildPurchaseShareMap({
-        purchase,
-        amount: converted.settlementAmount,
-        activePurchaseParticipantIds
-      })
+      const shareMap =
+        purchase.sourceKind === 'transfer'
+          ? new Map([[purchase.participants![0]!.memberId, converted.settlementAmount]])
+          : buildPurchaseShareMap({
+              purchase,
+              amount: converted.settlementAmount,
+              activePurchaseParticipantIds
+            })
       const outstandingEntries = [...shareMap.entries()]
         .filter(([memberId]) => memberId !== purchase.payerMemberId)
         .map(([memberId, shareAmount]) => {
@@ -3313,6 +3348,28 @@ async function buildFinanceDashboard(
       }
     }
   )
+
+  const obligations = purchaseHistory.map((state) => ({
+    id: state.purchase.id,
+    payerId: state.purchase.payerMemberId,
+    transfer: state.purchase.sourceKind === 'transfer',
+    outstanding: new Map(
+      [...state.outstandingByMemberId].map(([id, amount]) => [id, amount.amountMinor])
+    )
+  }))
+  netRepaymentObligations(obligations)
+  for (const [index, state] of purchaseHistory.entries()) {
+    const amounts = obligations[index]!.outstanding
+    state.outstandingByMemberId = new Map(
+      [...amounts]
+        .filter(([, amount]) => amount > 0n)
+        .map(([id, amount]) => [id, Money.fromMinor(amount, cycle.currency)])
+    )
+    state.outstandingTotal = Money.fromMinor(
+      [...amounts.values()].reduce((sum, amount) => sum + amount, 0n),
+      cycle.currency
+    )
+  }
 
   const utilities = convertedUtilityBills.reduce(
     (sum, current) => sum.add(current.converted.settlementAmount),
@@ -3413,7 +3470,14 @@ async function buildFinanceDashboard(
       purchaseOffset: line.purchaseOffset
     })),
     convertedUtilityBills,
-    purchaseIds: [...currentCyclePurchaseIds],
+    purchaseIds: [
+      ...new Set([
+        ...currentCyclePurchaseIds,
+        ...allPurchases
+          .filter((purchase) => purchase.sourceKind === 'transfer')
+          .map((purchase) => purchase.id)
+      ])
+    ],
     ...(options.forcePlanRefresh && isOpenCycle ? { forceRecompute: true } : {}),
     ...(options.previewPlanRefresh && isOpenCycle ? { forceRecompute: true, dryRun: true } : {}),
     ...(options.skipPlanRebalance || !isOpenCycle ? { skipRebalance: true } : {}),
@@ -3538,7 +3602,7 @@ async function buildFinanceDashboard(
       ({ purchase, converted, outstandingByMemberId, hasRecordedAllocations, resolvedAt }) => {
         const entry: FinanceDashboardLedgerEntry = {
           id: purchase.id,
-          kind: 'purchase',
+          kind: purchase.sourceKind === 'transfer' ? 'transfer' : 'purchase',
           title: purchase.description ?? 'Shared purchase',
           memberId: purchase.payerMemberId,
           payerMemberId: purchase.payerMemberId,
@@ -3669,6 +3733,7 @@ async function allocatePaymentPurchaseOverage(input: {
 }): Promise<{
   allocations: readonly {
     purchaseId: string
+    sourceKind?: 'purchase' | 'transfer'
     memberId: string
     amountMinor: bigint
   }[]
@@ -3718,7 +3783,7 @@ async function allocatePaymentPurchaseOverage(input: {
   // otherwise a buy made on an already-settled plan closes itself for free.
   const planAccountedPurchaseIds = new Set(utilityPlan?.accountedPurchaseIds ?? [])
   const isPurchaseCoveredByPlan = (
-    entry: FinanceDashboardLedgerEntry & { kind: 'purchase' }
+    entry: FinanceDashboardLedgerEntry & { kind: 'purchase' | 'transfer' }
   ): boolean => {
     if (!utilityPlan) {
       return true
@@ -3748,7 +3813,7 @@ async function allocatePaymentPurchaseOverage(input: {
   }
   const memberOutstandingMinor = (
     entry: FinanceDashboardLedgerEntry & {
-      kind: 'purchase'
+      kind: 'purchase' | 'transfer'
       outstandingByMember: readonly { memberId: string; amount: Money }[]
     }
   ): bigint => {
@@ -3759,9 +3824,11 @@ async function allocatePaymentPurchaseOverage(input: {
   const isPurchaseEntry = (
     entry: FinanceDashboardLedgerEntry
   ): entry is FinanceDashboardLedgerEntry & {
-    kind: 'purchase'
+    kind: 'purchase' | 'transfer'
     outstandingByMember: readonly { memberId: string; amount: Money }[]
-  } => entry.kind === 'purchase' && Array.isArray(entry.outstandingByMember)
+  } =>
+    (entry.kind === 'purchase' || entry.kind === 'transfer') &&
+    Array.isArray(entry.outstandingByMember)
 
   let remainingMinor: bigint
 
@@ -3817,6 +3884,7 @@ async function allocatePaymentPurchaseOverage(input: {
 
   const allocations: {
     purchaseId: string
+    sourceKind?: 'purchase' | 'transfer'
     memberId: string
     amountMinor: bigint
   }[] = []
@@ -3835,6 +3903,7 @@ async function allocatePaymentPurchaseOverage(input: {
 
     allocations.push({
       purchaseId: entry.id,
+      ...(entry.kind === 'transfer' ? { sourceKind: 'transfer' as const } : {}),
       memberId: input.memberId,
       amountMinor: allocatedMinor
     })
@@ -3853,6 +3922,7 @@ async function allocatePaymentPurchaseOverage(input: {
 }
 
 export interface FinanceCommandService {
+  repayments: ReturnType<typeof createRepaymentService>
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   listMembers(): Promise<readonly FinanceMemberRecord[]>
   listCycleHistory(): Promise<readonly FinanceCycleHistoryEntry[]>
@@ -4308,6 +4378,30 @@ export function createFinanceCommandService(
   }
 
   const service: FinanceCommandService = {
+    repayments: createRepaymentService({
+      repository: rawDependencies.repository,
+      async context() {
+        operationCache.reset()
+        const [settings, members] = await Promise.all([
+          householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
+          householdConfigurationRepository.listHouseholdMembers(dependencies.householdId)
+        ])
+        const cycle = await getDefaultOpenCycle(dependencies)
+        return {
+          currency: cycle?.currency ?? settings.settlementCurrency,
+          timezone: settings.timezone,
+          members
+        }
+      },
+      async credit(memberId) {
+        await ensureExpectedCycle()
+        const dashboard = await buildFinanceDashboard(rawDependencies)
+        const offset =
+          dashboard?.members.find((member) => member.memberId === memberId)?.purchaseOffset
+            .amountMinor ?? 0n
+        return offset < 0n ? -offset : 0n
+      }
+    }),
     getMemberByTelegramUserId(telegramUserId) {
       return repository.getMemberByTelegramUserId(telegramUserId)
     },

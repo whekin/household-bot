@@ -1,3 +1,4 @@
+import type { RepaymentRepository } from './repayments'
 import type { CurrencyCode, Instant } from '@household/domain'
 
 export interface FinanceMemberRecord {
@@ -297,7 +298,7 @@ export interface SettlementSnapshotRecord {
   lines: readonly SettlementSnapshotLineRecord[]
 }
 
-export interface FinanceRepository {
+export interface FinanceRepository extends RepaymentRepository {
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   listMembers(): Promise<readonly FinanceMemberRecord[]>
   listCycles(): Promise<readonly FinanceCycleRecord[]>
@@ -404,6 +405,7 @@ export interface FinanceRepository {
     resolutionMethod: 'utilities_plan' | 'rent_plan'
     resolutionPlanId?: string | null
     allocations: readonly {
+      sourceKind?: 'purchase' | 'transfer'
       purchaseId: string
       memberId: string
       amountMinor: bigint

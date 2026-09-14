@@ -15,6 +15,7 @@ import {
   nowInstant,
   type CurrencyCode
 } from '@household/domain'
+import { createRepaymentRepository } from './repayment-repository'
 import { randomUUID } from 'node:crypto'
 
 function toCurrencyCode(raw: string): CurrencyCode {
@@ -395,6 +396,7 @@ export function createDbFinanceRepository(
   }
 
   const repository: FinanceRepository = {
+    ...createRepaymentRepository(db, householdId),
     async getMemberByTelegramUserId(telegramUserId) {
       const rows = await db
         .select({
@@ -1325,7 +1327,8 @@ export function createDbFinanceRepository(
         await tx.insert(schema.paymentPurchaseAllocations).values(
           input.allocations.map((allocation) => ({
             paymentRecordId: input.paymentRecordId,
-            purchaseId: allocation.purchaseId,
+            purchaseId: allocation.sourceKind === 'transfer' ? null : allocation.purchaseId,
+            transferId: allocation.sourceKind === 'transfer' ? allocation.purchaseId : null,
             memberId: allocation.memberId,
             amountMinor: allocation.amountMinor,
             resolutionCycleId: input.cycleId,
@@ -2090,7 +2093,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.paymentPurchaseAllocations.id,
           paymentRecordId: schema.paymentPurchaseAllocations.paymentRecordId,
-          purchaseId: schema.paymentPurchaseAllocations.purchaseId,
+          purchaseId: sql<string>`coalesce(${schema.paymentPurchaseAllocations.purchaseId}, ${schema.paymentPurchaseAllocations.transferId})`,
           memberId: schema.paymentPurchaseAllocations.memberId,
           amountMinor: schema.paymentPurchaseAllocations.amountMinor,
           resolutionCycleId: schema.paymentPurchaseAllocations.resolutionCycleId,

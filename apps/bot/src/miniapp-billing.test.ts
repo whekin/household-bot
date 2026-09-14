@@ -15,6 +15,7 @@ import type {
 
 import {
   createMiniAppAddPaymentHandler,
+  createMiniAppRepaymentsHandler,
   createMiniAppAddPurchaseHandler,
   createMiniAppAddUtilityBillHandler,
   createMiniAppBillingCycleHandler,
@@ -370,6 +371,7 @@ function createFinanceServiceStub(): FinanceCommandService & {
     deletedVendorPaymentFactIds,
     resolvedUtilityPlans: [],
     utilityVendorPayments: [],
+    repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async () => null,
     listMembers: async () => [],
     listCycleHistory: async () => [],
@@ -2194,5 +2196,89 @@ describe('utility billing action handlers', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ ok: true, applied: true })
     expect(calls).toEqual(['apply'])
+  })
+})
+
+describe('mini app repayments', () => {
+  test('takes household and actor from the authenticated session, ignoring client impersonation fields', async () => {
+    const repository = onboardingRepository()
+    const original = repository.listHouseholdMembersByTelegramUserId
+    repository.listHouseholdMembersByTelegramUserId = async (id) =>
+      (await original(id)).map((member) => ({ ...member, isAdmin: false }))
+    const calls: unknown[] = []
+    const handler = createMiniAppRepaymentsHandler({
+      allowedOrigins: ['http://localhost:5173'],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository }),
+      financeServiceForHousehold: (householdId) => {
+        calls.push(householdId)
+        return {
+          ...createFinanceServiceStub(),
+          repayments: {
+            execute: async (actor, command) => {
+              calls.push({ actor, command })
+              return []
+            }
+          }
+        }
+      }
+    })
+    const response = await handler.handler(
+      new Request('http://localhost/api/miniapp/repayments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          initData: initData(),
+          action: 'transfer',
+          id: '00000000-0000-4000-8000-000000000002',
+          fromMemberId: 'someone-else',
+          householdId: 'foreign-house',
+          toMemberId: 'member-2',
+          amountMajor: '50',
+          occurredOn: '2026-01-01'
+        })
+      })
+    )
+    expect(response.status).toBe(200)
+    expect(calls).toEqual([
+      'household-1',
+      {
+        actor: 'member-123456',
+        command: {
+          action: 'transfer',
+          id: '00000000-0000-4000-8000-000000000002',
+          toMemberId: 'member-2',
+          amountMajor: '50',
+          occurredOn: '2026-01-01'
+        }
+      }
+    ])
+  })
+  test('rejects unauthenticated requests and malformed commands before executing finance actions', async () => {
+    let executed = false
+    const handler = createMiniAppRepaymentsHandler({
+      allowedOrigins: [],
+      botToken: 'test-bot-token',
+      onboardingService: createHouseholdOnboardingService({ repository: onboardingRepository() }),
+      financeServiceForHousehold: () => {
+        executed = true
+        return createFinanceServiceStub()
+      }
+    })
+    for (const body of [
+      { action: 'list' },
+      { initData: 'invalid', action: 'list' },
+      { initData: initData(), action: 'transfer', id: 'x', amountMajor: 50 }
+    ]) {
+      const response = await handler.handler(
+        new Request('http://localhost/api/miniapp/repayments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+      )
+      expect(response.status).toBeGreaterThanOrEqual(400)
+    }
+    expect(executed).toBe(false)
   })
 })

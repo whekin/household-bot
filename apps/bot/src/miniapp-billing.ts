@@ -1,3 +1,4 @@
+import { RepaymentError, type RepaymentCommand } from '@household/application'
 import type {
   AdHocNotificationService,
   FinanceCommandService,
@@ -3013,6 +3014,84 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)
       } catch (error) {
         return miniAppErrorResponse(error, origin, options.logger)
+      }
+    }
+  }
+}
+
+export function createMiniAppRepaymentsHandler(options: {
+  allowedOrigins: readonly string[]
+  botToken: string
+  onboardingService: HouseholdOnboardingService
+  financeServiceForHousehold: (householdId: string) => FinanceCommandService
+}): { handler: (request: Request) => Promise<Response> } {
+  const sessionService = createMiniAppSessionService(options)
+  return {
+    handler: async (request) => {
+      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
+      if (request.method === 'OPTIONS') return miniAppJsonResponse({ ok: true }, 204, origin)
+      if (request.method !== 'POST')
+        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
+      try {
+        const auth = await authenticateMemberSession(
+          request.clone() as Request,
+          sessionService,
+          origin
+        )
+        if (auth instanceof Response) return auth
+        const body: unknown = await request.json()
+        if (!body || typeof body !== 'object' || Array.isArray(body))
+          throw new RepaymentError('Invalid repayment command')
+        const payload = body as Record<string, unknown>
+        const action = payload.action
+        const id = payload.id
+        let command: RepaymentCommand
+        if (action === 'list') command = { action }
+        else if (typeof id !== 'string') throw new RepaymentError('Missing repayment identifier')
+        else if (action === 'confirm' || action === 'cancel' || action === 'close')
+          command = { action, id }
+        else if (action === 'request' && typeof payload.amountMajor === 'string')
+          command = { action, id, amountMajor: payload.amountMajor }
+        else if (
+          action === 'transfer' &&
+          typeof payload.amountMajor === 'string' &&
+          typeof payload.toMemberId === 'string' &&
+          typeof payload.occurredOn === 'string' &&
+          (payload.requestId === undefined || typeof payload.requestId === 'string')
+        )
+          command = {
+            action,
+            id,
+            amountMajor: payload.amountMajor,
+            toMemberId: payload.toMemberId,
+            occurredOn: payload.occurredOn,
+            ...(typeof payload.requestId === 'string' ? { requestId: payload.requestId } : {})
+          }
+        else throw new RepaymentError('Invalid repayment command')
+        const service = options.financeServiceForHousehold(auth.member.householdId)
+        const records = await service.repayments.execute(auth.member.id, command)
+        return miniAppJsonResponse(
+          {
+            ok: true,
+            authorized: true,
+            repayments: records.map((record) => ({
+              ...record,
+              amountMinor: record.amountMinor.toString()
+            }))
+          },
+          200,
+          origin
+        )
+      } catch (error) {
+        if (
+          error instanceof RepaymentError ||
+          error instanceof RangeError ||
+          error instanceof SyntaxError
+        )
+          return miniAppJsonResponse({ ok: false, error: error.message }, 400, origin)
+        const validation = toMiniAppClientValidationError(error)
+        if (validation) return miniAppJsonResponse({ ok: false, error: validation }, 400, origin)
+        return miniAppErrorResponse(error, origin)
       }
     }
   }
