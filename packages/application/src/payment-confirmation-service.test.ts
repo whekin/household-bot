@@ -10,6 +10,7 @@ import type {
 } from '@household/ports'
 
 import { createPaymentConfirmationService } from './payment-confirmation-service'
+import type { FinanceDashboard } from './finance-command-service'
 
 const settingsRepository: Pick<HouseholdConfigurationRepository, 'getHouseholdBillingSettings'> = {
   async getHouseholdBillingSettings(householdId) {
@@ -43,6 +44,7 @@ const exchangeRateProvider: ExchangeRateProvider = {
 
 function createRepositoryStub(): Pick<
   FinanceRepository,
+  | 'getCycleByPeriod'
   | 'getOpenCycle'
   | 'getLatestCycle'
   | 'getCycleExchangeRate'
@@ -53,6 +55,10 @@ function createRepositoryStub(): Pick<
 } {
   return {
     saved: [],
+    async getCycleByPeriod(period) {
+      const cycle = await this.getOpenCycle()
+      return cycle?.period === period ? cycle : null
+    },
     async getOpenCycle() {
       return {
         id: 'cycle-1',
@@ -101,6 +107,69 @@ function createRepositoryStub(): Pick<
 }
 
 describe('createPaymentConfirmationService', () => {
+  test.each(['2026-02', '2026-04'])(
+    'records the confirmed period %s even when another cycle is open',
+    async (period) => {
+      const repository = createRepositoryStub()
+      const selectedCycle = { id: `cycle-${period}`, period, currency: 'GEL' as const }
+      repository.getCycleByPeriod = async (requested) =>
+        requested === period ? selectedCycle : null
+      const requestedPeriods: (string | undefined)[] = []
+      const service = createPaymentConfirmationService({
+        householdId: 'household-1',
+        repository,
+        householdConfigurationRepository: settingsRepository,
+        exchangeRateProvider,
+        financeService: {
+          getMemberByTelegramUserId: async () => null,
+          generateDashboard: async (requested) => {
+            requestedPeriods.push(requested)
+            return {
+              period,
+              currency: 'GEL',
+              members: [
+                {
+                  memberId: 'member-1',
+                  rentShare: Money.fromMajor('100', 'GEL'),
+                  utilityShare: Money.zero('GEL'),
+                  purchaseOffset: Money.zero('GEL'),
+                  remaining: Money.fromMajor('100', 'GEL')
+                }
+              ]
+            } as unknown as FinanceDashboard
+          }
+        }
+      })
+      const message = {
+        period,
+        memberId: 'member-1',
+        senderTelegramUserId: '123',
+        rawText: 'оплатил аренду 100 лари',
+        telegramChatId: '-1001',
+        telegramMessageId: '10',
+        telegramThreadId: '4',
+        telegramUpdateId: '200',
+        attachmentCount: 0,
+        messageSentAt: instantFromIso('2026-03-11T09:00:00Z')
+      }
+      expect((await service.submit(message)).status).toBe('recorded')
+      expect(requestedPeriods).toEqual([period])
+      expect(repository.saved[0]?.cycleId).toBe(selectedCycle.id)
+      const saved = repository.saved[0]
+      if (saved?.status !== 'recorded') throw new Error('Payment was not recorded')
+      expect(saved.recordedAt).toEqual(message.messageSentAt)
+      expect(repository.saved[0]?.amountMinor).toBe(10000n)
+
+      repository.getCycleByPeriod = async () => null
+      expect(await service.submit({ ...message, telegramMessageId: '11' })).toEqual({
+        status: 'needs_review',
+        reason: 'cycle_not_found'
+      })
+      expect(repository.saved.at(-1)?.cycleId).toBeNull()
+      expect(requestedPeriods).toEqual([period])
+    }
+  )
+
   test('resolves rent confirmations against the current member due', async () => {
     const repository = createRepositoryStub()
     const service = createPaymentConfirmationService({

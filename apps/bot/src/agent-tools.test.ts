@@ -337,6 +337,38 @@ function createAllMembersPaymentToolContext(input: {
 }
 
 describe('executeAgentTool propose_payment', () => {
+  test('passes an explicit period through billing and the stored confirmation card', async () => {
+    const replies: Array<{ text: string; payload: unknown }> = []
+    const pending: TelegramPendingActionRecord[] = []
+    const context = createAllMembersPaymentToolContext({
+      rawText: 'Оплатил коммуналку за июль',
+      replies,
+      pending
+    })
+    const base = context.financeService.generateDashboard
+    const requested: (string | undefined)[] = []
+    context.financeService.generateDashboard = async (period) => {
+      requested.push(period)
+      const dashboard = await base()
+      if (!dashboard) return null
+      return {
+        ...dashboard,
+        period: '2026-07',
+        paymentPeriods: (dashboard.paymentPeriods ?? []).map((entry) => ({
+          ...entry,
+          period: '2026-07'
+        }))
+      }
+    }
+    const result = await executeAgentTool(context, {
+      name: 'propose_payment',
+      arguments: { kind: 'utilities', payer_member_id: 'alisa', period: '2026-07' }
+    })
+    expect((result.result as { status: string }).status).toBe('card_posted')
+    expect(requested).toEqual(['2026-07'])
+    expect(pending[0]?.payload.period).toBe('2026-07')
+    expect(replies[0]?.text).toContain('2026-07')
+  })
   test('expands "за всех" to every other member even when the model omits covered_member_ids', async () => {
     const replies: Array<{ text: string; payload: unknown }> = []
     const pending: TelegramPendingActionRecord[] = []

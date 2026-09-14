@@ -438,6 +438,8 @@ export const ruBotTranslations: BotTranslationCatalog = {
       displayName
         ? `✅ ${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта для ${displayName}.`
         : `✅ ${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта.`,
+    settledPeriod: (kind, period, askPeriod, displayName) =>
+      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${period}${displayName ? ` у ${displayName}` : ''} уже оплачена.${askPeriod ? ' За какой период этот новый платёж?' : ''}`,
     purchaseRedirect:
       '🛒 Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
     breakdownHeading: '📊 <b>Как посчитано</b>',

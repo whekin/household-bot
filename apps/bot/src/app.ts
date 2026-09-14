@@ -283,8 +283,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
         scheduledDispatchService ?? undefined,
         {
           resolveEffectiveFromPeriod: async (householdId) => {
-            const repository = financeRepositoryForHousehold(householdId)
-            const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
+            const cycle = await financeServiceForHousehold(householdId).getOpenCycle()
             return cycle?.period ?? null
           }
         },

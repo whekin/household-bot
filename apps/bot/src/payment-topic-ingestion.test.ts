@@ -188,6 +188,7 @@ function createFinanceService(): FinanceCommandService {
     ],
     listCycleHistory: async () => [],
     getOpenCycle: async () => null,
+    preparePaymentPeriod: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',
@@ -437,6 +438,7 @@ function createPaymentConfirmationService(
   resultForMember?: (memberId: string | null | undefined) => PaymentConfirmationSubmitResult
 ): PaymentConfirmationService & {
   submitted: Array<{
+    period?: string
     memberId?: string | null
     rawText: string
     parseText?: string | null
@@ -449,6 +451,7 @@ function createPaymentConfirmationService(
     submitted: [],
     async submit(input) {
       this.submitted.push({
+        ...(input.period ? { period: input.period } : {}),
         memberId: input.memberId ?? null,
         rawText: input.rawText,
         parseText: input.parseText ?? null,
@@ -640,70 +643,98 @@ describe('createAgentPaymentProposal', () => {
 })
 
 describe('publishAgentPaymentProposal', () => {
-  test('posts a multi-member card and multi-confirm records every selected member', async () => {
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const bot = createAgentTestBot(calls)
-    const promptRepository = createPromptRepository()
-    const financeService = createMultiMemberRentFinanceService()
-    const paymentService = createPaymentConfirmationService()
-    const householdRepository = createHouseholdRepository() as never
-
-    const proposal = await createAgentPaymentProposal({
-      householdId: 'household-1',
-      payerMemberId: 'member-1',
-      additionalMemberIds: ['member-2'],
-      kind: 'rent',
-      explicitAmount: null,
-      perMemberAmount: null,
-      financeService,
-      householdConfigurationRepository: householdRepository
-    })
-    expect(proposal.status).toBe('multi_member_proposal')
-
-    bot.on('message', async (ctx) => {
-      await publishAgentPaymentProposal({
-        ctx,
-        locale: 'ru',
-        record: agentPaymentRecord('Закинул за себя и за Диму'),
-        proposal,
-        payerTelegramUserId: '10002',
-        payerDisplayName: 'Stas',
-        isThirdParty: false,
-        promptRepository
-      })
-    })
-    registerPaymentTopicCallbacks(
-      bot,
-      householdRepository,
-      promptRepository,
-      () => financeService,
-      () => paymentService
-    )
-
-    await bot.handleUpdate(paymentUpdate('Закинул за себя и за Диму') as never)
-
-    const proposalMessage = calls.find((call) => call.method === 'sendMessage')
-    expect(proposalMessage).toBeDefined()
-    const markup = (
-      proposalMessage!.payload as {
-        reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> }
+  test.each([false, true])(
+    'multi-confirm records every selected member (rent queue hidden: %s)',
+    async (hideQueue) => {
+      const calls: Array<{ method: string; payload: unknown }> = []
+      const bot = createAgentTestBot(calls)
+      const promptRepository = createPromptRepository()
+      const financeService = createMultiMemberRentFinanceService()
+      if (hideQueue) {
+        const generate = financeService.generateDashboard
+        financeService.generateDashboard = async () => {
+          const dashboard = await generate()
+          if (!dashboard) return null
+          const rent = dashboard.paymentPeriods
+            ?.find((period) => period.period === dashboard.period)
+            ?.kinds.find((kind) => kind.kind === 'rent')
+          dashboard.rentBillingState.memberSummaries = (rent?.unresolvedMembers ?? []).map(
+            (member) => ({
+              memberId: member.memberId,
+              displayName: member.displayName,
+              due: member.baseDue,
+              paid: member.paid,
+              remaining: member.remaining
+            })
+          )
+          dashboard.paymentPeriods = (dashboard.paymentPeriods ?? []).map((period) => ({
+            ...period,
+            kinds: period.kinds.map((kind) => ({ ...kind, unresolvedMembers: [] }))
+          }))
+          return dashboard
+        }
       }
-    ).reply_markup
-    const callbackData = markup.inline_keyboard.flat().map((button) => button.callback_data)
-    const proposalId =
-      proposal.status === 'multi_member_proposal' ? proposal.proposal.proposalId : ''
-    expect(callbackData).toContain(`pt:mc:${proposalId}`)
+      const paymentService = createPaymentConfirmationService()
+      const householdRepository = createHouseholdRepository() as never
 
-    await bot.handleUpdate(paymentCallbackUpdate(`pt:mc:${proposalId}`, 10002) as never)
+      const proposal = await createAgentPaymentProposal({
+        householdId: 'household-1',
+        payerMemberId: 'member-1',
+        additionalMemberIds: ['member-2'],
+        kind: 'rent',
+        explicitAmount: null,
+        perMemberAmount: null,
+        financeService,
+        householdConfigurationRepository: householdRepository
+      })
+      expect(proposal.status).toBe('multi_member_proposal')
 
-    expect(paymentService.submitted.map((entry) => entry.memberId).sort()).toEqual([
-      'member-1',
-      'member-2'
-    ])
-    expect(
-      paymentService.submitted.every((entry) => entry.parseText === 'paid rent 469.00 GEL')
-    ).toBe(true)
-  })
+      bot.on('message', async (ctx) => {
+        await publishAgentPaymentProposal({
+          ctx,
+          locale: 'ru',
+          record: agentPaymentRecord('Закинул за себя и за Диму'),
+          proposal,
+          payerTelegramUserId: '10002',
+          payerDisplayName: 'Stas',
+          isThirdParty: false,
+          promptRepository
+        })
+      })
+      registerPaymentTopicCallbacks(
+        bot,
+        householdRepository,
+        promptRepository,
+        () => financeService,
+        () => paymentService
+      )
+
+      await bot.handleUpdate(paymentUpdate('Закинул за себя и за Диму') as never)
+
+      const proposalMessage = calls.find((call) => call.method === 'sendMessage')
+      expect(proposalMessage).toBeDefined()
+      const markup = (
+        proposalMessage!.payload as {
+          reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> }
+        }
+      ).reply_markup
+      const callbackData = markup.inline_keyboard.flat().map((button) => button.callback_data)
+      const proposalId =
+        proposal.status === 'multi_member_proposal' ? proposal.proposal.proposalId : ''
+      expect(callbackData).toContain(`pt:mc:${proposalId}`)
+
+      await bot.handleUpdate(paymentCallbackUpdate(`pt:mc:${proposalId}`, 10002) as never)
+
+      expect(paymentService.submitted.map((entry) => entry.memberId).sort()).toEqual([
+        'member-1',
+        'member-2'
+      ])
+      expect(
+        paymentService.submitted.every((entry) => entry.parseText === 'paid rent 469.00 GEL')
+      ).toBe(true)
+      expect(paymentService.submitted.map((entry) => entry.period)).toEqual(['2026-05', '2026-05'])
+    }
+  )
 
   test('multi-confirm marks planned utilities paid for recorded members', async () => {
     const calls: Array<{ method: string; payload: unknown }> = []
@@ -907,9 +938,12 @@ describe('publishAgentPaymentProposal', () => {
 
     expect(paymentService.submitted).toHaveLength(1)
     expect(paymentService.submitted[0]?.memberId).toBe('member-2')
+    expect(paymentService.submitted[0]?.period).toBe(
+      proposal.status === 'proposal' ? proposal.payload.period : undefined
+    )
   })
 
-  test('replies with the fixed already-settled string instead of a card', async () => {
+  test('asks for the payment period when default rent is settled', async () => {
     const calls: Array<{ method: string; payload: unknown }> = []
     const bot = createAgentTestBot(calls)
     const promptRepository = createPromptRepository()
@@ -919,7 +953,12 @@ describe('publishAgentPaymentProposal', () => {
         ctx,
         locale: 'ru',
         record: agentPaymentRecord('оплатил аренду'),
-        proposal: { status: 'already_settled', kind: 'rent' },
+        proposal: {
+          status: 'already_settled',
+          kind: 'rent',
+          period: '2026-06',
+          needsPeriodClarification: true
+        },
         payerTelegramUserId: '10002',
         payerDisplayName: 'Stas',
         isThirdParty: false,
@@ -931,6 +970,8 @@ describe('publishAgentPaymentProposal', () => {
     await bot.handleUpdate(paymentUpdate('оплатил аренду') as never)
 
     const reply = calls.find((call) => call.method === 'sendMessage')
-    expect((reply!.payload as { text: string }).text).toBe('✅ Аренда уже закрыта.')
+    expect((reply!.payload as { text: string }).text).toBe(
+      'Аренда за 2026-06 уже оплачена. За какой период этот новый платёж?'
+    )
   })
 })

@@ -73,14 +73,30 @@ function computeInputHash(payload: object): string {
 }
 
 async function getCycleByPeriodOrLatest(
-  repository: FinanceRepository,
+  dependencies: FinanceCommandServiceDependencies,
   periodArg?: string
 ): Promise<FinanceCycleRecord | null> {
+  const { repository } = dependencies
   if (periodArg) {
     return repository.getCycleByPeriod(BillingPeriod.fromString(periodArg).toString())
   }
 
-  return (await repository.getOpenCycle()) ?? repository.getLatestCycle()
+  return (await getDefaultOpenCycle(dependencies)) ?? repository.getLatestCycle()
+}
+
+async function getDefaultOpenCycle(
+  dependencies: FinanceCommandServiceDependencies
+): Promise<FinanceCycleRecord | null> {
+  const openCycle = await dependencies.repository.getOpenCycle()
+  if (!openCycle) return null
+  const settings = await dependencies.householdConfigurationRepository.getHouseholdBillingSettings(
+    dependencies.householdId
+  )
+  return (
+    (await dependencies.repository.getCycleByPeriod(
+      expectedOpenCyclePeriod(settings, nowInstant()).toString()
+    )) ?? openCycle
+  )
 }
 
 function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
@@ -106,7 +122,7 @@ function periodFromLocalDate(localDate: Temporal.PlainDate): BillingPeriod {
   return BillingPeriod.fromString(`${localDate.year}-${String(localDate.month).padStart(2, '0')}`)
 }
 
-function expectedOpenCyclePeriod(
+export function expectedOpenCyclePeriod(
   settings: {
     rentDueDay: number
     timezone: string
@@ -2389,8 +2405,11 @@ function resolveBillingStage(input: {
   return rentOpen ? 'rent' : 'idle'
 }
 
-async function invalidateCurrentUtilityBillingPlan(repository: FinanceRepository): Promise<void> {
-  const cycle = (await repository.getOpenCycle()) ?? (await repository.getLatestCycle())
+async function invalidateCurrentUtilityBillingPlan(
+  dependencies: FinanceCommandServiceDependencies
+): Promise<void> {
+  const { repository } = dependencies
+  const cycle = await getCycleByPeriodOrLatest(dependencies)
   if (!cycle) {
     return
   }
@@ -3125,11 +3144,11 @@ async function buildFinanceDashboard(
     previewPlanRefresh?: boolean
   } = {}
 ): Promise<FinanceDashboard | null> {
-  const cycle = await getCycleByPeriodOrLatest(dependencies.repository, periodArg)
+  const cycle = await getCycleByPeriodOrLatest(dependencies, periodArg)
   if (!cycle) {
     return null
   }
-  const openCycle = await dependencies.repository.getOpenCycle()
+  const openCycle = await getDefaultOpenCycle(dependencies)
   const isOpenCycle = openCycle?.id === cycle.id
 
   const [members, memberPresenceDays, rentRule, settings] = await Promise.all([
@@ -3839,6 +3858,8 @@ export interface FinanceCommandService {
   listCycleHistory(): Promise<readonly FinanceCycleHistoryEntry[]>
   getOpenCycle(): Promise<FinanceCycleRecord | null>
   ensureExpectedCycle(referenceInstant?: Temporal.Instant): Promise<FinanceCycleRecord>
+  /** Prepare current/next-period rent for an advance payment without advancing the default period. */
+  preparePaymentPeriod(period: string): Promise<FinanceDashboard | null>
   getAdminCycleState(periodArg?: string): Promise<FinanceAdminCycleState>
   openCycle(periodArg: string, currencyArg?: string): Promise<FinanceCycleRecord>
   closeCycle(periodArg?: string): Promise<FinanceCycleRecord | null>
@@ -4298,7 +4319,7 @@ export function createFinanceCommandService(
     async listCycleHistory() {
       const [cycles, openCycle, members, purchases] = await Promise.all([
         repository.listCycles(),
-        repository.getOpenCycle(),
+        getDefaultOpenCycle(dependencies),
         repository.listMembers(),
         repository.listParsedPurchases()
       ])
@@ -4330,11 +4351,33 @@ export function createFinanceCommandService(
     },
 
     getOpenCycle() {
-      return repository.getOpenCycle()
+      return getDefaultOpenCycle(dependencies)
     },
 
     ensureExpectedCycle(referenceInstant) {
       return ensureExpectedCycle(referenceInstant)
+    },
+
+    async preparePaymentPeriod(periodArg) {
+      const period = BillingPeriod.fromString(periodArg).toString()
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
+      const expected = expectedOpenCyclePeriod(settings, nowInstant())
+      const existing = await repository.getCycleByPeriod(period)
+      if (!existing && period !== expected.toString() && period !== expected.next().toString())
+        return null
+
+      // Keep the normal cycle available before preparing an upcoming one. All
+      // default reads continue to select it by the household date, not creation order.
+      await ensureExpectedCycle()
+      await ensureCycleForPeriod(settings, period)
+      if (settings.rentAmountMinor !== null) {
+        await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency, {
+          overwriteExisting: false
+        })
+      }
+      return materializeDashboard(period)
     },
 
     async getAdminCycleState(periodArg) {
@@ -4387,7 +4430,7 @@ export function createFinanceCommandService(
     },
 
     async closeCycle(periodArg) {
-      const cycle = await getCycleByPeriodOrLatest(repository, periodArg)
+      const cycle = await getCycleByPeriodOrLatest(dependencies, periodArg)
       if (!cycle) {
         return null
       }
@@ -4522,7 +4565,7 @@ export function createFinanceCommandService(
       if (!updated) {
         return null
       }
-      await invalidateCurrentUtilityBillingPlan(repository)
+      await invalidateCurrentUtilityBillingPlan(dependencies)
 
       return {
         billId: updated.id,
@@ -4534,7 +4577,7 @@ export function createFinanceCommandService(
     async deleteUtilityBill(billId) {
       const deleted = await repository.deleteUtilityBill(billId)
       if (deleted) {
-        await invalidateCurrentUtilityBillingPlan(repository)
+        await invalidateCurrentUtilityBillingPlan(dependencies)
       }
 
       return deleted
@@ -4603,7 +4646,7 @@ export function createFinanceCommandService(
         return null
       }
 
-      await invalidateCurrentUtilityBillingPlan(repository)
+      await invalidateCurrentUtilityBillingPlan(dependencies)
 
       return {
         purchaseId: updated.id,
@@ -4634,7 +4677,7 @@ export function createFinanceCommandService(
         members
       })
 
-      const openCycle = await repository.getOpenCycle()
+      const openCycle = await getDefaultOpenCycle(dependencies)
       if (!openCycle) {
         throw new DomainError(DOMAIN_ERROR_CODE.INVALID_SETTLEMENT_INPUT, 'No open billing cycle')
       }
@@ -4660,7 +4703,7 @@ export function createFinanceCommandService(
           : {})
       })
 
-      await invalidateCurrentUtilityBillingPlan(repository)
+      await invalidateCurrentUtilityBillingPlan(dependencies)
 
       return {
         purchaseId: created.id,
@@ -4672,7 +4715,7 @@ export function createFinanceCommandService(
     async deletePurchase(purchaseId) {
       const deleted = await repository.deleteParsedPurchase(purchaseId)
       if (deleted) {
-        await invalidateCurrentUtilityBillingPlan(repository)
+        await invalidateCurrentUtilityBillingPlan(dependencies)
       }
 
       return deleted
@@ -4689,7 +4732,7 @@ export function createFinanceCommandService(
         actorTelegramUserId
       )
       if (result.status === 'updated') {
-        await invalidateCurrentUtilityBillingPlan(repository)
+        await invalidateCurrentUtilityBillingPlan(dependencies)
       }
 
       return result
@@ -5388,7 +5431,7 @@ export function createFinanceCommandService(
       const [cycle, openCycle, settings, members, presenceDays, utilityCategories] =
         await Promise.all([
           repository.getCycleByPeriod(dashboard.period),
-          repository.getOpenCycle(),
+          getDefaultOpenCycle(dependencies),
           householdConfigurationRepository.getHouseholdBillingSettings(dependencies.householdId),
           householdConfigurationRepository.listHouseholdMembers(dependencies.householdId),
           householdConfigurationRepository.listHouseholdMemberPresenceDays?.(
@@ -5864,7 +5907,7 @@ export function createFinanceCommandService(
       }
 
       // Use the current open cycle for resolution
-      const cycle = await dependencies.repository.getOpenCycle()
+      const cycle = await getDefaultOpenCycle(dependencies)
       if (!cycle) {
         throw new Error('No open billing cycle')
       }

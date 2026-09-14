@@ -1,5 +1,6 @@
 import {
   buildMemberPaymentGuidance,
+  paymentKindSummaryForRecording,
   type FinanceCommandService,
   type FinanceDashboard
 } from '@household/application'
@@ -265,19 +266,35 @@ export function paymentKindDueDate(
   return `${period}-${String(Math.min(dueDay, daysInMonth)).padStart(2, '0')}`
 }
 
-async function getBillStatus(context: AgentToolContext): Promise<unknown> {
+async function getBillStatus(
+  context: AgentToolContext,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const period = readStringArgument(args, 'period')
+  if (args.period !== undefined) {
+    try {
+      BillingPeriod.fromString(period ?? '')
+    } catch {
+      return { error: 'invalid_period', instruction: 'Ask for a billing period in YYYY-MM format.' }
+    }
+  }
   const [dashboard, settings] = await Promise.all([
-    context.financeService.generateDashboard(),
+    context.financeService
+      .generateDashboard(period ?? undefined)
+      .then((dashboard) =>
+        dashboard || !period ? dashboard : context.financeService.preparePaymentPeriod(period)
+      ),
     context.householdConfigurationRepository.getHouseholdBillingSettings(context.householdId)
   ])
   if (!dashboard) {
-    return { error: 'no_open_billing_cycle' }
+    return { error: period ? 'payment_period_unavailable' : 'no_open_billing_cycle' }
   }
 
   const today = nowInstant().toZonedDateTimeISO(dashboard.timezone).toPlainDate().toString()
   const paymentPeriods = (dashboard.paymentPeriods ?? [])
     .map((period) => {
       const kinds = period.kinds
+        .map((kind) => paymentKindSummaryForRecording(dashboard, period.period, kind.kind) ?? kind)
         .filter((kind) => period.isCurrentPeriod || kind.totalRemaining.amountMinor > 0n)
         .map((kind) => {
           const dueDate =
@@ -665,6 +682,7 @@ async function proposePayment(
     payerMemberId,
     additionalMemberIds: coveredMemberIds,
     kind: readPaymentKindArgument(args, 'kind'),
+    ...(args.period !== undefined ? { period: readStringArgument(args, 'period') ?? '' } : {}),
     explicitAmount,
     perMemberAmount,
     financeService: context.financeService,
@@ -1306,8 +1324,12 @@ export function agentToolDefinitions(input: {
     {
       name: 'get_bill_status',
       description:
-        'Payment status per billing period: rent/utilities due dates, overdue flags, and which members still owe what. Includes overdue past periods, not just the current one. Use for any question about who owes what or payment status.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false }
+        'Payment status per billing period: rent/utilities due dates, overdue flags, and which members still owe what. Optional period (YYYY-MM) selects that exact period, including upcoming rent. Omit for the date-based default. Includes overdue past periods.',
+      parameters: {
+        type: 'object',
+        properties: { period: { type: 'string' } },
+        additionalProperties: false
+      }
     },
     {
       name: 'get_payment_instructions',
@@ -1353,12 +1375,14 @@ export function agentToolDefinitions(input: {
         'Use when a member reports having paid. payer_member_id: who the payment belongs to (defaults to the sender; set it when the sender reports someone else paid, e.g. "Ion paid the rent").',
         'covered_member_ids: additional members whose shares the payer covered (e.g. "paid for me and Alisa" → sender is payer, Alisa in covered_member_ids; "paid for everyone" / "за всех" → every other member id here). Amounts default to each member\'s billed share.',
         'amount_major: only if the sender explicitly wrote the amount in THIS message.',
+        'period: YYYY-MM for the billing period the member identifies, including an advance payment. Paying early does not necessarily mean next month: use the due date and get_bill_status. If the default period is settled, ask which period the new payment covers; never silently advance it or change rent to utilities.',
         MEMBER_ID_NOTE
       ].join(' '),
       parameters: {
         type: 'object',
         properties: {
           kind: { type: 'string', enum: ['rent', 'utilities'] },
+          period: { type: 'string' },
           payer_member_id: { type: 'string' },
           covered_member_ids: { type: 'array', items: { type: 'string' } },
           amount_major: { type: 'string' },
@@ -1578,7 +1602,7 @@ export async function executeAgentTool(
 
   switch (call.name) {
     case 'get_bill_status':
-      return { result: await getBillStatus(context) }
+      return { result: await getBillStatus(context, call.arguments) }
     case 'get_payment_instructions':
       return { result: await getPaymentInstructions(context) }
     case 'get_household_info':

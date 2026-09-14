@@ -25,6 +25,153 @@ const householdConfigurationRepository = {
   getHouseholdBillingSettings: async () => settings
 } as unknown as HouseholdConfigurationRepository
 
+test('early rent targets the stated period even when default rent is settled', async () => {
+  const current = await financeServiceWithUtilityPlan().generateDashboard()
+  const next = await financeServiceWithUsdRent().generateDashboard()
+  if (!current || !next) throw new Error('Missing fixture')
+  next.period = '2026-07'
+  next.paymentPeriods = next.paymentPeriods!.map((period) => ({ ...period, period: '2026-07' }))
+  const requested: (string | undefined)[] = []
+  const financeService = {
+    ...financeServiceWithUsdRent(),
+    generateDashboard: async (period?: string) => {
+      requested.push(period)
+      return period === '2026-07' ? next : current
+    }
+  } as FinanceCommandService
+  const result = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'dima',
+    additionalMemberIds: [],
+    kind: 'rent',
+    period: '2026-07',
+    explicitAmount: null,
+    perMemberAmount: null,
+    financeService,
+    householdConfigurationRepository,
+    referenceInstant: Temporal.Instant.from('2026-07-11T12:00:00Z')
+  })
+  expect(result.status).toBe('proposal')
+  if (result.status !== 'proposal') return
+  expect(result.payload.period).toBe('2026-07')
+  expect(requested).toContain('2026-07')
+  expect(formatPaymentProposalText({ locale: 'en', surface: 'topic', proposal: result })).toContain(
+    '2026-07'
+  )
+})
+
+test('settled default rent asks for a period without silently selecting another', async () => {
+  const result = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'dima',
+    additionalMemberIds: [],
+    kind: 'rent',
+    explicitAmount: Money.fromMajor('100', 'GEL'),
+    perMemberAmount: null,
+    financeService: financeServiceWithUtilityPlan(),
+    householdConfigurationRepository
+  })
+  expect(result).toEqual({
+    status: 'already_settled',
+    kind: 'rent',
+    period: '2026-06',
+    needsPeriodClarification: true
+  })
+})
+
+test.each(['next', '2026-13', '', '2026-6'])(
+  'rejects invalid payment period %s before querying billing',
+  async (period) => {
+    const result = await createAgentPaymentProposal({
+      householdId: 'household-1',
+      payerMemberId: 'dima',
+      additionalMemberIds: [],
+      kind: 'rent',
+      period,
+      explicitAmount: null,
+      perMemberAmount: null,
+      financeService: {} as FinanceCommandService,
+      householdConfigurationRepository
+    })
+    expect(result).toEqual({ status: 'no_action', reason: 'invalid_period' })
+  }
+)
+
+test('early payment before the reminder stays in the stated month and preserves the amount', async () => {
+  const result = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'dima',
+    additionalMemberIds: [],
+    kind: 'rent',
+    period: '2026-06',
+    explicitAmount: Money.fromMajor('100', 'GEL'),
+    perMemberAmount: null,
+    financeService: financeServiceWithUsdRent(),
+    householdConfigurationRepository,
+    referenceInstant: Temporal.Instant.from('2026-06-11T09:00:00Z')
+  })
+  expect(result.status).toBe('proposal')
+  if (result.status !== 'proposal') return
+  expect(result.payload).toMatchObject({ period: '2026-06', amountMinor: '10000' })
+  expect(result.breakdown.guidance.paymentWindowOpen).toBe(false)
+})
+
+test('records actual unpaid rent before the reminder even when the payment queue is empty', async () => {
+  const financeService = financeServiceWithUsdRent()
+  const dashboard = await financeService.generateDashboard()
+  if (!dashboard) throw new Error('Missing fixture')
+  dashboard.rentBillingState.memberSummaries = [
+    {
+      memberId: 'dima',
+      displayName: 'Dima',
+      due: Money.fromMajor('472.50', 'GEL'),
+      paid: Money.fromMajor('172.50', 'GEL'),
+      remaining: Money.fromMajor('300', 'GEL')
+    }
+  ]
+  dashboard.paymentPeriods = dashboard.paymentPeriods!.map((period) => ({
+    ...period,
+    kinds: period.kinds.map((kind) => ({ ...kind, unresolvedMembers: [] }))
+  }))
+  financeService.generateDashboard = async () => dashboard
+  const result = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'dima',
+    additionalMemberIds: [],
+    kind: 'rent',
+    explicitAmount: null,
+    perMemberAmount: null,
+    financeService,
+    householdConfigurationRepository,
+    referenceInstant: Temporal.Instant.from('2026-06-11T09:00:00Z')
+  })
+  expect(result.status).toBe('proposal')
+  if (result.status !== 'proposal') return
+  expect(result.payload.amountMinor).toBe('30000')
+  expect(result.payload.period).toBe('2026-06')
+
+  dashboard.rentBillingState.memberSummaries = dashboard.rentBillingState.memberSummaries.map(
+    (member) => ({ ...member, paid: member.due, remaining: Money.zero('GEL') })
+  )
+  const settled = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'dima',
+    additionalMemberIds: [],
+    kind: 'rent',
+    period: '2026-06',
+    explicitAmount: null,
+    perMemberAmount: null,
+    financeService,
+    householdConfigurationRepository
+  })
+  expect(settled).toEqual({
+    status: 'already_settled',
+    kind: 'rent',
+    period: '2026-06',
+    needsPeriodClarification: false
+  })
+})
+
 function financeServiceWithUtilityPlan(): FinanceCommandService {
   return {
     generateDashboard: async () => ({

@@ -1,9 +1,10 @@
 import {
   buildMemberPaymentGuidance,
+  paymentKindSummaryForRecording,
   type FinanceCommandService,
   type MemberPaymentGuidance
 } from '@household/application'
-import { convertMoney, Money, Temporal } from '@household/domain'
+import { BillingPeriod, convertMoney, Money, Temporal } from '@household/domain'
 import type {
   FinanceMemberRecord,
   FinancePaymentKind,
@@ -148,11 +149,7 @@ function inferActivePaymentKind(input: {
           period: dashboard.period,
           memberLine,
           settings: input.settings,
-          paymentKindSummary: currentKindSummary({
-            dashboard,
-            period: dashboard.period,
-            kind
-          }),
+          paymentKindSummary: paymentKindSummaryForRecording(dashboard, dashboard.period, kind),
           ...(input.referenceInstant ? { referenceInstant: input.referenceInstant } : {})
         })
         return guidance.paymentWindowOpen
@@ -192,7 +189,7 @@ function inferActivePaymentKind(input: {
             period: dashboard.period,
             memberLine,
             settings: input.settings,
-            paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
+            paymentKindSummary: paymentKindSummaryForRecording(dashboard, dashboard.period, kind)
           }).proposalAmount.amountMinor > 0n
       )
     if (hasPayableMember) {
@@ -203,30 +200,6 @@ function inferActivePaymentKind(input: {
   return payableKinds.length === 1 ? payableKinds[0]! : null
 }
 
-function currentKindSummary(input: {
-  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
-  period: string
-  kind: FinancePaymentKind
-}) {
-  return (
-    input.dashboard.paymentPeriods
-      ?.find((period) => period.period === input.period)
-      ?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
-  )
-}
-
-function findPaymentPeriodKindSummary(input: {
-  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
-  period: string
-  kind: FinancePaymentKind
-}) {
-  const periodSummary = input.dashboard.paymentPeriods?.find(
-    (period) => period.period === input.period
-  )
-
-  return periodSummary?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
-}
-
 function isMemberUnpaidForKind(input: {
   dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
   period: string
@@ -234,7 +207,7 @@ function isMemberUnpaidForKind(input: {
   memberId: string
   fallbackAmount: Money
 }): boolean {
-  const kindSummary = findPaymentPeriodKindSummary(input)
+  const kindSummary = paymentKindSummaryForRecording(input.dashboard, input.period, input.kind)
   if (kindSummary) {
     return kindSummary.unresolvedMembers.some((member) => member.memberId === input.memberId)
   }
@@ -394,6 +367,9 @@ export function formatPaymentProposalText(input: {
             amount.currency
           )
 
+  const periodLine = input.proposal.payload.period
+    ? `\n📅 ${escapeHtml(input.proposal.payload.period)}`
+    : ''
   const confirmHint = getBotTranslations(input.locale).payments.confirmHint
 
   if (
@@ -402,11 +378,11 @@ export function formatPaymentProposalText(input: {
       breakdown: input.proposal.breakdown
     })
   ) {
-    return `${intro}\n\n${confirmHint}`
+    return `${intro}${periodLine}\n\n${confirmHint}`
   }
 
   return [
-    intro,
+    intro + periodLine,
     '',
     formatPaymentBreakdown(input.locale, input.proposal.breakdown),
     '',
@@ -425,6 +401,8 @@ export type AgentPaymentProposalResult =
   | {
       status: 'already_settled'
       kind: 'rent' | 'utilities'
+      period: string
+      needsPeriodClarification: boolean
     }
   | {
       status: 'multi_member_proposal'
@@ -441,21 +419,45 @@ export async function createAgentPaymentProposal(input: {
   payerMemberId: string
   additionalMemberIds: readonly string[]
   kind: FinancePaymentKind | null
+  period?: string
   explicitAmount: Money | null
   perMemberAmount: Money | null
   financeService: FinanceCommandService
   householdConfigurationRepository: HouseholdConfigurationRepository
   referenceInstant?: Temporal.Instant
 }): Promise<AgentPaymentProposalResult> {
+  if (input.period !== undefined) {
+    try {
+      BillingPeriod.fromString(input.period)
+    } catch {
+      return { status: 'no_action', reason: 'invalid_period' }
+    }
+  }
   const [settings, dashboard, members] = await Promise.all([
     input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId),
-    input.financeService.generateDashboard(),
+    input.financeService
+      .generateDashboard(input.period)
+      .then((dashboard) =>
+        dashboard || !input.period
+          ? dashboard
+          : input.financeService.preparePaymentPeriod(input.period)
+      ),
     input.financeService.listMembers()
   ])
 
   if (!dashboard) {
-    return { status: 'no_action', reason: 'no_open_billing_cycle' }
+    return {
+      status: 'no_action',
+      reason: input.period ? 'payment_period_unavailable' : 'no_open_billing_cycle'
+    }
   }
+
+  const settledResult = (kind: 'rent' | 'utilities'): AgentPaymentProposalResult => ({
+    status: 'already_settled',
+    kind,
+    period: dashboard.period,
+    needsPeriodClarification: input.period === undefined
+  })
 
   const targetMemberIds = [...new Set([input.payerMemberId, ...input.additionalMemberIds])]
   const targetMembers = targetMemberIds.map((memberId) =>
@@ -506,11 +508,8 @@ export async function createAgentPaymentProposal(input: {
           period: dashboard.period,
           memberLine: line,
           settings,
-          paymentKindSummary: currentKindSummary({
-            dashboard,
-            period: dashboard.period,
-            kind
-          })
+          ...(input.referenceInstant ? { referenceInstant: input.referenceInstant } : {}),
+          paymentKindSummary: paymentKindSummaryForRecording(dashboard, dashboard.period, kind)
         })
         const amount = explicitAmount ?? guidance.proposalAmount
         const unpaid = isMemberUnpaidForKind({
@@ -538,7 +537,7 @@ export async function createAgentPaymentProposal(input: {
     }
 
     if (!proposalMembers.some((member) => member.paymentStatus === 'unpaid')) {
-      return { status: 'already_settled', kind }
+      return settledResult(kind)
     }
 
     return {
@@ -563,7 +562,8 @@ export async function createAgentPaymentProposal(input: {
     period: dashboard.period,
     memberLine,
     settings,
-    paymentKindSummary: currentKindSummary({ dashboard, period: dashboard.period, kind })
+    ...(input.referenceInstant ? { referenceInstant: input.referenceInstant } : {}),
+    paymentKindSummary: paymentKindSummaryForRecording(dashboard, dashboard.period, kind)
   })
 
   if (
@@ -575,12 +575,12 @@ export async function createAgentPaymentProposal(input: {
       fallbackAmount: guidance.proposalAmount
     })
   ) {
-    return { status: 'already_settled', kind }
+    return settledResult(kind)
   }
 
   const amount = explicitAmount ?? guidance.proposalAmount
   if (amount.amountMinor <= 0n) {
-    return { status: 'already_settled', kind }
+    return settledResult(kind)
   }
 
   return {

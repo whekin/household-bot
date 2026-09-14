@@ -5,9 +5,59 @@ import type {
 } from '@household/ports'
 
 import type {
+  FinanceDashboard,
   FinanceDashboardMemberLine,
   FinanceDashboardPaymentKindSummary
 } from './finance-command-service'
+
+/** The reminder queue hides rent before its warning day; payment recording must not. */
+export function paymentKindSummaryForRecording(
+  dashboard: FinanceDashboard,
+  period: string,
+  kind: 'rent' | 'utilities'
+): FinanceDashboardPaymentKindSummary | null {
+  const summary =
+    dashboard.paymentPeriods
+      ?.find((entry) => entry.period === period)
+      ?.kinds.find((entry) => entry.kind === kind) ?? null
+  if (
+    kind !== 'rent' ||
+    period !== dashboard.period ||
+    !dashboard.rentBillingState?.memberSummaries.length
+  )
+    return summary
+
+  const members = dashboard.rentBillingState.memberSummaries
+  return {
+    kind,
+    totalDue: members.reduce(
+      (total, member) => total.add(member.due),
+      Money.zero(dashboard.currency)
+    ),
+    totalPaid: members.reduce(
+      (total, member) => total.add(member.paid),
+      Money.zero(dashboard.currency)
+    ),
+    totalRemaining: members.reduce(
+      (total, member) => total.add(member.remaining),
+      Money.zero(dashboard.currency)
+    ),
+    unresolvedMembers: members
+      .filter((member) => member.remaining.amountMinor > 0n)
+      .map((member) => ({
+        memberId: member.memberId,
+        displayName: member.displayName,
+        baseDue: member.due,
+        paid: member.paid,
+        remaining: member.remaining,
+        suggestedAmount: Money.fromMinor(
+          roundRentMinor(member.remaining.amountMinor),
+          dashboard.currency
+        ),
+        effectivelySettled: false
+      }))
+  }
+}
 
 export interface MemberPaymentGuidance {
   kind: 'rent' | 'utilities'

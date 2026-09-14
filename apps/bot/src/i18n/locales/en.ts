@@ -432,6 +432,8 @@ export const enBotTranslations: BotTranslationCatalog = {
       displayName
         ? `✅ ${displayName} already has ${kind === 'rent' ? 'rent' : 'utilities'} settled.`
         : `✅ ${kind === 'rent' ? 'Rent' : 'Utilities'} are already settled.`,
+    settledPeriod: (kind, period, askPeriod, displayName) =>
+      `${kind === 'rent' ? 'Rent' : 'Utilities'} for ${period}${displayName ? ` for ${displayName}` : ''} is already settled.${askPeriod ? ' Which billing period does this new payment cover?' : ''}`,
     purchaseRedirect:
       '🛒 That looks like a shared purchase, but this thread is for payments. Toss it into the purchases topic and I will confirm it there.',
     breakdownHeading: '📊 <b>How this adds up</b>',

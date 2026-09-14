@@ -235,6 +235,7 @@ function createFinanceService(): FinanceCommandService & {
     ],
     listCycleHistory: async () => [],
     getOpenCycle: async () => null,
+    preparePaymentPeriod: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',

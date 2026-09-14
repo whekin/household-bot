@@ -13,9 +13,9 @@ import {
   type CurrencyCode
 } from '@household/domain'
 
-import type { FinanceCommandService } from './finance-command-service'
+import { expectedOpenCyclePeriod, type FinanceCommandService } from './finance-command-service'
 import { parsePaymentConfirmationMessage } from './payment-confirmation-parser'
-import { buildMemberPaymentGuidance } from './payment-guidance'
+import { buildMemberPaymentGuidance, paymentKindSummaryForRecording } from './payment-guidance'
 
 function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
   const firstDay = Temporal.PlainDate.from({
@@ -101,19 +101,8 @@ async function convertIntoCycleCurrency(
   }
 }
 
-function currentKindSummary(input: {
-  dashboard: NonNullable<Awaited<ReturnType<FinanceCommandService['generateDashboard']>>>
-  period: string
-  kind: FinancePaymentKind
-}) {
-  return (
-    input.dashboard.paymentPeriods
-      ?.find((period) => period.period === input.period)
-      ?.kinds.find((kindSummary) => kindSummary.kind === input.kind) ?? null
-  )
-}
-
 export interface PaymentConfirmationMessageInput {
+  period?: string
   senderTelegramUserId: string
   memberId?: string | null
   sourceKey?: string | null
@@ -162,6 +151,7 @@ export function createPaymentConfirmationService(input: {
   repository: Pick<
     FinanceRepository,
     | 'getOpenCycle'
+    | 'getCycleByPeriod'
     | 'getLatestCycle'
     | 'getCycleExchangeRate'
     | 'saveCycleExchangeRate'
@@ -205,12 +195,18 @@ export function createPaymentConfirmationService(input: {
             }
       }
 
-      const [cycle, settings] = await Promise.all([
-        input.repository
-          .getOpenCycle()
-          .then((openCycle) => openCycle ?? input.repository.getLatestCycle()),
-        input.householdConfigurationRepository.getHouseholdBillingSettings(input.householdId)
-      ])
+      const settings = await input.householdConfigurationRepository.getHouseholdBillingSettings(
+        input.householdId
+      )
+      const defaultPeriod = expectedOpenCyclePeriod(settings, nowInstant()).toString()
+      const cycle =
+        message.period !== undefined
+          ? await input.repository.getCycleByPeriod(
+              BillingPeriod.fromString(message.period).toString()
+            )
+          : ((await input.repository.getCycleByPeriod(defaultPeriod)) ??
+            (await input.repository.getOpenCycle()) ??
+            (await input.repository.getLatestCycle()))
 
       if (!cycle) {
         const saveResult = await input.repository.savePaymentConfirmation({
@@ -313,7 +309,11 @@ export function createPaymentConfirmationService(input: {
             }
       }
 
-      if (memberLine.remaining.amountMinor <= 0n) {
+      const kindSummary = paymentKindSummaryForRecording(dashboard, cycle.period, parsed.kind)
+      const unpaid = kindSummary
+        ? kindSummary.unresolvedMembers.some((member) => member.memberId === targetMemberId)
+        : memberLine.remaining.amountMinor > 0n
+      if (!unpaid) {
         return {
           status: 'already_settled',
           kind: parsed.kind
@@ -325,11 +325,7 @@ export function createPaymentConfirmationService(input: {
         period: cycle.period,
         memberLine,
         settings,
-        paymentKindSummary: currentKindSummary({
-          dashboard,
-          period: cycle.period,
-          kind: parsed.kind
-        })
+        paymentKindSummary: kindSummary
       })
 
       const resolvedAmount = parsed.explicitAmount

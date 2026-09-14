@@ -483,6 +483,7 @@ function createFinanceService(): FinanceCommandService {
       period: '2026-03',
       currency: 'GEL'
     }),
+    preparePaymentPeriod: async () => null,
     ensureExpectedCycle: async () => ({
       id: 'cycle-1',
       period: '2026-03',

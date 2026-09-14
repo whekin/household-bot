@@ -12,6 +12,18 @@ edit, and cancel payments and purchases via confirmation cards.
 
 ## Goals
 
+### Early payments
+
+- Payment tools accept an explicit `period` (`YYYY-MM`). Paying before the reminder or due date is allowed.
+- Payment recording and status use actual unpaid rent balances. The scheduled payment queue may hide rent before the warning day; that visibility must never be interpreted as payment completion.
+- A settled default period triggers a period clarification, never an automatic advance or a change of payment kind.
+- Confirmation cards display the period, and confirmation records against that exact period even after rollover.
+- Current and next billing periods can be prepared using household rent defaults without replacing period overrides. Preparing next-period rent must not change the date-based default period.
+- Existing periods remain addressable; unavailable past or distant future periods and invalid input produce an actionable result without recording money.
+- Conversation-history search and media interpretation are outside this payment change.
+
+### Existing goals
+
 - Silent by default in group topics; wakes on explicit mention, reply-to-bot,
   active workflow, text address ("бот", "Кожур"), or a completed payment/purchase
   fact in the matching workflow topic.

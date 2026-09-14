@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { instantFromIso, Money, type Instant } from '@household/domain'
+import { BillingPeriod, instantFromIso, Money, type Instant } from '@household/domain'
 import type {
   ExchangeRateProvider,
   FinanceCycleExchangeRateRecord,
@@ -17,6 +17,7 @@ import type {
 } from '@household/ports'
 
 import { createFinanceCommandService } from './finance-command-service'
+import { createPaymentConfirmationService } from './payment-confirmation-service'
 
 function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -965,6 +966,81 @@ function seedPurchaseMutationFixture(repository: FinanceRepositoryStub) {
 }
 
 describe('createFinanceCommandService', () => {
+  test('preparing upcoming rent preserves the default cycle and period override', async () => {
+    const repository = new FinanceRepositoryStub()
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const nextPeriod = BillingPeriod.fromString(currentPeriod).next().toString()
+    const currentCycle = { id: 'current', period: currentPeriod, currency: 'GEL' as const }
+    repository.cycles = [currentCycle]
+    repository.openCycle = async (period, currency) => {
+      const cycle = { id: `cycle-${period}`, period, currency }
+      repository.cycles = [...repository.cycles, cycle]
+      repository.openCycleRecord = cycle
+      repository.latestCycleRecord = cycle
+    }
+    repository.openCycleRecord = currentCycle
+    repository.members = [
+      { id: 'stas', telegramUserId: '123', displayName: 'Stas', rentShareWeight: 1, isAdmin: true }
+    ]
+    repository.rentRulesByPeriod.set(nextPeriod, { amountMinor: 80000n, currency: 'USD' })
+    const service = createService(repository)
+
+    const future = await service.preparePaymentPeriod(nextPeriod)
+    expect(future?.period).toBe(nextPeriod)
+    expect(future?.rentSourceAmount.amountMinor).toBe(80000n)
+    expect(
+      future?.paymentPeriods
+        ?.find((period) => period.period === nextPeriod)
+        ?.kinds.find((kind) => kind.kind === 'rent')?.totalRemaining.amountMinor
+    ).toBeGreaterThan(0n)
+    expect((await service.generateDashboard())?.period).toBe(currentPeriod)
+    const confirmationService = createPaymentConfirmationService({
+      householdId: repository.householdId,
+      financeService: service,
+      householdConfigurationRepository,
+      exchangeRateProvider,
+      repository: {
+        getOpenCycle: () => repository.getOpenCycle(),
+        getLatestCycle: () => repository.getLatestCycle(),
+        getCycleByPeriod: (period) => repository.getCycleByPeriod(period),
+        getCycleExchangeRate: (...args) => repository.getCycleExchangeRate(...args),
+        saveCycleExchangeRate: (...args) => repository.saveCycleExchangeRate(...args),
+        savePaymentConfirmation: async (input) => {
+          if (input.status !== 'recorded')
+            return { status: 'needs_review', reviewReason: input.reviewReason }
+          if (repository.paymentRecords.length > 0) return { status: 'duplicate' }
+          const paymentRecord = await repository.addPaymentRecord(input)
+          repository.paymentRecords = [...repository.paymentRecords, paymentRecord]
+          return { status: 'recorded', paymentRecord }
+        }
+      }
+    })
+    const message = {
+      period: nextPeriod,
+      memberId: 'stas',
+      senderTelegramUserId: '123',
+      rawText: 'оплатил аренду 100 лари',
+      telegramChatId: '-1001',
+      telegramMessageId: '10',
+      telegramThreadId: '4',
+      telegramUpdateId: '200',
+      attachmentCount: 0,
+      messageSentAt: instantFromIso(`${currentPeriod}-11T09:00:00Z`)
+    }
+    expect((await confirmationService.submit(message)).status).toBe('recorded')
+    expect((await confirmationService.submit(message)).status).toBe('duplicate')
+    expect(repository.paymentRecords).toHaveLength(1)
+    expect(repository.paymentRecords[0]?.cyclePeriod).toBe(nextPeriod)
+    expect((await service.generateDashboard(currentPeriod))?.totalPaid.amountMinor).toBe(0n)
+    expect((await service.generateDashboard(nextPeriod))?.totalPaid.amountMinor).toBe(10000n)
+    expect((await service.getOpenCycle())?.period).toBe(currentPeriod)
+    expect(repository.closedCycleIds).not.toContain(currentCycle.id)
+    expect(
+      await service.preparePaymentPeriod(BillingPeriod.fromString(nextPeriod).next().toString())
+    ).toBeNull()
+    expect((await service.generateDashboard())?.period).toBe(currentPeriod)
+  })
+
   test('setRent falls back to the open cycle period when one is active', async () => {
     const repository = new FinanceRepositoryStub()
     const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)

@@ -1,5 +1,6 @@
 import {
   buildMemberPaymentGuidance,
+  paymentKindSummaryForRecording,
   type FinanceCommandService,
   type HouseholdAuditNotificationService,
   type PaymentConfirmationService,
@@ -662,10 +663,7 @@ async function resolveCurrentPayableMultiMemberAmounts(input: {
   if (!dashboard) {
     return amounts
   }
-  const kindSummary =
-    dashboard.paymentPeriods
-      ?.find((period) => period.period === input.period)
-      ?.kinds.find((candidate) => candidate.kind === input.kind) ?? null
+  const kindSummary = paymentKindSummaryForRecording(dashboard, input.period, input.kind)
   const unresolvedMemberIds = new Set(
     kindSummary?.unresolvedMembers.map((member) => member.memberId) ?? []
   )
@@ -770,8 +768,10 @@ export async function publishAgentPaymentProposal(input: {
   }
 
   if (proposal.status === 'already_settled') {
-    const alreadySettledText = t.alreadySettled(
+    const alreadySettledText = t.settledPeriod(
       proposal.kind,
+      proposal.period,
+      proposal.needsPeriodClarification,
       input.isThirdParty ? input.payerDisplayName : null
     )
     await replyToPaymentMessage(input.ctx, alreadySettledText, undefined, {
@@ -1243,6 +1243,7 @@ export function registerPaymentTopicCallbacks(
 
         const result = await paymentService.submit({
           senderTelegramUserId: payload.ownerTelegramUserId,
+          period: payload.period,
           memberId: member.memberId,
           sourceKey: `${payload.telegramMessageId}:${payload.proposalId}:${member.memberId}`,
           rawText: payload.rawText,

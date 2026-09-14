@@ -390,6 +390,12 @@ export interface BotTranslationCatalog {
     unsupportedCurrency: string
     noBalance: string
     alreadySettled: (kind: 'rent' | 'utilities', displayName?: string | null) => string
+    settledPeriod: (
+      kind: 'rent' | 'utilities',
+      period: string,
+      askPeriod: boolean,
+      displayName?: string | null
+    ) => string
     purchaseRedirect: string
     breakdownHeading: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
