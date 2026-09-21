@@ -14,6 +14,8 @@ edit, and cancel payments and purchases via confirmation cards.
 
 ### Early payments
 
+- The default billing period is the current calendar month in the household timezone. Passing the rent due day makes unpaid rent overdue; it must not advance the default period or hide that month’s payment activity. Explicit next-month payments remain supported.
+
 - Payment tools accept an explicit `period` (`YYYY-MM`). Paying before the reminder or due date is allowed.
 - Payment recording and status use actual unpaid rent balances. The scheduled payment queue may hide rent before the warning day; that visibility must never be interpreted as payment completion.
 - A settled default period triggers a period clarification, never an automatic advance or a change of payment kind.

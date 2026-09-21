@@ -118,9 +118,8 @@ export function expectedOpenCyclePeriod(
   instant: Temporal.Instant
 ): BillingPeriod {
   const localDate = instant.toZonedDateTimeISO(settings.timezone).toPlainDate()
-  const currentPeriod = periodFromLocalDate(localDate)
-
-  return localDate.day > settings.rentDueDay ? currentPeriod.next() : currentPeriod
+  // A due date makes unpaid rent overdue; it does not start the next billing month.
+  return periodFromLocalDate(localDate)
 }
 
 function purchaseOccurredAtFromDate(input: {

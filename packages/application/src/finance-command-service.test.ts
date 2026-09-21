@@ -16,10 +16,14 @@ import type {
   SettlementSnapshotRecord
 } from '@household/ports'
 
-import { createFinanceCommandService, type FinanceCommandService } from './finance-command-service'
+import {
+  createFinanceCommandService,
+  expectedOpenCyclePeriod,
+  type FinanceCommandService
+} from './finance-command-service'
 import { createPaymentConfirmationService } from './payment-confirmation-service'
 
-function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): string {
+function expectedCurrentCyclePeriod(timezone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
@@ -28,12 +32,7 @@ function expectedCurrentCyclePeriod(timezone: string, rentDueDay: number): strin
   }).formatToParts(new Date())
   const year = Number(parts.find((part) => part.type === 'year')?.value ?? '0')
   const month = Number(parts.find((part) => part.type === 'month')?.value ?? '1')
-  const day = Number(parts.find((part) => part.type === 'day')?.value ?? '1')
-  const carryMonth = day > rentDueDay ? month + 1 : month
-  const normalizedYear = carryMonth > 12 ? year + 1 : year
-  const normalizedMonth = carryMonth > 12 ? 1 : carryMonth
-
-  return `${normalizedYear}-${String(normalizedMonth).padStart(2, '0')}`
+  return `${year}-${String(month).padStart(2, '0')}`
 }
 
 type FinanceParsedPurchaseFixture = Omit<FinanceParsedPurchaseRecord, 'createdByMemberId'> & {
@@ -999,9 +998,64 @@ function seedPurchaseMutationFixture(repository: FinanceRepositoryStub) {
 }
 
 describe('createFinanceCommandService', () => {
+  test('default billing period changes at local month boundaries, not rent deadlines', () => {
+    const settings = { timezone: 'Asia/Tbilisi', rentDueDay: 20 }
+    for (const [instant, period] of [
+      ['2026-09-20T19:59:59Z', '2026-09'],
+      ['2026-09-20T20:00:00Z', '2026-09'],
+      ['2026-09-30T19:59:59Z', '2026-09'],
+      ['2026-09-30T20:00:00Z', '2026-10'],
+      ['2026-12-31T20:00:00Z', '2027-01']
+    ] as const) {
+      expect(expectedOpenCyclePeriod(settings, instantFromIso(instant)).toString()).toBe(period)
+    }
+  })
+
+  test('September rent remains current after the due date with three unpaid members', async () => {
+    const repository = new FinanceRepositoryStub()
+    const cycle = { id: 'september', period: '2026-09', currency: 'GEL' as const }
+    repository.cycles = [cycle]
+    repository.openCycleRecord = cycle
+    repository.rentRule = { amountMinor: 182800n, currency: 'GEL' }
+    repository.billingSettingsOverride = { rentAmountMinor: 182800n, rentCurrency: 'GEL' }
+    repository.members = ['stas', 'alisa', 'dima', 'ion'].map((id) => ({
+      id,
+      telegramUserId: id,
+      displayName: id,
+      rentShareWeight: 1,
+      isAdmin: id === 'stas'
+    }))
+    repository.paymentRecords = [
+      {
+        id: 'ion-rent',
+        cycleId: cycle.id,
+        cyclePeriod: cycle.period,
+        memberId: 'ion',
+        kind: 'rent',
+        amountMinor: 45700n,
+        currency: 'GEL',
+        recordedAt: instantFromIso('2026-09-21T10:45:00Z')
+      }
+    ]
+    const service = createService(repository)
+    const selected = await service.ensureExpectedCycle(instantFromIso('2026-09-21T11:40:00Z'))
+    expect(selected.period).toBe('2026-09')
+    expect(repository.closedCycleIds).not.toContain(cycle.id)
+    const dashboard = await service.generateDashboard(selected.period, {
+      todayOverride: '2026-09-21'
+    })
+    expect(dashboard?.billingStage).toBe('rent')
+    expect(
+      dashboard?.rentBillingState.memberSummaries.filter(
+        (member) => member.remaining.amountMinor > 0n
+      )
+    ).toHaveLength(3)
+    expect(dashboard?.ledger.some((entry) => entry.id === 'ion-rent')).toBe(true)
+  })
+
   test('preparing upcoming rent preserves the default cycle and period override', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     const nextPeriod = BillingPeriod.fromString(currentPeriod).next().toString()
     const currentCycle = { id: 'current', period: currentPeriod, currency: 'GEL' as const }
     repository.cycles = [currentCycle]
@@ -1077,7 +1131,7 @@ describe('createFinanceCommandService', () => {
 
   test('setRent falls back to the open cycle period when one is active', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: currentPeriod,
@@ -1100,7 +1154,7 @@ describe('createFinanceCommandService', () => {
 
   test('expected-cycle materialization preserves an explicit rent override', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: currentPeriod,
@@ -1119,7 +1173,7 @@ describe('createFinanceCommandService', () => {
 
   test('expected-cycle materialization creates the household default when rent is unset', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: currentPeriod,
@@ -1137,7 +1191,7 @@ describe('createFinanceCommandService', () => {
 
   test('getAdminCycleState prefers the open cycle and returns rent plus utility bills', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-1',
       period: currentPeriod,
@@ -1217,7 +1271,7 @@ describe('createFinanceCommandService', () => {
     const service = createService(repository)
 
     const result = await service.addUtilityBill('Electricity', '55.20', 'member-1')
-    const expectedPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const expectedPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
 
     expect(result).not.toBeNull()
     expect(result?.period).toBe(expectedPeriod)
@@ -1305,7 +1359,7 @@ describe('createFinanceCommandService', () => {
 
   test('addUtilityBill invalidates an existing utility plan for the active cycle', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-current',
       period: currentPeriod,
@@ -1340,7 +1394,7 @@ describe('createFinanceCommandService', () => {
 
   test('addUtilityBill invalidates an empty settled utility plan for the active cycle', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-current',
       period: currentPeriod,
@@ -6505,7 +6559,7 @@ describe('reverting utility payment state', () => {
   function planFixture(repository: FinanceRepositoryStub, status: 'active' | 'settled') {
     repository.openCycleRecord = {
       id: 'cycle-current',
-      period: expectedCurrentCyclePeriod('Asia/Tbilisi', 20),
+      period: expectedCurrentCyclePeriod('Asia/Tbilisi'),
       currency: 'GEL'
     }
     repository.latestCycleRecord = repository.openCycleRecord
@@ -6617,7 +6671,7 @@ describe('reverting utility payment state', () => {
 
   test('ensuring the expected cycle closes every stale open cycle, not just the newest', async () => {
     const repository = new FinanceRepositoryStub()
-    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi', 20)
+    const currentPeriod = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.openCycleRecord = {
       id: 'cycle-current',
       period: currentPeriod,
