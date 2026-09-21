@@ -305,3 +305,11 @@ API+Telegram сквозной тест использует подписанны
   20:00 со смесью, бутылки 23:30–01:00, ночное кормление 00–02. Быстрая группа — feeding.
   Шаблон заполняет черновик и доступен также при редактировании существующего списка.
   Сохранённые списки не переписываются автоматически, миграция БД не нужна.
+
+## Scheduler read budget
+
+Routine delivery must inspect the loaded snapshot before rereading the aggregate for a
+message. Terminal messages, delayed retries and unchanged cards must not trigger a
+per-message database read/write. Actionable candidates must still reload and recheck
+current state under the delivery lease before Telegram IO. Idle tick aggregate reads
+must remain constant as retained message history grows.

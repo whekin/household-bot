@@ -4,6 +4,7 @@ import type {
   HouseholdConfigurationRepository,
   RoutineDestination,
   RoutineDocument,
+  RoutineMessage,
   RoutineRepository
 } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
@@ -71,6 +72,48 @@ export function createRoutineDelivery(options: {
         })
     })
     await reconcile(id)
+  }
+  function deliveryWork(
+    doc: RoutineDocument,
+    message: RoutineMessage,
+    activeIds: Set<string>,
+    now: string
+  ) {
+    if (['removed', 'blocked', 'unknown'].includes(message.status)) return null
+    if (message.retryAt && Date.parse(message.retryAt) > Date.parse(now)) return null
+    const day = doc.days.find((d) => d.date === message.date)
+    if (!day) return null
+    const row = message.rowId ? day.rows.find((r) => r.id === message.rowId) : undefined
+    const today = routineDate(doc, now)
+    const group = message.threadId !== null
+    const currentDestination =
+      doc.destination?.chatId === message.chatId && doc.destination?.threadId === message.threadId
+    const privateActive = activeIds.has(message.chatId)
+    const subscribed = Object.values(doc.subscriptions).some(
+      (s) => s.telegramUserId === message.chatId && s.enabled && !s.blocked
+    )
+    const retired = group ? !currentDestination : !privateActive
+    const clean = Boolean(
+      message.rowId &&
+      (doc.paused ||
+        row?.status === 'completed' ||
+        message.date !== today ||
+        retired ||
+        (!group && !subscribed) ||
+        (message.messageId === null &&
+          row?.dueAt &&
+          Date.parse(now) - Date.parse(row.windowEndsAt ?? row.dueAt) > 15 * 60_000))
+    )
+    const content = renderRoutineCard(doc, day, now, row, message.expanded ?? false)
+    if (retired || clean) content.reply_markup = { inline_keyboard: [] }
+    if (retired) content.text = 'Список перенесён или доступ закрыт. Откройте актуальные дела.'
+    const fingerprint = JSON.stringify(content)
+    if (message.messageId === null && (clean || retired || message.date !== today || doc.paused)) {
+      return { message, clean, retired, content, fingerprint, discard: true }
+    }
+    if (!clean && message.messageId !== null && fingerprint === message.fingerprint) return null
+
+    return { message, clean, retired, content, fingerprint, discard: false }
   }
   async function reconcile(id: string) {
     const initial = await repository.get(id)
@@ -147,49 +190,21 @@ export function createRoutineDelivery(options: {
       })
       const snapshot = await repository.get(id)
       for (const candidate of snapshot?.messages ?? []) {
+        // Most historical/current cards need no IO. Check the snapshot before loading the
+        // aggregate again, then recheck under the lease before any Telegram operation.
+        if (!snapshot || !deliveryWork(snapshot, candidate, activeIds, clock())) continue
         // Reload for each message: callbacks may have changed the desired card while IO was pending.
         const doc = await change(() => {})
         const message = doc.messages.find((m) => m.key === candidate.key)!
-        if (['removed', 'blocked', 'unknown'].includes(message.status)) continue
-        if (message.retryAt && Date.parse(message.retryAt) > Date.parse(clock())) continue
-        const day = doc.days.find((d) => d.date === message.date)
-        if (!day) continue
-        const row = message.rowId ? day.rows.find((r) => r.id === message.rowId) : undefined
-        const today = routineDate(doc, clock())
-        const group = message.threadId !== null
-        const currentDestination =
-          doc.destination?.chatId === message.chatId &&
-          doc.destination?.threadId === message.threadId
-        const privateActive = activeIds.has(message.chatId)
-        const subscribed = Object.values(doc.subscriptions).some(
-          (s) => s.telegramUserId === message.chatId && s.enabled && !s.blocked
-        )
-        const retired = group ? !currentDestination : !privateActive
-        const clean = Boolean(
-          message.rowId &&
-          (doc.paused ||
-            row?.status === 'completed' ||
-            message.date !== today ||
-            retired ||
-            (!group && !subscribed) ||
-            (message.messageId === null &&
-              row?.dueAt &&
-              Date.parse(clock()) - Date.parse(row.windowEndsAt ?? row.dueAt) > 15 * 60_000))
-        )
-        const content = renderRoutineCard(doc, day, clock(), row, message.expanded ?? false)
-        if (retired || clean) content.reply_markup = { inline_keyboard: [] }
-        if (retired) content.text = 'Список перенесён или доступ закрыт. Откройте актуальные дела.'
-        const fingerprint = JSON.stringify(content)
-        if (
-          message.messageId === null &&
-          (clean || retired || message.date !== today || doc.paused)
-        ) {
+        const work = message && deliveryWork(doc, message, activeIds, clock())
+        if (!work) continue
+        const { clean, retired, content, fingerprint } = work
+        if (work.discard) {
           await change((d) => {
             d.messages.find((m) => m.key === message.key)!.status = 'removed'
           })
           continue
         }
-        if (!clean && message.messageId !== null && fingerprint === message.fingerprint) continue
         try {
           if (clean && message.messageId !== null) {
             try {

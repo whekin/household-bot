@@ -61,6 +61,80 @@ async function fixture() {
   }
 }
 
+test('idle ticks do not reload the aggregate for historical or unchanged messages', async () => {
+  const f = await fixture()
+  await f.delivery.bind(f.doc.id, routineActor.householdId, {
+    chatId: '-1001',
+    threadId: 136,
+    name: 'Дела'
+  })
+  await f.repository.change(f.doc.id, routineActor.householdId, (doc) => {
+    const day = { ...structuredClone(doc.days[0]!), date: '2026-09-09' }
+    doc.days.push(day)
+    for (let i = 0; i < 100; i++) {
+      doc.messages.push({
+        key: `history-${i}`,
+        date: day.date,
+        rowId: null,
+        chatId: '-1001',
+        threadId: 136,
+        messageId: 1000 + i,
+        status: i % 2 ? 'removed' : 'sent',
+        fingerprint: JSON.stringify(renderRoutineCard(doc, day, '2026-09-10T04:00:00Z')),
+        error: null,
+        retryAt: null
+      })
+    }
+  })
+  let reads = 0
+  const originalGet = f.repository.get.bind(f.repository)
+  const originalList = f.repository.list.bind(f.repository)
+  const originalChange = f.repository.change.bind(f.repository)
+  f.repository.get = async (...args) => {
+    reads++
+    return originalGet(...args)
+  }
+  f.repository.list = async (...args) => {
+    reads++
+    return originalList(...args)
+  }
+  f.repository.change = async (...args) => {
+    reads++
+    return originalChange(...args)
+  }
+  const before = f.calls.length
+  await f.delivery.tick()
+  expect(f.calls).toHaveLength(before)
+  expect(reads).toBeLessThanOrEqual(6)
+})
+
+test('delivery rechecks a candidate changed after the snapshot was read', async () => {
+  const f = await fixture()
+  await f.delivery.bind(f.doc.id, routineActor.householdId, {
+    chatId: '-1001',
+    threadId: 136,
+    name: 'Дела'
+  })
+  await f.repository.change(f.doc.id, routineActor.householdId, (doc) => {
+    doc.messages[0]!.fingerprint = ''
+  })
+  const originalGet = f.repository.get.bind(f.repository)
+  let gets = 0
+  f.repository.get = async (id) => {
+    const doc = structuredClone(await originalGet(id))
+    if (++gets === 2) {
+      await f.repository.change(id, routineActor.householdId, (current) => {
+        current.messages[0]!.status = 'removed'
+      })
+    }
+    return doc
+  }
+  const before = f.calls.length
+  await f.delivery.reconcile(f.doc.id)
+  expect(gets).toBe(2)
+  expect(f.calls).toHaveLength(before)
+})
+
 describe('routine Telegram delivery', () => {
   test('group and DM share one occurrence, reminders disappear after completion from either surface', async () => {
     const f = await fixture()
