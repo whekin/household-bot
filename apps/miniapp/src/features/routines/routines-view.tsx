@@ -572,7 +572,11 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                         <span className="mt-1 block text-xs text-muted-foreground">{row.note}</span>
                       )}
                       <span className="mt-0.5 block text-xs text-faint">
-                        {row.localTime?.replace('-', '–') ?? t('В течение дня', 'Any time')}
+                        {row.recurrenceDueDate
+                          ? row.nextDueDate
+                            ? `${t('Следующий раз', 'Next due')}: ${row.nextDueDate}`
+                            : `${t('Сделать с', 'Due since')}: ${row.recurrenceDueDate}`
+                          : (row.localTime?.replace('-', '–') ?? t('В течение дня', 'Any time'))}
                         {row.actorName && row.status !== 'pending'
                           ? ` · ${row.actorName}${row.status === 'claimed' ? t(' занимается', ' is handling it') : ''}`
                           : ''}
@@ -612,6 +616,39 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                 </p>
               )}
             </div>
+            {Boolean(routine.recurringTasks?.length) && (
+              <details className="border-b border-border px-4 py-3">
+                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">
+                  {t('Следующие повторения', 'Upcoming repeats')}
+                </summary>
+                <div className="space-y-3 pb-2">
+                  {routine.recurringTasks?.map((task) => (
+                    <div key={task.taskId} className="rounded-xl bg-elevated p-3 text-sm">
+                      <p className="font-medium">{task.title}</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {task.nextDueDate} ·{' '}
+                        {t(
+                          `каждые ${task.intervalDays} дн. после выполнения`,
+                          `every ${task.intervalDays} days after completion`
+                        )}
+                      </p>
+                      {task.lastCompletedAt && (
+                        <p className="mt-1 text-xs text-faint">
+                          {t('Последний раз', 'Last done')}:{' '}
+                          {new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-GB', {
+                            timeZone: routine.timezone,
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                          }).format(new Date(task.lastCompletedAt))}{' '}
+                          · {task.lastCompletedByName}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
             <div className="space-y-3 p-4">
               <label className="flex min-h-11 items-center gap-3 text-sm">
                 <input

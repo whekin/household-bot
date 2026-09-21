@@ -46,6 +46,66 @@ export function routineDate(
     ? Temporal.PlainDate.from(pending.effectiveDate).subtract({ days: 1 }).toString()
     : current
 }
+function materializeRecurringTasks(doc: RoutineDocument, date: string): void {
+  const tasks = doc.definition.tasks.filter((task) => task.recurrence)
+  if (!tasks.length && !doc.recurringTasks) return
+  const states = (doc.recurringTasks ??= {})
+  for (const id of Object.keys(states)) {
+    if (!tasks.some((task) => task.id === id)) delete states[id]
+  }
+  const day = doc.days.find((day) => day.date === date)!
+  day.rows = day.rows.filter((row) => !row.recurrenceDueDate)
+  for (const [index, task] of tasks.entries()) {
+    const recurrence = task.recurrence!
+    const state = (states[task.id] ??= {
+      nextDueDate: recurrence.firstDueDate,
+      lastCompletedAt: null,
+      lastCompletedBy: null,
+      lastCompletedByName: null,
+      row: null
+    })
+    state.nextDueDate = state.lastCompletedAt
+      ? Temporal.Instant.from(state.lastCompletedAt)
+          .toZonedDateTimeISO(doc.timezone)
+          .toPlainDate()
+          .add({ days: recurrence.intervalDays })
+          .toString()
+      : recurrence.firstDueDate
+    const completedToday =
+      state.row?.status === 'completed' &&
+      state.row.actedAt &&
+      routineDate(doc, state.row.actedAt) === date
+    if (state.nextDueDate > date && !completedToday) continue
+    if (!state.row || (state.row.status === 'completed' && !completedToday)) {
+      state.row = {
+        id: `${date.replaceAll('-', '')}r${index.toString(36)}`,
+        taskId: task.id,
+        title: task.title,
+        localTime: null,
+        dueAt: null,
+        recurrenceDueDate: state.nextDueDate,
+        reminderEnabled: false,
+        claimEnabled: task.claimEnabled,
+        reminderSuppressed: false,
+        version: 0,
+        status: 'pending',
+        actorId: null,
+        actorName: null,
+        actedAt: null,
+        expiresAt: null
+      }
+    }
+    state.row.title = task.title
+    if (task.note) state.row.note = task.note
+    else delete state.row.note
+    state.row.claimEnabled = task.claimEnabled
+    if (state.row.status !== 'completed') state.row.recurrenceDueDate = state.nextDueDate
+    if (state.row.status === 'completed') state.row.nextDueDate = state.nextDueDate
+    else delete state.row.nextDueDate
+    day.rows.push(structuredClone(state.row))
+  }
+}
+
 export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
   if (doc.activeDayExtension && Date.parse(now) >= Date.parse(doc.activeDayExtension.until))
     delete doc.activeDayExtension
@@ -105,6 +165,7 @@ export function materializeRoutineDay(doc: RoutineDocument, now: string): void {
       quickActions: doc.definition.quickActions ?? []
     })
   }
+  materializeRecurringTasks(doc, date)
   // Keep a month of history; old Telegram buttons are rejected before lookup.
   const cutoff = Temporal.PlainDate.from(date).subtract({ days: 30 }).toString()
   doc.days = doc.days.filter((day) => day.date >= cutoff)
@@ -309,6 +370,36 @@ export function createRoutineService(
           row.actorName = next.status === 'pending' ? null : actor.displayName
           row.actedAt = next.status === 'pending' ? null : now
           row.expiresAt = next.status === 'claimed' ? next.expiresAt.toString() : null
+          if (row.recurrenceDueDate) {
+            const state = doc.recurringTasks![row.taskId]!
+            const recurrence = doc.definition.tasks.find(
+              (task) => task.id === row.taskId
+            )!.recurrence!
+            if (input.action === 'complete') {
+              state.previousCompletion = {
+                at: state.lastCompletedAt,
+                by: state.lastCompletedBy,
+                name: state.lastCompletedByName
+              }
+              state.lastCompletedAt = now
+              state.lastCompletedBy = actor.id
+              state.lastCompletedByName = actor.displayName
+              state.nextDueDate = Temporal.Instant.from(now)
+                .toZonedDateTimeISO(doc.timezone)
+                .toPlainDate()
+                .add({ days: recurrence.intervalDays })
+                .toString()
+              row.nextDueDate = state.nextDueDate
+            } else if (input.action === 'reopen') {
+              state.lastCompletedAt = state.previousCompletion?.at ?? null
+              state.lastCompletedBy = state.previousCompletion?.by ?? null
+              state.lastCompletedByName = state.previousCompletion?.name ?? null
+              state.nextDueDate = row.recurrenceDueDate
+              delete state.previousCompletion
+              delete row.nextDueDate
+            }
+            state.row = structuredClone(row)
+          }
         }
         doc.actionIds.push(requestKey)
       })

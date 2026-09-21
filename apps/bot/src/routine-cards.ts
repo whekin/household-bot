@@ -54,7 +54,7 @@ export function renderRoutineCard(
 ) {
   const active = !doc.paused && day.date === routineDate(doc, now)
   const rowLabel = (row: RoutineRow) =>
-    `${row.localTime ? `${row.localTime.replace('-', '–')} · ` : ''}${row.title}`
+    `${row.localTime ? `${row.localTime.replace('-', '–')} · ` : ''}${row.title}${row.recurrenceDueDate ? ` · с ${row.recurrenceDueDate.slice(8)}.${row.recurrenceDueDate.slice(5, 7)}` : ''}`
   const rows = reminderRow ? [reminderRow] : day.rows
   const open = day.rows.filter((row) => row.status !== 'completed')
   const focus = active && !reminderRow ? pickRoutineFocus(day.rows, now) : null
@@ -98,7 +98,7 @@ export function renderRoutineCard(
       const claimed = routineRowClaimed(row, now)
       const actor = (row.actorName ?? '').slice(0, 40).replace(/[\r\n]/g, ' ')
       const time = row.actedAt ? localTime(row.actedAt, doc.timezone) : ''
-      return `${row.status === 'completed' ? '✓' : claimed ? '◷' : '☐'} ${rowLabel(row)}${row.status === 'completed' ? ` — ${actor}, ${time}` : claimed ? ` — ${actor} занимается` : ''}${!reminderRow && row.note ? `\n  ↳ ${row.note.slice(0, 40)}${row.note.length > 40 ? '…' : ''}` : ''}`
+      return `${row.status === 'completed' ? '✓' : claimed ? '◷' : '☐'} ${rowLabel(row)}${row.status === 'completed' ? ` — ${actor}, ${time}` : claimed ? ` — ${actor} занимается` : ''}${row.nextDueDate ? `\n  ↳ Следующий раз: ${row.nextDueDate}` : ''}${!reminderRow && row.note ? `\n  ↳ ${row.note.slice(0, 40)}${row.note.length > 40 ? '…' : ''}` : ''}`
     }),
     ...(reminderRow?.note ? [`Условие: ${reminderRow.note}`] : []),
     ...(!rows.length ? ['На сегодня дел нет'] : [])

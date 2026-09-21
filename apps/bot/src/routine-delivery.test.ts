@@ -462,3 +462,48 @@ test('a night window keeps yesterday card actionable and sends only one reminder
   await f.delivery.tick()
   expect(f.calls.filter((call) => call.method === 'send')).toHaveLength(2)
 })
+
+test('recurring chores stay actionable across days and delivery shows the next date after completion', async () => {
+  const f = await fixture()
+  await f.service.save(routineActor, {
+    ...routineInput,
+    expectedRevision: 1,
+    definition: {
+      title: 'Дом',
+      tasks: [
+        {
+          id: 'sponge',
+          title: 'Заменить губку',
+          weekdays: [],
+          times: [],
+          reminderEnabled: false,
+          claimEnabled: false,
+          recurrence: { intervalDays: 14, firstDueDate: '2026-09-11' }
+        }
+      ]
+    }
+  })
+  f.setNow('2026-09-11T04:00:00Z')
+  await f.delivery.bind(f.doc.id, routineActor.householdId, {
+    chatId: '-1001',
+    threadId: 136,
+    name: 'Дом'
+  })
+  const doc = (await f.repository.get(f.doc.id))!
+  const row = doc.days.at(-1)!.rows[0]!
+  f.setNow('2026-09-15T04:00:00Z')
+  await f.delivery.tick()
+  expect((await f.repository.get(f.doc.id))!.days.at(-1)!.rows[0]!.id).toBe(row.id)
+  await f.service.act(routineActor, {
+    id: doc.id,
+    rowId: row.id,
+    version: 0,
+    action: 'complete',
+    requestId: 'done'
+  })
+  await f.delivery.reconcile(doc.id)
+  expect(f.calls.at(-1)!.text).toContain('Следующий раз: 2026-09-29')
+  const before = f.calls.length
+  await f.delivery.tick()
+  expect(f.calls).toHaveLength(before)
+})

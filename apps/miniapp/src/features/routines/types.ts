@@ -21,6 +21,8 @@ export interface RoutineView {
       windowEndsAt?: string | null
       note?: string
       activityId?: string
+      recurrenceDueDate?: string
+      nextDueDate?: string
       reminderEnabled: boolean
       claimEnabled: boolean
       version: number
@@ -40,6 +42,14 @@ export interface RoutineView {
     completed: boolean
   }>
   lastActions?: Array<{ label: string; at: string | null; actorName: string | null }>
+  recurringTasks?: Array<{
+    taskId: string
+    title: string
+    intervalDays: number
+    nextDueDate: string
+    lastCompletedAt: string | null
+    lastCompletedByName: string | null
+  }>
   subscribed: boolean
   dmBlocked: boolean
   privateCardUnknown: boolean

@@ -233,3 +233,181 @@ test('a future boundary extension can still be cancelled before it starts', asyn
   const next = (await service.list(routineActor))[0]!
   expect(next.days.map((day) => day.date)).toEqual(['2026-09-15', '2026-09-16'])
 })
+
+describe('completion-relative household chores', () => {
+  function fixture(intervalDays = 14) {
+    let now = '2026-09-21T10:00:00Z'
+    const repository = routineMemoryRepository()
+    const service = createRoutineService(repository, () => now)
+    const input = {
+      ...routineInput,
+      definition: {
+        title: 'Дом',
+        tasks: [
+          {
+            id: 'sponge',
+            title: 'Заменить губку',
+            weekdays: [],
+            times: [],
+            reminderEnabled: false,
+            claimEnabled: true,
+            recurrence: { intervalDays, firstDueDate: '2026-09-21' }
+          }
+        ]
+      }
+    }
+    return {
+      repository,
+      service,
+      input,
+      setNow: (value: string) => {
+        now = value
+      }
+    }
+  }
+  test('overdue work remains one occurrence and next date follows actual completion', async () => {
+    const f = fixture()
+    const initial = await f.service.save(routineActor, f.input)
+    const row = initial.days[0]!.rows[0]!
+    f.setNow('2026-10-08T10:00:00Z')
+    const overdue = (await f.service.list(routineActor))[0]!
+    expect(overdue.days.at(-1)!.rows).toHaveLength(1)
+    expect(overdue.days.at(-1)!.rows[0]!.id).toBe(row.id)
+    const action = {
+      id: initial.id,
+      rowId: row.id,
+      version: 0,
+      action: 'complete' as const,
+      requestId: 'done'
+    }
+    await f.service.act(routineActor, action)
+    await f.service.act(routineActor, action)
+    await expect(f.service.act(routineActor, { ...action, requestId: 'stale' })).rejects.toThrow(
+      'Уже отмечено'
+    )
+    expect((await f.repository.get(initial.id))!.recurringTasks!.sponge!.nextDueDate).toBe(
+      '2026-10-22'
+    )
+    f.setNow('2026-10-21T10:00:00Z')
+    expect((await f.service.list(routineActor))[0]!.days.at(-1)!.rows).toHaveLength(0)
+    f.setNow('2026-10-22T10:00:00Z')
+    const next = (await f.service.list(routineActor))[0]!.days.at(-1)!.rows
+    expect(next).toHaveLength(1)
+    expect(next[0]!.id).not.toBe(row.id)
+    expect(next[0]!.status).toBe('pending')
+  })
+  test('same-day undo restores the original due date and completion history', async () => {
+    const f = fixture()
+    const doc = await f.service.save(routineActor, f.input)
+    const row = doc.days[0]!.rows[0]!
+    await f.service.act(routineActor, {
+      id: doc.id,
+      rowId: row.id,
+      version: 0,
+      action: 'complete',
+      requestId: 'done'
+    })
+    await f.service.act(routineActor, {
+      id: doc.id,
+      rowId: row.id,
+      version: 1,
+      action: 'reopen',
+      requestId: 'undo'
+    })
+    const latest = (await f.service.list(routineActor))[0]!
+    expect(latest.recurringTasks!.sponge!.nextDueDate).toBe('2026-09-21')
+    expect(latest.recurringTasks!.sponge!.lastCompletedAt).toBeNull()
+    expect(latest.days.at(-1)!.rows[0]!.status).toBe('pending')
+  })
+  test('long intervals survive history pruning and use the household completion date', async () => {
+    const f = fixture(90)
+    const doc = await f.service.save(routineActor, f.input)
+    f.setNow('2026-09-21T21:00:00Z') // September 22 in Tbilisi
+    await f.service.act(routineActor, {
+      id: doc.id,
+      rowId: doc.days[0]!.rows[0]!.id,
+      version: 0,
+      action: 'complete',
+      requestId: 'done'
+    })
+    f.setNow('2026-11-25T10:00:00Z')
+    const latest = (await f.service.list(routineActor))[0]!
+    expect(latest.days).toHaveLength(1)
+    expect(latest.days[0]!.rows).toHaveLength(0)
+    expect(latest.recurringTasks!.sponge!.nextDueDate).toBe('2026-12-21')
+    expect(latest.recurringTasks!.sponge!.lastCompletedByName).toBe(routineActor.displayName)
+  })
+  test('interval edits apply tomorrow from last completion; removal clears recurring state', async () => {
+    const f = fixture()
+    const doc = await f.service.save(routineActor, f.input)
+    await f.service.act(routineActor, {
+      id: doc.id,
+      rowId: doc.days[0]!.rows[0]!.id,
+      version: 0,
+      action: 'complete',
+      requestId: 'done'
+    })
+    const task = f.input.definition.tasks[0]!
+    await f.service.save(routineActor, {
+      ...f.input,
+      expectedRevision: 1,
+      definition: {
+        title: 'Дом',
+        tasks: [{ ...task, recurrence: { intervalDays: 7, firstDueDate: '2026-10-30' } }]
+      }
+    })
+    expect((await f.service.list(routineActor))[0]!.recurringTasks!.sponge!.nextDueDate).toBe(
+      '2026-10-05'
+    )
+    f.setNow('2026-09-22T10:00:00Z')
+    expect((await f.service.list(routineActor))[0]!.recurringTasks!.sponge!.nextDueDate).toBe(
+      '2026-09-28'
+    )
+    await f.service.save(routineActor, {
+      ...f.input,
+      expectedRevision: 2,
+      definition: routineInput.definition
+    })
+    f.setNow('2026-09-23T10:00:00Z')
+    expect((await f.service.list(routineActor))[0]!.recurringTasks).toEqual({})
+  })
+  test('a future first date stays hidden and paused overdue work survives pruning', async () => {
+    const f = fixture()
+    const doc = await f.service.save(routineActor, {
+      ...f.input,
+      definition: {
+        ...f.input.definition,
+        tasks: [
+          {
+            ...f.input.definition.tasks[0]!,
+            recurrence: { intervalDays: 7, firstDueDate: '2026-09-28' }
+          }
+        ]
+      }
+    })
+    expect(doc.days[0]!.rows).toHaveLength(0)
+    await f.service.pause(routineActor, doc.id, true, 1)
+    f.setNow('2026-11-21T10:00:00Z')
+    const paused = (await f.service.list(routineActor))[0]!
+    const row = paused.days.at(-1)!.rows[0]!
+    expect(row.recurrenceDueDate).toBe('2026-09-28')
+    await expect(
+      f.service.act(routineActor, {
+        id: doc.id,
+        rowId: row.id,
+        version: 0,
+        action: 'complete',
+        requestId: 'paused'
+      })
+    ).rejects.toThrow('паузе')
+    await f.service.pause(routineActor, doc.id, false, 2)
+    await f.service.act(routineActor, {
+      id: doc.id,
+      rowId: row.id,
+      version: 0,
+      action: 'complete',
+      requestId: 'done'
+    })
+    expect((await f.repository.get(doc.id))!.recurringTasks!.sponge!.nextDueDate).toBe('2026-11-28')
+  })
+})

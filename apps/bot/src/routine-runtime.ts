@@ -116,6 +116,19 @@ export function routineClientView(doc: RoutineDocument, actor: RoutineActor) {
         actorName: last?.actorName ?? null
       }
     }),
+    recurringTasks: doc.definition.tasks
+      .filter((task) => task.recurrence)
+      .map((task) => {
+        const state = doc.recurringTasks?.[task.id]
+        return {
+          taskId: task.id,
+          title: task.title,
+          intervalDays: task.recurrence!.intervalDays,
+          nextDueDate: state?.nextDueDate ?? task.recurrence!.firstDueDate,
+          lastCompletedAt: state?.lastCompletedAt ?? null,
+          lastCompletedByName: state?.lastCompletedByName ?? null
+        }
+      }),
     subscribed: doc.subscriptions[actor.id]?.enabled ?? false,
     dmBlocked: doc.subscriptions[actor.id]?.blocked ?? false,
     errors: [

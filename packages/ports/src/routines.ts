@@ -9,6 +9,8 @@ export interface RoutineRow {
   windowEndsAt?: string | null
   note?: string
   activityId?: string
+  recurrenceDueDate?: string
+  nextDueDate?: string
   reminderEnabled: boolean
   claimEnabled: boolean
   reminderSuppressed: boolean
@@ -66,6 +68,18 @@ export interface RoutineDocument {
   subscriptions: Record<string, { telegramUserId: string; enabled: boolean; blocked: boolean }>
   days: RoutineDay[]
   messages: RoutineMessage[]
+  /** Durable recurrence state is independent of retained daily-card history. */
+  recurringTasks?: Record<
+    string,
+    {
+      nextDueDate: string
+      lastCompletedAt: string | null
+      lastCompletedBy: string | null
+      lastCompletedByName: string | null
+      previousCompletion?: { at: string | null; by: string | null; name: string | null }
+      row: RoutineRow | null
+    }
+  >
   actionIds: string[]
   lease: { token: string; until: string } | null
   createdAt: string

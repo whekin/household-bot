@@ -358,3 +358,39 @@ test('a boundary in the repeated DST hour never rolls the routine date backwards
   expect(routineDayDate('Europe/Berlin', '02:30', '2026-03-29T03:15:00+02:00')).toBe('2026-03-28')
   expect(routineDayDate('Europe/Berlin', '02:30', '2026-03-29T03:30:00+02:00')).toBe('2026-03-29')
 })
+
+test('completion recurrence validates its interval/date and excludes daily expansion', () => {
+  const recurring = {
+    ...task,
+    weekdays: [],
+    recurrence: { intervalDays: 14, firstDueDate: '2026-09-21' }
+  }
+  expect(normalizeRoutine({ title: 'Дом', tasks: [recurring] }).tasks[0]!.recurrence).toEqual(
+    recurring.recurrence
+  )
+  expect(occurrences([recurring], '2026-10-01')).toEqual([])
+  for (const intervalDays of [0, -1, 1.5, 366, NaN]) {
+    expect(() =>
+      normalizeRoutine({
+        title: 'Дом',
+        tasks: [{ ...recurring, recurrence: { ...recurring.recurrence, intervalDays } }]
+      })
+    ).toThrow()
+  }
+  for (const firstDueDate of ['2026-02-30', 'tomorrow', '2026-9-1']) {
+    expect(() =>
+      normalizeRoutine({
+        title: 'Дом',
+        tasks: [{ ...recurring, recurrence: { ...recurring.recurrence, firstDueDate } }]
+      })
+    ).toThrow()
+  }
+  for (const patch of [
+    { weekdays: [1] },
+    { times: ['09:00'] },
+    { reminderEnabled: true },
+    { activityId: 'water' }
+  ]) {
+    expect(() => normalizeRoutine({ title: 'Дом', tasks: [{ ...recurring, ...patch }] })).toThrow()
+  }
+})

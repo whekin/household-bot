@@ -15,6 +15,7 @@ export interface RoutineTask {
   readonly claimEnabled: boolean
   readonly note?: string
   readonly activityId?: string
+  readonly recurrence?: { readonly intervalDays: number; readonly firstDueDate: string }
 }
 
 export interface RoutineQuickAction {
@@ -123,10 +124,30 @@ export function normalizeRoutine(input: RoutineDefinition): RoutineDefinition {
     ids.add(task.id)
     if (typeof task.reminderEnabled !== 'boolean' || typeof task.claimEnabled !== 'boolean')
       invalid('Reminder and claim settings must be booleans')
+    if (task.recurrence) {
+      if (
+        !Number.isInteger(task.recurrence.intervalDays) ||
+        task.recurrence.intervalDays < 1 ||
+        task.recurrence.intervalDays > 365
+      )
+        invalid('Repeat interval must be 1–365 days')
+      try {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(task.recurrence.firstDueDate))
+          invalid('Invalid first due date')
+        Temporal.PlainDate.from(task.recurrence.firstDueDate)
+      } catch {
+        invalid('Invalid first due date')
+      }
+      if (task.weekdays.length || task.times.length || task.reminderEnabled || task.activityId)
+        invalid(
+          'Completion recurrence cannot have weekdays, times, slot reminders or quick actions'
+        )
+    }
     if (
-      task.weekdays.length === 0 ||
-      new Set(task.weekdays).size !== task.weekdays.length ||
-      task.weekdays.some((day) => !Number.isInteger(day) || day < 1 || day > 7)
+      !task.recurrence &&
+      (task.weekdays.length === 0 ||
+        new Set(task.weekdays).size !== task.weekdays.length ||
+        task.weekdays.some((day) => !Number.isInteger(day) || day < 1 || day > 7))
     ) {
       invalid('Weekdays must be distinct ISO weekdays from 1 to 7')
     }
@@ -161,7 +182,9 @@ export function normalizeRoutine(input: RoutineDefinition): RoutineDefinition {
   })
   for (let day = 1; day <= 7; day += 1) {
     const count = tasks.reduce(
-      (total, task) => total + (task.weekdays.includes(day) ? Math.max(1, task.times.length) : 0),
+      (total, task) =>
+        total +
+        (task.recurrence ? 1 : task.weekdays.includes(day) ? Math.max(1, task.times.length) : 0),
       0
     )
     if (count > ROUTINE_DAILY_OCCURRENCE_LIMIT) {
@@ -198,7 +221,7 @@ export function routineOccurrencesForDate(input: {
     return invalid('Invalid local date or timezone')
   }
   return definition.tasks.flatMap((task) => {
-    if (!task.weekdays.includes(date.dayOfWeek)) return []
+    if (task.recurrence || !task.weekdays.includes(date.dayOfWeek)) return []
     const times: readonly (string | null)[] = task.times.length ? task.times : [null]
     return times.map((time) => {
       const window = time === null ? null : parseRoutineTime(time)

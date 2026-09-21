@@ -64,7 +64,18 @@ export function RoutineEditor({
     if (!title.trim()) errors.title = t('Укажите название списка', 'Enter a list name')
     for (const task of tasks) {
       if (!task.title.trim()) errors[task.id] = t('Укажите название дела', 'Enter a task name')
-      else if (!task.weekdays.length)
+      else if (
+        task.recurrence &&
+        (!Number.isInteger(task.recurrence.intervalDays) ||
+          task.recurrence.intervalDays < 1 ||
+          task.recurrence.intervalDays > 365 ||
+          !task.recurrence.firstDueDate)
+      )
+        errors[task.id] = t(
+          'Укажите интервал 1–365 дней и первую дату',
+          'Enter 1–365 days and the first due date'
+        )
+      else if (!task.recurrence && !task.weekdays.length)
         errors[task.id] = t('Выберите хотя бы один день', 'Choose at least one day')
       else if (new Set(task.times).size !== task.times.length)
         errors[task.id] = t('Время не должно повторяться', 'Times must be unique')
@@ -198,9 +209,14 @@ export function RoutineEditor({
             <details>
               <summary className="cursor-pointer py-2 text-sm text-muted-foreground">
                 {t('Расписание', 'Schedule')} ·{' '}
-                {task.weekdays.length === 7
-                  ? t('ежедневно', 'every day')
-                  : task.weekdays.map((d) => weekdays[d - 1]).join(', ')}{' '}
+                {task.recurrence
+                  ? t(
+                      `каждые ${task.recurrence.intervalDays} дн. после выполнения`,
+                      `every ${task.recurrence.intervalDays} days after completion`
+                    )
+                  : task.weekdays.length === 7
+                    ? t('ежедневно', 'every day')
+                    : task.weekdays.map((d) => weekdays[d - 1]).join(', ')}{' '}
                 · {task.times.length ? task.times.join(', ') : t('в течение дня', 'any time')}
               </summary>
               <div className="space-y-4 pt-3">
@@ -214,7 +230,7 @@ export function RoutineEditor({
                     onChange={(e) => update(task.id, { note: e.target.value })}
                   />
                 </label>
-                {quickActions.length > 0 && (
+                {!task.recurrence && quickActions.length > 0 && (
                   <label className="block space-y-1 text-sm" htmlFor={`activity-${task.id}`}>
                     <span>{t('Быстрое действие', 'Quick action')}</span>
                     <select
@@ -233,107 +249,205 @@ export function RoutineEditor({
                   </label>
                 )}
 
-                <div className="grid grid-cols-7 gap-1">
-                  {weekdays.map((name, i) => (
-                    <button
-                      key={name}
-                      type="button"
-                      aria-pressed={task.weekdays.includes(i + 1)}
-                      className={`min-h-11 rounded-lg text-sm ${task.weekdays.includes(i + 1) ? 'bg-primary text-primary-foreground' : 'bg-elevated text-muted-foreground'}`}
-                      onClick={() =>
+                <label className="block space-y-1 text-sm" htmlFor={`repeat-${task.id}`}>
+                  <span>{t('Повторять', 'Repeat')}</span>
+                  <select
+                    id={`repeat-${task.id}`}
+                    className="min-h-11 w-full rounded-lg border border-border bg-field px-3"
+                    value={task.recurrence ? 'completion' : 'weekdays'}
+                    onChange={(e) => {
+                      if (e.target.value === 'completion')
                         update(task.id, {
-                          weekdays: task.weekdays.includes(i + 1)
-                            ? task.weekdays.filter((d) => d !== i + 1)
-                            : [...task.weekdays, i + 1].sort()
+                          recurrence: { intervalDays: 14, firstDueDate: '' },
+                          weekdays: [],
+                          times: [],
+                          reminderEnabled: false,
+                          activityId: ''
                         })
-                      }
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-faint">
-                  {t(
-                    'Без времени — одна отметка на день. Каждое время добавляет отдельную отметку.',
-                    'No time means one daily checkbox. Each time adds a separate checkbox.'
-                  )}
-                </p>
-                {task.times.map((time, i) => (
-                  <div className="flex items-center gap-2" key={i}>
-                    <label
-                      className="min-w-0 flex-1 text-xs text-faint"
-                      htmlFor={`time-${task.id}-${i}`}
-                    >
-                      {t('С', 'From')}
-                      <Input
-                        type="time"
-                        required
-                        id={`time-${task.id}-${i}`}
-                        value={time.split(/[-–]/)[0] ?? ''}
-                        onChange={(e) => {
-                          const end = time.split(/[-–]/)[1]
-                          update(task.id, {
-                            times: task.times.map((v, j) =>
-                              i === j ? `${e.target.value}${end ? `-${end}` : ''}` : v
-                            )
+                      else
+                        setTasks((items) =>
+                          items.map((item) => {
+                            if (item.id !== task.id) return item
+                            const next = { ...item, weekdays: [1, 2, 3, 4, 5, 6, 7] }
+                            delete next.recurrence
+                            return next
                           })
-                        }}
-                      />
-                    </label>
-                    <label
-                      className="min-w-0 flex-1 text-xs text-faint"
-                      htmlFor={`end-${task.id}-${i}`}
-                    >
-                      {t('До (необязательно)', 'Until (optional)')}
+                        )
+                    }}
+                  >
+                    <option value="weekdays">{t('По дням недели', 'On weekdays')}</option>
+                    <option value="completion">{t('После выполнения', 'After completion')}</option>
+                  </select>
+                </label>
+                {task.recurrence ? (
+                  <div className="space-y-3 rounded-xl bg-elevated p-3">
+                    <div className="flex gap-2">
+                      {[7, 14].map((days) => (
+                        <Button
+                          key={days}
+                          variant={task.recurrence!.intervalDays === days ? 'primary' : 'soft'}
+                          className="min-h-11"
+                          aria-pressed={task.recurrence!.intervalDays === days}
+                          onClick={() =>
+                            update(task.id, {
+                              recurrence: { ...task.recurrence!, intervalDays: days }
+                            })
+                          }
+                        >
+                          {days === 7
+                            ? t('Раз в неделю', 'Weekly')
+                            : t('Раз в 2 недели', 'Every 2 weeks')}
+                        </Button>
+                      ))}
+                    </div>
+                    <label className="block space-y-1 text-sm" htmlFor={`interval-${task.id}`}>
+                      <span>
+                        {t('Через сколько дней после выполнения', 'Days after completion')}
+                      </span>
                       <Input
-                        type="time"
-                        id={`end-${task.id}-${i}`}
-                        value={time.split(/[-–]/)[1] ?? ''}
+                        id={`interval-${task.id}`}
+                        type="number"
+                        min={1}
+                        max={365}
+                        step={1}
+                        required
+                        value={task.recurrence.intervalDays || ''}
                         onChange={(e) =>
                           update(task.id, {
-                            times: task.times.map((v, j) =>
-                              i === j
-                                ? `${time.split(/[-–]/)[0]}${e.target.value ? `-${e.target.value}` : ''}`
-                                : v
-                            )
+                            recurrence: {
+                              ...task.recurrence!,
+                              intervalDays: Number(e.target.value)
+                            }
                           })
                         }
                       />
                     </label>
-                    <Button
-                      variant="ghost"
-                      className="min-h-11"
-                      aria-label={t('Убрать время', 'Remove time')}
-                      onClick={() => {
-                        const times = task.times.filter((_, j) => j !== i)
-                        update(task.id, {
-                          times,
-                          reminderEnabled: times.length > 0 && task.reminderEnabled
-                        })
-                      }}
-                    >
-                      ×
-                    </Button>
+                    <label className="block space-y-1 text-sm" htmlFor={`first-date-${task.id}`}>
+                      <span>{t('Первая дата', 'First due date')}</span>
+                      <Input
+                        id={`first-date-${task.id}`}
+                        type="date"
+                        required
+                        value={task.recurrence.firstDueDate}
+                        onChange={(e) =>
+                          update(task.id, {
+                            recurrence: { ...task.recurrence!, firstDueDate: e.target.value }
+                          })
+                        }
+                      />
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'Появится в карточке дня и останется до выполнения. Нажмите «Готово» — отсчёт начнётся заново. Первая дата используется до первого выполнения.',
+                        'Appears on the daily card and stays until done. Completion restarts the interval. The first date applies until the first completion.'
+                      )}
+                    </p>
                   </div>
-                ))}
-                <Button
-                  variant="soft"
-                  className="min-h-11"
-                  disabled={task.times.length >= 20}
-                  onClick={() => update(task.id, { times: [...task.times, '09:00'] })}
-                >
-                  <Plus className="size-4" />
-                  {t('Добавить время', 'Add time')}
-                </Button>
-                {task.times.length > 0 && (
-                  <label className="flex min-h-11 items-center gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={task.reminderEnabled}
-                      onChange={(e) => update(task.id, { reminderEnabled: e.target.checked })}
-                    />
-                    {t('Напоминать в это время', 'Remind at these times')}
-                  </label>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-7 gap-1">
+                      {weekdays.map((name, i) => (
+                        <button
+                          key={name}
+                          type="button"
+                          aria-pressed={task.weekdays.includes(i + 1)}
+                          className={`min-h-11 rounded-lg text-sm ${task.weekdays.includes(i + 1) ? 'bg-primary text-primary-foreground' : 'bg-elevated text-muted-foreground'}`}
+                          onClick={() =>
+                            update(task.id, {
+                              weekdays: task.weekdays.includes(i + 1)
+                                ? task.weekdays.filter((d) => d !== i + 1)
+                                : [...task.weekdays, i + 1].sort()
+                            })
+                          }
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-faint">
+                      {t(
+                        'Без времени — одна отметка на день. Каждое время добавляет отдельную отметку.',
+                        'No time means one daily checkbox. Each time adds a separate checkbox.'
+                      )}
+                    </p>
+                    {task.times.map((time, i) => (
+                      <div className="flex items-center gap-2" key={i}>
+                        <label
+                          className="min-w-0 flex-1 text-xs text-faint"
+                          htmlFor={`time-${task.id}-${i}`}
+                        >
+                          {t('С', 'From')}
+                          <Input
+                            type="time"
+                            required
+                            id={`time-${task.id}-${i}`}
+                            value={time.split(/[-–]/)[0] ?? ''}
+                            onChange={(e) => {
+                              const end = time.split(/[-–]/)[1]
+                              update(task.id, {
+                                times: task.times.map((v, j) =>
+                                  i === j ? `${e.target.value}${end ? `-${end}` : ''}` : v
+                                )
+                              })
+                            }}
+                          />
+                        </label>
+                        <label
+                          className="min-w-0 flex-1 text-xs text-faint"
+                          htmlFor={`end-${task.id}-${i}`}
+                        >
+                          {t('До (необязательно)', 'Until (optional)')}
+                          <Input
+                            type="time"
+                            id={`end-${task.id}-${i}`}
+                            value={time.split(/[-–]/)[1] ?? ''}
+                            onChange={(e) =>
+                              update(task.id, {
+                                times: task.times.map((v, j) =>
+                                  i === j
+                                    ? `${time.split(/[-–]/)[0]}${e.target.value ? `-${e.target.value}` : ''}`
+                                    : v
+                                )
+                              })
+                            }
+                          />
+                        </label>
+                        <Button
+                          variant="ghost"
+                          className="min-h-11"
+                          aria-label={t('Убрать время', 'Remove time')}
+                          onClick={() => {
+                            const times = task.times.filter((_, j) => j !== i)
+                            update(task.id, {
+                              times,
+                              reminderEnabled: times.length > 0 && task.reminderEnabled
+                            })
+                          }}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="soft"
+                      className="min-h-11"
+                      disabled={task.times.length >= 20}
+                      onClick={() => update(task.id, { times: [...task.times, '09:00'] })}
+                    >
+                      <Plus className="size-4" />
+                      {t('Добавить время', 'Add time')}
+                    </Button>
+                    {task.times.length > 0 && (
+                      <label className="flex min-h-11 items-center gap-3 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={task.reminderEnabled}
+                          onChange={(e) => update(task.id, { reminderEnabled: e.target.checked })}
+                        />
+                        {t('Напоминать в это время', 'Remind at these times')}
+                      </label>
+                    )}
+                  </>
                 )}
                 <label className="flex min-h-11 items-center gap-3 text-sm">
                   <input
