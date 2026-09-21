@@ -224,7 +224,9 @@ export async function runToolSession(input: {
             { event: 'tool_session.tool_failed', tool: call.name, err: error },
             'Agent tool execution failed'
           )
-          output = { error: 'tool_execution_failed' }
+          // The agent must not dress a crash up as a temporary hiccup, so the
+          // result says outright that waiting and retrying will not help.
+          output = { error: 'tool_execution_failed', retryable: false }
         }
       }
 

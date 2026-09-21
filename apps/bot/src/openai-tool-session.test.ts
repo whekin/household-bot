@@ -151,6 +151,38 @@ describe('runToolSession', () => {
     expect(toolOutput?.output).toBe(JSON.stringify({ error: 'invalid_arguments_json' }))
   })
 
+  test('tells the model a crashed tool is not worth retrying', async () => {
+    const requests = mockOpenAi([
+      {
+        output: [
+          {
+            type: 'function_call',
+            name: 'propose_payment',
+            call_id: 'call-1',
+            arguments: '{"kind":"rent"}'
+          }
+        ]
+      },
+      {
+        output: [{ type: 'message', content: [{ type: 'output_text', text: 'Не прошло.' }] }]
+      }
+    ])
+
+    const result = await runToolSession({
+      ...baseInput,
+      executeTool: async () => {
+        throw new Error('NBG request failed: 503')
+      }
+    })
+
+    expect(result.text).toBe('Не прошло.')
+    const secondRequest = requests[1] as { input: Array<{ type?: string; output?: string }> }
+    const toolOutput = secondRequest.input.find((item) => item.type === 'function_call_output')
+    expect(toolOutput?.output).toBe(
+      JSON.stringify({ error: 'tool_execution_failed', retryable: false })
+    )
+  })
+
   test('logs the status and request id for failed API requests', async () => {
     globalThis.fetch = (async () =>
       new Response(
