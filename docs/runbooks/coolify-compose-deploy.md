@@ -69,17 +69,17 @@ docker compose -f docker-compose.coolify.yml run --rm bot bun packages/db/dist/m
 
 ## Domains
 
-Suggested public domains:
+Public domains in production:
 
-- `household-bot.whekin.dev` -> `bot:8080`
-- `household.whekin.dev` -> `miniapp:80`
+- `kojori-bot-api-coolify.whekin.dev` -> `bot:8080`
+- `kojori-bot-miniapp-coolify.whekin.dev` -> `miniapp:80`
 
 Coolify should manage the public routing/TLS for these services.
 
 In Coolify's domain fields:
 
-- Domains for `bot`: `https://household-bot.whekin.dev:8080`
-- Domains for `miniapp`: `https://household.whekin.dev`
+- Domains for `bot`: `https://kojori-bot-api-coolify.whekin.dev:8080`
+- Domains for `miniapp`: `https://kojori-bot-miniapp-coolify.whekin.dev`
 - Domains for `scheduler`: leave blank
 
 The `:8080` suffix is only needed for the bot because it listens on container port `8080`.
@@ -116,9 +116,9 @@ Scheduler:
 Expected production values:
 
 ```sh
-MINI_APP_URL=https://household.whekin.dev
-BOT_API_URL=https://household-bot.whekin.dev
-MINI_APP_ALLOWED_ORIGINS=https://household.whekin.dev
+MINI_APP_URL=https://kojori-bot-miniapp-coolify.whekin.dev
+BOT_API_URL=https://kojori-bot-api-coolify.whekin.dev
+MINI_APP_ALLOWED_ORIGINS=https://kojori-bot-miniapp-coolify.whekin.dev
 TELEGRAM_WEBHOOK_PATH=/webhook/telegram
 DB_SCHEMA=public
 ```
@@ -145,7 +145,7 @@ The deployment target changes; the app should not become Coolify-only.
 8. Set the Telegram webhook:
 
 ```sh
-export TELEGRAM_WEBHOOK_URL="https://household-bot.whekin.dev/webhook/telegram"
+export TELEGRAM_WEBHOOK_URL="https://kojori-bot-api-coolify.whekin.dev/webhook/telegram"
 bun run ops:telegram:webhook set
 bun run ops:telegram:webhook info
 ```
@@ -153,17 +153,17 @@ bun run ops:telegram:webhook info
 9. Run smoke checks:
 
 ```sh
-export BOT_API_URL="https://household-bot.whekin.dev"
-export MINI_APP_URL="https://household.whekin.dev"
+export BOT_API_URL="https://kojori-bot-api-coolify.whekin.dev"
+export MINI_APP_URL="https://kojori-bot-miniapp-coolify.whekin.dev"
 export TELEGRAM_EXPECTED_WEBHOOK_URL="${BOT_API_URL}/webhook/telegram"
 bun run ops:deploy:smoke
 ```
 
 Manual checks:
 
-- `GET https://household-bot.whekin.dev/healthz` returns `{ "ok": true }`
-- `GET https://household.whekin.dev/health` succeeds
-- unauthenticated `POST https://household-bot.whekin.dev/jobs/dispatch-due` returns `401`
+- `GET https://kojori-bot-api-coolify.whekin.dev/healthz` returns `{ "ok": true }`
+- `GET https://kojori-bot-miniapp-coolify.whekin.dev/health` succeeds
+- unauthenticated `POST https://kojori-bot-api-coolify.whekin.dev/jobs/dispatch-due` returns `401`
 
 ## Redeploy
 

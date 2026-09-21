@@ -12,18 +12,9 @@ function toUrl(base: string, path: string): URL {
   return new URL(path.replace(/^\//, ''), normalizedBase)
 }
 
-async function expectJson(url: URL, init: RequestInit, expectedStatus: number): Promise<any> {
+async function expectStatus(url: URL, init: RequestInit, expectedStatus: number): Promise<any> {
   const response = await fetch(url, init)
   const text = await response.text()
-  let payload: unknown = null
-
-  if (text.length > 0) {
-    try {
-      payload = JSON.parse(text) as unknown
-    } catch {
-      throw new Error(`${url.toString()} returned invalid JSON: ${text}`)
-    }
-  }
 
   if (response.status !== expectedStatus) {
     throw new Error(
@@ -31,7 +22,17 @@ async function expectJson(url: URL, init: RequestInit, expectedStatus: number): 
     )
   }
 
-  return payload
+  if (text.length === 0) {
+    return null
+  }
+
+  // The bot answers routing/auth failures with a plain-text body, so only the
+  // status matters once it matches; callers that need a payload check it themselves.
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
 }
 
 async function fetchWebhookInfo(botToken: string): Promise<any> {
@@ -52,12 +53,12 @@ async function run(): Promise<void> {
   const botApiUrl = requireEnv('BOT_API_URL')
   const miniAppUrl = requireEnv('MINI_APP_URL')
 
-  const health = await expectJson(toUrl(botApiUrl, '/healthz'), {}, 200)
+  const health = await expectStatus(toUrl(botApiUrl, '/healthz'), {}, 200)
   if (health?.ok !== true) {
     throw new Error('Bot health check returned unexpected payload')
   }
 
-  await expectJson(
+  await expectStatus(
     toUrl(botApiUrl, '/api/miniapp/session'),
     {
       method: 'POST',
@@ -69,7 +70,7 @@ async function run(): Promise<void> {
     400
   )
 
-  await expectJson(
+  await expectStatus(
     toUrl(botApiUrl, '/jobs/dispatch/test-dispatch'),
     {
       method: 'POST',
