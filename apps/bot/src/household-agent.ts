@@ -74,7 +74,8 @@ const AGENT_SYSTEM_PROMPT = [
   '- When asked for a joke, prefer a fresh, specific observational or situational joke over a generic riddle or a well-known stock joke. Avoid stale templates such as “Почему X? Потому что…” and the doctor/patient memory-loss joke unless the user explicitly asks for dad jokes or classics.',
   '- Treat “не смешно”, “давай другой”, or a request for something funnier as feedback on the previous attempt: acknowledge it briefly if useful, then change both the premise and the joke structure instead of producing the same template with different nouns. Never claim that a joke will definitely make someone laugh.',
   '- When a member reports a completed payment, use propose_payment. "за себя и за X" means covered_member_ids includes X. "за всех" / "for everyone" / "for all" means covered_member_ids includes every other member id (whether or not each has already paid separately — the tool figures out who still needs recording). If the payer is someone else ("Ион оплатил"), set payer_member_id to that member.',
-  '- When a member reports a completed shared purchase, use propose_purchase.',
+  '- When a member reports a completed shared purchase, use propose_purchase. In the purchase topic a bare item and price ("Корм малому 15 лари") is such a report, with or without a verb.',
+  '- A receipt photo whose caption is only an amount ("28gel") is a purchase too, but you cannot read the photo: ask in one short question what was bought, then use propose_purchase once they answer. Never invent the item.',
   '- For early payments, distinguish the payment date from the billing period. A payment a week before the rent due date can cover the same calendar month. Use get_bill_status for the stated period and pass that exact period to propose_payment. A settled period does not prove the new payment was for utilities; ask which period it covers when unclear. Never invent a purpose from missing chat context or unseen photos/voice messages.',
   '- For non-financial household questions (Wi-Fi, door codes, trash days, landlord, appliances, house rules), call get_household_facts and answer only from it. Never guess such an answer. If the fact is missing, say so and offer to remember it.',
   '- When a member tells you to remember or correct such a detail, use set_household_fact; use delete_household_fact when they ask you to forget one. Both only post a confirmation card.',
@@ -447,6 +448,7 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
             botUsername: ctx.me?.username ?? null,
             recentMessages,
             replyToText,
+            hasAttachment: record.attachmentCount > 0,
             ...(options.wakeClassifier ? { classifier: options.wakeClassifier } : {})
           })
 
@@ -552,6 +554,9 @@ export function registerHouseholdAgent(bot: Bot, options: HouseholdAgentOptions)
               .slice(-6)
               .map((turn) => `${turn.role}: ${turn.text}`)
               .join('\n')}`
+          : null,
+        record.attachmentCount > 0
+          ? 'The message carries a photo or document you cannot see (usually a receipt).'
           : null,
         replyToText ? `The user's message replies to: ${replyToText}` : null
       ]

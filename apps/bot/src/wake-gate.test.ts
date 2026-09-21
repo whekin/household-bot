@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   assessWake,
   isRecentBotConversationFollowUp,
+  looksLikeCapturedReceipt,
   looksLikeCompletedPurchaseFact,
   mentionsBotName,
   type WakeClassifier
@@ -83,6 +84,22 @@ describe('looksLikeCompletedPurchaseFact', () => {
     expect(looksLikeCompletedPurchaseFact('Купила бы крючки за 3 лари')).toBe(false)
     expect(looksLikeCompletedPurchaseFact('Крючки 3 лари, но не купила')).toBe(false)
     expect(looksLikeCompletedPurchaseFact('Кто купил крючки за 3 лари?')).toBe(false)
+  })
+})
+
+describe('looksLikeCapturedReceipt', () => {
+  test('recognizes a photo captioned with only a price', () => {
+    expect(looksLikeCapturedReceipt({ messageText: '28gel', hasAttachment: true })).toBe(true)
+    expect(looksLikeCapturedReceipt({ messageText: 'Корм\n21,5 лари', hasAttachment: true })).toBe(
+      true
+    )
+  })
+
+  test('ignores the same caption without an attachment, and questions', () => {
+    expect(looksLikeCapturedReceipt({ messageText: '28gel', hasAttachment: false })).toBe(false)
+    expect(
+      looksLikeCapturedReceipt({ messageText: 'это 28 лари или больше?', hasAttachment: true })
+    ).toBe(false)
   })
 })
 
@@ -213,6 +230,58 @@ describe('assessWake', () => {
 
     expect(decision).toEqual({ wake: true, reason: 'purchase_fact' })
     expect(calls).toHaveLength(0)
+  })
+
+  test('a receipt photo captioned with a price wakes without the classifier', async () => {
+    const { classifier, calls } = classifierStub({ completedPurchaseFact: false })
+
+    const decision = await assessWake({
+      ...baseInput,
+      topicRole: 'purchase',
+      messageText: '28gel',
+      hasAttachment: true,
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'purchase_fact' })
+    expect(calls).toHaveLength(0)
+  })
+
+  test('a verbless purchase line wakes when the classifier recognizes it', async () => {
+    const { classifier, calls } = classifierStub({ completedPurchaseFact: true })
+
+    const decision = await assessWake({
+      ...baseInput,
+      topicRole: 'purchase',
+      messageText: 'Корм малому \n15 лари',
+      classifier
+    })
+
+    expect(decision).toEqual({ wake: true, reason: 'purchase_fact' })
+    expect(calls).toHaveLength(1)
+  })
+
+  test('tells the classifier when the message carries an attachment', async () => {
+    const seen: (boolean | undefined)[] = []
+    const classifier: WakeClassifier = async (input) => {
+      seen.push(input.hasAttachment)
+      return {
+        addressedToBot: false,
+        completedPaymentFact: false,
+        completedPurchaseFact: false,
+        notificationRequest: false
+      }
+    }
+
+    await assessWake({
+      ...baseInput,
+      topicRole: 'purchase',
+      messageText: 'вот чек',
+      hasAttachment: true,
+      classifier
+    })
+
+    expect(seen).toEqual([true])
   })
 
   test('a payment fact outside the payments topic does not wake', async () => {

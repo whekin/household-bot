@@ -39,6 +39,7 @@ export type WakeClassifier = (input: {
   topicRole: WakeGateTopicRole
   recentMessages: readonly WakeClassifierMessage[]
   replyToText: string | null
+  hasAttachment?: boolean
 }) => Promise<WakeClassifierVerdict | null>
 
 const BOT_NAME_PATTERN =
@@ -74,6 +75,21 @@ export function looksLikeCompletedPurchaseFact(messageText: string): boolean {
     ?.toLowerCase()
 
   return before !== 'не' && after !== 'бы'
+}
+
+/**
+ * A receipt photo captioned with a price is how members log a purchase without any verb.
+ * The caption alone carries no item, so the bot wakes and asks for it.
+ */
+export function looksLikeCapturedReceipt(input: {
+  messageText: string
+  hasAttachment: boolean
+}): boolean {
+  return (
+    input.hasAttachment &&
+    !input.messageText.includes('?') &&
+    EXPLICIT_PURCHASE_AMOUNT_PATTERN.test(input.messageText)
+  )
 }
 
 export function isRecentBotConversationFollowUp(input: {
@@ -113,7 +129,7 @@ const WAKE_CLASSIFIER_SYSTEM_PROMPT = `You watch one message in a shared househo
 
 2. completedPaymentFact — the message states a household member has COMPLETED a rent or utilities payment (e.g. "оплатил коммуналку", "закинул за себя и за Иона", "paid rent"). Future intent ("надо оплатить", "завтра закину", "могу оплатить"), offers, requests to others, and questions are NOT payment facts. When unsure, answer false.
 
-3. completedPurchaseFact — the message states a COMPLETED shared household purchase with an item (e.g. "купил корм 12 лари", "крючки 3 лари, купила"). Masculine and feminine completed-purchase wording are equivalent. Plans, wishes, questions, and price chatter are NOT purchase facts. When unsure, answer false.
+3. completedPurchaseFact — the message logs a shared household purchase that already happened. In the purchase topic members usually log one with no verb at all: a bare item and its price ("Корм малому 15 лари", "Корм Меймун - 20 лари", "Крючки 3 лари"), and a receipt photo captioned with only a price ("28gel", "21,5 лари") counts too — the bot asks for the missing item itself. Wording with a verb ("купил корм 12 лари", "крючки 3 лари, купила") counts the same; masculine and feminine forms are equivalent. Plans, wishes, questions, offers, and price comparisons ("холодильник стоит 800 лари", "сколько стоил корм?") are NOT purchase facts. Outside the purchase topic, require the message to actually state a purchase.
 
 4. notificationRequest — the message asks to schedule, set, move, or cancel a household reminder/notification (e.g. "напомни завтра про уборку", "напомни оплатить свет 24-го"). Ordinary chatter about plans is NOT a request. When unsure, answer false.
 
@@ -161,6 +177,7 @@ export function createOpenAiWakeClassifier(
               role: 'user',
               content: [
                 `Topic role: ${input.topicRole}`,
+                input.hasAttachment ? 'The new message carries a photo or document.' : null,
                 contextLines.length > 0 ? `Recent messages:\n${contextLines.join('\n')}` : null,
                 input.replyToText ? `The new message replies to: ${input.replyToText}` : null,
                 `New message:\n${input.messageText}`
@@ -234,6 +251,7 @@ export async function assessWake(input: {
   botUsername?: string | null
   recentMessages: readonly WakeClassifierMessage[]
   replyToText?: string | null
+  hasAttachment?: boolean
   classifier?: WakeClassifier
 }): Promise<WakeGateDecision> {
   if (input.isExplicitMention) {
@@ -248,7 +266,14 @@ export async function assessWake(input: {
     return { wake: true, reason: 'active_workflow' }
   }
 
-  if (input.topicRole === 'purchase' && looksLikeCompletedPurchaseFact(input.messageText)) {
+  if (
+    input.topicRole === 'purchase' &&
+    (looksLikeCompletedPurchaseFact(input.messageText) ||
+      looksLikeCapturedReceipt({
+        messageText: input.messageText,
+        hasAttachment: input.hasAttachment ?? false
+      }))
+  ) {
     return { wake: true, reason: 'purchase_fact' }
   }
 
@@ -266,7 +291,8 @@ export async function assessWake(input: {
     messageText: input.messageText,
     topicRole: input.topicRole,
     recentMessages: input.recentMessages,
-    replyToText: input.replyToText ?? null
+    replyToText: input.replyToText ?? null,
+    hasAttachment: input.hasAttachment ?? false
   })
 
   if (!verdict) {
