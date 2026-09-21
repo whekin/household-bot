@@ -1,3 +1,8 @@
+import {
+  billingPeriodLockDate,
+  localDateInTimezone,
+  resolveCycleExchangeRate
+} from './cycle-exchange-rate'
 import { createRepaymentService } from './repayment-service'
 import { netRepaymentObligations } from '@household/domain'
 import { createHash } from 'node:crypto'
@@ -99,25 +104,6 @@ async function getDefaultOpenCycle(
       expectedOpenCyclePeriod(settings, nowInstant()).toString()
     )) ?? openCycle
   )
-}
-
-function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
-  const firstDay = Temporal.PlainDate.from({
-    year: period.year,
-    month: period.month,
-    day: 1
-  })
-  const clampedDay = Math.min(day, firstDay.daysInMonth)
-
-  return Temporal.PlainDate.from({
-    year: period.year,
-    month: period.month,
-    day: clampedDay
-  })
-}
-
-function localDateInTimezone(timezone: string): Temporal.PlainDate {
-  return nowInstant().toZonedDateTimeISO(timezone).toPlainDate()
 }
 
 function periodFromLocalDate(localDate: Temporal.PlainDate): BillingPeriod {
@@ -2537,46 +2523,22 @@ async function convertIntoCycleCurrency(
     }
   }
 
-  const existingRate = await dependencies.repository.getCycleExchangeRate(
-    input.cycle.id,
-    input.amount.currency,
-    input.cycle.currency
-  )
-
-  if (existingRate) {
-    return {
-      originalAmount: input.amount,
-      settlementAmount: convertMoney(input.amount, input.cycle.currency, existingRate.rateMicros),
-      fxRateMicros: existingRate.rateMicros,
-      fxEffectiveDate: existingRate.effectiveDate
-    }
-  }
-
-  const lockDate = billingPeriodLockDate(input.period, input.lockDay)
-  const currentLocalDate = localDateInTimezone(input.timezone)
-  const shouldPersist = Temporal.PlainDate.compare(currentLocalDate, lockDate) >= 0
-  const quote = await dependencies.exchangeRateProvider.getRate({
-    baseCurrency: input.amount.currency,
-    quoteCurrency: input.cycle.currency,
-    effectiveDate: lockDate.toString()
+  const rate = await resolveCycleExchangeRate({
+    repository: dependencies.repository,
+    exchangeRateProvider: dependencies.exchangeRateProvider,
+    cycleId: input.cycle.id,
+    sourceCurrency: input.amount.currency,
+    targetCurrency: input.cycle.currency,
+    period: input.period,
+    lockDay: input.lockDay,
+    timezone: input.timezone
   })
-
-  if (shouldPersist) {
-    await dependencies.repository.saveCycleExchangeRate({
-      cycleId: input.cycle.id,
-      sourceCurrency: quote.baseCurrency,
-      targetCurrency: quote.quoteCurrency,
-      rateMicros: quote.rateMicros,
-      effectiveDate: quote.effectiveDate,
-      source: quote.source
-    })
-  }
 
   return {
     originalAmount: input.amount,
-    settlementAmount: convertMoney(input.amount, input.cycle.currency, quote.rateMicros),
-    fxRateMicros: quote.rateMicros,
-    fxEffectiveDate: quote.effectiveDate
+    settlementAmount: convertMoney(input.amount, input.cycle.currency, rate.rateMicros),
+    fxRateMicros: rate.rateMicros,
+    fxEffectiveDate: rate.effectiveDate
   }
 }
 

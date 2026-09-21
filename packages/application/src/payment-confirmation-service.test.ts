@@ -49,6 +49,7 @@ function createRepositoryStub(): Pick<
   | 'getLatestCycle'
   | 'getCycleExchangeRate'
   | 'saveCycleExchangeRate'
+  | 'getLatestExchangeRate'
   | 'savePaymentConfirmation'
 > & {
   saved: FinancePaymentConfirmationSaveInput[]
@@ -78,6 +79,9 @@ function createRepositoryStub(): Pick<
     },
     async saveCycleExchangeRate(input) {
       return input
+    },
+    async getLatestExchangeRate() {
+      return null
     },
     async savePaymentConfirmation(input): Promise<FinancePaymentConfirmationSaveResult> {
       this.saved.push(input)

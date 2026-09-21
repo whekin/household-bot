@@ -692,6 +692,45 @@ export function createDbFinanceRepository(
       }
     },
 
+    async getLatestExchangeRate(sourceCurrency, targetCurrency) {
+      const rows = await db
+        .select({
+          cycleId: schema.billingCycleExchangeRates.cycleId,
+          sourceCurrency: schema.billingCycleExchangeRates.sourceCurrency,
+          targetCurrency: schema.billingCycleExchangeRates.targetCurrency,
+          rateMicros: schema.billingCycleExchangeRates.rateMicros,
+          effectiveDate: schema.billingCycleExchangeRates.effectiveDate
+        })
+        .from(schema.billingCycleExchangeRates)
+        .innerJoin(
+          schema.billingCycles,
+          eq(schema.billingCycles.id, schema.billingCycleExchangeRates.cycleId)
+        )
+        .where(
+          and(
+            eq(schema.billingCycles.householdId, householdId),
+            eq(schema.billingCycleExchangeRates.sourceCurrency, sourceCurrency),
+            eq(schema.billingCycleExchangeRates.targetCurrency, targetCurrency)
+          )
+        )
+        .orderBy(desc(schema.billingCycleExchangeRates.effectiveDate))
+        .limit(1)
+
+      const row = rows[0]
+      if (!row) {
+        return null
+      }
+
+      return {
+        cycleId: row.cycleId,
+        sourceCurrency: toCurrencyCode(row.sourceCurrency),
+        targetCurrency: toCurrencyCode(row.targetCurrency),
+        rateMicros: row.rateMicros,
+        effectiveDate: row.effectiveDate,
+        source: 'nbg'
+      }
+    },
+
     async addUtilityBill(input) {
       await db.insert(schema.utilityBills).values({
         householdId,

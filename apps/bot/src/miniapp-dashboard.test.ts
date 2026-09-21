@@ -59,6 +59,7 @@ function repository(
     saveRentRule: async () => {},
     getCycleExchangeRate: async () => null,
     saveCycleExchangeRate: async (input) => input,
+    getLatestExchangeRate: async () => null,
     addUtilityBill: async () => {},
     updateParsedPurchase: async () => null,
     addParsedPurchase: async (input) => ({

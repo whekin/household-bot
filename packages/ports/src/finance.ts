@@ -322,6 +322,11 @@ export interface FinanceRepository extends RepaymentRepository {
   saveCycleExchangeRate(
     input: FinanceCycleExchangeRateRecord
   ): Promise<FinanceCycleExchangeRateRecord>
+  /** Most recent stored rate for the pair, across cycles — the fallback when the provider is down. */
+  getLatestExchangeRate(
+    sourceCurrency: CurrencyCode,
+    targetCurrency: CurrencyCode
+  ): Promise<FinanceCycleExchangeRateRecord | null>
   addUtilityBill(input: {
     cycleId: string
     billName: string

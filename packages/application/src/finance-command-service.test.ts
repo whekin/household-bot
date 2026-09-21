@@ -255,6 +255,20 @@ class FinanceRepositoryStub implements FinanceRepository {
     return input
   }
 
+  async getLatestExchangeRate(
+    sourceCurrency: 'USD' | 'GEL',
+    targetCurrency: 'USD' | 'GEL'
+  ): Promise<FinanceCycleExchangeRateRecord | null> {
+    const matching = [...this.cycleExchangeRates.values()].filter(
+      (rate) => rate.sourceCurrency === sourceCurrency && rate.targetCurrency === targetCurrency
+    )
+
+    return (
+      matching.sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate))[0] ??
+      null
+    )
+  }
+
   async addUtilityBill(input: {
     cycleId: string
     billName: string
@@ -1024,6 +1038,7 @@ describe('createFinanceCommandService', () => {
         getCycleByPeriod: (period) => repository.getCycleByPeriod(period),
         getCycleExchangeRate: (...args) => repository.getCycleExchangeRate(...args),
         saveCycleExchangeRate: (...args) => repository.saveCycleExchangeRate(...args),
+        getLatestExchangeRate: (...args) => repository.getLatestExchangeRate(...args),
         savePaymentConfirmation: async (input) => {
           if (input.status !== 'recorded')
             return { status: 'needs_review', reviewReason: input.reviewReason }

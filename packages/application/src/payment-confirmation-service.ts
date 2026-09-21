@@ -13,32 +13,14 @@ import {
   type CurrencyCode
 } from '@household/domain'
 
+import { resolveCycleExchangeRate, type CycleExchangeRateRepository } from './cycle-exchange-rate'
 import { expectedOpenCyclePeriod, type FinanceCommandService } from './finance-command-service'
 import { parsePaymentConfirmationMessage } from './payment-confirmation-parser'
 import { buildMemberPaymentGuidance, paymentKindSummaryForRecording } from './payment-guidance'
 
-function billingPeriodLockDate(period: BillingPeriod, day: number): Temporal.PlainDate {
-  const firstDay = Temporal.PlainDate.from({
-    year: period.year,
-    month: period.month,
-    day: 1
-  })
-  const clampedDay = Math.min(day, firstDay.daysInMonth)
-
-  return Temporal.PlainDate.from({
-    year: period.year,
-    month: period.month,
-    day: clampedDay
-  })
-}
-
-function localDateInTimezone(timezone: string): Temporal.PlainDate {
-  return nowInstant().toZonedDateTimeISO(timezone).toPlainDate()
-}
-
 async function convertIntoCycleCurrency(
   dependencies: {
-    repository: Pick<FinanceRepository, 'getCycleExchangeRate' | 'saveCycleExchangeRate'>
+    repository: CycleExchangeRateRepository
     exchangeRateProvider: ExchangeRateProvider
     cycleId: string
     cycleCurrency: CurrencyCode
@@ -60,42 +42,19 @@ async function convertIntoCycleCurrency(
     }
   }
 
-  const existingRate = await dependencies.repository.getCycleExchangeRate(
-    dependencies.cycleId,
-    amount.currency,
-    dependencies.cycleCurrency
-  )
-
-  if (existingRate) {
-    return {
-      amount: convertMoney(amount, dependencies.cycleCurrency, existingRate.rateMicros),
-      explicitAmountMinor: amount.amountMinor,
-      explicitCurrency: amount.currency
-    }
-  }
-
-  const lockDate = billingPeriodLockDate(dependencies.period, dependencies.lockDay)
-  const currentLocalDate = localDateInTimezone(dependencies.timezone)
-  const shouldPersist = Temporal.PlainDate.compare(currentLocalDate, lockDate) >= 0
-  const quote = await dependencies.exchangeRateProvider.getRate({
-    baseCurrency: amount.currency,
-    quoteCurrency: dependencies.cycleCurrency,
-    effectiveDate: lockDate.toString()
+  const rate = await resolveCycleExchangeRate({
+    repository: dependencies.repository,
+    exchangeRateProvider: dependencies.exchangeRateProvider,
+    cycleId: dependencies.cycleId,
+    sourceCurrency: amount.currency,
+    targetCurrency: dependencies.cycleCurrency,
+    period: dependencies.period,
+    lockDay: dependencies.lockDay,
+    timezone: dependencies.timezone
   })
 
-  if (shouldPersist) {
-    await dependencies.repository.saveCycleExchangeRate({
-      cycleId: dependencies.cycleId,
-      sourceCurrency: quote.baseCurrency,
-      targetCurrency: quote.quoteCurrency,
-      rateMicros: quote.rateMicros,
-      effectiveDate: quote.effectiveDate,
-      source: quote.source
-    })
-  }
-
   return {
-    amount: convertMoney(amount, dependencies.cycleCurrency, quote.rateMicros),
+    amount: convertMoney(amount, dependencies.cycleCurrency, rate.rateMicros),
     explicitAmountMinor: amount.amountMinor,
     explicitCurrency: amount.currency
   }
@@ -155,6 +114,7 @@ export function createPaymentConfirmationService(input: {
     | 'getLatestCycle'
     | 'getCycleExchangeRate'
     | 'saveCycleExchangeRate'
+    | 'getLatestExchangeRate'
     | 'savePaymentConfirmation'
   >
   householdConfigurationRepository: Pick<
