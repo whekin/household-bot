@@ -346,7 +346,9 @@ export const enBotTranslations: BotTranslationCatalog = {
     savedCardHeadline: (summary) => `🧾 ${summary}`,
     participantsHeading: '👥 <b>Participants</b>',
     participantIncluded: (displayName) => `• ${displayName}`,
-    participantIncludedWithShare: (displayName, amount) => `• ${displayName} — <b>${amount}</b>`,
+    participantBalanceChange: (displayName, change) => `• ${displayName} · ${change}`,
+    participantPayerWithoutShare: (displayName, change) =>
+      `• ${displayName} · ${change} · no share`,
     participantExcluded: (displayName) => `• <s>${displayName}</s> · excluded`,
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,

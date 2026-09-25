@@ -204,8 +204,95 @@ describe('renderPurchaseTopicNotice', () => {
     })
 
     expect(rendered.text).toContain('🧮 Индивидуальные суммы')
-    expect(rendered.text).toContain('• Стас — <b>30.00 ₾</b>')
+    expect(rendered.text).toContain('• Стас · 0.00 ₾')
     expect(rendered.replyMarkup).toBeUndefined()
+  })
+
+  test('shows how each participant balance moves on an equal split', () => {
+    const rendered = renderPurchaseTopicNotice({
+      locale: 'ru',
+      purchase: purchase({
+        amountMinor: 2100n,
+        participants: [
+          { id: 'participant-3', memberId: 'member-3', included: true, shareAmountMinor: null },
+          { id: 'participant-2', memberId: 'member-2', included: true, shareAmountMinor: null },
+          { id: 'participant-1', memberId: 'member-1', included: true, shareAmountMinor: null }
+        ]
+      }),
+      members
+    })
+
+    expect(rendered.text).toContain('➗ Поровну · по 7.00 ₾')
+    expect(rendered.text).toContain(
+      ['👥 <b>Участники</b>', '• Алиса · −7.00 ₾', '• Дима · −7.00 ₾', '• Стас · +14.00 ₾'].join(
+        '\n'
+      )
+    )
+  })
+
+  test('assigns uneven split remainders the way settlement does', () => {
+    const rendered = renderPurchaseTopicNotice({
+      locale: 'en',
+      purchase: purchase({
+        amountMinor: 1000n,
+        currency: 'USD',
+        participants: [
+          { id: 'participant-1', memberId: 'member-1', included: true, shareAmountMinor: null },
+          { id: 'participant-2', memberId: 'member-2', included: true, shareAmountMinor: null },
+          { id: 'participant-3', memberId: 'member-3', included: true, shareAmountMinor: null }
+        ]
+      }),
+      members
+    })
+
+    expect(rendered.text).toContain('➗ Split equally\n')
+    expect(rendered.text).toContain('• Стас · +$6.66')
+    expect(rendered.text).toContain('• Дима · −$3.33')
+    expect(rendered.text).toContain('• Алиса · −$3.33')
+  })
+
+  test('uses custom shares for the balance change', () => {
+    const rendered = renderPurchaseTopicNotice({
+      locale: 'ru',
+      purchase: purchase({
+        splitMode: 'custom_amounts',
+        amountMinor: 2100n,
+        participants: [
+          { id: 'participant-1', memberId: 'member-1', included: true, shareAmountMinor: 800n },
+          { id: 'participant-3', memberId: 'member-3', included: true, shareAmountMinor: 1300n }
+        ]
+      }),
+      members
+    })
+
+    expect(rendered.text).toContain('• Стас · +13.00 ₾')
+    expect(rendered.text).toContain('• Алиса · −13.00 ₾')
+  })
+
+  test('credits a payer who does not share the purchase', () => {
+    const excludedPayer = renderPurchaseTopicNotice({
+      locale: 'ru',
+      purchase: purchase({
+        participants: [
+          { id: 'participant-1', memberId: 'member-1', included: false, shareAmountMinor: null },
+          { id: 'participant-2', memberId: 'member-2', included: true, shareAmountMinor: null }
+        ]
+      }),
+      members
+    })
+    expect(excludedPayer.text).toContain('• Стас · +30.00 ₾ · без доли')
+    expect(excludedPayer.text).toContain('• Дима · −30.00 ₾')
+
+    const unlistedPayer = renderPurchaseTopicNotice({
+      locale: 'en',
+      purchase: purchase({
+        participants: [
+          { id: 'participant-2', memberId: 'member-2', included: true, shareAmountMinor: null }
+        ]
+      }),
+      members
+    })
+    expect(unlistedPayer.text).toContain('• Дима · −30.00 ₾\n• Стас · +30.00 ₾ · no share')
   })
 
   test('does not offer excluded inactive participants as toggle targets', () => {

@@ -305,7 +305,8 @@ export interface BotTranslationCatalog {
     savedCardHeadline: (summary: string) => string
     participantsHeading: string
     participantIncluded: (displayName: string) => string
-    participantIncludedWithShare: (displayName: string, amount: string) => string
+    participantBalanceChange: (displayName: string, change: string) => string
+    participantPayerWithoutShare: (displayName: string, change: string) => string
     participantExcluded: (displayName: string) => string
     participantToggleIncluded: (displayName: string) => string
     participantToggleExcluded: (displayName: string) => string

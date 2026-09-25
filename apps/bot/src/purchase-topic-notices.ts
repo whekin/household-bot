@@ -89,9 +89,41 @@ function perHeadShareText(purchase: FinanceParsedPurchaseRecord): string | null 
     return null
   }
 
-  const even = shares.every((share) => share.equals(first))
-  const text = formatUserFacingMoney(first.toMajorString(), purchase.currency)
-  return even ? text : `≈ ${text}`
+  // Uneven splits have no single per-head figure; the participant lines carry the exact cents.
+  return shares.every((share) => share.equals(first))
+    ? formatUserFacingMoney(first.toMajorString(), purchase.currency)
+    : null
+}
+
+/**
+ * Mirrors how settlement splits a purchase: explicit shares when any are set,
+ * otherwise an even split over included participants in their stored order.
+ */
+function participantShareMinors(
+  purchase: FinanceParsedPurchaseRecord
+): ReadonlyMap<string, bigint> {
+  const included = (purchase.participants ?? []).filter(
+    (participant) => participant.included !== false
+  )
+  const explicit = included.filter((participant) => participant.shareAmountMinor !== null)
+  if (explicit.length > 0) {
+    return new Map(
+      explicit.map((participant) => [participant.memberId, participant.shareAmountMinor!])
+    )
+  }
+
+  const shares = Money.fromMinor(purchase.amountMinor, purchase.currency).splitEvenly(
+    included.length
+  )
+  return new Map(
+    included.map((participant, index) => [participant.memberId, shares[index]?.amountMinor ?? 0n])
+  )
+}
+
+/** Positive means the member is owed more, matching the "in credit" wording elsewhere. */
+function balanceChangeText(changeMinor: bigint, currency: CurrencyCode): string {
+  const sign = changeMinor > 0n ? '+' : changeMinor < 0n ? '−' : ''
+  return `${sign}${moneyText(changeMinor < 0n ? -changeMinor : changeMinor, currency)}`
 }
 
 function renderParticipantLines(input: {
@@ -105,20 +137,30 @@ function renderParticipantLines(input: {
   }
 
   const t = getBotTranslations(input.locale).purchase
-  const lines = participants.map((participant) => {
-    const displayName = escapeHtml(
-      memberName(input.members, participant.memberId) ?? participant.memberId
+  const { payerMemberId, amountMinor, currency } = input.purchase
+  const shares = participantShareMinors(input.purchase)
+  const displayNameOf = (memberId: string) =>
+    escapeHtml(memberName(input.members, memberId) ?? memberId)
+  const changeOf = (memberId: string) =>
+    balanceChangeText(
+      (memberId === payerMemberId ? amountMinor : 0n) - (shares.get(memberId) ?? 0n),
+      currency
     )
-    if (participant.included === false) {
-      return t.participantExcluded(displayName)
+
+  const lines = participants.map((participant) => {
+    const displayName = displayNameOf(participant.memberId)
+    if (participant.included !== false) {
+      return t.participantBalanceChange(displayName, changeOf(participant.memberId))
     }
-    return participant.shareAmountMinor !== null
-      ? t.participantIncludedWithShare(
-          displayName,
-          moneyText(participant.shareAmountMinor, input.purchase.currency)
-        )
-      : t.participantIncluded(displayName)
+    return participant.memberId === payerMemberId
+      ? t.participantPayerWithoutShare(displayName, changeOf(participant.memberId))
+      : t.participantExcluded(displayName)
   })
+  if (!participants.some((participant) => participant.memberId === payerMemberId)) {
+    lines.push(
+      t.participantPayerWithoutShare(displayNameOf(payerMemberId), changeOf(payerMemberId))
+    )
+  }
 
   return `${t.participantsHeading}\n${lines.join('\n')}`
 }
