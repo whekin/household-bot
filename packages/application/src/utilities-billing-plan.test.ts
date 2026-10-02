@@ -145,7 +145,7 @@ describe('computeUtilityBillingPlan', () => {
     const gasAssignments = plan.categories.filter((category) => category.utilityBillId === 'gas')
     expect(
       gasAssignments.reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n)
-    ).toBe(5000n)
+    ).toBe(9000n)
     expect(
       gasAssignments.reduce((sum, category) => sum + category.remainingAmount.amountMinor, 0n)
     ).toBe(5000n)
@@ -213,6 +213,30 @@ describe('computeUtilityBillingPlan', () => {
       ['alice', '40.00', '20.00'],
       ['bob', '60.00', '0.00']
     ])
+  })
+  test('a settled redraw retains paid categories when there are no unpaid bills', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [member('ion', 'Ion', '30.00')],
+      bills: [bill('gas', 'Gas', '30.00')],
+      vendorPayments: [
+        {
+          utilityBillId: 'gas',
+          billName: 'Gas',
+          payerMemberId: 'ion',
+          amount: Money.fromMajor('30.00', 'GEL')
+        }
+      ]
+    })
+    expect(plan.status).toBe('settled')
+    expect(
+      plan.categories.map((row) => [
+        row.billName,
+        row.assignedMemberId,
+        row.assignedAmount.toMajorString(),
+        row.remainingAmount.toMajorString()
+      ])
+    ).toEqual([['Gas', 'ion', '30.00', '0.00']])
   })
 
   test('relaxes the 2-action target when a split is required for fairness', () => {

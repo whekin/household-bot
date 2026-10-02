@@ -2140,8 +2140,8 @@ async function ensureUtilityBillingPlan(input: {
                           fact.payerMemberId === category.assignedMemberId
                       )
                       .reduce((sum, fact) => sum + fact.amountMinor, 0n)
-                return category.assignedAmount.amountMinor > currentPaid
-                  ? category.assignedAmount.amountMinor - currentPaid
+                return category.remainingAmount.amountMinor > currentPaid
+                  ? category.remainingAmount.amountMinor - currentPaid
                   : 0n
               })(),
           category.assignedAmount.currency
@@ -3409,6 +3409,49 @@ async function buildFinanceDashboard(
       }))
   })
 
+  // A payment can clear purchase debt by changing who paid the utility vendors.
+  // That adjustment remains part of this cycle's bill pricing after the debt itself
+  // is resolved; otherwise a late bill refunds the adjustment through a new split.
+  const settledUtilityPurchaseOffsets = new Map<string, bigint>()
+  for (const history of purchaseHistory) {
+    const purchase = history.purchase
+    const shares =
+      purchase.sourceKind === 'transfer'
+        ? new Map([[purchase.participants![0]!.memberId, history.converted.settlementAmount]])
+        : buildPurchaseShareMap({
+            purchase,
+            amount: history.converted.settlementAmount,
+            activePurchaseParticipantIds
+          })
+    const unallocatedByMember = new Map([...shares].map(([id, amount]) => [id, amount.amountMinor]))
+    const allocations = paymentPurchaseAllocations
+      .filter((allocation) => allocation.purchaseId === purchase.id)
+      .toSorted(
+        (a, b) => Temporal.Instant.compare(a.recordedAt, b.recordedAt) || a.id.localeCompare(b.id)
+      )
+    for (const allocation of allocations) {
+      const capacity = unallocatedByMember.get(allocation.memberId) ?? 0n
+      const funded = allocation.amountMinor < capacity ? allocation.amountMinor : capacity
+      if (funded <= 0n || allocation.memberId === purchase.payerMemberId) continue
+      unallocatedByMember.set(allocation.memberId, capacity - funded)
+      if (
+        allocation.resolutionCycleId !== cycle.id ||
+        allocation.resolutionMethod !== 'utilities_plan'
+      )
+        continue
+      settledUtilityPurchaseOffsets.set(
+        allocation.memberId,
+        (settledUtilityPurchaseOffsets.get(allocation.memberId) ?? 0n) + funded
+      )
+      settledUtilityPurchaseOffsets.set(
+        purchase.payerMemberId,
+        (settledUtilityPurchaseOffsets.get(purchase.payerMemberId) ?? 0n) - funded
+      )
+    }
+  }
+  const settledPurchaseAdjustment = (memberId: string) =>
+    Money.fromMinor(settledUtilityPurchaseOffsets.get(memberId) ?? 0n, cycle.currency)
+
   const settlementSnapshotBase: SettlementSnapshotRecord = {
     cycleId: cycle.id,
     inputHash: computeInputHash({
@@ -3420,7 +3463,10 @@ async function buildFinanceDashboard(
         minor: converted.settlementAmount.amountMinor.toString(),
         currency: converted.settlementAmount.currency
       })),
-      memberCount: members.length
+      memberCount: members.length,
+      settledUtilityPurchaseOffsets: [...settledUtilityPurchaseOffsets].map(
+        ([memberId, amountMinor]) => [memberId, amountMinor.toString()]
+      )
     }),
     totalDueMinor: settlement.totalDue.amountMinor,
     currency: cycle.currency,
@@ -3430,14 +3476,21 @@ async function buildFinanceDashboard(
       rentSourceMinor: convertedRent.originalAmount.amountMinor.toString(),
       rentSourceCurrency: convertedRent.originalAmount.currency,
       rentFxRateMicros: convertedRent.fxRateMicros?.toString() ?? null,
-      rentFxEffectiveDate: convertedRent.fxEffectiveDate
+      rentFxEffectiveDate: convertedRent.fxEffectiveDate,
+      settledUtilityPurchaseAdjustments: [...settledUtilityPurchaseOffsets]
+        .toSorted(([a], [b]) => a.localeCompare(b))
+        .map(([memberId, amountMinor]) => ({
+          memberId,
+          amountMinor: amountMinor.toString(),
+          currency: cycle.currency
+        }))
     },
     lines: settlement.lines.map((line) => ({
       memberId: line.memberId.toString(),
       rentShareMinor: line.rentShare.amountMinor,
       utilityShareMinor: line.utilityShare.amountMinor,
       purchaseOffsetMinor: line.purchaseOffset.amountMinor,
-      netDueMinor: line.netDue.amountMinor,
+      netDueMinor: line.netDue.add(settledPurchaseAdjustment(line.memberId.toString())).amountMinor,
       explanations: line.explanations
     }))
   }
@@ -3459,7 +3512,7 @@ async function buildFinanceDashboard(
     settings,
     settlementLines: settlement.lines.map((line) => ({
       memberId: line.memberId.toString(),
-      utilityShare: line.utilityShare,
+      utilityShare: line.utilityShare.add(settledPurchaseAdjustment(line.memberId.toString())),
       purchaseOffset: line.purchaseOffset
     })),
     convertedUtilityBills,
@@ -3497,9 +3550,9 @@ async function buildFinanceDashboard(
       rentShare: line.rentShare,
       utilityShare: line.utilityShare,
       purchaseOffset: line.purchaseOffset,
-      netDue: line.netDue,
+      netDue: line.netDue.add(settledPurchaseAdjustment(memberId)),
       paid,
-      remaining: line.netDue.subtract(paid),
+      remaining: line.netDue.add(settledPurchaseAdjustment(memberId)).subtract(paid),
       overduePayments:
         overduePaymentsByMemberId.get(memberId)?.map((overdue) => ({
           kind: overdue.kind,
@@ -4239,15 +4292,9 @@ export function createFinanceCommandService(
     }
 
     const categoriesToRecord = categories
-      .filter((category) => category.paidAmount.amountMinor < category.billTotal.amountMinor)
+      .filter((category) => category.remainingAmount.amountMinor > 0n)
       .map((category) => {
-        const alreadyPaidMinor = utilityMatchedPlanPaidMinor({
-          plan: input.utilityPlan,
-          vendorFacts: input.existingVendorFacts,
-          utilityBillId: category.utilityBillId,
-          payerMemberId: input.memberId
-        })
-        const remainingMinor = category.assignedAmount.amountMinor - alreadyPaidMinor
+        const remainingMinor = category.remainingAmount.amountMinor
 
         return {
           category,
@@ -5346,7 +5393,7 @@ export function createFinanceCommandService(
         .filter(
           (category) =>
             memberIds.includes(category.assignedMemberId) &&
-            category.assignedAmount.amountMinor > 0n
+            category.remainingAmount.amountMinor > 0n
         )
         .map((category) => ({
           memberId: category.assignedMemberId,
@@ -5354,7 +5401,7 @@ export function createFinanceCommandService(
             memberNameById.get(category.assignedMemberId) ?? category.assignedDisplayName,
           utilityBillId: category.utilityBillId,
           billName: category.billName,
-          amount: category.assignedAmount
+          amount: category.remainingAmount
         }))
 
       const cycle = await repository.getCycleByPeriod(dashboard.period)

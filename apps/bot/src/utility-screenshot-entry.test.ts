@@ -372,6 +372,14 @@ test('addressed random screenshot and rent reminder reply give instructions with
     expect(f.messages().join()).toContain('ответ на напоминание')
   }
 })
+test('a screenshot replying to a force-reply prompt gives guidance without crashing', async () => {
+  const f = setup()
+  const update = photo({ reply: 'other' })
+  update.message.reply_to_message!.reply_markup = { force_reply: true } as never
+  await f.bot.handleUpdate(update as never)
+  expect(f.metrics().ocrCalls).toBe(0)
+  expect(f.messages().join()).toContain('ответ на напоминание')
+})
 
 test('explicit caption allows screenshots without a reply; purchase captions keep their existing flow', async () => {
   const f = setup()
@@ -384,6 +392,12 @@ test('explicit caption allows screenshots without a reply; purchase captions kee
   )
   expect(purchase.metrics().passed).toBe(1)
   expect(purchase.metrics().ocrCalls).toBe(0)
+  const purchaseReply = setup()
+  await purchaseReply.bot.handleUpdate(
+    photo({ reply: 'utility', caption: 'купил корм 12 лари' }) as never
+  )
+  expect(purchaseReply.metrics().passed).toBe(1)
+  expect(purchaseReply.metrics().ocrCalls).toBe(0)
   const payment = setup()
   await payment.bot.handleUpdate(
     photo({ reply: 'utility', caption: 'Я оплатил коммуналку' }) as never

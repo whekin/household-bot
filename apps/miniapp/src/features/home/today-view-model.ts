@@ -465,10 +465,14 @@ export function buildTodayViewModel(input: {
             ).length,
     currentMemberUtilityLines: currentMember
       ? (input.dashboard.utilityBillingPlan?.categories ?? [])
-          .filter((category) => category.assignedMemberId === currentMember.memberId)
+          .filter(
+            (category) =>
+              category.assignedMemberId === currentMember.memberId &&
+              majorStringToMinor(category.remainingAmountMajor) > 0n
+          )
           .map((category) => ({
             billName: category.billName,
-            amountMajor: category.assignedAmountMajor
+            amountMajor: category.remainingAmountMajor
           }))
           .sort((left, right) =>
             Number(majorStringToMinor(right.amountMajor) - majorStringToMinor(left.amountMajor))
@@ -478,9 +482,14 @@ export function buildTodayViewModel(input: {
       stage === 'utilities' && currentMember && currentMemberUtilitySummary
         ? {
             shareMajor: currentMember.utilityShareMajor,
-            purchaseOffsetMajor: currentMember.purchaseOffsetMajor,
+            purchaseOffsetMajor: minorToMajorString(
+              majorStringToMinor(currentMemberUtilitySummary.fairShareMajor) -
+                majorStringToMinor(currentMember.utilityShareMajor)
+            ),
             targetMajor: currentMemberUtilitySummary.fairShareMajor,
-            hasAdjustment: majorStringToMinor(currentMember.purchaseOffsetMajor) !== 0n
+            hasAdjustment:
+              majorStringToMinor(currentMemberUtilitySummary.fairShareMajor) !==
+              majorStringToMinor(currentMember.utilityShareMajor)
           }
         : null,
     rentPaymentDestinations:

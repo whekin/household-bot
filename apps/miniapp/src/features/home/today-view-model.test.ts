@@ -437,7 +437,7 @@ describe('today view model', () => {
 
     expect(model.currentMemberUtilityBreakdown).toEqual({
       shareMajor: '63.05',
-      purchaseOffsetMajor: '-12.00',
+      purchaseOffsetMajor: '-34.93',
       targetMajor: '28.12',
       hasAdjustment: true
     })

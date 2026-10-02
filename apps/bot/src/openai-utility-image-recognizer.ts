@@ -9,6 +9,8 @@ Credo uses Bill Payments / Templates; TBC uses Payments / My space / Payments.
 TELMICO/TELASI = electricity; Tbilisi Cleaning = cleaning; SOCAR = gas; Silknet = internet; GWP = water.
 Preserve provider names and customer/account IDs exactly as visible. Amounts are decimal STRINGS.
 A red negative balance in these lists is the amount owed; preserve the minus sign.
+Credo can show red positive amounts due. Exclude balances explicitly marked as credit,
+advance, available funds or already paid; never turn a green advance balance into a bill.
 Currency must be GEL only when the lari symbol or GEL is visible; otherwise null.
 Exclude generic category tiles (Water, Gas, etc.), mobile topups, transfers, totals and unrelated balances.
 Never infer a bill for an absent category or fabricate missing digits, amounts, currency or account IDs.

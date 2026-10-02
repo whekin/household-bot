@@ -123,6 +123,8 @@ export interface FinanceUtilityBillingPlanCategoryPayload {
   billName: string
   billTotalMinor: string
   assignedAmountMinor: string
+  /** Baseline remainder; absent on plans created before remainder tracking. */
+  remainingAmountMinor?: string
   assignedMemberId: string
   paidAmountMinor: string
   isFullAssignment: boolean

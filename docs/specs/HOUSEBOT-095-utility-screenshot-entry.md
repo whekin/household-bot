@@ -74,3 +74,17 @@ No dedicated utility topic is required.
   each member's remaining amount before and after.
 - Validate the full sequence on PostgreSQL: Ion pays, a late bill arrives via screenshot
   import, the plan reopens, Ion pays only his remainder, and repeated confirmation is a no-op.
+
+- Same-cycle purchase adjustments already funded by utility payments remain in the cycle's
+  pricing during redraw. Live purchase balances stay resolved; the funded portion is not
+  credited toward later utilities a second time. Clamp retained adjustments to current
+  purchase shares in chronological allocation order; other-cycle and manual receipts stay
+  excluded. Snapshot metadata records the retained pricing adjustments.
+- Regression covers four PostgreSQL variants: only Ion/all members paid, with/without a
+  purchase adjustment already settled through utilities, followed by repeat confirmation
+  and a redraw after all bills are paid.
+
+- Category assignment totals include historical provider contributions, with a separately
+  persisted baseline remainder. A partial contribution stays visible under its payer after
+  redraw, and only the remainder can be recorded as another payment. Existing stored plans
+  lacking the remainder field are read using their original assignment/payment facts.

@@ -57,7 +57,7 @@ export function utilityReminderReplyPeriod(ctx: Context): string | null {
   if (reply?.from?.id !== ctx.me.id) return null
   const callbacks =
     reply.reply_markup?.inline_keyboard
-      .flat()
+      ?.flat()
       .flatMap((button) => ('callback_data' in button ? [button.callback_data] : [])) ?? []
   for (const data of callbacks) {
     const match =
@@ -593,7 +593,7 @@ export function registerUtilityScreenshotEntry(options: {
     // A captionless bank receipt is still rejected as utility entry below.
     if (
       /оплатил|оплатила|перев[её]л|перевела|\bpaid\b|\btransferred\b/i.test(text) ||
-      (!period && /купил|купила|bought|purchase/i.test(text))
+      /купил|купила|bought|purchase/i.test(text)
     ) {
       await next()
       return

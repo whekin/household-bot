@@ -56,6 +56,9 @@ function mapUtilityBillingPlanPayload(raw: unknown): FinanceUtilityBillingPlanPa
       billName: String(entry.billName ?? ''),
       billTotalMinor: String(entry.billTotalMinor ?? entry.amountMinor ?? '0'),
       assignedAmountMinor: String(entry.assignedAmountMinor ?? entry.amountMinor ?? '0'),
+      ...(entry.remainingAmountMinor === undefined || entry.remainingAmountMinor === null
+        ? {}
+        : { remainingAmountMinor: String(entry.remainingAmountMinor) }),
       assignedMemberId: String(entry.assignedMemberId ?? ''),
       paidAmountMinor: String(entry.paidAmountMinor ?? '0'),
       isFullAssignment:

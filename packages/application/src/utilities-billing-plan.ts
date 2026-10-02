@@ -142,16 +142,16 @@ function candidatePaidByBill(
 }
 
 /**
- * Bills that were already settled before the plan was drawn, kept as categories
+ * Provider contributions made before the plan was drawn, kept as categories
  * so the card can still show who covered them.
  *
- * The search only distributes what is still owed, so a bill paid up front would
+ * The search only distributes what is still owed, so a prior payment would
  * otherwise vanish from the plan entirely — leaving the member who paid it
  * looking like they contributed nothing, and the household unable to see from
- * the plan whether that bill was handled at all. They carry no assignment, so
- * nobody is asked to pay them a second time.
+ * the plan whether that bill was handled at all. Their remainder is zero; merging them with new assignments preserves both
+ * the historical contribution and the exact new amount due.
  */
-function coveredBillCategories(input: {
+function paidBillCategories(input: {
   currency: CurrencyCode
   bills: readonly UtilityBillingBill[]
   paidByBillId: ReadonlyMap<string, bigint>
@@ -159,7 +159,7 @@ function coveredBillCategories(input: {
 }): readonly UtilityBillingCategoryAssignment[] {
   return input.bills.flatMap((bill) => {
     const paidMinor = input.paidByBillId.get(bill.utilityBillId) ?? 0n
-    if (paidMinor < bill.amount.amountMinor) return []
+    if (paidMinor <= 0n) return []
     const byPayer = new Map<string, bigint>()
     for (const payment of input.coveragePayments) {
       if (
@@ -194,6 +194,34 @@ function coveredBillCategories(input: {
       ]
     })
   })
+}
+
+function mergeCategoryContributions(
+  categories: readonly UtilityBillingCategoryAssignment[]
+): readonly UtilityBillingCategoryAssignment[] {
+  const merged = new Map<string, UtilityBillingCategoryAssignment>()
+  for (const category of categories) {
+    const key = `${category.utilityBillId}:${category.assignedMemberId}`
+    const prior = merged.get(key)
+    merged.set(
+      key,
+      prior
+        ? {
+            ...category,
+            assignedAmount: prior.assignedAmount.add(category.assignedAmount),
+            remainingAmount: prior.remainingAmount.add(category.remainingAmount)
+          }
+        : category
+    )
+  }
+  const counts = new Map<string, number>()
+  for (const category of merged.values())
+    counts.set(category.utilityBillId, (counts.get(category.utilityBillId) ?? 0) + 1)
+  return [...merged.values()].map((category) => ({
+    ...category,
+    isFullAssignment: counts.get(category.utilityBillId) === 1,
+    splitGroupId: counts.get(category.utilityBillId)! > 1 ? category.utilityBillId : null
+  }))
 }
 
 function summarizeMembers(input: {
@@ -589,7 +617,12 @@ export function computeUtilityBillingPlan(input: {
       status: 'settled',
       maxCategoriesPerMemberApplied: 0,
       preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
-      categories: [],
+      categories: paidBillCategories({
+        currency: input.currency,
+        bills: input.bills,
+        paidByBillId,
+        coveragePayments: input.billCoveragePayments ?? input.vendorPayments
+      }),
       memberSummaries: emptySummary,
       fairShareByMember: input.members.map((member) => ({
         memberId: member.memberId,
@@ -632,8 +665,8 @@ export function computeUtilityBillingPlan(input: {
     status: best.assignments.length === 0 ? 'settled' : 'active',
     maxCategoriesPerMemberApplied: best.maxCategoriesPerMemberApplied,
     preferredUtilityPayerMemberId: input.preferredUtilityPayerMemberId ?? null,
-    categories: [
-      ...coveredBillCategories({
+    categories: mergeCategoryContributions([
+      ...paidBillCategories({
         currency: input.currency,
         bills: input.bills,
         paidByBillId,
@@ -653,7 +686,7 @@ export function computeUtilityBillingPlan(input: {
             ? assignment.bill.utilityBillId
             : null
       }))
-    ],
+    ]),
     memberSummaries: best.memberSummaries,
     fairShareByMember: input.members.map((member) => ({
       memberId: member.memberId,
@@ -677,6 +710,7 @@ export function serializeUtilityBillingPlanPayload(
       billName: category.billName,
       billTotalMinor: toMinorString(category.billTotal),
       assignedAmountMinor: toMinorString(category.assignedAmount),
+      remainingAmountMinor: toMinorString(category.remainingAmount),
       assignedMemberId: category.assignedMemberId,
       paidAmountMinor: toMinorString(category.paidAmount),
       isFullAssignment: category.isFullAssignment,
@@ -771,9 +805,11 @@ export function materializeUtilityBillingPlanRecord(
           billTotal: Money.fromMinor(nextCategory.billTotalMinor, currency),
           assignedAmount: Money.fromMinor(nextCategory.assignedAmountMinor, currency),
           remainingAmount:
-            BigInt(nextCategory.paidAmountMinor) >= BigInt(nextCategory.billTotalMinor)
-              ? Money.zero(currency)
-              : Money.fromMinor(nextCategory.assignedAmountMinor, currency),
+            nextCategory.remainingAmountMinor !== undefined
+              ? Money.fromMinor(nextCategory.remainingAmountMinor, currency)
+              : BigInt(nextCategory.paidAmountMinor) >= BigInt(nextCategory.billTotalMinor)
+                ? Money.zero(currency)
+                : Money.fromMinor(nextCategory.assignedAmountMinor, currency),
           assignedMemberId: nextCategory.assignedMemberId,
           paidAmount: Money.fromMinor(nextCategory.paidAmountMinor, currency),
           isFullAssignment: nextCategory.isFullAssignment,

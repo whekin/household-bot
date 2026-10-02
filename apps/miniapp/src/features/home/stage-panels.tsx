@@ -250,7 +250,7 @@ export function AdminClosePanel({
       <CardHeader
         className="mb-3 mt-0.5"
         title={copy.todayAdminToolsTitle}
-        hint={copy.todayAdminToolsBody}
+        hint={model.stage === 'idle' ? copy.todayRefreshPlanBody : copy.todayAdminToolsBody}
       />
 
       {model.stage !== 'idle' ? (
