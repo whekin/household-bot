@@ -253,20 +253,22 @@ export function AdminClosePanel({
         hint={copy.todayAdminToolsBody}
       />
 
-      <button
-        type="button"
-        disabled={loading}
-        onClick={onOpenAdminClose}
-        className="flex w-full items-center justify-between gap-3 rounded-xl bg-elevated px-3 py-3 transition-colors active:bg-field-hover disabled:opacity-50"
-      >
-        <span className="flex items-center gap-2 text-sm font-medium text-primary">
-          <CircleDollarSign className="size-4" />
-          {copy.todayAdminCloseAll}
-        </span>
-        <span className="font-mono text-sm font-semibold text-foreground">
-          {formatMoneyLabel(model.remainingMajor, dashboard.currency, locale)}
-        </span>
-      </button>
+      {model.stage !== 'idle' ? (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={onOpenAdminClose}
+          className="flex w-full items-center justify-between gap-3 rounded-xl bg-elevated px-3 py-3 transition-colors active:bg-field-hover disabled:opacity-50"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-primary">
+            <CircleDollarSign className="size-4" />
+            {copy.todayAdminCloseAll}
+          </span>
+          <span className="font-mono text-sm font-semibold text-foreground">
+            {formatMoneyLabel(model.remainingMajor, dashboard.currency, locale)}
+          </span>
+        </button>
+      ) : null}
 
       <button
         type="button"

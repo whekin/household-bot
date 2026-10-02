@@ -1,3 +1,4 @@
+import { minorToMajorString, majorStringToMinor } from '@/lib/money'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -496,7 +497,7 @@ function buildDemoUtilityPlan(state: {
   > = []
 
   for (const entry of utilityEntries) {
-    let remainingBillMinor = BigInt(Math.round(Number(entry.displayAmountMajor) * 100))
+    let remainingBillMinor = majorStringToMinor(entry.displayAmountMajor)
     const assignments: Array<{ memberId: string; amountMinor: bigint }> = []
 
     const orderedParticipants = [...participants].sort((left, right) => {
@@ -526,12 +527,13 @@ function buildDemoUtilityPlan(state: {
       const displayName =
         state.members.find((member) => member.memberId === assignment.memberId)?.displayName ??
         assignment.memberId
-      const billMinor = BigInt(Math.round(Number(entry.displayAmountMajor) * 100))
+      const billMinor = majorStringToMinor(entry.displayAmountMajor)
       categories.push({
         utilityBillId: entry.id,
         billName: entry.title,
         billTotalMajor: entry.displayAmountMajor,
-        assignedAmountMajor: (Number(assignment.amountMinor) / 100).toFixed(2),
+        assignedAmountMajor: minorToMajorString(assignment.amountMinor),
+        remainingAmountMajor: minorToMajorString(assignment.amountMinor),
         assignedMemberId: assignment.memberId,
         assignedDisplayName: displayName,
         paidAmountMajor: '0.00',

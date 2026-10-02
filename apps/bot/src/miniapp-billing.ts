@@ -2465,7 +2465,7 @@ function utilityPlanShape(
       assignedMemberId: category.assignedMemberId,
       displayName: category.assignedDisplayName,
       amountMajor: category.assignedAmount.toMajorString(),
-      isPaid: category.paidAmount.amountMinor >= category.assignedAmount.amountMinor
+      isPaid: category.remainingAmount.amountMinor <= 0n
     })),
     members: plan.memberSummaries.map((summary) => ({
       memberId: summary.memberId,

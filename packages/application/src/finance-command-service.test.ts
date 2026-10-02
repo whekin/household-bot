@@ -5236,6 +5236,8 @@ describe('createFinanceCommandService', () => {
       (summary) => summary.memberId === 'alisa'
     )
     expect(alisaAfter?.assignedThisCycle.amountMinor).toBe(0n)
+    // A redraw must not count the same paid fact once in the calculation and again in progress.
+    expect(alisaAfter?.vendorPaid.amountMinor).toBe(4000n)
 
     // The redraw supersedes the plan her payment was recorded against, which
     // leaves that payment attached to a plan nobody is on any more. The next
@@ -5263,6 +5265,109 @@ describe('createFinanceCommandService', () => {
     expect(refreshed?.utilityBillingPlan?.version).toBeGreaterThan(
       planned?.utilityBillingPlan?.version ?? 0
     )
+  })
+
+  test('late internet preserves Ion payments and records only his new top-up', async () => {
+    const period = expectedCurrentCyclePeriod('Asia/Tbilisi')
+    const repository = new FinanceRepositoryStub()
+    repository.members = [
+      { id: 'ion', telegramUserId: '1', displayName: 'Ion', rentShareWeight: 1, isAdmin: false },
+      { id: 'stas', telegramUserId: '2', displayName: 'Stas', rentShareWeight: 1, isAdmin: true }
+    ]
+    repository.cycles = [{ id: 'late-cycle', period: period, currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = { paymentBalanceAdjustmentPolicy: 'utilities' }
+    repository.memberPresenceDays = repository.members.map((member) => ({
+      memberId: member.id,
+      period: period,
+      daysPresent: 31
+    }))
+    repository.utilityBills = ['Electricity', 'Gas'].map((billName, i) => ({
+      id: `original-${i}`,
+      cycleId: 'late-cycle',
+      billName,
+      amountMinor: 3000n,
+      currency: 'GEL',
+      createdByMemberId: 'stas',
+      createdAt: instantFromIso('2026-08-01T09:00:00Z')
+    }))
+    // This regression needs read-after-write payment history, like the real DB adapter.
+    const paymentHistory = () =>
+      repository.addedPaymentRecords.map((payment, i) => ({
+        ...payment,
+        id: `payment-record-${i + 1}`,
+        cyclePeriod: period
+      }))
+    repository.listPaymentRecordsForCycle = async (cycleId) =>
+      paymentHistory().filter((payment) => payment.cycleId === cycleId)
+    repository.listPaymentRecordsForCycles = async (cycleIds) =>
+      paymentHistory().filter((payment) => cycleIds.includes(payment.cycleId))
+    const service = createService(repository)
+    await service.generateDashboard(period)
+    const first = await service.closePaymentPeriod({
+      kind: 'utilities',
+      memberIds: ['ion'],
+      actorMemberId: 'ion',
+      periodArg: period
+    })
+    expect(
+      first?.closedMembers.find((member) => member.memberId === 'ion')?.amount.amountMinor
+    ).toBe(3000n)
+    const paidBefore = await service.generateDashboard(period)
+    expect(
+      paidBefore?.utilityBillingPlan?.memberSummaries.find((member) => member.memberId === 'ion')
+        ?.assignedThisCycle.amountMinor
+    ).toBe(0n)
+    await service.addUtilityBill('Internet', '20.00', 'stas', 'GEL', period)
+    const updated = await service.generateDashboard(period)
+    const ion = updated?.utilityBillingPlan?.memberSummaries.find(
+      (member) => member.memberId === 'ion'
+    )
+    expect(ion?.vendorPaid.amountMinor).toBe(3000n)
+    expect(ion?.assignedThisCycle.amountMinor).toBe(1000n)
+    expect(
+      updated?.paymentPeriods
+        ?.find((summary) => summary.period === period)
+        ?.kinds.find((kind) => kind.kind === 'utilities')
+        ?.unresolvedMembers.find((member) => member.memberId === 'ion')?.remaining.amountMinor
+    ).toBe(1000n)
+    const second = await service.closePaymentPeriod({
+      kind: 'utilities',
+      memberIds: ['ion'],
+      actorMemberId: 'ion',
+      periodArg: period
+    })
+    expect(
+      second?.closedMembers.find((member) => member.memberId === 'ion')?.amount.amountMinor
+    ).toBe(1000n)
+    const final = await service.generateDashboard(period)
+    expect(
+      final?.utilityBillingPlan?.memberSummaries.find((member) => member.memberId === 'ion')
+        ?.vendorPaid.amountMinor
+    ).toBe(4000n)
+    expect(
+      final?.utilityBillingPlan?.memberSummaries.find((member) => member.memberId === 'ion')
+        ?.assignedThisCycle.amountMinor
+    ).toBe(0n)
+    const records = repository.addedPaymentRecords
+    expect(
+      records
+        .filter((payment) => payment.memberId === 'ion')
+        .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+    ).toBe(4000n)
+    await service.closePaymentPeriod({
+      kind: 'utilities',
+      memberIds: ['ion'],
+      actorMemberId: 'ion',
+      periodArg: period
+    })
+    expect(
+      repository.addedPaymentRecords
+        .filter((payment) => payment.memberId === 'ion')
+        .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+    ).toBe(4000n)
   })
 
   test('resolveUtilityBillAsPlanned only funds purchase debt with money actually paid', async () => {

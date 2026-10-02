@@ -16,6 +16,31 @@ export function createDbTelegramPaymentCardRepository(databaseUrl: string): {
 
   return {
     repository: {
+      async findPaymentCard(input) {
+        const [row] = await db
+          .select()
+          .from(schema.telegramPaymentCards)
+          .where(
+            and(
+              eq(schema.telegramPaymentCards.telegramChatId, input.telegramChatId),
+              eq(schema.telegramPaymentCards.telegramMessageId, input.telegramMessageId)
+            )
+          )
+        return row
+          ? {
+              householdId: row.householdId,
+              kind: row.kind as TelegramPaymentCardKind,
+              period: row.period,
+              surface: row.surface as TelegramPaymentCardSurface,
+              locale: row.locale as SupportedLocale,
+              telegramChatId: row.telegramChatId,
+              telegramThreadId: row.telegramThreadId,
+              telegramMessageId: row.telegramMessageId,
+              createdAt: instantFromDatabaseValue(row.createdAt)!,
+              updatedAt: instantFromDatabaseValue(row.updatedAt)!
+            }
+          : null
+      },
       async upsertPaymentCard(input) {
         await db
           .insert(schema.telegramPaymentCards)

@@ -602,6 +602,7 @@ describe('createScheduledDispatchHandler', () => {
                   billName: 'Electricity',
                   billTotal: gel(1000n),
                   assignedAmount: gel(1000n),
+                  remainingAmount: gel(1000n),
                   assignedMemberId: 'member-1',
                   assignedDisplayName: 'Mia',
                   paidAmount: gel(0n),

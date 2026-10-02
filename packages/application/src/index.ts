@@ -1,4 +1,12 @@
 export { RepaymentError, type RepaymentCommand } from './repayment-service'
+export {
+  createUtilityBillImportService,
+  matchUtilityImageBills,
+  parseUtilityBillImportCorrection,
+  previewUtilityBillImport,
+  type UtilityBillImportPreview,
+  type UtilityBillImportService
+} from './utility-bill-import'
 export { calculateMonthlySettlement } from './settlement-engine'
 export {
   createAdHocNotificationService,

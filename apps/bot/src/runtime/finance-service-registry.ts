@@ -1,6 +1,8 @@
 import {
   createFinanceCommandService,
-  createPaymentConfirmationService
+  createPaymentConfirmationService,
+  createUtilityBillImportService,
+  type UtilityBillImportService
 } from '@household/application'
 import { createDbFinanceRepository } from '@household/adapters-db'
 import { instrumentRepository, type Logger } from '@household/observability'
@@ -16,6 +18,7 @@ export interface FinanceServiceRegistry {
   financeRepositoryForHousehold(householdId: string): FinanceRepositoryClient['repository']
   financeServiceForHousehold(householdId: string): FinanceService
   paymentConfirmationServiceForHousehold(householdId: string): PaymentConfirmationService
+  utilityBillImportServiceForHousehold(householdId: string): UtilityBillImportService
 }
 
 export function createFinanceServiceRegistry(options: {
@@ -91,6 +94,10 @@ export function createFinanceServiceRegistry(options: {
   return {
     financeRepositoryForHousehold,
     financeServiceForHousehold,
-    paymentConfirmationServiceForHousehold
+    paymentConfirmationServiceForHousehold,
+    utilityBillImportServiceForHousehold: (householdId) =>
+      createUtilityBillImportService(
+        financeRepositoryClientForHousehold(householdId).utilityBillImports
+      )
   }
 }

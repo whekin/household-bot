@@ -16,6 +16,7 @@ import {
   type CurrencyCode
 } from '@household/domain'
 import { createRepaymentRepository } from './repayment-repository'
+import { createUtilityBillImportRepository } from './utility-bill-import-repository'
 import { randomUUID } from 'node:crypto'
 
 function toCurrencyCode(raw: string): CurrencyCode {
@@ -141,6 +142,7 @@ export function createDbFinanceRepository(
   householdId: string
 ): {
   repository: FinanceRepository
+  utilityBillImports: ReturnType<typeof createUtilityBillImportRepository>
   close: () => Promise<void>
 } {
   const { db, close: closeDbClient } = createDbClient(databaseUrl)
@@ -2426,6 +2428,7 @@ export function createDbFinanceRepository(
 
   return {
     repository,
+    utilityBillImports: createUtilityBillImportRepository(db, householdId),
     close: async () => {
       await closeDbClient()
     }

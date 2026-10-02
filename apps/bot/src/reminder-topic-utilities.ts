@@ -204,6 +204,12 @@ export function buildTemplateText(
         locale === 'ru'
           ? 'Оставьте пустым или укажите 0 для пропуска.'
           : 'Leave blank or use 0 to skip.'
+      ),
+      '',
+      escapeHtml(
+        locale === 'ru'
+          ? 'Также можно ответить на коммунальное напоминание скриншотом из Credo или TBC.'
+          : 'You can also reply to a utility reminder with a Credo or TBC screenshot.'
       )
     ].join('\n'),
     parseMode: 'HTML'

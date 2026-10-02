@@ -139,6 +139,7 @@ export interface MiniAppDashboard {
       billName: string
       billTotalMajor: string
       assignedAmountMajor: string
+      remainingAmountMajor: string
       assignedMemberId: string
       assignedDisplayName: string
       paidAmountMajor: string

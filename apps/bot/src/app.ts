@@ -81,6 +81,8 @@ import { createOpenAiWakeClassifier } from './wake-gate'
 import { createPaymentInstructionPublisher } from './payment-instruction-publisher'
 import { registerPaymentReminderActions } from './payment-reminder-actions'
 import { registerReminderTopicUtilities } from './reminder-topic-utilities'
+import { registerUtilityScreenshotEntry } from './utility-screenshot-entry'
+import { createOpenAiUtilityImageRecognizer } from './openai-utility-image-recognizer'
 import { createSchedulerRequestAuthorizer } from './scheduler-auth'
 import { createScheduledDispatchHandler } from './scheduled-dispatch-handler'
 import { createLivePaymentCardService } from './live-payment-cards'
@@ -364,6 +366,38 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       },
       'Purchase topic ingestion is disabled. Set DATABASE_URL to enable Telegram topic lookups.'
     )
+  }
+
+  if (
+    householdConfigurationRepositoryClient &&
+    telegramPendingActionRepositoryClient &&
+    paymentCardRepositoryClient &&
+    financeServiceRegistry
+  ) {
+    registerUtilityScreenshotEntry({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      promptRepository: telegramPendingActionRepositoryClient.repository,
+      paymentCardRepository: paymentCardRepositoryClient.repository,
+      financeServiceForHousehold,
+      importServiceForHousehold: (householdId) =>
+        financeServiceRegistry.utilityBillImportServiceForHousehold(householdId),
+      token: runtime.telegramBotToken,
+      timeoutMs: runtime.assistantTimeoutMs,
+      ...(runtime.openaiApiKey
+        ? {
+            recognize: createOpenAiUtilityImageRecognizer({
+              apiKey: runtime.openaiApiKey,
+              model: runtime.assistantModel,
+              timeoutMs: runtime.assistantTimeoutMs
+            })
+          }
+        : {}),
+      ...(bot.botInfo?.username ? { botUsername: bot.botInfo.username } : {}),
+      ...(livePaymentCardService ? { livePaymentCardService } : {}),
+      ...(paymentInstructionPublisher ? { paymentInstructionPublisher } : {}),
+      logger: getLogger('utility-screenshot')
+    })
   }
 
   if (runtime.financeCommandsEnabled) {

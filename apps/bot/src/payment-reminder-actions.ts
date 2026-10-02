@@ -105,7 +105,7 @@ export function registerPaymentReminderActions(options: {
       ctx,
       householdConfigurationRepository: options.householdConfigurationRepository,
       financeServiceForHousehold: options.financeServiceForHousehold,
-      allowedTopicRoles: ['reminders', 'payments']
+      allowedTopicRoles: ['reminders', 'payments', 'notifications']
     })
     if (!actorContext) {
       await safeAnswerCallback(

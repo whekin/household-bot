@@ -1,4 +1,5 @@
 export * from './repayments'
+export * from './utility-bill-import'
 export { REMINDER_TYPES, type ReminderTarget, type ReminderType } from './reminders'
 export {
   HOUSEHOLD_AUDIT_DELIVERY_STATUSES,

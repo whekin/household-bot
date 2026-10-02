@@ -9,6 +9,7 @@ export const TELEGRAM_PENDING_ACTION_TYPES = [
   'payment_topic_clarification',
   'payment_topic_confirmation',
   'reminder_utility_entry',
+  'utility_screenshot',
   'setup_topic_binding',
   'setup_tracking'
 ] as const

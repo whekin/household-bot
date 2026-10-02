@@ -187,6 +187,7 @@ export async function loadMiniAppDashboardPayload(input: {
             billName: category.billName,
             billTotalMajor: category.billTotal.toMajorString(),
             assignedAmountMajor: category.assignedAmount.toMajorString(),
+            remainingAmountMajor: category.remainingAmount.toMajorString(),
             assignedMemberId: category.assignedMemberId,
             assignedDisplayName: category.assignedDisplayName,
             paidAmountMajor: category.paidAmount.toMajorString(),

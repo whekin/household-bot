@@ -29,6 +29,7 @@ export interface UtilityBillingCategoryAssignment {
   billName: string
   billTotal: Money
   assignedAmount: Money
+  remainingAmount: Money
   assignedMemberId: string
   paidAmount: Money
   isFullAssignment: boolean
@@ -156,32 +157,42 @@ function coveredBillCategories(input: {
   paidByBillId: ReadonlyMap<string, bigint>
   coveragePayments: readonly UtilityVendorPaymentFactInput[]
 }): readonly UtilityBillingCategoryAssignment[] {
-  const payerByBillId = new Map<string, string>()
-  for (const payment of input.coveragePayments) {
-    if (payment.utilityBillId && !payerByBillId.has(payment.utilityBillId)) {
-      payerByBillId.set(payment.utilityBillId, payment.payerMemberId)
-    }
-  }
-
   return input.bills.flatMap((bill) => {
     const paidMinor = input.paidByBillId.get(bill.utilityBillId) ?? 0n
-    const payerMemberId = payerByBillId.get(bill.utilityBillId)
-    if (paidMinor < bill.amount.amountMinor || !payerMemberId) {
-      return []
-    }
-
-    return [
-      {
-        utilityBillId: bill.utilityBillId,
-        billName: bill.billName,
-        billTotal: bill.amount,
-        assignedAmount: bill.amount,
-        assignedMemberId: payerMemberId,
-        paidAmount: Money.fromMinor(paidMinor, input.currency),
-        isFullAssignment: true,
-        splitGroupId: null
+    if (paidMinor < bill.amount.amountMinor) return []
+    const byPayer = new Map<string, bigint>()
+    for (const payment of input.coveragePayments) {
+      if (
+        payment.utilityBillId === bill.utilityBillId ||
+        (!payment.utilityBillId &&
+          payment.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase())
+      ) {
+        byPayer.set(
+          payment.payerMemberId,
+          (byPayer.get(payment.payerMemberId) ?? 0n) + payment.amount.amountMinor
+        )
       }
-    ]
+    }
+    let unassignedMinor = bill.amount.amountMinor
+    const payers = [...byPayer].sort(([a], [b]) => a.localeCompare(b))
+    return payers.flatMap(([payerMemberId, payerPaid]) => {
+      const amountMinor = payerPaid < unassignedMinor ? payerPaid : unassignedMinor
+      if (amountMinor <= 0n) return []
+      unassignedMinor -= amountMinor
+      return [
+        {
+          utilityBillId: bill.utilityBillId,
+          billName: bill.billName,
+          billTotal: bill.amount,
+          assignedAmount: Money.fromMinor(amountMinor, input.currency),
+          remainingAmount: Money.zero(input.currency),
+          assignedMemberId: payerMemberId,
+          paidAmount: Money.fromMinor(paidMinor, input.currency),
+          isFullAssignment: payers.length === 1,
+          splitGroupId: payers.length > 1 ? bill.utilityBillId : null
+        }
+      ]
+    })
   })
 }
 
@@ -633,6 +644,7 @@ export function computeUtilityBillingPlan(input: {
         billName: assignment.bill.billName,
         billTotal: Money.fromMinor(assignment.bill.billTotalMinor, input.currency),
         assignedAmount: Money.fromMinor(assignment.assignedAmountMinor, input.currency),
+        remainingAmount: Money.fromMinor(assignment.assignedAmountMinor, input.currency),
         assignedMemberId: assignment.assignedMemberId,
         paidAmount: Money.fromMinor(assignment.bill.paidAmountMinor, input.currency),
         isFullAssignment: (assignmentCountByBillId.get(assignment.bill.utilityBillId) ?? 0) === 1,
@@ -703,6 +715,7 @@ function materializeLegacyCategoryPayload(input: {
       input.currency
     ),
     assignedAmount,
+    remainingAmount: assignedAmount,
     assignedMemberId: input.category.assignedMemberId,
     paidAmount: Money.fromMinor(input.category.paidAmountMinor, input.currency),
     isFullAssignment: input.category.fullCategoryPayment ?? true,
@@ -757,6 +770,10 @@ export function materializeUtilityBillingPlanRecord(
           billName: nextCategory.billName,
           billTotal: Money.fromMinor(nextCategory.billTotalMinor, currency),
           assignedAmount: Money.fromMinor(nextCategory.assignedAmountMinor, currency),
+          remainingAmount:
+            BigInt(nextCategory.paidAmountMinor) >= BigInt(nextCategory.billTotalMinor)
+              ? Money.zero(currency)
+              : Money.fromMinor(nextCategory.assignedAmountMinor, currency),
           assignedMemberId: nextCategory.assignedMemberId,
           paidAmount: Money.fromMinor(nextCategory.paidAmountMinor, currency),
           isFullAssignment: nextCategory.isFullAssignment,

@@ -227,13 +227,7 @@ function utilitiesByMemberLines(input: {
     // bill one member paying their share would tick everyone else's line as well.
     // Count only what this member put toward this bill.
     const isPaidByThisMember = (category: (typeof categories)[number]): boolean =>
-      (plan?.vendorPayments ?? [])
-        .filter(
-          (payment) =>
-            payment.utilityBillId === category.utilityBillId && payment.payerMemberId === memberId
-        )
-        .reduce((sum, payment) => sum + payment.amount.amountMinor, 0n) >=
-      category.assignedAmount.amountMinor
+      category.remainingAmount.amountMinor <= 0n
     // Their bills are covered by their own money: the amount below their name is
     // what they contributed, not another sum to hand over. Saying so keeps it out
     // of the running total a reader adds up from this list.
@@ -255,7 +249,7 @@ function utilitiesByMemberLines(input: {
     )
     for (const category of memberCategories) {
       lines.push(
-        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(category.assignedAmount))}`
+        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(isPaidByThisMember(category) ? category.assignedAmount : category.remainingAmount))}`
       )
     }
     // Nothing left to pay on the plan does not mean nothing is owed: shared
@@ -485,6 +479,21 @@ export function buildPaymentReminderMessageContentForSurface(
 
   if (input.viewMode !== 'confirm-close' && buildBotStartDeepLink(input.botUsername, 'dashboard')) {
     lines.push('', `ℹ️ ${escapeHtml(t.dashboardDetailsHint)}`)
+  }
+
+  if (
+    input.kind === 'utilities' &&
+    input.surface === 'scheduled-reminder' &&
+    input.viewMode !== 'confirm-close'
+  ) {
+    lines.push(
+      '',
+      escapeHtml(
+        input.locale === 'ru'
+          ? 'Чтобы внести счета, ответьте на это сообщение скриншотом из Credo или TBC.'
+          : 'To enter bills, reply to this message with a Credo or TBC screenshot.'
+      )
+    )
   }
 
   if (input.viewMode === 'confirm-close') {

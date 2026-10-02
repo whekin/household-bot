@@ -174,7 +174,7 @@ export function HomeView() {
 
       {model.stage !== 'idle' ? <HouseholdSummaryPanel model={model} /> : null}
 
-      {effectiveIsAdmin && model.stage !== 'idle' ? (
+      {effectiveIsAdmin ? (
         <AdminClosePanel
           model={model}
           loading={processing}

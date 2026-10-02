@@ -161,6 +161,7 @@ function utilityPaymentDashboard(): FinanceDashboard {
           billName: 'Gas',
           billTotal: gel(12000n),
           assignedAmount: gel(12000n),
+          remainingAmount: gel(12000n),
           assignedMemberId: 'member-1',
           assignedDisplayName: 'Mia',
           paidAmount: gel(0n),

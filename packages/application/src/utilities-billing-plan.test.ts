@@ -147,6 +147,9 @@ describe('computeUtilityBillingPlan', () => {
       gasAssignments.reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n)
     ).toBe(5000n)
     expect(
+      gasAssignments.reduce((sum, category) => sum + category.remainingAmount.amountMinor, 0n)
+    ).toBe(5000n)
+    expect(
       plan.memberSummaries.map((summary) => ({
         memberId: summary.memberId,
         vendorPaidMinor: summary.vendorPaid.amountMinor,
@@ -166,6 +169,49 @@ describe('computeUtilityBillingPlan', () => {
         assignedMinor: 7500n,
         deltaMinor: 0n
       }
+    ])
+  })
+  test('a fully paid shared bill keeps each original payer contribution on a redraw', () => {
+    const plan = computeUtilityBillingPlan({
+      currency: 'GEL',
+      members: [member('alice', 'Alice', '60.00'), member('bob', 'Bob', '60.00')],
+      bills: [bill('gas', 'Gas', '100.00'), bill('internet', 'Internet', '20.00')],
+      vendorPayments: [
+        {
+          utilityBillId: 'gas',
+          billName: 'Gas',
+          payerMemberId: 'alice',
+          amount: Money.fromMajor('40.00', 'GEL')
+        },
+        {
+          utilityBillId: 'gas',
+          billName: 'Gas',
+          payerMemberId: 'bob',
+          amount: Money.fromMajor('60.00', 'GEL')
+        }
+      ]
+    })
+    expect(
+      plan.categories
+        .filter((row) => row.utilityBillId === 'gas')
+        .map((row) => [
+          row.assignedMemberId,
+          row.assignedAmount.toMajorString(),
+          row.remainingAmount.toMajorString()
+        ])
+    ).toEqual([
+      ['alice', '40.00', '0.00'],
+      ['bob', '60.00', '0.00']
+    ])
+    expect(
+      plan.memberSummaries.map((row) => [
+        row.memberId,
+        row.vendorPaid.toMajorString(),
+        row.assignedThisCycle.toMajorString()
+      ])
+    ).toEqual([
+      ['alice', '40.00', '20.00'],
+      ['bob', '60.00', '0.00']
     ])
   })
 

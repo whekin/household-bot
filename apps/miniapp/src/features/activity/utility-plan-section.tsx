@@ -379,8 +379,7 @@ export function UtilityPlanSection() {
                           {plan.status === 'active' &&
                           currentMemberId &&
                           currentMemberId !== category.assignedMemberId &&
-                          majorStringToMinor(category.paidAmountMajor) <
-                            majorStringToMinor(category.assignedAmountMajor) ? (
+                          majorStringToMinor(category.remainingAmountMajor) > 0n ? (
                             <div className="mt-1">
                               <Button
                                 variant="ghost"

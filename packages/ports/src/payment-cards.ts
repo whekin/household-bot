@@ -17,6 +17,10 @@ export interface TelegramPaymentCardRecord {
 }
 
 export interface TelegramPaymentCardRepository {
+  findPaymentCard(input: {
+    telegramChatId: string
+    telegramMessageId: string
+  }): Promise<TelegramPaymentCardRecord | null>
   upsertPaymentCard(
     input: Omit<TelegramPaymentCardRecord, 'createdAt' | 'updatedAt'> & {
       updatedAt: Instant

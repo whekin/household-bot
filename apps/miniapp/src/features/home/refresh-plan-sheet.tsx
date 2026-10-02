@@ -8,9 +8,7 @@ import { useI18n } from '@/i18n/context'
 import { formatMoneyLabel } from '@/lib/ledger-helpers'
 
 function planKey(plan: MiniAppUtilityPlanShape | null): string {
-  return (plan?.categories ?? [])
-    .map((category) => `${category.billName}:${category.assignedMemberId}:${category.amountMajor}`)
-    .join('|')
+  return JSON.stringify({ categories: plan?.categories ?? [], members: plan?.members ?? [] })
 }
 
 function PlanColumn({
@@ -27,6 +25,19 @@ function PlanColumn({
   return (
     <div className="rounded-xl bg-elevated px-3 py-2">
       <p className="text-[11px] font-medium uppercase tracking-wide text-faint">{title}</p>
+      <div className="mt-1 divide-y divide-border/60">
+        {(plan?.members ?? []).map((member) => (
+          <div
+            key={member.memberId}
+            className="flex items-center justify-between gap-3 py-2 text-sm"
+          >
+            <span>{member.displayName}</span>
+            <span className="font-mono font-semibold">
+              {formatMoneyLabel(member.toPayNowMajor, currency, locale)}
+            </span>
+          </div>
+        ))}
+      </div>
       <div className="mt-1 divide-y divide-border/60">
         {(plan?.categories ?? []).map((category) => (
           <div

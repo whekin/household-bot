@@ -77,6 +77,7 @@ describe('live payment cards', () => {
   test('re-renders every persisted card after payment state changes', async () => {
     const cards: TelegramPaymentCardRecord[] = []
     const repository: TelegramPaymentCardRepository = {
+      findPaymentCard: async () => null,
       async upsertPaymentCard(input) {
         const existing = cards.find(
           (card) =>
