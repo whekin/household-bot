@@ -424,6 +424,7 @@ export interface FinanceRepository extends RepaymentRepository {
     kind: FinancePaymentKind
     amountMinor: bigint
     currency: CurrencyCode
+    actorMemberId?: string
   }): Promise<FinancePaymentRecord | null>
   deletePaymentRecord(paymentId: string): Promise<boolean>
   getRentRuleForPeriod(period: string): Promise<FinanceRentRuleRecord | null>

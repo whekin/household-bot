@@ -181,6 +181,176 @@ integration(
           0n
         )
       ).toBe(5214n)
+      await client.db
+        .update(schema.members)
+        .set({ lifecycleStatus: 'active', isAdmin: 1 })
+        .where(eq(schema.members.id, stasId))
+      const roundingRecord = records.find((record) => record.amountMinor === 7n)!
+      const roundingFact = facts.find((fact) => fact.amountMinor === 7n)!
+      await service.updatePayment(roundingRecord.id, ionId, 'utilities', '0.10', 'GEL')
+      expect(
+        (await finance.repository.getUtilityVendorPaymentFact(roundingFact.id))?.amountMinor
+      ).toBe(10n)
+      await expect(
+        service.updatePayment(roundingRecord.id, ionId, 'utilities', '100.00', 'GEL')
+      ).rejects.toThrow('exceeds')
+      expect(
+        (await finance.repository.getUtilityVendorPaymentFact(roundingFact.id))?.amountMinor
+      ).toBe(10n)
+      expect((await finance.repository.getPaymentRecord(roundingRecord.id))?.amountMinor).toBe(10n)
+      expect((await finance.repository.getPaymentRecord(roundingRecord.id))?.amountMinor).toBe(10n)
+      await expect(
+        service.updatePayment(roundingRecord.id, stasId, 'utilities', '0.12', 'GEL', ionId)
+      ).rejects.toThrow('administrator')
+      expect(
+        (await finance.repository.getUtilityVendorPaymentFact(roundingFact.id))?.payerMemberId
+      ).toBe(ionId)
+      await service.updatePayment(roundingRecord.id, stasId, 'utilities', '0.12', 'GEL', stasId)
+      expect(await finance.repository.getUtilityVendorPaymentFact(roundingFact.id)).toMatchObject({
+        payerMemberId: stasId,
+        amountMinor: 12n,
+        matchedPlan: false
+      })
+      expect(await finance.repository.getPaymentRecord(roundingRecord.id)).toMatchObject({
+        memberId: stasId,
+        amountMinor: 12n
+      })
+      await expect(
+        service.updatePayment(roundingRecord.id, stasId, 'rent', '0.12', 'GEL')
+      ).rejects.toThrow('must remain')
+      await expect(
+        service.updatePayment(roundingRecord.id, stasId, 'utilities', '0.12', 'USD')
+      ).rejects.toThrow('must remain')
+      expect(
+        (await finance.repository.getUtilityVendorPaymentFact(roundingFact.id))?.amountMinor
+      ).toBe(12n)
+      const moved = (await service.generateDashboard(period))!.utilityBillingPlan!
+      expect(
+        moved.memberSummaries.find((member) => member.memberId === ionId)?.vendorPaid.amountMinor
+      ).toBe(5193n)
+      expect(
+        moved.memberSummaries.find((member) => member.memberId === stasId)?.vendorPaid.amountMinor
+      ).toBe(26n)
+      expect(await service.deleteUtilityVendorPaymentFact(roundingFact.id)).toBe(true)
+      expect(await finance.repository.getUtilityVendorPaymentFact(roundingFact.id)).toBeNull()
+      expect(await finance.repository.getPaymentRecord(roundingRecord.id)).toBeNull()
+      const directDelete = (await finance.repository.listPaymentRecordsForCycle(cycle.id)).find(
+        (record) => record.amountMinor === 7n
+      )!
+      expect(await service.deletePayment(directDelete.id)).toBe(true)
+      expect(
+        (await finance.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)).reduce(
+          (sum, fact) => sum + fact.amountMinor,
+          0n
+        )
+      ).toBe(5200n)
+
+      expect(
+        (await finance.repository.listPaymentRecordsForCycle(cycle.id)).reduce(
+          (sum, record) => sum + record.amountMinor,
+          0n
+        )
+      ).toBe(5200n)
+      await client.db
+        .insert(schema.householdUtilityCategories)
+        .values({ householdId, slug: 'cleaning', name: 'Cleaning' })
+      await service.addUtilityBills(
+        [{ billName: 'Cleaning', amountMajor: '2.50' }],
+        stasId,
+        'GEL',
+        period
+      )
+      const cleaning = (await finance.repository.listUtilityBillsForCycle(cycle.id)).find(
+        (bill) => bill.billName === 'Cleaning'
+      )!
+      await service.recordUtilityVendorPayment({
+        utilityBillId: cleaning.id,
+        payerMemberId: ionId,
+        actorMemberId: stasId,
+        amountArg: '2.43',
+        periodArg: period
+      })
+      const cleaningPreview = await imports.preview(period, [
+        { billName: 'Cleaning', amountMajor: '0.00' }
+      ])
+      expect(
+        await imports.confirmRoundingPayment(cleaningPreview, cleaning.id, ionId, stasId)
+      ).toBe('applied')
+      const cleaningFact = (
+        await finance.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      ).find((fact) => fact.utilityBillId === cleaning.id && fact.paymentRecordId)!
+      await expect(
+        service.updatePayment(cleaningFact.paymentRecordId!, ionId, 'utilities', '0.10', 'GEL')
+      ).rejects.toThrow('exceeds')
+      expect(
+        (await finance.repository.getUtilityVendorPaymentFact(cleaningFact.id))?.amountMinor
+      ).toBe(7n)
+      expect(
+        (await finance.repository.getPaymentRecord(cleaningFact.paymentRecordId!))?.amountMinor
+      ).toBe(7n)
+      await client.db
+        .insert(schema.householdUtilityCategories)
+        .values({ householdId, slug: 'water', name: 'Water' })
+      await service.addUtilityBills(
+        [{ billName: 'Water', amountMajor: '1.00' }],
+        stasId,
+        'GEL',
+        period
+      )
+      const water = (await finance.repository.listUtilityBillsForCycle(cycle.id)).find(
+        (bill) => bill.billName === 'Water'
+      )!
+      const claim = {
+        cycleId: cycle.id,
+        utilityBillId: water.id,
+        billName: 'Water',
+        amountMinor: 70n,
+        currency: 'GEL' as const,
+        matchedPlan: false,
+        recordedAt: nowInstant()
+      }
+      const claims = await Promise.allSettled([
+        finance.repository.addUtilityVendorPaymentFactIfNew({
+          ...claim,
+          payerMemberId: ionId,
+          idempotencyKey: `race-ion:${householdId}`
+        }),
+        finance.repository.addUtilityVendorPaymentFactIfNew({
+          ...claim,
+          payerMemberId: stasId,
+          idempotencyKey: `race-stas:${householdId}`
+        })
+      ])
+      expect(claims.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+      const waterFacts = (
+        await finance.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      ).filter((fact) => fact.utilityBillId === water.id)
+      expect(waterFacts).toHaveLength(1)
+      expect(waterFacts[0]?.amountMinor).toBe(70n)
+      expect(
+        await finance.repository.addUtilityVendorPaymentFactIfNew({
+          ...claim,
+          payerMemberId: waterFacts[0]!.payerMemberId,
+          idempotencyKey: `${waterFacts[0]!.payerMemberId === ionId ? 'race-ion' : 'race-stas'}:${householdId}`
+        })
+      ).toBeNull()
+      await client.db
+        .update(schema.billingCycles)
+        .set({ closedAt: new Date() })
+        .where(eq(schema.billingCycles.id, cycle.id))
+      const replay = {
+        ...claim,
+        payerMemberId: waterFacts[0]!.payerMemberId,
+        idempotencyKey: `${waterFacts[0]!.payerMemberId === ionId ? 'race-ion' : 'race-stas'}:${householdId}`
+      }
+      expect(await finance.repository.addUtilityVendorPaymentFactIfNew(replay)).toBeNull()
+      await expect(
+        finance.repository.addUtilityVendorPaymentFactIfNew({
+          ...replay,
+          amountMinor: 1n,
+          idempotencyKey: `new-closed:${householdId}`
+        })
+      ).rejects.toThrow('closed')
     } finally {
       await client.db
         .delete(schema.billingCycles)

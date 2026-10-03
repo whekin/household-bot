@@ -5475,59 +5475,38 @@ describe('createFinanceCommandService', () => {
       ).toBe(10000n)
     }
   })
-  test('an actual rounded vendor payment keeps its advance as payer credit for late internet', async () => {
+  test('retrying a partial vendor payment cannot turn it into a duplicate advance', async () => {
     const repository = new FinanceRepositoryStub()
     const period = expectedCurrentCyclePeriod('Asia/Tbilisi')
     repository.members = [
       { id: 'ion', telegramUserId: '1', displayName: 'Ion', rentShareWeight: 1, isAdmin: true }
     ]
-    repository.cycles = [{ id: 'rounding-cycle', period, currency: 'GEL' }]
+    repository.cycles = [{ id: 'retry-cycle', period, currency: 'GEL' }]
     repository.openCycleRecord = repository.cycles[0]!
     repository.latestCycleRecord = repository.cycles[0]!
     repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
     repository.utilityBills = [
       {
         id: 'gas',
-        cycleId: 'rounding-cycle',
+        cycleId: 'retry-cycle',
         billName: 'Gas',
-        amountMinor: 5193n,
+        amountMinor: 10000n,
         currency: 'GEL',
         createdByMemberId: 'ion',
         createdAt: instantFromIso(`${period}-01T00:00:00Z`)
       }
     ]
     const service = createService(repository)
-    await service.recordUtilityVendorPayment({
+    const input = {
       utilityBillId: 'gas',
       payerMemberId: 'ion',
-      amountArg: '52.00',
+      amountArg: '95.00',
       periodArg: period
-    })
-    expect(repository.utilityVendorPaymentFacts[0]?.amountMinor).toBe(5200n)
-    const settled = await service.generateDashboard(period)
-    expect(
-      settled?.utilityBillingPlan?.memberSummaries[0]?.projectedDeltaAfterPlan.amountMinor
-    ).toBe(7n)
-    repository.utilityBills = [
-      ...repository.utilityBills,
-      {
-        id: 'internet',
-        cycleId: 'rounding-cycle',
-        billName: 'Internet',
-        amountMinor: 1000n,
-        currency: 'GEL',
-        createdByMemberId: 'ion',
-        createdAt: instantFromIso(`${period}-01T01:00:00Z`)
-      }
-    ]
-    const late = await service.generateDashboard(period)
-    expect(late?.utilityBillingPlan?.memberSummaries[0]?.vendorPaid.amountMinor).toBe(5200n)
-    // The advance is still with Gas: it cannot fund the physical Internet bill.
-    expect(late?.utilityBillingPlan?.memberSummaries[0]?.assignedThisCycle.amountMinor).toBe(1000n)
-    expect(late?.utilityBillingPlan?.memberSummaries[0]?.projectedDeltaAfterPlan.amountMinor).toBe(
-      7n
-    )
-    expect(late?.totalPaid.amountMinor).toBe(5200n)
+    }
+    await service.recordUtilityVendorPayment(input)
+    await expect(service.recordUtilityVendorPayment(input)).rejects.toThrow('cannot exceed')
+    expect(repository.utilityVendorPaymentFacts).toHaveLength(1)
+    expect(repository.utilityVendorPaymentFacts[0]?.amountMinor).toBe(9500n)
   })
 
   test('full off-plan coverage keeps only actual payer contributions rather than marking an unpaid assignee paid', async () => {

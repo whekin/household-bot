@@ -138,7 +138,8 @@ function readStringArray(params: Record<string, unknown>, key: string): readonly
 export async function executeAgentAction(
   financeService: FinanceCommandService,
   payload: AgentActionPayload,
-  householdConfigurationRepository?: HouseholdConfigurationRepository
+  householdConfigurationRepository?: HouseholdConfigurationRepository,
+  actorMemberId?: string
 ): Promise<boolean> {
   const params = payload.params
 
@@ -181,12 +182,17 @@ export async function executeAgentAction(
         return false
       }
 
+      const actor =
+        actorMemberId ??
+        (await financeService.getMemberByTelegramUserId(payload.requesterTelegramUserId))?.id
+      if (!actor) return false
       const updated = await financeService.updatePayment(
         paymentId,
         memberId,
         kind,
         amountMajor,
-        currency ?? undefined
+        currency ?? undefined,
+        actor
       )
       return updated !== null
     }
@@ -384,7 +390,8 @@ export function registerAgentActionCallbacks(
       succeeded = await executeAgentAction(
         options.financeServiceForHousehold(payload.householdId),
         payload,
-        options.householdConfigurationRepository
+        options.householdConfigurationRepository,
+        actor?.id
       )
     } catch (error) {
       options.logger?.error(

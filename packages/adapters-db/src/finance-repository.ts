@@ -10,6 +10,8 @@ import type {
   FinanceUtilityBillingPlanRecord
 } from '@household/ports'
 import {
+  Money,
+  convertMoney,
   instantFromDatabaseValue,
   instantToDate,
   nowInstant,
@@ -1384,61 +1386,217 @@ export function createDbFinanceRepository(
     },
 
     async updatePaymentRecord(input) {
-      const rows = await db
-        .update(schema.paymentRecords)
-        .set({
-          memberId: input.memberId,
-          kind: input.kind,
-          amountMinor: input.amountMinor,
-          currency: input.currency
-        })
-        .where(
-          and(
-            eq(schema.paymentRecords.householdId, householdId),
-            eq(schema.paymentRecords.id, input.paymentId)
+      return db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, input.paymentId)
+            )
           )
-        )
-        .returning({
-          id: schema.paymentRecords.id,
-          cycleId: schema.paymentRecords.cycleId,
-          memberId: schema.paymentRecords.memberId,
-          kind: schema.paymentRecords.kind,
-          amountMinor: schema.paymentRecords.amountMinor,
-          currency: schema.paymentRecords.currency,
-          recordedAt: schema.paymentRecords.recordedAt
-        })
+          .for('update')
+        if (!existing) return null
+        if (existing.idempotencyKey?.startsWith('utility-rounding:')) {
+          if (input.kind !== 'utilities' || input.currency !== 'GEL' || input.amountMinor <= 0n)
+            throw new Error(
+              'A rounding payment must remain a positive utilities payment in GEL; delete and re-record to change kind or currency'
+            )
+          const [actor] = await tx
+            .select()
+            .from(schema.members)
+            .where(
+              and(
+                eq(schema.members.householdId, householdId),
+                eq(schema.members.id, input.actorMemberId ?? existing.memberId)
+              )
+            )
+          if (
+            !actor ||
+            actor.lifecycleStatus === 'left' ||
+            (actor.isAdmin !== 1 && (existing.memberId !== actor.id || input.memberId !== actor.id))
+          )
+            throw new Error('Rounding payment correction requires its payer or an administrator')
+          const [payer] = await tx
+            .select({ id: schema.members.id, status: schema.members.lifecycleStatus })
+            .from(schema.members)
+            .where(
+              and(
+                eq(schema.members.householdId, householdId),
+                eq(schema.members.id, input.memberId)
+              )
+            )
+          if (!payer || payer.status === 'left')
+            throw new Error('Payment member not found in this household')
+          await tx
+            .select({ id: schema.billingCycles.id })
+            .from(schema.billingCycles)
+            .where(
+              and(
+                eq(schema.billingCycles.householdId, householdId),
+                eq(schema.billingCycles.id, existing.cycleId)
+              )
+            )
+            .for('update')
+          const linked = await tx
+            .select()
+            .from(schema.utilityVendorPaymentFacts)
+            .where(
+              and(
+                eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                eq(schema.utilityVendorPaymentFacts.paymentRecordId, existing.id)
+              )
+            )
+          if (linked.length !== 1 || !linked[0]!.utilityBillId)
+            throw new Error('Rounding payment provider fact is missing or ambiguous')
+          const [bill] = await tx
+            .select()
+            .from(schema.utilityBills)
+            .where(
+              and(
+                eq(schema.utilityBills.householdId, householdId),
+                eq(schema.utilityBills.id, linked[0]!.utilityBillId)
+              )
+            )
+            .for('update')
+          if (!bill || bill.currency !== 'GEL')
+            throw new Error('Rounding payment provider bill is missing or has another currency')
+          const contributions = (
+            await tx
+              .select()
+              .from(schema.utilityVendorPaymentFacts)
+              .where(
+                and(
+                  eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                  eq(schema.utilityVendorPaymentFacts.cycleId, existing.cycleId)
+                )
+              )
+          ).filter(
+            (fact) =>
+              fact.id !== linked[0]!.id &&
+              (fact.utilityBillId === bill.id ||
+                (!fact.utilityBillId &&
+                  fact.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase()))
+          )
+          if (contributions.some((fact) => fact.currency !== 'GEL'))
+            throw new Error('Provider payments have conflicting currencies')
+          const remaining =
+            bill.amountMinor - contributions.reduce((sum, fact) => sum + fact.amountMinor, 0n)
+          if (input.amountMinor > 200n || input.amountMinor > remaining)
+            throw new Error(
+              'Rounding correction exceeds the shortcut limit or remaining supplier balance'
+            )
+          const facts = await tx
+            .update(schema.utilityVendorPaymentFacts)
+            .set({
+              payerMemberId: input.memberId,
+              amountMinor: input.amountMinor,
+              currency: input.currency,
+              matchedPlan: 0,
+              planId: null,
+              planVersion: null,
+              plannedForMemberId: null
+            })
+            .where(
+              and(
+                eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                eq(schema.utilityVendorPaymentFacts.paymentRecordId, existing.id)
+              )
+            )
+            .returning({ id: schema.utilityVendorPaymentFacts.id })
+          if (facts.length !== 1)
+            throw new Error('Rounding payment provider fact is missing or ambiguous')
+          await tx
+            .update(schema.utilityBillingPlans)
+            .set({ status: 'diverged' })
+            .where(
+              and(
+                eq(schema.utilityBillingPlans.householdId, householdId),
+                eq(schema.utilityBillingPlans.cycleId, existing.cycleId),
+                inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+              )
+            )
+        }
+        const rows = await tx
+          .update(schema.paymentRecords)
+          .set({
+            memberId: input.memberId,
+            kind: input.kind,
+            amountMinor: input.amountMinor,
+            currency: input.currency
+          })
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, input.paymentId)
+            )
+          )
+          .returning({
+            id: schema.paymentRecords.id,
+            cycleId: schema.paymentRecords.cycleId,
+            memberId: schema.paymentRecords.memberId,
+            kind: schema.paymentRecords.kind,
+            amountMinor: schema.paymentRecords.amountMinor,
+            currency: schema.paymentRecords.currency,
+            recordedAt: schema.paymentRecords.recordedAt
+          })
 
-      const row = rows[0]
-      if (!row) {
-        return null
-      }
+        const row = rows[0]
+        if (!row) {
+          return null
+        }
 
-      return {
-        id: row.id,
-        cycleId: row.cycleId,
-        cyclePeriod: null,
-        memberId: row.memberId,
-        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
-        amountMinor: row.amountMinor,
-        currency: toCurrencyCode(row.currency),
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!
-      }
+        return {
+          id: row.id,
+          cycleId: row.cycleId,
+          cyclePeriod: null,
+          memberId: row.memberId,
+          kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+          amountMinor: row.amountMinor,
+          currency: toCurrencyCode(row.currency),
+          recordedAt: instantFromDatabaseValue(row.recordedAt)!
+        }
+      })
     },
 
     async deletePaymentRecord(paymentId) {
-      const rows = await db
-        .delete(schema.paymentRecords)
-        .where(
-          and(
-            eq(schema.paymentRecords.householdId, householdId),
-            eq(schema.paymentRecords.id, paymentId)
+      return db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, paymentId)
+            )
           )
-        )
-        .returning({
-          id: schema.paymentRecords.id
-        })
+          .for('update')
+        if (existing?.idempotencyKey?.startsWith('utility-rounding:'))
+          await tx
+            .update(schema.utilityBillingPlans)
+            .set({ status: 'diverged' })
+            .where(
+              and(
+                eq(schema.utilityBillingPlans.householdId, householdId),
+                eq(schema.utilityBillingPlans.cycleId, existing.cycleId),
+                inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+              )
+            )
+        const rows = await tx
+          .delete(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, paymentId)
+            )
+          )
+          .returning({
+            id: schema.paymentRecords.id
+          })
 
-      return rows.length > 0
+        return rows.length > 0
+      })
     },
 
     async getRentRuleForPeriod(period) {
@@ -1808,19 +1966,65 @@ export function createDbFinanceRepository(
     },
 
     async deleteUtilityVendorPaymentFact(factId) {
-      const rows = await db
-        .delete(schema.utilityVendorPaymentFacts)
-        .where(
-          and(
-            eq(schema.utilityVendorPaymentFacts.householdId, householdId),
-            eq(schema.utilityVendorPaymentFacts.id, factId)
+      return db.transaction(async (tx) => {
+        const [fact] = await tx
+          .select()
+          .from(schema.utilityVendorPaymentFacts)
+          .where(
+            and(
+              eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+              eq(schema.utilityVendorPaymentFacts.id, factId)
+            )
           )
-        )
-        .returning({
-          id: schema.utilityVendorPaymentFacts.id
-        })
+        if (!fact) return false
+        if (fact.paymentRecordId) {
+          const [payment] = await tx
+            .select()
+            .from(schema.paymentRecords)
+            .where(
+              and(
+                eq(schema.paymentRecords.householdId, householdId),
+                eq(schema.paymentRecords.id, fact.paymentRecordId)
+              )
+            )
+            .for('update')
+          if (payment?.idempotencyKey?.startsWith('utility-rounding:')) {
+            await tx
+              .update(schema.utilityBillingPlans)
+              .set({ status: 'diverged' })
+              .where(
+                and(
+                  eq(schema.utilityBillingPlans.householdId, householdId),
+                  eq(schema.utilityBillingPlans.cycleId, payment.cycleId),
+                  inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+                )
+              )
+            const deleted = await tx
+              .delete(schema.paymentRecords)
+              .where(
+                and(
+                  eq(schema.paymentRecords.householdId, householdId),
+                  eq(schema.paymentRecords.id, payment.id)
+                )
+              )
+              .returning({ id: schema.paymentRecords.id })
+            return deleted.length > 0 // Its linked fact and allocations cascade with it.
+          }
+        }
+        const rows = await tx
+          .delete(schema.utilityVendorPaymentFacts)
+          .where(
+            and(
+              eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+              eq(schema.utilityVendorPaymentFacts.id, factId)
+            )
+          )
+          .returning({
+            id: schema.utilityVendorPaymentFacts.id
+          })
 
-      return rows.length > 0
+        return rows.length > 0
+      })
     },
 
     async attachUtilityVendorPaymentFactsToPayment(input) {
@@ -1893,57 +2097,133 @@ export function createDbFinanceRepository(
     },
 
     async addUtilityVendorPaymentFactIfNew(input) {
-      const rows = await db
-        .insert(schema.utilityVendorPaymentFacts)
-        .values({
-          householdId,
-          cycleId: input.cycleId,
-          planId: input.planId ?? null,
-          utilityBillId: input.utilityBillId ?? null,
-          billName: input.billName,
-          payerMemberId: input.payerMemberId,
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          plannedForMemberId: input.plannedForMemberId ?? null,
-          planVersion: input.planVersion ?? null,
-          matchedPlan: input.matchedPlan ? 1 : 0,
-          recordedByMemberId: input.recordedByMemberId ?? null,
-          idempotencyKey: input.idempotencyKey,
-          recordedAt: instantToDate(input.recordedAt)
-        })
-        .onConflictDoNothing({
-          target: schema.utilityVendorPaymentFacts.idempotencyKey
-        })
-        .returning({
-          id: schema.utilityVendorPaymentFacts.id,
-          cycleId: schema.utilityVendorPaymentFacts.cycleId,
-          planId: schema.utilityVendorPaymentFacts.planId,
-          utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
-          billName: schema.utilityVendorPaymentFacts.billName,
-          payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
-          amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
-          currency: schema.utilityVendorPaymentFacts.currency,
-          plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
-          planVersion: schema.utilityVendorPaymentFacts.planVersion,
-          matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
-          recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
-          paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
-          recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
-          createdAt: schema.utilityVendorPaymentFacts.createdAt
-        })
+      return db.transaction(async (tx) => {
+        const [cycle] = await tx
+          .select()
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, input.cycleId)
+            )
+          )
+          .for('update')
+        if (!cycle) throw new Error('Utility payment cycle is missing')
+        const [duplicate] = await tx
+          .select({ id: schema.utilityVendorPaymentFacts.id })
+          .from(schema.utilityVendorPaymentFacts)
+          .where(
+            and(
+              eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+              eq(schema.utilityVendorPaymentFacts.idempotencyKey, input.idempotencyKey)
+            )
+          )
+        if (duplicate) return null
+        if (cycle.closedAt) throw new Error('Utility payment cycle is closed')
+        if (input.utilityBillId) {
+          const [bill] = await tx
+            .select()
+            .from(schema.utilityBills)
+            .where(
+              and(
+                eq(schema.utilityBills.householdId, householdId),
+                eq(schema.utilityBills.cycleId, cycle.id),
+                eq(schema.utilityBills.id, input.utilityBillId)
+              )
+            )
+            .for('update')
+          if (!bill || input.currency !== cycle.currency)
+            throw new Error('Utility payment bill or currency is invalid')
+          let total = Money.fromMinor(bill.amountMinor, toCurrencyCode(bill.currency))
+          if (bill.currency !== input.currency) {
+            const [rate] = await tx
+              .select()
+              .from(schema.billingCycleExchangeRates)
+              .where(
+                and(
+                  eq(schema.billingCycleExchangeRates.cycleId, cycle.id),
+                  eq(schema.billingCycleExchangeRates.sourceCurrency, bill.currency),
+                  eq(schema.billingCycleExchangeRates.targetCurrency, input.currency)
+                )
+              )
+            if (!rate) throw new Error('Utility bill exchange rate is not locked')
+            total = convertMoney(total, input.currency, rate.rateMicros)
+          }
+          const facts = (
+            await tx
+              .select()
+              .from(schema.utilityVendorPaymentFacts)
+              .where(
+                and(
+                  eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                  eq(schema.utilityVendorPaymentFacts.cycleId, cycle.id)
+                )
+              )
+          ).filter(
+            (fact) =>
+              fact.utilityBillId === bill.id ||
+              (!fact.utilityBillId &&
+                fact.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase())
+          )
+          if (facts.some((fact) => fact.currency !== input.currency))
+            throw new Error('Provider payment currencies conflict')
+          const remaining =
+            total.amountMinor - facts.reduce((sum, fact) => sum + fact.amountMinor, 0n)
+          if (input.amountMinor <= 0n || input.amountMinor > remaining)
+            throw new Error('Payment cannot exceed the remaining bill amount')
+        }
+        const rows = await tx
+          .insert(schema.utilityVendorPaymentFacts)
+          .values({
+            householdId,
+            cycleId: input.cycleId,
+            planId: input.planId ?? null,
+            utilityBillId: input.utilityBillId ?? null,
+            billName: input.billName,
+            payerMemberId: input.payerMemberId,
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            plannedForMemberId: input.plannedForMemberId ?? null,
+            planVersion: input.planVersion ?? null,
+            matchedPlan: input.matchedPlan ? 1 : 0,
+            recordedByMemberId: input.recordedByMemberId ?? null,
+            idempotencyKey: input.idempotencyKey,
+            recordedAt: instantToDate(input.recordedAt)
+          })
+          .onConflictDoNothing({
+            target: schema.utilityVendorPaymentFacts.idempotencyKey
+          })
+          .returning({
+            id: schema.utilityVendorPaymentFacts.id,
+            cycleId: schema.utilityVendorPaymentFacts.cycleId,
+            planId: schema.utilityVendorPaymentFacts.planId,
+            utilityBillId: schema.utilityVendorPaymentFacts.utilityBillId,
+            billName: schema.utilityVendorPaymentFacts.billName,
+            payerMemberId: schema.utilityVendorPaymentFacts.payerMemberId,
+            amountMinor: schema.utilityVendorPaymentFacts.amountMinor,
+            currency: schema.utilityVendorPaymentFacts.currency,
+            plannedForMemberId: schema.utilityVendorPaymentFacts.plannedForMemberId,
+            planVersion: schema.utilityVendorPaymentFacts.planVersion,
+            matchedPlan: schema.utilityVendorPaymentFacts.matchedPlan,
+            recordedByMemberId: schema.utilityVendorPaymentFacts.recordedByMemberId,
+            paymentRecordId: schema.utilityVendorPaymentFacts.paymentRecordId,
+            recordedAt: schema.utilityVendorPaymentFacts.recordedAt,
+            createdAt: schema.utilityVendorPaymentFacts.createdAt
+          })
 
-      const row = rows[0]
-      if (!row) {
-        return null
-      }
+        const row = rows[0]
+        if (!row) {
+          return null
+        }
 
-      return {
-        ...row,
-        currency: toCurrencyCode(row.currency),
-        matchedPlan: row.matchedPlan === 1,
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!,
-        createdAt: instantFromDatabaseValue(row.createdAt)!
-      }
+        return {
+          ...row,
+          currency: toCurrencyCode(row.currency),
+          matchedPlan: row.matchedPlan === 1,
+          recordedAt: instantFromDatabaseValue(row.recordedAt)!,
+          createdAt: instantFromDatabaseValue(row.createdAt)!
+        }
+      })
     },
 
     async listUtilityReimbursementFactsForCycle(cycleId) {

@@ -2613,7 +2613,8 @@ export function createMiniAppUpdatePaymentHandler(options: {
           payload.memberId,
           payload.kind,
           payload.amountMajor,
-          payload.currency
+          payload.currency,
+          auth.member.id
         )
 
         if (!payment) {

@@ -4129,7 +4129,8 @@ export interface FinanceCommandService {
     memberId: string,
     kind: FinancePaymentKind,
     amountArg: string,
-    currencyArg?: string
+    currencyArg?: string,
+    actorMemberId?: string
   ): Promise<{
     paymentId: string
     amount: Money
@@ -5243,7 +5244,7 @@ export function createFinanceCommandService(
       }
     },
 
-    async updatePayment(paymentId, memberId, kind, amountArg, currencyArg) {
+    async updatePayment(paymentId, memberId, kind, amountArg, currencyArg, actorMemberId) {
       const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
         dependencies.householdId
       )
@@ -5258,7 +5259,8 @@ export function createFinanceCommandService(
         memberId,
         kind,
         amountMinor: amount.amountMinor,
-        currency
+        currency,
+        ...(actorMemberId ? { actorMemberId } : {})
       })
 
       if (!payment) {
@@ -5536,9 +5538,8 @@ export function createFinanceCommandService(
               : remainingBillMinor,
             dashboard.currency
           )
-      // An explicitly reported payment may include an advance to the provider.
-      // Keep its full value under the actual payer; redraw carries the excess as credit.
-      if (amount.amountMinor <= 0n) throw new Error('Payment must be positive')
+      if (amount.amountMinor <= 0n || amount.amountMinor > remainingBillMinor)
+        throw new Error('Payment must be positive and cannot exceed the remaining bill amount')
 
       const matchingCategory = assignedAmounts.find(
         (category) =>
