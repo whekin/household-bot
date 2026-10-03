@@ -21,18 +21,23 @@ const utilityKeywords = [
   /уборк/i
 ] as const
 
-const paymentIntentKeywords = [
-  /\b(paid|pay|sent|done|transfer(red)?)\b/i,
-  /оплат/i,
-  /оплач/i,
-  /закинул/i,
-  /перев[её]л/i,
+const completedPaymentIntentKeywords = [
+  /\b(paid|sent|done|transferred)\b/i,
+  /оплатил[аи]?/i,
+  /оплачен[аоы]?/i,
+  /закинул[аи]?/i,
+  /перев[её]л[аи]?/i,
   /перевела/i,
-  /скинул/i,
-  /скинула/i,
-  /отправил/i,
-  /отправила/i,
+  /скинул[аи]?/i,
+  /отправил[аи]?/i,
   /готово/i
+] as const
+
+const paymentIntentKeywords = [
+  ...completedPaymentIntentKeywords,
+  /\b(pay|transfer)\b/i,
+  /оплат/i,
+  /оплач/i
 ] as const
 
 const multiMemberKeywords = [
@@ -44,6 +49,11 @@ const multiMemberKeywords = [
 
 function hasMatch(patterns: readonly RegExp[], value: string): boolean {
   return patterns.some((pattern) => pattern.test(value))
+}
+
+/** A routing hint; completed payment classification still happens in payment ingestion. */
+export function hasCompletedPaymentCaption(rawText: string): boolean {
+  return hasMatch(completedPaymentIntentKeywords, rawText)
 }
 
 function parseExplicitAmount(rawText: string, defaultCurrency: CurrencyCode): Money | null {

@@ -1,4 +1,5 @@
 import {
+  hasCompletedPaymentCaption,
   matchUtilityImageBills,
   parseUtilityBillImportCorrection,
   type FinanceCommandService,
@@ -591,10 +592,7 @@ export function registerUtilityScreenshotEntry(options: {
       /коммун|utilit|\bbills?\b/i.test(text) && !/(?:не|not)\s+(?:коммун|utilit)/i.test(text)
     // Explicit completed-payment captions retain the existing payment flow.
     // A captionless bank receipt is still rejected as utility entry below.
-    if (
-      /оплатил|оплатила|перев[её]л|перевела|\bpaid\b|\btransferred\b/i.test(text) ||
-      /купил|купила|bought|purchase/i.test(text)
-    ) {
+    if (hasCompletedPaymentCaption(text) || /купил|купила|bought|purchase/i.test(text)) {
       await next()
       return
     }

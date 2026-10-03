@@ -406,6 +406,38 @@ test('explicit caption allows screenshots without a reply; purchase captions kee
   expect(payment.metrics().ocrCalls).toBe(0)
 })
 
+test('bill captions awaiting payment still enter screenshot recognition', async () => {
+  for (const caption of [
+    '@household_test_bot коммуналка к оплате',
+    '@household_test_bot коммуналка — оплатить',
+    '@household_test_bot utility bills to pay'
+  ]) {
+    const f = setup()
+    await f.bot.handleUpdate(photo({ caption }) as never)
+    expect(f.metrics().ocrCalls).toBe(1)
+    expect(f.pending()?.payload.stage).toBe('review')
+    expect(f.imports).toEqual([])
+  }
+})
+
+test('supported payment captions retain payment ingestion when attached to a utility reply', async () => {
+  for (const caption of [
+    'коммуналка оплачена',
+    'закинул коммуналку 20 лари',
+    'скинул за коммуналку 20 лари',
+    'отправила коммуналку 20 лари',
+    'utilities sent 20 GEL',
+    'utilities done'
+  ]) {
+    const f = setup()
+    await f.bot.handleUpdate(photo({ reply: 'utility', caption }) as never)
+    expect(f.metrics().passed).toBe(1)
+    expect(f.metrics().ocrCalls).toBe(0)
+    expect(f.pending()).toBeNull()
+    expect(f.imports).toEqual([])
+  }
+})
+
 test('unrelated screenshot, receipt, unreadable and failed OCR leave the ledger unchanged', async () => {
   for (const kind of ['unrelated', 'payment_receipt', 'unreadable'] as const) {
     const f = setup({ recognition: { kind, bills: [] } })

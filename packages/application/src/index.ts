@@ -83,6 +83,7 @@ export {
   type PaymentConfirmationSubmitResult
 } from './payment-confirmation-service'
 export {
+  hasCompletedPaymentCaption,
   parsePaymentConfirmationMessage,
   type ParsedPaymentConfirmation
 } from './payment-confirmation-parser'
