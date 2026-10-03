@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 
 import { schema, type createDbClient } from '@household/db'
+import { Money } from '@household/domain'
 import type { UtilityBillImportRepository, UtilityBillImportSnapshot } from '@household/ports'
 
 export function createUtilityBillImportRepository(
@@ -25,6 +26,10 @@ export function createUtilityBillImportRepository(
       .select()
       .from(schema.householdUtilityCategories)
       .where(eq(schema.householdUtilityCategories.householdId, householdId))
+    const members = await reader
+      .select()
+      .from(schema.members)
+      .where(eq(schema.members.householdId, householdId))
     const bills = cycle
       ? await reader
           .select()
@@ -73,6 +78,7 @@ export function createUtilityBillImportRepository(
       : []
     const closed = Boolean(cycle?.closedAt)
     const paidByBillId: Record<string, string> = {}
+    const paidByBillAndMember = new Map<string, Map<string, bigint>>()
     for (const fact of facts) {
       const billId =
         fact.utilityBillId ??
@@ -81,6 +87,14 @@ export function createUtilityBillImportRepository(
         )?.id
       if (billId && fact.currency === 'GEL')
         paidByBillId[billId] = (BigInt(paidByBillId[billId] ?? '0') + fact.amountMinor).toString()
+      const payer = members.find(
+        (member) => member.id === fact.payerMemberId && member.lifecycleStatus !== 'left'
+      )
+      if (billId && fact.currency === 'GEL' && payer) {
+        const totals = paidByBillAndMember.get(billId) ?? new Map<string, bigint>()
+        totals.set(payer.id, (totals.get(payer.id) ?? 0n) + fact.amountMinor)
+        paidByBillAndMember.set(billId, totals)
+      }
     }
     const sorted = <T extends { id: string }>(rows: T[]) =>
       rows.toSorted((a, b) => a.id.localeCompare(b.id))
@@ -88,6 +102,12 @@ export function createUtilityBillImportRepository(
       .update(
         JSON.stringify({
           closed,
+          members: sorted(members).map((row) => [
+            row.id,
+            row.displayName,
+            row.lifecycleStatus,
+            row.isAdmin
+          ]),
           bills: sorted(bills).map((row) => [
             row.id,
             row.billName,
@@ -96,10 +116,18 @@ export function createUtilityBillImportRepository(
           ]),
           payments: sorted(payments).map((row) => [
             row.id,
+            row.memberId,
             row.amountMinor.toString(),
             row.currency
           ]),
-          facts: sorted(facts).map((row) => [row.id, row.amountMinor.toString(), row.currency]),
+          facts: sorted(facts).map((row) => [
+            row.id,
+            row.payerMemberId,
+            row.utilityBillId,
+            row.billName,
+            row.amountMinor.toString(),
+            row.currency
+          ]),
           plans: sorted(plans),
           categories: sorted(categories).map((row) => [
             row.id,
@@ -116,6 +144,18 @@ export function createUtilityBillImportRepository(
       revision,
       closed,
       paidByBillId,
+      contributorsByBillId: Object.fromEntries(
+        [...paidByBillAndMember].map(([billId, totals]) => [
+          billId,
+          [...totals]
+            .filter(([, amount]) => amount > 0n)
+            .map(([memberId, amount]) => ({
+              memberId,
+              displayName: members.find((member) => member.id === memberId)!.displayName,
+              paidMinor: amount.toString()
+            }))
+        ])
+      ),
       categories: categories.map((row) => ({ ...row, isActive: row.isActive === 1 })),
       hasPayments:
         payments.some((row) => row.amountMinor !== 0n) ||
@@ -180,8 +220,51 @@ export function createUtilityBillImportRepository(
               )
             )
               return 'stale' as const
-            if (input.additionalPayment) {
-              const payment = input.additionalPayment
+            if (input.additionalPayment && input.automaticRoundingBalances?.length)
+              throw new Error('Cannot mix manual and automatic reconciliation')
+            const paymentsToWrite: {
+              payment: NonNullable<typeof input.additionalPayment>
+              automatic: boolean
+            }[] = []
+            if (input.additionalPayment)
+              paymentsToWrite.push({ payment: input.additionalPayment, automatic: false })
+            let automaticTotal = 0n
+            const automaticBills = new Set<string>()
+            for (const balance of input.automaticRoundingBalances ?? []) {
+              if (automaticBills.has(balance.utilityBillId))
+                throw new Error('Duplicate automatic reconciliation bill')
+              automaticBills.add(balance.utilityBillId)
+              const bill = current.bills.find((row) => row.id === balance.utilityBillId)
+              const observed = BigInt(balance.observedMinor)
+              const expected = bill
+                ? BigInt(bill.amountMinor) - BigInt(current.paidByBillId[bill.id] ?? '0')
+                : 0n
+              const delta = expected - observed
+              const contributors = (current.contributorsByBillId?.[balance.utilityBillId] ?? [])
+                .filter((row) => BigInt(row.paidMinor) > 0n)
+                .toSorted((a, b) => a.memberId.localeCompare(b.memberId))
+              if (!bill || observed < 0n || delta <= 0n || delta > 50n)
+                throw new Error('Invalid automatic rounding reconciliation')
+              automaticTotal += delta
+              if (automaticTotal > 50n)
+                throw new Error('Automatic reconciliation exceeds its total limit')
+              if (!contributors.length) continue
+              const shares = Money.fromMinor(delta, 'GEL').splitByWeights(
+                contributors.map((row) => BigInt(row.paidMinor))
+              )
+              contributors.forEach((row, index) => {
+                if (shares[index]!.amountMinor > 0n)
+                  paymentsToWrite.push({
+                    automatic: true,
+                    payment: {
+                      utilityBillId: bill.id,
+                      payerMemberId: row.memberId,
+                      amountMinor: shares[index]!.amountMinor.toString()
+                    }
+                  })
+              })
+            }
+            for (const { payment, automatic } of paymentsToWrite) {
               const bill = current.bills.find((row) => row.id === payment.utilityBillId)
               const amountMinor = BigInt(payment.amountMinor)
               if (
@@ -209,11 +292,11 @@ export function createUtilityBillImportRepository(
                 !payer ||
                 actor.lifecycleStatus === 'left' ||
                 payer.lifecycleStatus === 'left' ||
-                (actor.id !== payer.id && actor.isAdmin !== 1)
+                (!automatic && actor.id !== payer.id && actor.isAdmin !== 1)
               )
                 throw new Error('Payment attribution requires the payer or an administrator')
               const recordedAt = new Date()
-              const idempotencyKey = `utility-rounding:${householdId}:${cycle.id}:${current.revision}:${bill.id}`
+              const idempotencyKey = `utility-rounding:${householdId}:${cycle.id}:${current.revision}:${bill.id}:${automatic ? 'auto' : 'manual'}:${payer.id}`
               const [record] = await tx
                 .insert(schema.paymentRecords)
                 .values({

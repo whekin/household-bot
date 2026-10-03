@@ -50,6 +50,99 @@ const empty: UtilityBillImportSnapshot = {
 }
 
 describe('utility screenshot imports', () => {
+  test('tiny bank rounding automatically credits known contributors on ordinary bill confirmation', async () => {
+    const snapshot = {
+      ...empty,
+      hasPayments: true,
+      paidByBillId: { g: '5193' },
+      contributorsByBillId: { g: [{ memberId: 'ion', displayName: 'Ion', paidMinor: '5193' }] },
+      bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' as const }]
+    }
+    const writes: unknown[] = []
+    const service = createUtilityBillImportService({
+      getSnapshot: async () => snapshot,
+      apply: async (input) => {
+        writes.push(input)
+        return 'applied'
+      }
+    })
+    const preview = await service.preview('2026-10', [
+      { billName: 'Gas (Water)', amountMajor: '20.30' }
+    ])
+    expect(preview.automaticPayments).toEqual([
+      {
+        utilityBillId: 'g',
+        billName: 'Gas (Water)',
+        payerMemberId: 'ion',
+        displayName: 'Ion',
+        amountMinor: '7'
+      }
+    ])
+    expect(await service.confirm(preview, 'stas')).toBe('applied')
+    expect(writes[0]).toMatchObject({
+      changes: [],
+      automaticRoundingBalances: [{ utilityBillId: 'g', observedMinor: '2030' }]
+    })
+  })
+
+  test('automatic correction is deterministic and proportional to prior bill payments', () => {
+    const snapshot = {
+      ...empty,
+      hasPayments: true,
+      paidByBillId: { g: '300' },
+      contributorsByBillId: {
+        g: [
+          { memberId: 'stas', displayName: 'Stas', paidMinor: '100' },
+          { memberId: 'ion', displayName: 'Ion', paidMinor: '200' }
+        ]
+      },
+      bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '1000', currency: 'GEL' as const }]
+    }
+    expect(
+      previewUtilityBillImport(
+        '2026-10',
+        [{ billName: 'Gas (Water)', amountMajor: '6.91' }],
+        snapshot
+      ).automaticPayments.map((row) => [row.payerMemberId, row.amountMinor])
+    ).toEqual([
+      ['ion', '6'],
+      ['stas', '3']
+    ])
+  })
+
+  test('automatic corrections obey aggregate budget and never invent an unrecorded payer', () => {
+    const base = {
+      ...empty,
+      hasPayments: true,
+      paidByBillId: { g: '300', e: '300' },
+      bills: [
+        { id: 'g', billName: 'Gas (Water)', amountMinor: '1000', currency: 'GEL' as const },
+        { id: 'e', billName: 'Electricity', amountMinor: '1000', currency: 'GEL' as const }
+      ]
+    }
+    const entries = [
+      { billName: 'Gas (Water)', amountMajor: '6.70' },
+      { billName: 'Electricity', amountMajor: '6.70' }
+    ]
+    expect(previewUtilityBillImport('2026-10', entries, base).automaticPayments).toEqual([])
+    const contributors = [{ memberId: 'ion', displayName: 'Ion', paidMinor: '300' }]
+    const preview = previewUtilityBillImport('2026-10', entries, {
+      ...base,
+      contributorsByBillId: { g: contributors, e: contributors }
+    })
+    expect(preview.automaticBudgetExceeded).toBe(true)
+    expect(preview.automaticPayments).toEqual([])
+    const mixed = previewUtilityBillImport(
+      '2026-10',
+      [
+        { billName: 'Gas (Water)', amountMajor: '6.40' },
+        { billName: 'Electricity', amountMajor: '6.99' }
+      ],
+      { ...base, contributorsByBillId: { g: contributors, e: contributors } }
+    )
+    expect(mixed.automaticBudgetExceeded).toBe(true)
+    expect(mixed.automaticPayments).toEqual([])
+  })
   test('an unreported payment on another known bill cannot block late internet or erase that charge', () => {
     const preview = previewUtilityBillImport(
       '2026-10',

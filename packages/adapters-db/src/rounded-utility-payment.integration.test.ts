@@ -74,7 +74,7 @@ integration(
       await service.generateDashboard(period)
       const imports = createUtilityBillImportService(finance.utilityBillImports)
       const entries = [
-        { billName: 'Gas', amountMajor: '20.30' },
+        { billName: 'Gas', amountMajor: '20.37' },
         { billName: 'Internet', amountMajor: '61.39' }
       ]
       const initial = await imports.preview(period, entries)
@@ -91,7 +91,10 @@ integration(
         (member) => member.memberId === stasId
       )!
       expect(ionBefore.vendorPaid.amountMinor).toBe(5193n)
-      const preview = await imports.preview(period, entries)
+      const preview = await imports.preview(period, [
+        { billName: 'Gas', amountMajor: '20.30' },
+        { billName: 'Internet', amountMajor: '61.39' }
+      ])
       await expect(imports.confirmRoundingPayment(preview, gas.id, stasId, ionId)).rejects.toThrow(
         'administrator'
       )
@@ -129,15 +132,17 @@ integration(
         )?.amountMinor
       ).toBe(7230n)
       expect(await imports.confirmRoundingPayment(preview, gas.id, ionId, stasId)).toBe('stale')
-      const changedRoles = await imports.preview(period, [
-        { billName: 'Gas', amountMajor: '20.23' }
-      ])
       await client.db
         .update(schema.members)
         .set({ isAdmin: 0 })
         .where(eq(schema.members.id, stasId))
       await expect(
-        imports.confirmRoundingPayment(changedRoles, gas.id, ionId, stasId)
+        imports.confirmRoundingPayment(
+          await imports.preview(period, [{ billName: 'Gas', amountMajor: '20.23' }]),
+          gas.id,
+          ionId,
+          stasId
+        )
       ).rejects.toThrow('administrator')
       expect(await finance.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)).toHaveLength(
         2
@@ -145,9 +150,14 @@ integration(
       expect(await finance.repository.listPaymentRecordsForCycle(cycle.id)).toHaveLength(2)
       // The next small difference may be an unreported payment by somebody else.
       // Explicit attribution to that member must credit them, not the prior payer.
-      expect(await imports.confirmRoundingPayment(changedRoles, gas.id, stasId, stasId)).toBe(
-        'applied'
-      )
+      expect(
+        await imports.confirmRoundingPayment(
+          await imports.preview(period, [{ billName: 'Gas', amountMajor: '20.23' }]),
+          gas.id,
+          stasId,
+          stasId
+        )
+      ).toBe('applied')
       const otherPayer = (await service.generateDashboard(period))!.utilityBillingPlan!
       expect(
         otherPayer.memberSummaries.find((member) => member.memberId === ionId)?.vendorPaid
@@ -167,13 +177,17 @@ integration(
         .where(eq(schema.members.id, stasId))
       const away = await imports.preview(period, [{ billName: 'Gas', amountMajor: '20.16' }])
       expect(await imports.confirmRoundingPayment(away, gas.id, stasId, stasId)).toBe('applied')
-      const departed = await imports.preview(period, [{ billName: 'Gas', amountMajor: '20.09' }])
       await client.db
         .update(schema.members)
         .set({ lifecycleStatus: 'left' })
         .where(eq(schema.members.id, stasId))
       await expect(
-        imports.confirmRoundingPayment(departed, gas.id, stasId, stasId)
+        imports.confirmRoundingPayment(
+          await imports.preview(period, [{ billName: 'Gas', amountMajor: '20.09' }]),
+          gas.id,
+          stasId,
+          stasId
+        )
       ).rejects.toThrow('administrator')
       expect(
         (await finance.repository.listUtilityVendorPaymentFactsForCycle(cycle.id)).reduce(

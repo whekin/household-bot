@@ -32,6 +32,16 @@ export interface UtilityBillImportSnapshot {
   closed: boolean
   hasPayments: boolean
   paidByBillId: Readonly<Record<string, string>>
+  contributorsByBillId?: Readonly<
+    Record<
+      string,
+      readonly {
+        memberId: string
+        displayName: string
+        paidMinor: string
+      }[]
+    >
+  >
   categories: readonly HouseholdUtilityCategoryRecord[]
   bills: readonly {
     id: string
@@ -55,6 +65,8 @@ export interface UtilityBillImportRepository {
     expectedRevision: string
     changes: readonly UtilityBillImportChange[]
     createdByMemberId: string
+    /** Small balance reconciliation; recipients are derived from recorded contributors. */
+    automaticRoundingBalances?: readonly { utilityBillId: string; observedMinor: string }[]
     /** A separately confirmed, attributed rounding payment; never inferred automatically. */
     additionalPayment?: {
       utilityBillId: string

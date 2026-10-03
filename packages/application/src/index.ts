@@ -1,6 +1,7 @@
 export { RepaymentError, type RepaymentCommand } from './repayment-service'
 export {
   UTILITY_ROUNDING_SHORTCUT_MAX_MINOR,
+  UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR,
   createUtilityBillImportService,
   matchUtilityImageBills,
   parseUtilityBillImportCorrection,

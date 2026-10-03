@@ -117,6 +117,14 @@ export interface UtilityBillImportPreview {
   totalMajor: string
   existingPayments: boolean
   preservedBills: readonly string[]
+  automaticPayments: readonly {
+    utilityBillId: string
+    billName: string
+    payerMemberId: string
+    displayName: string
+    amountMinor: string
+  }[]
+  automaticBudgetExceeded: boolean
   balanceDifferences: readonly {
     utilityBillId: string
     billName: string
@@ -129,6 +137,7 @@ export interface UtilityBillImportPreview {
 
 // This limits the optional rounding shortcut, not import or actual payment amounts.
 export const UTILITY_ROUNDING_SHORTCUT_MAX_MINOR = 200n
+export const UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR = 50n
 
 export function previewUtilityBillImport(
   period: string,
@@ -219,6 +228,32 @@ export function previewUtilityBillImport(
       })
     }
   }
+  let automaticPayments: UtilityBillImportPreview['automaticPayments'][number][] = []
+  let automaticTotal = 0n
+  for (const difference of balanceDifferences) {
+    const delta = BigInt(difference.additionalPaidMinor)
+    if (delta > 0n) automaticTotal += delta
+    const contributors = (snapshot.contributorsByBillId?.[difference.utilityBillId] ?? [])
+      .filter((row) => BigInt(row.paidMinor) > 0n)
+      .toSorted((a, b) => a.memberId.localeCompare(b.memberId))
+    if (delta <= 0n || delta > UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR || !contributors.length)
+      continue
+    const shares = Money.fromMinor(delta, 'GEL').splitByWeights(
+      contributors.map((row) => BigInt(row.paidMinor))
+    )
+    contributors.forEach((row, index) => {
+      if (shares[index]!.amountMinor > 0n)
+        automaticPayments.push({
+          utilityBillId: difference.utilityBillId,
+          billName: difference.billName,
+          payerMemberId: row.memberId,
+          displayName: row.displayName,
+          amountMinor: shares[index]!.amountMinor.toString()
+        })
+    })
+  }
+  const automaticBudgetExceeded = automaticTotal > UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
+  if (automaticBudgetExceeded) automaticPayments = []
   return {
     period,
     revision: snapshot.revision,
@@ -228,6 +263,8 @@ export function previewUtilityBillImport(
     totalMajor: total.toMajorString(),
     existingPayments: snapshot.hasPayments,
     preservedBills,
+    automaticPayments,
+    automaticBudgetExceeded,
     balanceDifferences,
     blocked: snapshot.closed
       ? 'closed'
@@ -288,14 +325,29 @@ export function createUtilityBillImportService(repository: UtilityBillImportRepo
       if (current.blocked) return current.blocked
       if (
         current.revision !== preview.revision &&
-        (current.changes.length || current.balanceDifferences.length)
+        (current.changes.length ||
+          current.balanceDifferences.length ||
+          current.automaticPayments.length)
       )
         return 'stale' as const
-      if (!current.changes.length) return 'unchanged' as const
+      if (!current.changes.length && !current.automaticPayments.length) return 'unchanged' as const
       return repository.apply({
         period: preview.period,
         expectedRevision: current.revision,
         changes: current.changes,
+        ...(current.automaticPayments.length
+          ? {
+              automaticRoundingBalances: current.balanceDifferences
+                .filter((difference) => BigInt(difference.additionalPaidMinor) > 0n)
+                .map((difference) => ({
+                  utilityBillId: difference.utilityBillId,
+                  observedMinor: Money.fromMajor(
+                    difference.observedMajor,
+                    'GEL'
+                  ).amountMinor.toString()
+                }))
+            }
+          : {}),
         createdByMemberId: memberId
       })
     }

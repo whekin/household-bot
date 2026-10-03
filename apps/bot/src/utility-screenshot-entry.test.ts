@@ -169,6 +169,26 @@ function setup(
     getSnapshot: async () => snapshot,
     apply: async (change) => {
       if (snapshot.revision !== change.expectedRevision) return 'stale'
+      for (const balance of change.automaticRoundingBalances ?? []) {
+        const bill = snapshot.bills.find((row) => row.id === balance.utilityBillId)!
+        const contributor = snapshot.contributorsByBillId![bill.id]![0]!
+        const delta =
+          BigInt(bill.amountMinor) -
+          BigInt(snapshot.paidByBillId[bill.id] ?? '0') -
+          BigInt(balance.observedMinor)
+        roundingPayments.push({
+          utilityBillId: bill.id,
+          payerMemberId: contributor.memberId,
+          amountMinor: delta.toString()
+        })
+        snapshot = {
+          ...snapshot,
+          paidByBillId: {
+            ...snapshot.paidByBillId,
+            [bill.id]: (BigInt(snapshot.paidByBillId[bill.id] ?? '0') + delta).toString()
+          }
+        }
+      }
       if (change.additionalPayment) {
         roundingPayments.push(change.additionalPayment)
         snapshot = {
@@ -348,11 +368,12 @@ function setup(
   }
 }
 
-test('rounded bank remainder does not block internet and only credits an explicitly confirmed payer', async () => {
-  const f = setup({ isAdmin: true })
+test('ordinary Save automatically accounts for cents without selecting a payer', async () => {
+  const f = setup()
   f.setSnapshot({
     hasPayments: true,
     paidByBillId: { g: '5193' },
+    contributorsByBillId: { g: [{ memberId: 'ion', displayName: 'Ion', paidMinor: '5193' }] },
     bills: [
       { id: 'e', billName: 'Electricity', amountMinor: '4402', currency: 'GEL' },
       { id: 'c', billName: 'Cleaning', amountMinor: '250', currency: 'GEL' },
@@ -360,36 +381,25 @@ test('rounded bank remainder does not block internet and only credits an explici
     ]
   })
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
-  expect(f.pending()?.payload.preview).toMatchObject({
-    blocked: null,
-    balanceDifferences: [
-      { expectedMajor: '20.37', observedMajor: '20.30', additionalPaidMinor: '7' }
-    ]
-  })
-  expect(f.roundingPayments).toEqual([])
-  await f.callback('round_0')
-  expect(f.pending()?.payload.stage).toBe('payer')
-  await f.callback('payer_1')
-  expect(f.pending()?.payload.stage).toBe('payment-confirm')
-  expect(f.roundingPayments).toEqual([])
+  expect(f.messages().join()).toContain('автоматически учтём округление: Ion +0.07')
   const proposalId = f.pending()!.payload.proposalId as string
-  await f.callback('record')
+  await f.callback('round_0')
+  expect(f.pending()?.payload.stage).toBe('review')
+  expect(f.roundingPayments).toEqual([])
+  await f.callback('save')
   expect(f.roundingPayments).toEqual([
     { utilityBillId: 'g', payerMemberId: 'ion', amountMinor: '7' }
   ])
-  await f.callback('record', 42, 555, proposalId)
-  expect(f.roundingPayments).toHaveLength(1)
-  expect(f.imports).toEqual([])
-  expect(f.pending()?.payload.stage).toBe('review')
-  await f.callback('save')
   expect(f.imports).toEqual([{ period: '2026-10', names: ['Internet'] }])
+  await f.callback('save', 42, 555, proposalId)
+  expect(f.roundingPayments).toHaveLength(1)
 })
 
 test('temporarily away members retain the right to confirm their own actual payment', async () => {
   const f = setup({ memberStatus: 'away' })
   f.setSnapshot({
     hasPayments: true,
-    paidByBillId: { g: '5193' },
+    paidByBillId: { g: '5093' },
     bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
   })
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
@@ -397,7 +407,7 @@ test('temporarily away members retain the right to confirm their own actual paym
   await f.callback('payer_0')
   await f.callback('record')
   expect(f.roundingPayments).toEqual([
-    { utilityBillId: 'g', payerMemberId: 'member', amountMinor: '7' }
+    { utilityBillId: 'g', payerMemberId: 'member', amountMinor: '107' }
   ])
 })
 
@@ -429,7 +439,7 @@ test('members cannot attribute a rounding payment to another resident or skip pa
   const f = setup()
   f.setSnapshot({
     hasPayments: true,
-    paidByBillId: { g: '5193' },
+    paidByBillId: { g: '5093' },
     bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
   })
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)

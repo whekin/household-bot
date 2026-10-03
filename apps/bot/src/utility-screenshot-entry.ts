@@ -1,6 +1,7 @@
 import {
   hasCompletedPaymentCaption,
   UTILITY_ROUNDING_SHORTCUT_MAX_MINOR,
+  UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR,
   matchUtilityImageBills,
   parseUtilityBillImportCorrection,
   type FinanceCommandService,
@@ -115,14 +116,18 @@ function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): Inline
     !draft.issues.length &&
     draft.preview &&
     !draft.preview.blocked &&
-    draft.preview.changes.length
+    (draft.preview.changes.length || draft.preview.automaticPayments.length)
   ) {
     rows.push([button('save', ru ? 'Сохранить и распределить' : 'Save and distribute')])
   }
   if (!draft.issues.length && draft.preview && !draft.preview.blocked)
     draft.preview.balanceDifferences.forEach((difference, index) => {
       const amount = BigInt(difference.additionalPaidMinor)
-      if (amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR)
+      if (
+        amount > 0n &&
+        amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR &&
+        (amount > UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR || draft.preview!.automaticBudgetExceeded)
+      )
         rows.push([
           button(
             `round_${index}`,
@@ -233,14 +238,30 @@ function previewText(draft: Draft, locale: BotLocale): string {
         : `${escapeHtml(difference.billName)}: recorded remainder ${difference.expectedMajor} GEL, screenshot ${difference.observedMajor} GEL.`
     )
     const amount = BigInt(difference.additionalPaidMinor)
+    const automatic =
+      draft.preview?.automaticPayments.filter(
+        (payment) => payment.utilityBillId === difference.utilityBillId
+      ) ?? []
     lines.push(
       ru
-        ? amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
-          ? 'Можно отдельно учесть разницу после подтверждения плательщика. Исходный счёт и оплаты не изменены.'
-          : 'Нужно сверить фактические оплаты или новые начисления в дашборде. Это не мешает сохранить новые счета.'
-        : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
-          ? 'You can account for the difference after confirming the payer. Original bills and payments are unchanged.'
-          : 'Reconcile actual payments or new charges in the dashboard. New bills can still be saved.'
+        ? automatic.length
+          ? `При сохранении автоматически учтём округление: ${automatic.map((payment) => `${escapeHtml(payment.displayName)} +${Money.fromMinor(BigInt(payment.amountMinor), 'GEL').toMajorString()} ₾`).join(', ')}.`
+          : !draft.preview?.automaticBudgetExceeded &&
+              amount >= -UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
+              amount <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
+            ? 'Мелкая погрешность не требует отдельного подтверждения. Записанные оплаты сохраняются.'
+            : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+              ? 'Можно отдельно учесть разницу после подтверждения плательщика. Исходный счёт и оплаты не изменены.'
+              : 'Нужно сверить фактические оплаты или новые начисления в дашборде. Это не мешает сохранить новые счета.'
+        : automatic.length
+          ? `Saving automatically accounts for rounding: ${automatic.map((payment) => `${escapeHtml(payment.displayName)} +${Money.fromMinor(BigInt(payment.amountMinor), 'GEL').toMajorString()} GEL`).join(', ')}.`
+          : !draft.preview?.automaticBudgetExceeded &&
+              amount >= -UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
+              amount <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
+            ? 'No separate confirmation is needed for this small discrepancy. Recorded payments are preserved.'
+            : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+              ? 'You can account for the difference after confirming the payer. Original bills and payments are unchanged.'
+              : 'Reconcile actual payments or new charges in the dashboard. New bills can still be saved.'
     )
   }
   if (draft.rounding) {
@@ -428,7 +449,9 @@ export function registerUtilityScreenshotEntry(options: {
           draft.preview?.blocked ||
           !difference ||
           BigInt(difference.additionalPaidMinor) <= 0n ||
-          BigInt(difference.additionalPaidMinor) > UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+          BigInt(difference.additionalPaidMinor) > UTILITY_ROUNDING_SHORTCUT_MAX_MINOR ||
+          (BigInt(difference.additionalPaidMinor) <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
+            !draft.preview?.automaticBudgetExceeded)
         )
           return
         const members = await options.householdConfigurationRepository.listHouseholdMembers(
