@@ -101,7 +101,7 @@ integration(
         currency: 'GEL',
         recordedAt: new Date()
       })
-      expect(await service.confirm(beforePayment, memberId)).toBe('paid')
+      expect(await service.confirm(beforePayment, memberId)).toBe('stale')
       expect(
         await repository.apply({
           period: '2026-10',

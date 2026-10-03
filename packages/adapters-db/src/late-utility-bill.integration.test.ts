@@ -117,7 +117,7 @@ integration(
             { billName: 'Internet', amountMajor: '20.00' }
           ])
           expect(preview.blocked).toBeNull()
-          expect(preview.preservedPaidBills).toContain(originalIonBill.billName)
+          expect(preview.preservedBills).toContain(originalIonBill.billName)
           expect(await imports.confirm(preview, stasId)).toBe('applied')
           const updated = (await service.generateDashboard(period))!
           const ion = updated.utilityBillingPlan!.memberSummaries.find(

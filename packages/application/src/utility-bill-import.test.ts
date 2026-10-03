@@ -50,6 +50,116 @@ const empty: UtilityBillImportSnapshot = {
 }
 
 describe('utility screenshot imports', () => {
+  test('an unreported payment on another known bill cannot block late internet or erase that charge', () => {
+    const preview = previewUtilityBillImport(
+      '2026-10',
+      [
+        { billName: 'Electricity', amountMajor: '0.00' },
+        { billName: 'Gas (Water)', amountMajor: '20.30' },
+        { billName: 'Internet', amountMajor: '61.39' }
+      ],
+      {
+        ...empty,
+        hasPayments: true,
+        paidByBillId: { g: '5193' },
+        bills: [
+          { id: 'e', billName: 'Electricity', amountMinor: '4402', currency: 'GEL' },
+          { id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }
+        ]
+      }
+    )
+    expect(preview.blocked).toBeNull()
+    expect(preview.changes).toEqual([{ billId: null, billName: 'Internet', amountMinor: '6139' }])
+    expect(preview.preservedBills).toEqual(['Electricity', 'Gas (Water)'])
+    expect(
+      preview.balanceDifferences.find((row) => row.utilityBillId === 'e')?.additionalPaidMinor
+    ).toBe('4402')
+  })
+  test('changed bank remainders preserve charges and never infer a payer while importing internet', async () => {
+    for (const balance of ['20.30', '19.00', '0.00', '30.00']) {
+      const snapshot = {
+        ...empty,
+        hasPayments: true,
+        paidByBillId: { g: '5193' },
+        bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' as const }]
+      }
+      const writes: unknown[] = []
+      const service = createUtilityBillImportService({
+        getSnapshot: async () => snapshot,
+        apply: async (input) => {
+          writes.push(input)
+          return 'applied'
+        }
+      })
+      const preview = await service.preview('2026-10', [
+        { billName: 'Gas (Water)', amountMajor: balance },
+        { billName: 'Internet', amountMajor: '61.39' }
+      ])
+      expect(preview.blocked).toBeNull()
+      expect(preview.preservedBills).toEqual(['Gas (Water)'])
+      expect(preview.balanceDifferences[0]?.expectedMajor).toBe('20.37')
+      expect(preview.changes).toEqual([{ billId: null, billName: 'Internet', amountMinor: '6139' }])
+      expect(await service.confirm(preview, 'stas')).toBe('applied')
+      expect(writes[0]).not.toHaveProperty('additionalPayment')
+    }
+  })
+
+  test('small balance differences require an explicit attributed confirmation and stale/replayed review cannot pay', async () => {
+    let snapshot = {
+      ...empty,
+      hasPayments: true,
+      paidByBillId: { g: '5193' },
+      bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' as const }]
+    }
+    const writes: unknown[] = []
+    const service = createUtilityBillImportService({
+      getSnapshot: async () => snapshot,
+      apply: async (input) => {
+        writes.push(input)
+        snapshot = { ...snapshot, revision: 'r2', paidByBillId: { g: '5200' } }
+        return 'applied'
+      }
+    })
+    const preview = await service.preview('2026-10', [
+      { billName: 'Gas (Water)', amountMajor: '20.30' }
+    ])
+    expect(preview.balanceDifferences[0]?.additionalPaidMinor).toBe('7')
+    expect(writes).toEqual([])
+    expect(await service.confirmRoundingPayment(preview, 'g', 'ion', 'stas')).toBe('applied')
+    expect(writes[0]).toMatchObject({
+      changes: [],
+      createdByMemberId: 'stas',
+      additionalPayment: { utilityBillId: 'g', payerMemberId: 'ion', amountMinor: '7' }
+    })
+    expect(await service.confirmRoundingPayment(preview, 'g', 'ion', 'stas')).toBe('stale')
+    expect(writes).toHaveLength(1)
+  })
+
+  test('large differences, increased bank debt and fully paid balances cannot use the rounding shortcut', async () => {
+    const snapshot = {
+      ...empty,
+      hasPayments: true,
+      paidByBillId: { g: '5193' },
+      bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' as const }]
+    }
+    let writes = 0
+    const service = createUtilityBillImportService({
+      getSnapshot: async () => snapshot,
+      apply: async () => {
+        writes++
+        return 'applied'
+      }
+    })
+    for (const balance of ['18.36', '0.00', '30.00', '20.37']) {
+      const preview = await service.preview('2026-10', [
+        { billName: 'Gas (Water)', amountMajor: balance }
+      ])
+      expect(await service.confirmRoundingPayment(preview, 'g', 'ion', 'stas')).toBe(
+        'not_available'
+      )
+    }
+    expect(writes).toBe(0)
+  })
   test('a late internet bill can be reviewed after another utility bill has been paid', () => {
     const preview = previewUtilityBillImport(
       '2026-10',
@@ -84,7 +194,7 @@ describe('utility screenshot imports', () => {
         }
       )
       expect(preview.blocked).toBeNull()
-      expect(preview.preservedPaidBills).toEqual(['Electricity'])
+      expect(preview.preservedBills).toEqual(['Electricity'])
       expect(preview.changes).toEqual([{ billId: null, billName: 'Internet', amountMinor: '6139' }])
     }
   })
@@ -213,8 +323,8 @@ describe('utility screenshot imports', () => {
         ...empty,
         hasPayments: true,
         bills: [{ id: 'e', billName: 'Electricity', amountMinor: '4000', currency: 'GEL' }]
-      }).blocked
-    ).toBe('paid')
+      }).changes
+    ).toEqual([])
     expect(
       previewUtilityBillImport('2026-10', entry, {
         ...empty,

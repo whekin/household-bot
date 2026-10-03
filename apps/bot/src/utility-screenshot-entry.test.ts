@@ -106,6 +106,7 @@ function setup(
     noMember?: boolean
     memberStatus?: string
     failAcknowledgement?: boolean
+    isAdmin?: boolean
   } = {}
 ) {
   const bot = createTelegramBot('000:test')
@@ -163,20 +164,41 @@ function setup(
     bills: []
   }
   const imports: Array<{ period: string; names: string[] }> = []
+  const roundingPayments: unknown[] = []
   const importService = createUtilityBillImportService({
     getSnapshot: async () => snapshot,
     apply: async (change) => {
       if (snapshot.revision !== change.expectedRevision) return 'stale'
+      if (change.additionalPayment) {
+        roundingPayments.push(change.additionalPayment)
+        snapshot = {
+          ...snapshot,
+          revision: `${snapshot.revision}-payment`,
+          paidByBillId: {
+            ...snapshot.paidByBillId,
+            [change.additionalPayment.utilityBillId]: (
+              BigInt(snapshot.paidByBillId[change.additionalPayment.utilityBillId] ?? '0') +
+              BigInt(change.additionalPayment.amountMinor)
+            ).toString()
+          }
+        }
+        return 'applied'
+      }
       imports.push({ period: change.period, names: change.changes.map((bill) => bill.billName) })
       snapshot = {
         ...snapshot,
         revision: 'r2',
-        bills: change.changes.map((bill, i) => ({
-          id: bill.billId ?? `bill-${i}`,
-          billName: bill.billName,
-          amountMinor: bill.amountMinor,
-          currency: 'GEL'
-        }))
+        bills: [
+          ...snapshot.bills.filter(
+            (bill) => !change.changes.some((change) => change.billId === bill.id)
+          ),
+          ...change.changes.map((bill, i) => ({
+            id: bill.billId ?? `bill-${i}`,
+            billName: bill.billName,
+            amountMinor: bill.amountMinor,
+            currency: 'GEL' as const
+          }))
+        ]
       }
       return 'applied'
     }
@@ -195,7 +217,7 @@ function setup(
     status: input.memberStatus ?? 'active',
     preferredLocale: 'ru',
     householdDefaultLocale: 'ru',
-    isAdmin: false,
+    isAdmin: input.isAdmin ?? false,
     rentShareWeight: 1
   }
   registerUtilityScreenshotEntry({
@@ -208,6 +230,10 @@ function setup(
       getHouseholdMember: async (_house: string, user: string) =>
         input.noMember || user !== '42' ? null : member,
       listHouseholdMembersByTelegramUserId: async () => [member],
+      listHouseholdMembers: async () => [
+        member,
+        { ...member, id: 'ion', telegramUserId: '43', displayName: 'Ion', isAdmin: false }
+      ],
       listHouseholdUtilityCategories: async () => categories,
       getHouseholdBillingSettings: async () => ({ timezone: 'Asia/Tbilisi' })
     } as never,
@@ -301,6 +327,7 @@ function setup(
     bot,
     calls,
     imports,
+    roundingPayments,
     callback,
     textReply,
     pending: () => pending,
@@ -320,6 +347,105 @@ function setup(
         .map((call) => String(call.payload.text))
   }
 }
+
+test('rounded bank remainder does not block internet and only credits an explicitly confirmed payer', async () => {
+  const f = setup({ isAdmin: true })
+  f.setSnapshot({
+    hasPayments: true,
+    paidByBillId: { g: '5193' },
+    bills: [
+      { id: 'e', billName: 'Electricity', amountMinor: '4402', currency: 'GEL' },
+      { id: 'c', billName: 'Cleaning', amountMinor: '250', currency: 'GEL' },
+      { id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }
+    ]
+  })
+  await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
+  expect(f.pending()?.payload.preview).toMatchObject({
+    blocked: null,
+    balanceDifferences: [
+      { expectedMajor: '20.37', observedMajor: '20.30', additionalPaidMinor: '7' }
+    ]
+  })
+  expect(f.roundingPayments).toEqual([])
+  await f.callback('round_0')
+  expect(f.pending()?.payload.stage).toBe('payer')
+  await f.callback('payer_1')
+  expect(f.pending()?.payload.stage).toBe('payment-confirm')
+  expect(f.roundingPayments).toEqual([])
+  const proposalId = f.pending()!.payload.proposalId as string
+  await f.callback('record')
+  expect(f.roundingPayments).toEqual([
+    { utilityBillId: 'g', payerMemberId: 'ion', amountMinor: '7' }
+  ])
+  await f.callback('record', 42, 555, proposalId)
+  expect(f.roundingPayments).toHaveLength(1)
+  expect(f.imports).toEqual([])
+  expect(f.pending()?.payload.stage).toBe('review')
+  await f.callback('save')
+  expect(f.imports).toEqual([{ period: '2026-10', names: ['Internet'] }])
+})
+
+test('temporarily away members retain the right to confirm their own actual payment', async () => {
+  const f = setup({ memberStatus: 'away' })
+  f.setSnapshot({
+    hasPayments: true,
+    paidByBillId: { g: '5193' },
+    bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
+  })
+  await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
+  await f.callback('round_0')
+  await f.callback('payer_0')
+  await f.callback('record')
+  expect(f.roundingPayments).toEqual([
+    { utilityBillId: 'g', payerMemberId: 'member', amountMinor: '7' }
+  ])
+})
+
+test('large unreported payments allow new bills without offering the rounding shortcut', async () => {
+  const f = setup({
+    recognition: {
+      ...image,
+      bills: image.bills.map((bill) =>
+        bill.provider.startsWith('SOCAR') ? { ...bill, amountMajor: '0.00' } : bill
+      )
+    }
+  })
+  f.setSnapshot({
+    hasPayments: true,
+    paidByBillId: { g: '5193' },
+    bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
+  })
+  await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
+  expect(f.messages().join()).toContain('Нужно сверить фактические оплаты')
+  await f.callback('round_0')
+  await f.callback('record')
+  expect(f.roundingPayments).toEqual([])
+  await f.callback('save')
+  expect(f.imports).toHaveLength(1)
+  expect(f.roundingPayments).toEqual([])
+})
+
+test('members cannot attribute a rounding payment to another resident or skip payer confirmation', async () => {
+  const f = setup()
+  f.setSnapshot({
+    hasPayments: true,
+    paidByBillId: { g: '5193' },
+    bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
+  })
+  await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
+  await f.callback('record')
+  await f.callback('round_0')
+  expect(f.pending()?.payload.payers).toEqual([{ id: 'member', displayName: 'Stas' }])
+  await f.callback('payer_1')
+  await f.callback('record')
+  expect(f.roundingPayments).toEqual([])
+  await f.callback('payer_0')
+  await f.callback('record', 77)
+  expect(f.roundingPayments).toEqual([])
+  await f.callback('back')
+  await f.callback('save')
+  expect(f.roundingPayments).toEqual([])
+})
 
 test('reply to a historical utility reminder previews exact amounts before actor confirmation', async () => {
   const f = setup()

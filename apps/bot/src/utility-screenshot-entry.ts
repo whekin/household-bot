@@ -1,12 +1,13 @@
 import {
   hasCompletedPaymentCaption,
+  UTILITY_ROUNDING_SHORTCUT_MAX_MINOR,
   matchUtilityImageBills,
   parseUtilityBillImportCorrection,
   type FinanceCommandService,
   type UtilityBillImportPreview,
   type UtilityBillImportService
 } from '@household/application'
-import { BillingPeriod, nowInstant } from '@household/domain'
+import { BillingPeriod, Money, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -41,8 +42,15 @@ interface Draft {
   entries: readonly UtilityBillImportEntry[]
   issues: readonly string[]
   preview: UtilityBillImportPreview | null
-  stage: 'review' | 'edit' | 'month'
+  stage: 'review' | 'edit' | 'month' | 'payer' | 'payment-confirm'
   inputMessageId?: number
+  rounding?: {
+    utilityBillId: string
+    amountMinor: string
+    payerMemberId?: string
+    payerName?: string
+  }
+  payers?: readonly { id: string; displayName: string }[]
 }
 
 function threadId(ctx: Context): string | null {
@@ -91,6 +99,18 @@ function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): Inline
     callback_data: `${prefix}${action}:${draft.proposalId}`
   })
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
+  if (draft.stage === 'payer' || draft.stage === 'payment-confirm') {
+    if (draft.stage === 'payer')
+      draft.payers?.forEach((payer, index) =>
+        rows.push([button(`payer_${index}`, payer.displayName)])
+      )
+    else
+      rows.push([
+        button('record', ru ? 'Подтвердить дополнительную оплату' : 'Confirm additional payment')
+      ])
+    rows.push([button('back', ru ? 'Назад к счетам' : 'Back to bills')])
+    return { inline_keyboard: rows }
+  }
   if (
     !draft.issues.length &&
     draft.preview &&
@@ -99,13 +119,26 @@ function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): Inline
   ) {
     rows.push([button('save', ru ? 'Сохранить и распределить' : 'Save and distribute')])
   }
+  if (!draft.issues.length && draft.preview && !draft.preview.blocked)
+    draft.preview.balanceDifferences.forEach((difference, index) => {
+      const amount = BigInt(difference.additionalPaidMinor)
+      if (amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR)
+        rows.push([
+          button(
+            `round_${index}`,
+            ru
+              ? `Учесть разницу · ${difference.billName}`
+              : `Account for difference · ${difference.billName}`
+          )
+        ])
+    })
   rows.push([
     button('edit', ru ? 'Исправить' : 'Edit'),
     button('month', ru ? 'Другой месяц' : 'Change month')
   ])
   rows.push([button('cancel', ru ? 'Отмена' : 'Cancel')])
   const dashboard = buildBotStartDeepLink(botUsername, 'dashboard')
-  if (draft.preview?.blocked && dashboard)
+  if ((draft.preview?.blocked || draft.preview?.balanceDifferences.length) && dashboard)
     rows.push([{ text: ru ? 'Открыть дашборд' : 'Open dashboard', url: dashboard }])
   return { inline_keyboard: rows }
 }
@@ -159,16 +192,19 @@ function previewText(draft: Draft, locale: BotLocale): string {
     lines.push(
       '',
       ru
-        ? draft.preview.blocked === 'paid'
-          ? 'За этот месяц уже записаны оплаты. Изменения счетов нужно проверить в дашборде.'
-          : draft.preview.blocked === 'closed'
-            ? 'Этот месяц закрыт. Выберите другой месяц или откройте дашборд.'
-            : draft.preview.blocked === 'category'
-              ? 'Настройки категорий или лицевые счета изменились. Проверьте счета и исправьте список.'
-              : 'В учёте несколько счетов одной категории или другая валюта. Проверьте их в дашборде.'
-        : 'This period is closed, has recorded payments, or contains ambiguous bills. Review it in the dashboard.'
+        ? draft.preview.blocked === 'closed'
+          ? 'Этот месяц закрыт. Выберите другой месяц или откройте дашборд.'
+          : draft.preview.blocked === 'category'
+            ? 'Настройки категорий или лицевые счета изменились. Проверьте счета и исправьте список.'
+            : 'В учёте несколько счетов одной категории или другая валюта. Проверьте их в дашборде.'
+        : 'This period is closed or contains ambiguous bills. Review it in the dashboard.'
     )
-  else if (draft.preview && !draft.preview.changes.length && !draft.issues.length)
+  else if (
+    draft.preview &&
+    !draft.preview.changes.length &&
+    !draft.preview.balanceDifferences.length &&
+    !draft.issues.length
+  )
     lines.push(
       '',
       ru
@@ -182,13 +218,44 @@ function previewText(draft: Draft, locale: BotLocale): string {
         ? 'Уже записанные оплаты сохранятся. Добавим новые счета и пересчитаем оставшиеся суммы к оплате.'
         : 'Recorded payments will be preserved. New bills will update the remaining amounts due.'
     )
-  if (draft.preview?.preservedPaidBills.length)
+  if (draft.preview?.preservedBills.length)
     lines.push(
       '',
       ru
-        ? `Сохраняем исходные начисления по оплаченным счетам: ${escapeHtml(draft.preview.preservedPaidBills.join(', '))}.`
-        : `Original paid bills are preserved: ${escapeHtml(draft.preview.preservedPaidBills.join(', '))}.`
+        ? `Сохраняем исходные начисления: ${escapeHtml(draft.preview.preservedBills.join(', '))}.`
+        : `Original charges are preserved: ${escapeHtml(draft.preview.preservedBills.join(', '))}.`
     )
+  for (const difference of draft.preview?.balanceDifferences ?? []) {
+    lines.push(
+      '',
+      ru
+        ? `${escapeHtml(difference.billName)}: остаток в учёте ${difference.expectedMajor} ₾, на скриншоте ${difference.observedMajor} ₾.`
+        : `${escapeHtml(difference.billName)}: recorded remainder ${difference.expectedMajor} GEL, screenshot ${difference.observedMajor} GEL.`
+    )
+    const amount = BigInt(difference.additionalPaidMinor)
+    lines.push(
+      ru
+        ? amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+          ? 'Можно отдельно учесть разницу после подтверждения плательщика. Исходный счёт и оплаты не изменены.'
+          : 'Нужно сверить фактические оплаты или новые начисления в дашборде. Это не мешает сохранить новые счета.'
+        : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+          ? 'You can account for the difference after confirming the payer. Original bills and payments are unchanged.'
+          : 'Reconcile actual payments or new charges in the dashboard. New bills can still be saved.'
+    )
+  }
+  if (draft.rounding) {
+    const amount = Money.fromMinor(BigInt(draft.rounding.amountMinor), 'GEL').toMajorString()
+    lines.push(
+      '',
+      draft.stage === 'payer'
+        ? ru
+          ? `Кто действительно внёс дополнительные ${amount} ₾? Сам скриншот этого не подтверждает.`
+          : `Who actually paid the additional ${amount} GEL? The screenshot alone does not confirm the payer.`
+        : ru
+          ? `Подтвердите: ${escapeHtml(draft.rounding.payerName ?? '')} действительно внёс дополнительно ${amount} ₾. Эта сумма будет учтена в его балансе.`
+          : `Confirm: ${escapeHtml(draft.rounding.payerName ?? '')} actually paid an additional ${amount} GEL. This amount will count toward their balance.`
+    )
+  }
   lines.push(
     '',
     ru
@@ -296,6 +363,8 @@ export function registerUtilityScreenshotEntry(options: {
           .preview(draft.period, draft.entries)
       : null
     draft.stage = 'review'
+    delete draft.rounding
+    delete draft.payers
     draft.proposalId = crypto.randomUUID().slice(0, 12)
     delete draft.inputMessageId
     await store(ctx, draft)
@@ -311,7 +380,9 @@ export function registerUtilityScreenshotEntry(options: {
   }
 
   options.bot.on('callback_query:data', async (ctx, next) => {
-    const match = /^us:(save|edit|month|cancel):([a-f0-9-]+)$/.exec(ctx.callbackQuery.data)
+    const match = /^us:(save|edit|month|cancel|back|round_\d+|payer_\d+|record):([a-f0-9-]+)$/.exec(
+      ctx.callbackQuery.data
+    )
     if (!match) {
       await next()
       return
@@ -341,7 +412,173 @@ export function registerUtilityScreenshotEntry(options: {
       return
     }
     const ru = target.locale === 'ru'
-    const action = match[1]
+    const action = match[1]!
+    if (action === 'back') {
+      await ack(ctx)
+      await review(ctx, draft, target.locale, true)
+      return
+    }
+    if (action.startsWith('round_') || action.startsWith('payer_')) {
+      await ack(ctx)
+      if (action.startsWith('round_')) {
+        const difference = draft.preview?.balanceDifferences[Number(action.slice(6))]
+        if (
+          draft.stage !== 'review' ||
+          draft.issues.length ||
+          draft.preview?.blocked ||
+          !difference ||
+          BigInt(difference.additionalPaidMinor) <= 0n ||
+          BigInt(difference.additionalPaidMinor) > UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+        )
+          return
+        const members = await options.householdConfigurationRepository.listHouseholdMembers(
+          target.householdId
+        )
+        draft.payers = members
+          .filter(
+            (member) =>
+              member.status !== 'left' && (target.member.isAdmin || member.id === target.member.id)
+          )
+          .map((member) => ({ id: member.id, displayName: member.displayName }))
+        draft.rounding = {
+          utilityBillId: difference.utilityBillId,
+          amountMinor: difference.additionalPaidMinor
+        }
+        draft.stage = 'payer'
+      } else {
+        const payer = draft.payers?.[Number(action.slice(6))]
+        if (
+          draft.stage !== 'payer' ||
+          !draft.rounding ||
+          !payer ||
+          (!target.member.isAdmin && payer.id !== target.member.id)
+        )
+          return
+        draft.rounding = {
+          ...draft.rounding,
+          payerMemberId: payer.id,
+          payerName: payer.displayName
+        }
+        draft.stage = 'payment-confirm'
+      }
+      draft.proposalId = crypto.randomUUID().slice(0, 12)
+      await store(ctx, draft)
+      try {
+        await ctx.editMessageText(previewText(draft, target.locale), {
+          parse_mode: 'HTML',
+          reply_markup: keyboard(draft, target.locale, options.botUsername)
+        })
+      } catch {
+        await reply(
+          ctx,
+          previewText(draft, target.locale),
+          keyboard(draft, target.locale, options.botUsername)
+        )
+      }
+      return
+    }
+    if (action === 'record') {
+      if (
+        draft.stage !== 'payment-confirm' ||
+        !draft.rounding?.payerMemberId ||
+        !draft.preview ||
+        (!target.member.isAdmin && draft.rounding.payerMemberId !== target.member.id)
+      ) {
+        await ack(ctx, {
+          text: ru ? 'Сначала подтвердите плательщика.' : 'Confirm the payer first.',
+          show_alert: true
+        })
+        return
+      }
+      const consumed = await options.promptRepository.consumePendingActionByPayloadValue?.(
+        ctx.chat!.id.toString(),
+        ctx.from.id.toString(),
+        UTILITY_SCREENSHOT_ACTION,
+        'proposalId',
+        draft.proposalId
+      )
+      await ack(ctx)
+      if (!consumed) return
+      let result: Awaited<ReturnType<UtilityBillImportService['confirmRoundingPayment']>>
+      try {
+        result = await options
+          .importServiceForHousehold(target.householdId)
+          .confirmRoundingPayment(
+            draft.preview,
+            draft.rounding.utilityBillId,
+            draft.rounding.payerMemberId,
+            target.member.id
+          )
+      } catch {
+        await review(ctx, draft, target.locale, true)
+        await reply(
+          ctx,
+          ru
+            ? 'Не удалось учесть оплату. Проверьте данные и права плательщика.'
+            : 'Could not record payment. Check the data and payer permissions.'
+        )
+        return
+      }
+      if (result !== 'applied') {
+        await review(ctx, draft, target.locale, true)
+        await reply(
+          ctx,
+          ru
+            ? 'Данные изменились. Проверьте обновлённый остаток; повторная оплата не добавлена.'
+            : 'Data changed. Review the updated remainder; no duplicate payment was added.'
+        )
+        return
+      }
+      const amount = Money.fromMinor(BigInt(draft.rounding.amountMinor), 'GEL').toMajorString()
+      const payerName = draft.rounding.payerName
+      try {
+        await reply(
+          ctx,
+          ru
+            ? `Дополнительные ${amount} ₾ учтены за ${escapeHtml(payerName ?? '')}. Новые счета пока не сохранены — подтвердите их отдельно.`
+            : `Additional ${amount} GEL credited to ${escapeHtml(payerName ?? '')}. Confirm the new bills separately to save them.`
+        )
+      } catch {
+        options.logger?.warn(
+          { event: 'utility_screenshot.rounding_ack_failed' },
+          'Payment saved; acknowledgement needs retry'
+        )
+      }
+      try {
+        const dashboard = await target.service.generateDashboard(draft.period)
+        const outcomes = await Promise.allSettled([
+          options.livePaymentCardService?.refresh({
+            householdId: target.householdId,
+            kind: 'utilities',
+            period: draft.period,
+            ...(dashboard ? { dashboard } : {})
+          }),
+          options.paymentInstructionPublisher?.sendPaymentInstruction({
+            householdId: target.householdId,
+            kind: 'utilities',
+            period: draft.period
+          })
+        ])
+        if (outcomes.some((outcome) => outcome.status === 'rejected'))
+          throw new Error('Delivery failed')
+      } catch {
+        options.logger?.warn(
+          { event: 'utility_screenshot.rounding_delivery_failed' },
+          'Payment saved; dashboard refresh needs retry'
+        )
+      }
+      try {
+        await review(ctx, draft, target.locale, true)
+      } catch {
+        await reply(
+          ctx,
+          ru
+            ? 'Оплата сохранена. Не удалось обновить предложение по счетам — отправьте скриншот ещё раз или откройте дашборд.'
+            : 'Payment saved. Could not refresh the bill proposal; resend the screenshot or open the dashboard.'
+        )
+      }
+      return
+    }
     if (action === 'save' || action === 'cancel') {
       if (
         action === 'save' &&
@@ -519,7 +756,7 @@ export function registerUtilityScreenshotEntry(options: {
       const draft = pending?.payload as unknown as Draft | undefined
       if (
         !draft ||
-        draft.stage === 'review' ||
+        (draft.stage !== 'edit' && draft.stage !== 'month') ||
         draft.inputMessageId !== ctx.message.reply_to_message.message_id ||
         draft.threadId !== threadId(ctx)
       ) {

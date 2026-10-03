@@ -116,9 +116,19 @@ export interface UtilityBillImportPreview {
   previousAmounts: Record<string, string>
   totalMajor: string
   existingPayments: boolean
-  preservedPaidBills: readonly string[]
-  blocked: 'closed' | 'paid' | 'ambiguous' | 'category' | null
+  preservedBills: readonly string[]
+  balanceDifferences: readonly {
+    utilityBillId: string
+    billName: string
+    expectedMajor: string
+    observedMajor: string
+    additionalPaidMinor: string
+  }[]
+  blocked: 'closed' | 'ambiguous' | 'category' | null
 }
+
+// This limits the optional rounding shortcut, not import or actual payment amounts.
+export const UTILITY_ROUNDING_SHORTCUT_MAX_MINOR = 200n
 
 export function previewUtilityBillImport(
   period: string,
@@ -131,7 +141,8 @@ export function previewUtilityBillImport(
   let total = Money.zero('GEL')
   let ambiguous = false
   let categoryChanged = false
-  const preservedPaidBills: string[] = []
+  const preservedBills: string[] = []
+  const balanceDifferences: UtilityBillImportPreview['balanceDifferences'][number][] = []
   const seen = new Set<string>()
   if (!entries.length) throw new Error('Empty utility import')
   for (const entry of entries) {
@@ -186,13 +197,18 @@ export function previewUtilityBillImport(
         'GEL'
       ).toMajorString()
     const paidMinor = BigInt(bill ? (snapshot.paidByBillId[bill.id] ?? '0') : '0')
-    if (
-      bill &&
-      paidMinor > 0n &&
-      amount.amountMinor ===
-        (BigInt(bill.amountMinor) > paidMinor ? BigInt(bill.amountMinor) - paidMinor : 0n)
-    ) {
-      preservedPaidBills.push(entry.billName)
+    if (bill && BigInt(bill.amountMinor) > 0n && snapshot.hasPayments) {
+      const expectedMinor =
+        BigInt(bill.amountMinor) > paidMinor ? BigInt(bill.amountMinor) - paidMinor : 0n
+      preservedBills.push(entry.billName)
+      if (amount.amountMinor !== expectedMinor)
+        balanceDifferences.push({
+          utilityBillId: bill.id,
+          billName: entry.billName,
+          expectedMajor: Money.fromMinor(expectedMinor, 'GEL').toMajorString(),
+          observedMajor: amount.toMajorString(),
+          additionalPaidMinor: (expectedMinor - amount.amountMinor).toString()
+        })
       continue
     }
     if (!bill || BigInt(bill.amountMinor) !== amount.amountMinor) {
@@ -211,28 +227,54 @@ export function previewUtilityBillImport(
     previousAmounts,
     totalMajor: total.toMajorString(),
     existingPayments: snapshot.hasPayments,
-    preservedPaidBills,
+    preservedBills,
+    balanceDifferences,
     blocked: snapshot.closed
       ? 'closed'
       : categoryChanged
         ? 'category'
         : ambiguous
           ? 'ambiguous'
-          : snapshot.hasPayments &&
-              changes.some(
-                (change) =>
-                  change.billId &&
-                  BigInt(
-                    snapshot.bills.find((bill) => bill.id === change.billId)?.amountMinor ?? '0'
-                  ) > 0n
-              )
-            ? 'paid'
-            : null
+          : null
   }
 }
 
 export function createUtilityBillImportService(repository: UtilityBillImportRepository) {
   return {
+    async confirmRoundingPayment(
+      preview: UtilityBillImportPreview,
+      utilityBillId: string,
+      payerMemberId: string,
+      actorMemberId: string
+    ) {
+      const current = previewUtilityBillImport(
+        preview.period,
+        preview.entries,
+        await repository.getSnapshot(preview.period)
+      )
+      if (current.blocked) return current.blocked
+      if (current.revision !== preview.revision) return 'stale' as const
+      const difference = current.balanceDifferences.find(
+        (entry) => entry.utilityBillId === utilityBillId
+      )
+      if (
+        !difference ||
+        BigInt(difference.additionalPaidMinor) <= 0n ||
+        BigInt(difference.additionalPaidMinor) > UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+      )
+        return 'not_available' as const
+      return repository.apply({
+        period: preview.period,
+        expectedRevision: current.revision,
+        changes: [],
+        createdByMemberId: actorMemberId,
+        additionalPayment: {
+          utilityBillId,
+          payerMemberId,
+          amountMinor: difference.additionalPaidMinor
+        }
+      })
+    },
     async preview(period: string, entries: readonly UtilityBillImportEntry[]) {
       return previewUtilityBillImport(period, entries, await repository.getSnapshot(period))
     },
@@ -244,8 +286,12 @@ export function createUtilityBillImportService(repository: UtilityBillImportRepo
         await repository.getSnapshot(preview.period)
       )
       if (current.blocked) return current.blocked
+      if (
+        current.revision !== preview.revision &&
+        (current.changes.length || current.balanceDifferences.length)
+      )
+        return 'stale' as const
       if (!current.changes.length) return 'unchanged' as const
-      if (current.revision !== preview.revision) return 'stale' as const
       return repository.apply({
         period: preview.period,
         expectedRevision: current.revision,

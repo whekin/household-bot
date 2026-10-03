@@ -5536,8 +5536,9 @@ export function createFinanceCommandService(
               : remainingBillMinor,
             dashboard.currency
           )
-      if (amount.amountMinor <= 0n || amount.amountMinor > remainingBillMinor)
-        throw new Error('Payment must be positive and cannot exceed the remaining bill amount')
+      // An explicitly reported payment may include an advance to the provider.
+      // Keep its full value under the actual payer; redraw carries the excess as credit.
+      if (amount.amountMinor <= 0n) throw new Error('Payment must be positive')
 
       const matchingCategory = assignedAmounts.find(
         (category) =>

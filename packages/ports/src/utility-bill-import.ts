@@ -55,5 +55,11 @@ export interface UtilityBillImportRepository {
     expectedRevision: string
     changes: readonly UtilityBillImportChange[]
     createdByMemberId: string
+    /** A separately confirmed, attributed rounding payment; never inferred automatically. */
+    additionalPayment?: {
+      utilityBillId: string
+      payerMemberId: string
+      amountMinor: string
+    }
   }): Promise<'applied' | 'stale'>
 }

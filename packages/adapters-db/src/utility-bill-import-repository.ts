@@ -180,6 +180,81 @@ export function createUtilityBillImportRepository(
               )
             )
               return 'stale' as const
+            if (input.additionalPayment) {
+              const payment = input.additionalPayment
+              const bill = current.bills.find((row) => row.id === payment.utilityBillId)
+              const amountMinor = BigInt(payment.amountMinor)
+              if (
+                !bill ||
+                amountMinor <= 0n ||
+                amountMinor > 200n ||
+                BigInt(bill.amountMinor) <= 0n ||
+                cycle.currency !== 'GEL' ||
+                bill.currency !== 'GEL'
+              )
+                throw new Error('Invalid rounding payment')
+              const members = await tx
+                .select()
+                .from(schema.members)
+                .where(
+                  and(
+                    eq(schema.members.householdId, householdId),
+                    inArray(schema.members.id, [input.createdByMemberId, payment.payerMemberId])
+                  )
+                )
+              const actor = members.find((row) => row.id === input.createdByMemberId)
+              const payer = members.find((row) => row.id === payment.payerMemberId)
+              if (
+                !actor ||
+                !payer ||
+                actor.lifecycleStatus === 'left' ||
+                payer.lifecycleStatus === 'left' ||
+                (actor.id !== payer.id && actor.isAdmin !== 1)
+              )
+                throw new Error('Payment attribution requires the payer or an administrator')
+              const recordedAt = new Date()
+              const idempotencyKey = `utility-rounding:${householdId}:${cycle.id}:${current.revision}:${bill.id}`
+              const [record] = await tx
+                .insert(schema.paymentRecords)
+                .values({
+                  householdId,
+                  cycleId: cycle.id,
+                  memberId: payer.id,
+                  kind: 'utilities',
+                  amountMinor,
+                  currency: 'GEL',
+                  recordedAt,
+                  idempotencyKey
+                })
+                .returning({ id: schema.paymentRecords.id })
+              await tx.insert(schema.utilityVendorPaymentFacts).values({
+                householdId,
+                cycleId: cycle.id,
+                utilityBillId: bill.id,
+                billName: bill.billName,
+                payerMemberId: payer.id,
+                amountMinor,
+                currency: 'GEL',
+                matchedPlan: 0,
+                recordedByMemberId: actor.id,
+                recordedAt,
+                paymentRecordId: record!.id,
+                idempotencyKey
+              })
+              // A newly attributed contribution changes who funds the remainder.
+              // Mark the old assignments stale in the same transaction, so even
+              // ordinary dashboard reads rebuild instead of returning frozen dues.
+              await tx
+                .update(schema.utilityBillingPlans)
+                .set({ status: 'diverged' })
+                .where(
+                  and(
+                    eq(schema.utilityBillingPlans.householdId, householdId),
+                    eq(schema.utilityBillingPlans.cycleId, cycle.id),
+                    inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+                  )
+                )
+            }
             for (const change of input.changes) {
               if (change.billId) {
                 await tx

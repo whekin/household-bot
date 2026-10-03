@@ -27,8 +27,8 @@ No dedicated utility topic is required.
   proposal and expiration. Edited input is validated strictly, including detached numbers.
 - Import is atomic with an optimistic revision check. Concurrent imports cannot silently
   duplicate or overwrite bills; identical Credo/TBC submissions are no-ops.
-- Closed cycles and replacement of existing charged amounts after recorded payments are blocked
-  with a dashboard correction path. New bills and previously zero bills are allowed; incoming
+- Closed cycles block import. After recorded payments, existing positive charges are preserved
+  with a dashboard correction path for charge changes. New bills and previously zero bills are allowed; incoming
   post-payment balances preserve the original bills. Late additions recalculate the remaining
   provider assignments while keeping prior payments exactly once. Fresh data is checked at confirmation time.
 - After saving, live cards refresh and payment instructions are published. Failure to
@@ -88,3 +88,13 @@ No dedicated utility topic is required.
   persisted baseline remainder. A partial contribution stays visible under its payer after
   redraw, and only the remainder can be recorded as another payment. Existing stored plans
   lacking the remainder field are read using their original assignment/payment facts.
+
+## Rounded and unreported provider payments
+
+- Bank balances are observations of the current debt, not replacement charges. Once the cycle has a recorded utility payment, retain all existing positive charges even if bank remainders differ. Another bill may have an unreported payment too. Show the expected and observed remainders; late new bills can still be saved.
+- A discrepancy never identifies its payer automatically: someone else may have paid without reporting it. Neither the screenshot nor ordinary bill confirmation creates a payment.
+- A positive difference of up to 2 GEL offers an optional rounding shortcut. The user selects the actual payer and separately confirms the additional amount. Non-admin members may only attribute it to themselves; an administrator may select another household member who has not left. Temporarily away members retain payment rights.
+- Larger differences, increased bank debt, zero difference and a fully covered charge do not offer the shortcut. Reconcile actual payments/new charges separately; importing late Internet remains possible. The 2 GEL limit is only for this shortcut, not a cap on explicitly reported actual payments.
+- Confirmation rechecks the snapshot revision and writes the payment record plus linked off-plan vendor fact atomically. Replay/concurrent attempts cannot double-credit, and roles/lifecycle are revalidated in the transaction. The payer's credit lowers subsequent remaining assignments.
+- While a bill still has an unpaid balance, an explicitly reported vendor payment can exceed that remainder (a provider advance). Retain the complete payment under its payer; never increase the charge to absorb the advance or pretend it pays another supplier. A fully covered bill still rejects repeated payment recording.
+- Validate 51.93 recorded vs 52 actual and 20.37 expected vs 20.30 bank remainder; old charge 72.30 remains, 0.07 credit belongs only to the explicitly selected payer, and new Internet is distributed without duplicate funding.
