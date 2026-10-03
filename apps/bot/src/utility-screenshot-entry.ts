@@ -645,7 +645,7 @@ export function registerUtilityScreenshotEntry(options: {
       await ctx.replyWithChatAction('typing')
       const image = await (options.downloadImage ?? downloadTelegramUtilityImage)({
         token: options.token,
-        getFile: (fileId) => ctx.api.getFile(fileId),
+        getFile: (fileId, signal) => ctx.api.getFile(fileId, signal),
         file,
         timeoutMs: options.timeoutMs
       })

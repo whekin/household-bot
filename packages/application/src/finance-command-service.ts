@@ -1807,7 +1807,7 @@ function utilityFactMatchesPlan(
 // i.e. the last member paid their assigned share. Empty plans never count.
 function utilityPlanFullyCovered(input: {
   plan: FinanceDashboardUtilityBillingPlan
-  vendorFacts: Parameters<typeof utilityMatchedPlanPaidMinor>[0]['vendorFacts']
+  vendorFacts: readonly FinanceUtilityVendorPaymentFactRecord[]
 }): boolean {
   if (input.plan.categories.length === 0) {
     return false

@@ -35,7 +35,12 @@ export async function downloadTelegramUtilityImage(options: {
   fetch?: (url: string, init: RequestInit) => Promise<Response>
 }): Promise<{ data: Uint8Array; mimeType: 'image/png' | 'image/jpeg' }> {
   if ((options.file.size ?? 0) > MAX_BYTES) throw new Error('Utility image too large')
-  const file = await options.getFile(options.file.fileId)
+  // grammY's node-fetch declarations use the AbortController shim; Bun's native
+  // signal implements the same runtime cancellation interface.
+  const metadataSignal = AbortSignal.timeout(options.timeoutMs) as unknown as Parameters<
+    Context['api']['getFile']
+  >[1]
+  const file = await options.getFile(options.file.fileId, metadataSignal)
   if (!file.file_path || (file.file_size ?? 0) > MAX_BYTES)
     throw new Error('Utility image unavailable')
   const response = await (options.fetch ?? fetch)(

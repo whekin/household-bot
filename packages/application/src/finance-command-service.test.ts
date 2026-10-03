@@ -5475,6 +5475,62 @@ describe('createFinanceCommandService', () => {
       ).toBe(10000n)
     }
   })
+  test('full off-plan coverage keeps only actual payer contributions rather than marking an unpaid assignee paid', async () => {
+    const repository = new FinanceRepositoryStub()
+    const period = expectedCurrentCyclePeriod('Asia/Tbilisi')
+    repository.members = [
+      { id: 'alice', telegramUserId: '1', displayName: 'Alice', rentShareWeight: 1, isAdmin: true },
+      { id: 'bob', telegramUserId: '2', displayName: 'Bob', rentShareWeight: 1, isAdmin: false }
+    ]
+    repository.memberPresenceDays = repository.members.map((member) => ({
+      memberId: member.id,
+      period,
+      daysPresent: 31
+    }))
+    repository.cycles = [{ id: 'full-off-plan', period, currency: 'GEL' }]
+    repository.openCycleRecord = repository.cycles[0]!
+    repository.latestCycleRecord = repository.cycles[0]!
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.billingSettingsOverride = { paymentBalanceAdjustmentPolicy: 'utilities' }
+    repository.utilityBills = [
+      {
+        id: 'gas',
+        cycleId: 'full-off-plan',
+        billName: 'Gas',
+        amountMinor: 6000n,
+        currency: 'GEL',
+        createdByMemberId: 'alice',
+        createdAt: instantFromIso(`${period}-01T00:00:00Z`)
+      }
+    ]
+    const service = createService(repository)
+    await service.generateDashboard(period)
+    await service.recordUtilityVendorPayment({
+      utilityBillId: 'gas',
+      payerMemberId: 'alice',
+      amountArg: '30.00',
+      periodArg: period
+    })
+    await service.recordUtilityVendorPayment({
+      utilityBillId: 'gas',
+      payerMemberId: 'alice',
+      amountArg: '30.00',
+      periodArg: period
+    })
+    const updated = await service.generateDashboard(period)
+    expect(
+      updated?.utilityBillingPlan?.categories.map((category) => [
+        category.assignedMemberId,
+        category.assignedAmount.amountMinor,
+        category.remainingAmount.amountMinor
+      ])
+    ).toEqual([['alice', 6000n, 0n]])
+    expect(
+      updated?.utilityBillingPlan?.memberSummaries.find((member) => member.memberId === 'bob')
+        ?.vendorPaid.amountMinor
+    ).toBe(0n)
+    expect(updated?.totalPaid.amountMinor).toBe(6000n)
+  })
 
   test('resolveUtilityBillAsPlanned only funds purchase debt with money actually paid', async () => {
     // Regression for the 2026-08 over-allocation: the cycle's bills were smaller than

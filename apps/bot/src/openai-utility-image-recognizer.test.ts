@@ -101,3 +101,18 @@ test('Telegram image download enforces actual PNG/JPEG bytes and size limits', a
     })
   ).rejects.toThrow('Unsupported')
 })
+test('Telegram metadata lookup receives the bounded abort signal', async () => {
+  await expect(
+    downloadTelegramUtilityImage({
+      token: 'fake',
+      file: { fileId: 'fake' },
+      timeoutMs: 10,
+      getFile: async (_fileId, signal) =>
+        await new Promise((_resolve, reject) =>
+          signal!.addEventListener('abort', () => reject(new Error('metadata timed out')), {
+            once: true
+          })
+        )
+    })
+  ).rejects.toThrow('metadata timed out')
+})
