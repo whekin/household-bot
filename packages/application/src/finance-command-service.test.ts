@@ -5404,6 +5404,78 @@ describe('createFinanceCommandService', () => {
     }
   })
 
+  test('paying a redrawn bill on behalf defaults to its remainder rather than historic contributions', async () => {
+    for (const payerId of ['alice', 'bob']) {
+      const repository = new FinanceRepositoryStub()
+      const period = expectedCurrentCyclePeriod('Asia/Tbilisi')
+      repository.members = [
+        {
+          id: 'alice',
+          telegramUserId: '1',
+          displayName: 'Alice',
+          rentShareWeight: 1,
+          isAdmin: true
+        },
+        { id: 'bob', telegramUserId: '2', displayName: 'Bob', rentShareWeight: 1, isAdmin: false }
+      ]
+      repository.memberStatuses.set('bob', 'away')
+      repository.memberPresenceDays = [
+        { memberId: 'alice', period, daysPresent: 31 },
+        { memberId: 'bob', period, daysPresent: 0 }
+      ]
+      repository.cycles = [{ id: 'on-behalf-cycle', period, currency: 'GEL' }]
+      repository.openCycleRecord = repository.cycles[0]!
+      repository.latestCycleRecord = repository.cycles[0]!
+      repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+      repository.billingSettingsOverride = { paymentBalanceAdjustmentPolicy: 'utilities' }
+      repository.utilityBills = [
+        {
+          id: 'gas',
+          cycleId: 'on-behalf-cycle',
+          billName: 'Gas',
+          amountMinor: 10000n,
+          currency: 'GEL',
+          createdByMemberId: 'alice',
+          createdAt: instantFromIso(`${period}-01T00:00:00Z`)
+        }
+      ]
+      const service = createService(repository)
+      await service.generateDashboard(period)
+      await service.recordUtilityVendorPayment({
+        utilityBillId: 'gas',
+        payerMemberId: 'alice',
+        amountArg: '30.00',
+        periodArg: period
+      })
+      const redrawn = await service.refreshUtilityBillingPlan(period)
+      expect(redrawn?.utilityBillingPlan?.categories[0]?.assignedAmount.amountMinor).toBe(10000n)
+      expect(redrawn?.utilityBillingPlan?.categories[0]?.remainingAmount.amountMinor).toBe(7000n)
+      await service.recordUtilityVendorPayment({
+        utilityBillId: 'gas',
+        payerMemberId: payerId,
+        periodArg: period
+      })
+      expect(repository.utilityVendorPaymentFacts.at(-1)?.amountMinor).toBe(7000n)
+      expect(
+        repository.utilityVendorPaymentFacts.reduce((sum, fact) => sum + fact.amountMinor, 0n)
+      ).toBe(10000n)
+      const after = await service.generateDashboard(period)
+      expect(after?.utilityBillingPlan?.status).toBe('settled')
+      expect(after?.totalPaid.amountMinor).toBe(10000n)
+      await expect(
+        service.recordUtilityVendorPayment({
+          utilityBillId: 'gas',
+          payerMemberId: payerId,
+          amountArg: '70.00',
+          periodArg: period
+        })
+      ).rejects.toThrow('already covered')
+      expect(
+        repository.utilityVendorPaymentFacts.reduce((sum, fact) => sum + fact.amountMinor, 0n)
+      ).toBe(10000n)
+    }
+  })
+
   test('resolveUtilityBillAsPlanned only funds purchase debt with money actually paid', async () => {
     // Regression for the 2026-08 over-allocation: the cycle's bills were smaller than
     // Alisa's adjusted target, so paying her single assigned bill cleared her whole

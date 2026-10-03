@@ -1819,6 +1819,15 @@ function utilityPlanFullyCovered(input: {
     }
 
     if (category.paidAmount.amountMinor >= category.billTotal.amountMinor) return true
+    const coveredMinor = input.vendorFacts
+      .filter(
+        (fact) =>
+          fact.utilityBillId === category.utilityBillId ||
+          (!fact.utilityBillId &&
+            fact.billName.trim().toLowerCase() === category.billName.trim().toLowerCase())
+      )
+      .reduce((sum, fact) => sum + fact.amountMinor, 0n)
+    if (coveredMinor >= category.billTotal.amountMinor) return true
     const paidMinor = utilityMatchedPlanPaidMinor({
       plan: input.plan,
       vendorFacts: input.vendorFacts,
@@ -2027,7 +2036,7 @@ async function ensureUtilityBillingPlan(input: {
     (input.forceRecompute === true ||
       !activePlan ||
       inputChangeStatus.utilityBillsChanged ||
-      (!isLocked && !input.skipRebalance && hasPendingOffPlanFact) ||
+      (!input.skipRebalance && hasPendingOffPlanFact) ||
       (!isLocked && inputChangeStatus.anyChanged))
 
   // Orphan matched facts are ignored unless they reference the selected current plan.
@@ -2046,6 +2055,7 @@ async function ensureUtilityBillingPlan(input: {
     shouldRecompute &&
     (input.forceRecompute === true ||
       inputChangeStatus.utilityBillsChanged ||
+      (activePlan !== null && hasPendingOffPlanFact) ||
       (!activePlan && existingPlans.length > 0))
   const vendorPaymentsForCompute = everyFactCounts ? vendorFacts : offPlanFacts
   const billCoveragePaymentsForCompute = everyFactCounts ? vendorFacts : offPlanFacts
@@ -3539,7 +3549,21 @@ async function buildFinanceDashboard(
   })
   const dashboardMembers = settlement.lines.map((line) => {
     const memberId = line.memberId.toString()
-    const paid = paymentsByMemberId.get(memberId) ?? Money.zero(cycle.currency)
+    const recordedPaid = paymentsByMemberId.get(memberId) ?? Money.zero(cycle.currency)
+    const recordedUtilityPaidMinor = paymentRecords
+      .filter((payment) => payment.memberId === memberId && payment.kind === 'utilities')
+      .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+    const vendorPaidMinor =
+      ensuredUtilityPlan.computed?.memberSummaries.find((member) => member.memberId === memberId)
+        ?.vendorPaid.amountMinor ?? 0n
+    const paid = recordedPaid.add(
+      Money.fromMinor(
+        vendorPaidMinor > recordedUtilityPaidMinor
+          ? vendorPaidMinor - recordedUtilityPaidMinor
+          : 0n,
+        cycle.currency
+      )
+    )
 
     return {
       memberId,
@@ -3722,8 +3746,8 @@ async function buildFinanceDashboard(
     paymentBalanceAdjustmentPolicy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
     rentPaymentDestinations: settings.rentPaymentDestinations ?? null,
     totalDue: settlement.totalDue,
-    totalPaid: paymentRecords.reduce(
-      (sum, payment) => sum.add(Money.fromMinor(payment.amountMinor, payment.currency)),
+    totalPaid: dashboardMembers.reduce(
+      (sum, member) => sum.add(member.paid),
       Money.zero(cycle.currency)
     ),
     totalRemaining: dashboardMembers.reduce(
@@ -5476,31 +5500,75 @@ export function createFinanceCommandService(
         ) ?? []
       const defaultMinor = assignedAmounts
         .filter((category) => category.assignedMemberId === input.payerMemberId)
-        .reduce((sum, category) => sum + category.assignedAmount.amountMinor, 0n)
+        .reduce((sum, category) => sum + category.remainingAmount.amountMinor, 0n)
       const currency = parseCurrency(input.currencyArg, dashboard.currency)
+      const priorFacts = await repository.listUtilityVendorPaymentFactsForCycle(cycle.id)
+      const billPaidMinor = priorFacts
+        .filter(
+          (fact) =>
+            fact.utilityBillId === bill.id ||
+            (!fact.utilityBillId &&
+              fact.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase())
+        )
+        .reduce((sum, fact) => sum + fact.amountMinor, 0n)
+      const billTotalMinor =
+        dashboard.ledger.find((entry) => entry.kind === 'utility' && entry.id === bill.id)
+          ?.displayAmount.amountMinor ?? 0n
+      const remainingBillMinor =
+        billTotalMinor > billPaidMinor ? billTotalMinor - billPaidMinor : 0n
+      if (remainingBillMinor <= 0n) throw new Error('This utility bill is already covered')
+      const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+        dependencies.householdId
+      )
       const amount = input.amountArg
-        ? Money.fromMajor(input.amountArg, currency)
-        : Money.fromMinor(defaultMinor > 0n ? defaultMinor : bill.amountMinor, currency)
+        ? (
+            await convertIntoCycleCurrency(dependencies, {
+              cycle,
+              period: BillingPeriod.fromString(dashboard.period),
+              lockDay: settings.utilitiesReminderDay,
+              timezone: settings.timezone,
+              amount: Money.fromMajor(input.amountArg, currency)
+            })
+          ).settlementAmount
+        : Money.fromMinor(
+            defaultMinor > 0n && defaultMinor < remainingBillMinor
+              ? defaultMinor
+              : remainingBillMinor,
+            dashboard.currency
+          )
+      if (amount.amountMinor <= 0n || amount.amountMinor > remainingBillMinor)
+        throw new Error('Payment must be positive and cannot exceed the remaining bill amount')
+
       const matchingCategory = assignedAmounts.find(
         (category) =>
           category.assignedMemberId === input.payerMemberId &&
-          category.assignedAmount.amountMinor === amount.amountMinor
+          category.remainingAmount.amountMinor === amount.amountMinor
       )
 
-      await repository.addUtilityVendorPaymentFact({
+      const fact = await repository.addUtilityVendorPaymentFactIfNew({
         cycleId: cycle.id,
         utilityBillId: bill.id,
         billName: bill.billName,
         payerMemberId: input.payerMemberId,
         amountMinor: amount.amountMinor,
-        currency,
+        currency: dashboard.currency,
         planId: matchingCategory ? (dashboard.utilityBillingPlan?.id ?? null) : null,
         plannedForMemberId: matchingCategory?.assignedMemberId ?? null,
         planVersion: dashboard.utilityBillingPlan?.version ?? null,
         matchedPlan: Boolean(matchingCategory),
         recordedByMemberId: input.actorMemberId ?? input.payerMemberId,
-        recordedAt: nowInstant()
+        recordedAt: nowInstant(),
+        idempotencyKey: `vendor-payment:${dependencies.householdId}:${cycle.id}:${dashboard.utilityBillingPlan?.id ?? 'no-plan'}:${bill.id}:${input.payerMemberId}:${billPaidMinor}:${amount.amountMinor}`
       })
+
+      if (!fact)
+        return {
+          period: dashboard.period,
+          settledJustNow: false,
+          plan:
+            (await buildFinanceDashboard(dependencies, dashboard.period))?.utilityBillingPlan ??
+            null
+        }
 
       // Settle the plan when this on-plan payment covers the last assigned share.
       const plan = dashboard.utilityBillingPlan

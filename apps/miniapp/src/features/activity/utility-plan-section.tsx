@@ -118,12 +118,17 @@ export function UtilityPlanSection() {
     )
   }
 
-  function handleRecordVendorPayment(utilityBillId: string, payerMemberId: string) {
+  function handleRecordVendorPayment(
+    utilityBillId: string,
+    payerMemberId: string,
+    amountMajor: string
+  ) {
     if (!initData) return
     void runUtilityAction(`vendor:${utilityBillId}:${payerMemberId}`, () =>
       recordMiniAppUtilityVendorPayment(initData, {
         utilityBillId,
         payerMemberId,
+        amountMajor,
         ...(dashboard?.period ? { period: dashboard.period } : {})
       })
     )
@@ -389,7 +394,11 @@ export function UtilityPlanSection() {
                                   `vendor:${category.utilityBillId}:${currentMemberId}`
                                 }
                                 onClick={() =>
-                                  handleRecordVendorPayment(category.utilityBillId, currentMemberId)
+                                  handleRecordVendorPayment(
+                                    category.utilityBillId,
+                                    currentMemberId,
+                                    category.remainingAmountMajor
+                                  )
                                 }
                               >
                                 <Check className="size-3.5" aria-hidden />
