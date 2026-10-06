@@ -40,6 +40,9 @@ import {
   Temporal,
   convertMoney,
   nowInstant,
+  paymentFundingRevision,
+  replayPaymentPurchaseFunding,
+  type PaymentFundingContext,
   type CurrencyCode,
   type Instant
 } from '@household/domain'
@@ -99,11 +102,10 @@ async function getDefaultOpenCycle(
   const settings = await dependencies.householdConfigurationRepository.getHouseholdBillingSettings(
     dependencies.householdId
   )
-  return (
-    (await dependencies.repository.getCycleByPeriod(
-      expectedOpenCyclePeriod(settings, nowInstant()).toString()
-    )) ?? openCycle
+  const expected = await dependencies.repository.getCycleByPeriod(
+    expectedOpenCyclePeriod(settings, nowInstant()).toString()
   )
+  return expected && !expected.closedAt ? expected : openCycle
 }
 
 function periodFromLocalDate(localDate: Temporal.PlainDate): BillingPeriod {
@@ -367,6 +369,7 @@ export interface FinanceDashboardLedgerEntry {
   actorDisplayName: string | null
   occurredAt: string | null
   paymentKind: FinancePaymentKind | null
+  isRoundingAdjustment?: boolean
   createdByMemberId?: string | null
   purchaseSplitMode?: 'equal' | 'custom_amounts'
   purchaseParticipants?: readonly {
@@ -380,6 +383,7 @@ export interface FinanceDashboardLedgerEntry {
   hasRecordedAllocations?: boolean
   resolutionStatus?: 'unresolved' | 'resolved'
   resolvedAt?: string | null
+  originalShareByMember?: readonly { memberId: string; amount: Money }[]
   outstandingByMember?: readonly {
     memberId: string
     amount: Money
@@ -387,6 +391,7 @@ export interface FinanceDashboardLedgerEntry {
 }
 
 export interface FinanceDashboard {
+  balanceUpdatePending?: boolean
   period: string
   currency: CurrencyCode
   timezone: string
@@ -1433,6 +1438,7 @@ type SettlementReceivable = FinanceParsedPurchaseRecord & { sourceKind?: 'purcha
 interface PurchaseHistoryState {
   purchase: SettlementReceivable
   converted: ConvertedCycleMoney
+  shareByMemberId: ReadonlyMap<string, Money>
   outstandingByMemberId: ReadonlyMap<string, Money>
   outstandingTotal: Money
   hasRecordedAllocations: boolean
@@ -2001,9 +2007,11 @@ async function ensureUtilityBillingPlan(input: {
   const activePlanHasCategories = (activePlan?.payload.categories.length ?? 0) > 0
   const isLocked =
     activePlan &&
-    (validMatchedFacts.length > 0 || (activePlan.status === 'settled' && activePlanHasCategories))
+    (vendorFacts.some((fact) => fact.amountMinor > 0n) ||
+      (activePlan.status === 'settled' && activePlanHasCategories))
 
-  // On-plan payments lock the plan; off-plan facts only rebalance draft plans.
+  // Existing contributions keep issued assignments frozen across plan versions.
+  // New off-plan facts and bills still trigger the explicit coverage rebalancing below.
   //
   // A fact belongs to the plan it was recorded against, so once that plan is
   // superseded its facts stop matching the current one. A forced redraw creates
@@ -2260,10 +2268,9 @@ async function ensureUtilityBillingPlan(input: {
     payload: serializeUtilityBillingPlanPayload(computed)
   })
 
-  return {
-    record,
-    computed
-  }
+  if (utilityPlanPayloadChanged(materializeUtilityBillingPlanRecord(record), computed))
+    throw new FinanceDashboardRetryError('Utility plan changed while building the dashboard')
+  return { record, computed }
 }
 
 function buildDashboardUtilityBillingPlan(input: {
@@ -2470,7 +2477,7 @@ async function invalidateUtilityBillingPlanForCycle(
     }
   }
 
-  if (vendorFacts.some((fact) => utilityFactMatchesPlan(fact, activePlan))) {
+  if (vendorFacts.some((fact) => fact.amountMinor > 0n)) {
     return
   }
 
@@ -2583,6 +2590,21 @@ async function convertIntoCycleCurrency(
   }
 }
 
+async function convertPaymentRecordAmount(
+  dependencies: FinanceCommandServiceDependencies,
+  cycle: FinanceCycleRecord,
+  settings: HouseholdBillingSettingsRecord,
+  payment: FinancePaymentRecord
+) {
+  return convertIntoCycleCurrency(dependencies, {
+    cycle,
+    period: BillingPeriod.fromString(cycle.period),
+    lockDay: payment.kind === 'rent' ? settings.rentWarningDay : settings.utilitiesReminderDay,
+    timezone: settings.timezone,
+    amount: Money.fromMinor(payment.amountMinor, payment.currency)
+  })
+}
+
 async function buildCycleBaseMemberLines(input: {
   dependencies: FinanceCommandServiceDependencies
   cycle: FinanceCycleRecord
@@ -2654,12 +2676,15 @@ async function buildCycleBaseMemberLines(input: {
   const rentPaidByMemberId = new Map<string, Money>()
   const utilityPaidByMemberId = new Map<string, Money>()
   for (const payment of paymentRecords) {
+    const converted = await convertPaymentRecordAmount(
+      input.dependencies,
+      input.cycle,
+      input.settings,
+      payment
+    )
     const targetMap = payment.kind === 'rent' ? rentPaidByMemberId : utilityPaidByMemberId
     const current = targetMap.get(payment.memberId) ?? Money.zero(input.cycle.currency)
-    targetMap.set(
-      payment.memberId,
-      current.add(Money.fromMinor(payment.amountMinor, payment.currency))
-    )
+    targetMap.set(payment.memberId, current.add(converted.settlementAmount))
   }
 
   return settlement.lines.map((line) => ({
@@ -3142,7 +3167,22 @@ function settlementSnapshotFingerprint(snapshot: SettlementSnapshotRecord): stri
   )
 }
 
+class FinanceDashboardRetryError extends Error {}
+
 async function buildFinanceDashboard(
+  ...args: Parameters<typeof buildFinanceDashboardOnce>
+): Promise<FinanceDashboard | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await buildFinanceDashboardOnce(...args)
+    } catch (error) {
+      if (attempt === 2 || !(error instanceof FinanceDashboardRetryError)) throw error
+    }
+  }
+  return null
+}
+
+async function buildFinanceDashboardOnce(
   dependencies: FinanceCommandServiceDependencies,
   periodArg?: string,
   options: {
@@ -3150,6 +3190,7 @@ async function buildFinanceDashboard(
     skipPlanRebalance?: boolean
     forcePlanRefresh?: boolean
     previewPlanRefresh?: boolean
+    freezeCycle?: boolean
   } = {}
 ): Promise<FinanceDashboard | null> {
   const cycle = await getCycleByPeriodOrLatest(dependencies, periodArg)
@@ -3217,6 +3258,17 @@ async function buildFinanceDashboard(
       }))
   ]
   const paymentRecords = await dependencies.repository.listPaymentRecordsForCycle(cycle.id)
+  const paymentConversions = new Map(
+    await Promise.all(
+      paymentRecords.map(
+        async (payment) =>
+          [
+            payment.id,
+            await convertPaymentRecordAmount(dependencies, cycle, settings, payment)
+          ] as const
+      )
+    )
+  )
   const previousCycle = await dependencies.repository.getCycleByPeriod(period.previous().toString())
   const previousSnapshotLines = previousCycle
     ? await dependencies.repository.getSettlementSnapshotLines(previousCycle.id)
@@ -3344,6 +3396,7 @@ async function buildFinanceDashboard(
       return {
         purchase,
         converted,
+        shareByMemberId: shareMap,
         outstandingByMemberId,
         outstandingTotal,
         hasRecordedAllocations: purchaseAllocations.length > 0,
@@ -3512,7 +3565,7 @@ async function buildFinanceDashboard(
     const current = paymentsByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)
     paymentsByMemberId.set(
       payment.memberId,
-      current.add(Money.fromMinor(payment.amountMinor, payment.currency))
+      current.add(paymentConversions.get(payment.id)!.settlementAmount)
     )
   }
   const ensuredUtilityPlan = await ensureUtilityBillingPlan({
@@ -3552,7 +3605,10 @@ async function buildFinanceDashboard(
     const recordedPaid = paymentsByMemberId.get(memberId) ?? Money.zero(cycle.currency)
     const recordedUtilityPaidMinor = paymentRecords
       .filter((payment) => payment.memberId === memberId && payment.kind === 'utilities')
-      .reduce((sum, payment) => sum + payment.amountMinor, 0n)
+      .reduce(
+        (sum, payment) => sum + paymentConversions.get(payment.id)!.settlementAmount.amountMinor,
+        0n
+      )
     const vendorPaidMinor =
       ensuredUtilityPlan.computed?.memberSummaries.find((member) => member.memberId === memberId)
         ?.vendorPaid.amountMinor ?? 0n
@@ -3615,7 +3671,7 @@ async function buildFinanceDashboard(
     rentPaidByMemberId.set(
       payment.memberId,
       (rentPaidByMemberId.get(payment.memberId) ?? Money.zero(cycle.currency)).add(
-        Money.fromMinor(payment.amountMinor, payment.currency)
+        paymentConversions.get(payment.id)!.settlementAmount
       )
     )
   }
@@ -3669,7 +3725,14 @@ async function buildFinanceDashboard(
       paymentKind: null
     })),
     ...purchaseHistory.map(
-      ({ purchase, converted, outstandingByMemberId, hasRecordedAllocations, resolvedAt }) => {
+      ({
+        purchase,
+        converted,
+        shareByMemberId,
+        outstandingByMemberId,
+        hasRecordedAllocations,
+        resolvedAt
+      }) => {
         const entry: FinanceDashboardLedgerEntry = {
           id: purchase.id,
           kind: purchase.sourceKind === 'transfer' ? 'transfer' : 'purchase',
@@ -3692,6 +3755,9 @@ async function buildFinanceDashboard(
           hasRecordedAllocations,
           resolutionStatus: outstandingByMemberId.size === 0 ? 'resolved' : 'unresolved',
           resolvedAt,
+          originalShareByMember: [...shareByMemberId]
+            .filter(([id]) => id !== purchase.payerMemberId)
+            .map(([memberId, amount]) => ({ memberId, amount })),
           outstandingByMember: [...outstandingByMemberId.entries()].map(([memberId, amount]) => ({
             memberId,
             amount
@@ -3719,13 +3785,14 @@ async function buildFinanceDashboard(
       memberId: payment.memberId,
       amount: Money.fromMinor(payment.amountMinor, payment.currency),
       currency: payment.currency,
-      displayAmount: Money.fromMinor(payment.amountMinor, payment.currency),
-      displayCurrency: payment.currency,
-      fxRateMicros: null,
-      fxEffectiveDate: null,
+      displayAmount: paymentConversions.get(payment.id)!.settlementAmount,
+      displayCurrency: cycle.currency,
+      fxRateMicros: paymentConversions.get(payment.id)!.fxRateMicros,
+      fxEffectiveDate: paymentConversions.get(payment.id)!.fxEffectiveDate,
       actorDisplayName: memberNameById.get(payment.memberId) ?? null,
       occurredAt: payment.recordedAt.toString(),
-      paymentKind: payment.kind
+      paymentKind: payment.kind,
+      isRoundingAdjustment: payment.isRoundingAdjustment ?? false
     }))
   ].sort((left, right) => {
     if (left.occurredAt === right.occurredAt) {
@@ -3736,6 +3803,9 @@ async function buildFinanceDashboard(
   })
 
   const dashboard: FinanceDashboard = {
+    ...(paymentRecords.some((p) => p.purchaseReconciliationPending)
+      ? { balanceUpdatePending: true }
+      : {}),
     period: cycle.period,
     currency: cycle.currency,
     timezone: settings.timezone,
@@ -3766,7 +3836,7 @@ async function buildFinanceDashboard(
     ledger
   }
 
-  if (isOpenCycle) {
+  if (isOpenCycle || options.freezeCycle) {
     const nextSnapshot: SettlementSnapshotRecord = {
       ...settlementSnapshotBase,
       metadata: {
@@ -3799,7 +3869,7 @@ async function allocatePaymentPurchaseOverage(input: {
   // so its own prior allocations are added back, letting the recompute reproduce
   // the full allocation set. Without this, a re-resolve only sees newly-found debt
   // and the subsequent replace silently drops the earlier (still valid) resolutions.
-  reresolvePaymentRecordId?: string
+  reresolvePaymentRecordIds?: readonly string[]
 }): Promise<{
   allocations: readonly {
     purchaseId: string
@@ -3865,13 +3935,13 @@ async function allocatePaymentPurchaseOverage(input: {
     return entry.isCurrentCyclePurchase !== true
   }
 
-  // Add back this payment's own prior allocations (see reresolvePaymentRecordId).
+  // Add back this payment's own prior allocations (see reresolvePaymentRecordIds).
   const priorAllocationByPurchaseId = new Map<string, bigint>()
-  if (input.reresolvePaymentRecordId) {
+  if (input.reresolvePaymentRecordIds?.length) {
     const allAllocations = await input.dependencies.repository.listPaymentPurchaseAllocations()
     for (const allocation of allAllocations) {
       if (
-        allocation.paymentRecordId === input.reresolvePaymentRecordId &&
+        input.reresolvePaymentRecordIds.includes(allocation.paymentRecordId) &&
         allocation.memberId === input.memberId
       ) {
         priorAllocationByPurchaseId.set(
@@ -3992,6 +4062,13 @@ async function allocatePaymentPurchaseOverage(input: {
 }
 
 export interface FinanceCommandService {
+  capturePaymentFundingContext(
+    memberId: string,
+    kind: FinancePaymentKind,
+    period: string,
+    currency: CurrencyCode
+  ): Promise<PaymentFundingContext | undefined>
+  reconcilePaymentPurchaseAllocations(paymentId: string): Promise<void>
   repayments: ReturnType<typeof createRepaymentService>
   getMemberByTelegramUserId(telegramUserId: string): Promise<FinanceMemberRecord | null>
   listMembers(): Promise<readonly FinanceMemberRecord[]>
@@ -4223,6 +4300,294 @@ export function createFinanceCommandService(
   const { dependencies, cache: operationCache } = withOperationReadCache(rawDependencies)
   const { repository, householdConfigurationRepository } = dependencies
 
+  async function capturePaymentFundingContext(
+    memberId: string,
+    kind: FinancePaymentKind,
+    period: string,
+    currency: CurrencyCode
+  ): Promise<PaymentFundingContext | undefined> {
+    const cycle = await repository.getCycleByPeriod(period)
+    if (!cycle) return undefined
+    for (let attempt = 0; attempt < 3; attempt++) {
+      operationCache.reset()
+      const before = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+      const context = await capturePaymentFundingContextOnce(memberId, kind, period, currency)
+      const after = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+      if (before === after) return context ? { ...context, inputRevision: after } : undefined
+    }
+    throw new Error('Payment pricing changed; retry confirmation')
+  }
+
+  async function cashFundingRecords(cycleId: string, memberId: string, kind: FinancePaymentKind) {
+    const manualIds = new Set(
+      (await repository.listPaymentPurchaseAllocations())
+        .filter((a) => a.resolutionMethod === 'manual')
+        .map((a) => a.paymentRecordId)
+    )
+    return (await repository.listPaymentRecordsForCycle(cycleId)).filter(
+      (p) => p.memberId === memberId && p.kind === kind && !manualIds.has(p.id)
+    )
+  }
+
+  async function capturePaymentFundingContextOnce(
+    memberId: string,
+    kind: FinancePaymentKind,
+    period: string,
+    currency: CurrencyCode
+  ): Promise<PaymentFundingContext | undefined> {
+    const dashboard = await buildFinanceDashboard(dependencies, period, { skipPlanRebalance: true })
+    const cycle = await repository.getCycleByPeriod(period)
+    const line = dashboard?.members.find((m) => m.memberId === memberId)
+    if (!dashboard || !cycle || !line) return undefined
+    const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+      dependencies.householdId
+    )
+    const records = await cashFundingRecords(cycle.id, memberId, kind)
+    const recordIds = new Set(records.map((p) => p.id))
+    const prior = (await repository.listPaymentPurchaseAllocations()).filter(
+      (a) => recordIds.has(a.paymentRecordId) && a.memberId === memberId
+    )
+    const plan = kind === 'utilities' ? dashboard.utilityBillingPlan : null
+    const accounted = new Set(plan?.accountedPurchaseIds ?? [])
+    const debts = dashboard.ledger
+      .filter(
+        (e) =>
+          (e.kind === 'purchase' || e.kind === 'transfer') &&
+          (!plan || accounted.has(e.id) || e.isCurrentCyclePurchase !== true)
+      )
+      .sort((a, b) =>
+        `${a.originPeriod ?? ''}:${a.occurredAt ?? ''}:${a.id}`.localeCompare(
+          `${b.originPeriod ?? ''}:${b.occurredAt ?? ''}:${b.id}`
+        )
+      )
+      .map((e) => ({
+        purchaseId: e.id,
+        sourceKind: e.kind === 'transfer' ? ('transfer' as const) : ('purchase' as const),
+        amountMinor: (
+          (e.outstandingByMember?.find((m) => m.memberId === memberId)?.amount.amountMinor ?? 0n) +
+          prior.filter((a) => a.purchaseId === e.id).reduce((n, a) => n + a.amountMinor, 0n)
+        ).toString()
+      }))
+      .filter((d) => BigInt(d.amountMinor) > 0n)
+    let rateMicros = 1000000n
+    if (currency !== cycle.currency) {
+      rateMicros = (
+        await resolveCycleExchangeRate({
+          repository,
+          exchangeRateProvider: dependencies.exchangeRateProvider,
+          cycleId: cycle.id,
+          sourceCurrency: currency,
+          targetCurrency: cycle.currency,
+          period: BillingPeriod.fromString(period),
+          lockDay: kind === 'rent' ? settings.rentWarningDay : settings.utilitiesReminderDay,
+          timezone: settings.timezone
+        })
+      ).rateMicros
+    }
+    const base = kind === 'utilities' ? line.utilityShare : line.rentShare
+    return {
+      policy: settings.paymentBalanceAdjustmentPolicy ?? 'utilities',
+      currency: cycle.currency,
+      rateMicros: rateMicros.toString(),
+      baseMinor: roundSuggestedPaymentMinor(kind, base.amountMinor).toString(),
+      targetMinor:
+        plan?.memberSummaries
+          .find((m) => m.memberId === memberId)
+          ?.fairShare.amountMinor.toString() ?? null,
+      planId: plan?.id ?? null,
+      debts
+    }
+  }
+
+  async function prepareFundingContexts(paymentId: string): Promise<void> {
+    const anchor = await repository.getPaymentRecord(paymentId)
+    if (!anchor) return
+    const cycle = (await repository.listCycles()).find((c) => c.id === anchor.cycleId)
+    if (!cycle || cycle.closedAt) return
+    const records = (await cashFundingRecords(cycle.id, anchor.memberId, anchor.kind)).sort(
+      (a, b) =>
+        a.fundingPhase !== undefined && b.fundingPhase !== undefined
+          ? a.fundingPhase < b.fundingPhase
+            ? -1
+            : a.fundingPhase > b.fundingPhase
+              ? 1
+              : 0
+          : a.recordedAt.toString().localeCompare(b.recordedAt.toString()) ||
+            a.id.localeCompare(b.id)
+    )
+    const allocations = await repository.listPaymentPurchaseAllocations()
+    const plans = await repository.listUtilityBillingPlansForCycle(cycle.id)
+    let cumulative = 0n
+    for (const record of records) {
+      let context =
+        record.purchaseFundingContext ??
+        (await capturePaymentFundingContext(
+          record.memberId,
+          record.kind,
+          cycle.period,
+          record.currency
+        ))
+      if (!context) continue
+      cumulative += convertMoney(
+        Money.fromMinor(record.amountMinor, record.currency),
+        context.currency,
+        BigInt(context.rateMicros)
+      ).amountMinor
+      if (record.purchaseFundingContext) continue
+      const own = allocations.filter(
+        (a) => a.paymentRecordId === record.id && a.memberId === record.memberId
+      )
+      const priorFunded = own.reduce((n, a) => n + a.amountMinor, 0n)
+      const originalPlan = plans.find((p) => own.some((a) => a.resolutionPlanId === p.id))
+      const original = originalPlan?.payload.memberSummaries.find(
+        (m) => m.memberId === record.memberId
+      )
+      if (
+        priorFunded > 0n &&
+        own.every(
+          (a) =>
+            a.resolutionMethod === (record.kind === 'utilities' ? 'utilities_plan' : 'rent_plan')
+        )
+      ) {
+        const target = original?.fairShareMinor ?? context.targetMinor
+        const ids = new Set(originalPlan?.payload.purchaseIds ?? [])
+        context = {
+          ...context,
+          policy: record.kind,
+          targetMinor: target,
+          planId: originalPlan?.id ?? context.planId,
+          baseMinor:
+            target !== null && cumulative >= BigInt(target)
+              ? context.baseMinor
+              : (cumulative > priorFunded ? cumulative - priorFunded : 0n).toString(),
+          debts: context.debts.filter(
+            (d) => ids.has(d.purchaseId) || own.some((a) => a.purchaseId === d.purchaseId)
+          )
+        }
+      }
+      await repository.setPaymentFundingContextIfMissing(record.id, context)
+    }
+  }
+
+  async function reconcilePaymentPurchaseAllocations(paymentId: string): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const anchor = await repository.getPaymentRecord(paymentId)
+      if (!anchor) return
+      const cycle = (await repository.listCycles()).find((c) => c.id === anchor.cycleId)
+      if (!cycle || cycle.closedAt) {
+        await repository.clearPaymentReconciliationPending(anchor.id)
+        return
+      }
+      await prepareFundingContexts(paymentId)
+      const records = (await cashFundingRecords(cycle.id, anchor.memberId, anchor.kind)).sort(
+        (a, b) =>
+          a.fundingPhase !== undefined && b.fundingPhase !== undefined
+            ? a.fundingPhase < b.fundingPhase
+              ? -1
+              : a.fundingPhase > b.fundingPhase
+                ? 1
+                : 0
+            : a.recordedAt.toString().localeCompare(b.recordedAt.toString()) ||
+              a.id.localeCompare(b.id)
+      )
+      const latest = records.at(-1)
+      if (!latest) return
+      if (records.some((p) => !p.purchaseFundingContext))
+        throw new Error('Payment pricing context is unavailable')
+      operationCache.reset()
+      const sourceRevision = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+      const ids = new Set(records.map((p) => p.id))
+      const allAllocations = await repository.listPaymentPurchaseAllocations()
+      const prior = allAllocations.filter(
+        (a) => ids.has(a.paymentRecordId) && a.memberId === anchor.memberId
+      )
+      const dashboard = await buildFinanceDashboard(dependencies, cycle.period, {
+        skipPlanRebalance: true
+      })
+      if (!dashboard) throw new Error('Payment balance is unavailable')
+      const available = new Map(
+        dashboard.ledger
+          .filter((e) => e.kind === 'purchase' || e.kind === 'transfer')
+          .map((e) => {
+            const owned = prior
+              .filter((a) => a.purchaseId === e.id)
+              .reduce((n, a) => n + a.amountMinor, 0n)
+            const outstanding =
+              e.outstandingByMember?.find((m) => m.memberId === anchor.memberId)?.amount
+                .amountMinor ?? 0n
+            const original =
+              e.originalShareByMember?.find((m) => m.memberId === anchor.memberId)?.amount
+                .amountMinor ?? 0n
+            const other = allAllocations
+              .filter(
+                (a) =>
+                  a.purchaseId === e.id &&
+                  a.memberId === anchor.memberId &&
+                  !ids.has(a.paymentRecordId)
+              )
+              .reduce((n, a) => n + a.amountMinor, 0n)
+            const cap = original > other ? original - other : 0n
+            return [
+              `${e.kind}:${e.id}`,
+              outstanding + owned < cap ? outstanding + owned : cap
+            ] as const
+          })
+      )
+      const allocations = replayPaymentPurchaseFunding(
+        records.map((p) => ({ ...p, purchaseFundingContext: p.purchaseFundingContext! })),
+        available
+      ).map((a) => ({
+        purchaseId: a.purchaseId,
+        amountMinor: a.amountMinor,
+        memberId: anchor.memberId,
+        ...(a.sourceKind === 'transfer' ? { sourceKind: a.sourceKind } : {})
+      }))
+      try {
+        await repository.replacePaymentPurchaseAllocations({
+          paymentRecordId: latest.id,
+          cycleId: cycle.id,
+          resolutionMethod: anchor.kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
+          resolutionPlanId: latest.purchaseFundingContext?.planId ?? null,
+          allocations,
+          replaceRecordIds: records.map((p) => p.id),
+          expectedPricingRevision: sourceRevision,
+          expectedPaymentRevision: paymentFundingRevision(records)
+        })
+        return
+      } catch (error) {
+        if (
+          attempt === 2 ||
+          !(error instanceof Error) ||
+          !error.message.includes('Payment funding changed')
+        )
+          throw error
+      }
+    }
+  }
+
+  async function prepareOpenPaymentContexts(): Promise<void> {
+    for (const cycle of await repository.listCycles()) {
+      if (cycle.closedAt) continue
+      const seen = new Set<string>()
+      for (const receipt of await repository.listPaymentRecordsForCycle(cycle.id)) {
+        const key = receipt.memberId + ':' + receipt.kind
+        if (seen.has(key)) continue
+        seen.add(key)
+        await prepareFundingContexts(receipt.id)
+      }
+    }
+  }
+
+  async function recoverPendingPaymentBalances(cycleId: string): Promise<void> {
+    const seen = new Set<string>()
+    for (const record of await repository.listPendingPaymentReconciliations(cycleId)) {
+      const key = record.memberId + ':' + record.kind
+      if (seen.has(key)) continue
+      seen.add(key)
+      await reconcilePaymentPurchaseAllocations(record.id)
+    }
+  }
+
   async function ensureExpectedCycle(referenceInstant = nowInstant()): Promise<FinanceCycleRecord> {
     const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
       dependencies.householdId
@@ -4241,6 +4606,19 @@ export function createFinanceCommandService(
 
     // Close every past cycle, not just the newest open one: closing one at a time
     // left older cycles open forever, which made closedAt meaningless.
+    const priorOpenIds = new Set(
+      (await repository.listCycles())
+        .filter((c) => c.period < period && !c.closedAt)
+        .map((c) => c.id)
+    )
+    const recovered = new Set<string>()
+    for (const record of await repository.listPendingPaymentReconciliations()) {
+      const key = record.cycleId + ':' + record.memberId + ':' + record.kind
+      if (priorOpenIds.has(record.cycleId) && !recovered.has(key)) {
+        await reconcilePaymentPurchaseAllocations(record.id)
+        recovered.add(key)
+      }
+    }
     await repository.closeCyclesBeforePeriod(period, referenceInstant)
 
     if (settings.rentAmountMinor !== null) {
@@ -4328,12 +4706,33 @@ export function createFinanceCommandService(
       })
       .filter((item) => item.remainingMinor > 0n)
 
-    const existingUtilityPaymentMinor = input.existingPaymentRecords
-      .filter((payment) => payment.memberId === input.memberId && payment.kind === 'utilities')
-      .reduce((sum, payment) => sum + payment.amountMinor, 0n)
-    const existingVendorPaidMinor = input.existingVendorFacts
-      .filter((fact) => fact.payerMemberId === input.memberId)
-      .reduce((sum, fact) => sum + fact.amountMinor, 0n)
+    const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
+      dependencies.householdId
+    )
+    const normalizeAmount = async (amountMinor: bigint, currency: CurrencyCode) =>
+      (
+        await convertIntoCycleCurrency(dependencies, {
+          cycle: input.cycle,
+          period: BillingPeriod.fromString(input.dashboard.period),
+          lockDay: settings.utilitiesReminderDay,
+          timezone: settings.timezone,
+          amount: Money.fromMinor(amountMinor, currency)
+        })
+      ).settlementAmount.amountMinor
+    const existingUtilityPaymentMinor = (
+      await Promise.all(
+        input.existingPaymentRecords
+          .filter((p) => p.memberId === input.memberId && p.kind === 'utilities')
+          .map((p) => normalizeAmount(p.amountMinor, p.currency))
+      )
+    ).reduce((n, a) => n + a, 0n)
+    const existingVendorPaidMinor = (
+      await Promise.all(
+        input.existingVendorFacts
+          .filter((f) => f.payerMemberId === input.memberId)
+          .map((f) => normalizeAmount(f.amountMinor, f.currency))
+      )
+    ).reduce((n, a) => n + a, 0n)
     let insertedMatchedPlanPaidMinor = 0n
     const insertedBillIds: string[] = []
     const insertedFactIds: string[] = []
@@ -4376,20 +4775,23 @@ export function createFinanceCommandService(
     const onlyCurrentPlanFacts =
       ownFacts.length > 0 &&
       ownFacts.every((fact) => utilityFactMatchesPlan(fact, input.utilityPlan))
-    const existingPaymentRecord = input.existingPaymentRecords
-      .filter(
-        (payment) =>
-          payment.memberId === input.memberId &&
-          payment.kind === 'utilities' &&
-          (currentPlanPaymentIds.has(payment.id) ||
-            (currentPlanPaymentIds.size === 0 && onlyCurrentPlanFacts))
-      )
-      .sort((left, right) =>
-        (right.recordedAt.toString() ?? '').localeCompare(left.recordedAt.toString() ?? '')
-      )[0]
-    const settings = await householdConfigurationRepository.getHouseholdBillingSettings(
-      dependencies.householdId
-    )
+    const existingPaymentRecord =
+      input.existingPaymentRecords
+        .filter(
+          (payment) =>
+            payment.memberId === input.memberId &&
+            payment.kind === 'utilities' &&
+            (currentPlanPaymentIds.has(payment.id) ||
+              (currentPlanPaymentIds.size === 0 && onlyCurrentPlanFacts))
+        )
+        .sort((left, right) =>
+          (right.recordedAt.toString() ?? '').localeCompare(left.recordedAt.toString() ?? '')
+        )[0] ??
+      (existingVendorPaidMinor + insertedMatchedPlanPaidMinor <= existingUtilityPaymentMinor
+        ? input.existingPaymentRecords
+            .filter((p) => p.memberId === input.memberId && p.kind === 'utilities')
+            .sort((a, b) => b.recordedAt.toString().localeCompare(a.recordedAt.toString()))[0]
+        : undefined)
     const effectivePaymentAmountMinor =
       existingVendorPaidMinor + insertedMatchedPlanPaidMinor > existingUtilityPaymentMinor
         ? existingVendorPaidMinor + insertedMatchedPlanPaidMinor - existingUtilityPaymentMinor
@@ -4400,6 +4802,12 @@ export function createFinanceCommandService(
     // Cumulative (existing + inserted), not the inserted delta — on a repair or
     // re-resolve the delta is zero and the still-valid allocations would be dropped.
     const actualVendorPaidMinor = existingVendorPaidMinor + insertedMatchedPlanPaidMinor
+    const pricing = await capturePaymentFundingContext(
+      input.memberId,
+      'utilities',
+      input.dashboard.period,
+      input.dashboard.currency
+    )
     const allocationResult = await allocatePaymentPurchaseOverage({
       dependencies,
       cyclePeriod: input.dashboard.period,
@@ -4407,7 +4815,7 @@ export function createFinanceCommandService(
       kind: 'utilities',
       paymentAmount: Money.fromMinor(actualVendorPaidMinor, input.dashboard.currency),
       settings,
-      ...(existingPaymentRecord ? { reresolvePaymentRecordId: existingPaymentRecord.id } : {})
+      ...(existingPaymentRecord ? { reresolvePaymentRecordIds: [existingPaymentRecord.id] } : {})
     })
     const payment =
       effectivePaymentAmountMinor > 0n
@@ -4417,6 +4825,7 @@ export function createFinanceCommandService(
             kind: 'utilities',
             amountMinor: effectivePaymentAmountMinor,
             currency: input.dashboard.currency,
+            ...(pricing ? { purchaseFundingContext: pricing } : {}),
             recordedAt: input.recordedAt,
             idempotencyKey: `close-payment-period:${dependencies.householdId}:${input.cycle.id}:utilities:${input.utilityPlan.id}:${input.memberId}`
           })
@@ -4428,19 +4837,13 @@ export function createFinanceCommandService(
                 kind: 'utilities',
                 amountMinor: 0n,
                 currency: input.dashboard.currency,
+                ...(pricing ? { purchaseFundingContext: pricing } : {}),
                 recordedAt: input.recordedAt,
                 idempotencyKey: `close-payment-period:${dependencies.householdId}:${input.cycle.id}:utilities:${input.utilityPlan.id}:${input.memberId}`
               })
             : undefined))
 
     if (payment) {
-      // Tie the facts minted above to the payment they came from, so deleting the
-      // payment removes them instead of leaving the member marked as paid.
-      await repository.attachUtilityVendorPaymentFactsToPayment({
-        factIds: insertedFactIds,
-        paymentRecordId: payment.id
-      })
-
       const existingAllocations = await repository.listPaymentPurchaseAllocations()
       const existingPaymentAllocations = existingAllocations.filter(
         (allocation) => allocation.paymentRecordId === payment.id
@@ -4454,6 +4857,23 @@ export function createFinanceCommandService(
           allocations: allocationResult.allocations
         })
       }
+      await repository.attachUtilityVendorPaymentFactsToPayment({
+        factIds: [
+          ...new Set([
+            ...insertedFactIds,
+            ...input.existingVendorFacts
+              .filter(
+                (f) =>
+                  !f.paymentRecordId &&
+                  f.payerMemberId === input.memberId &&
+                  utilityFactMatchesPlan(f, input.utilityPlan)
+              )
+              .map((f) => f.id)
+          ])
+        ],
+        paymentRecordId: payment.id
+      })
+      await reconcilePaymentPurchaseAllocations(payment.id)
     }
 
     return {
@@ -4463,6 +4883,8 @@ export function createFinanceCommandService(
   }
 
   const service: FinanceCommandService = {
+    capturePaymentFundingContext,
+    reconcilePaymentPurchaseAllocations,
     repayments: createRepaymentService({
       repository: rawDependencies.repository,
       async context() {
@@ -4610,17 +5032,27 @@ export function createFinanceCommandService(
 
     async closeCycle(periodArg) {
       const cycle = await getCycleByPeriodOrLatest(dependencies, periodArg)
-      if (!cycle) {
-        return null
+      if (!cycle || cycle.closedAt) return cycle
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await recoverPendingPaymentBalances(cycle.id)
+        operationCache.reset()
+        const before = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+        const dashboard = await buildFinanceDashboard(dependencies, cycle.period, {
+          freezeCycle: true
+        })
+        if (!dashboard)
+          throw new Error(`Failed to materialize final dashboard for cycle ${cycle.period}`)
+        const after = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+        if (before !== after) continue
+        try {
+          await repository.closeCycle(cycle.id, nowInstant(), after)
+          return cycle
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes('Payment pricing changed'))
+            throw error
+        }
       }
-
-      const dashboard = await buildFinanceDashboard(dependencies, cycle.period)
-      if (!dashboard) {
-        throw new Error(`Failed to materialize final dashboard for cycle ${cycle.period}`)
-      }
-
-      await repository.closeCycle(cycle.id, nowInstant())
-      return cycle
+      throw new Error('Payment pricing changed; retry closing the period')
     },
 
     async setRent(amountArg, currencyArg, periodArg, fxRateMicrosArg) {
@@ -4795,6 +5227,7 @@ export function createFinanceCommandService(
         members
       })
 
+      await prepareOpenPaymentContexts()
       const updated = await repository.updateParsedPurchase({
         purchaseId,
         amountMinor: amount.amountMinor,
@@ -4826,6 +5259,16 @@ export function createFinanceCommandService(
       }
 
       await invalidateCurrentUtilityBillingPlan(dependencies)
+      const current = await getDefaultOpenCycle(dependencies)
+      if (current) {
+        const seen = new Set<string>()
+        for (const receipt of await repository.listPaymentRecordsForCycle(current.id)) {
+          const key = receipt.memberId + ':' + receipt.kind
+          if (seen.has(key)) continue
+          seen.add(key)
+          await reconcilePaymentPurchaseAllocations(receipt.id)
+        }
+      }
 
       return {
         purchaseId: updated.id,
@@ -4892,6 +5335,7 @@ export function createFinanceCommandService(
     },
 
     async deletePurchase(purchaseId) {
+      await prepareOpenPaymentContexts()
       const deleted = await repository.deleteParsedPurchase(purchaseId)
       if (deleted) {
         await invalidateCurrentUtilityBillingPlan(dependencies)
@@ -4906,6 +5350,7 @@ export function createFinanceCommandService(
           status: 'not_editable'
         }
       }
+      await prepareOpenPaymentContexts()
       const result = await repository.toggleSavedPurchaseParticipant(
         participantId,
         actorTelegramUserId
@@ -5004,6 +5449,12 @@ export function createFinanceCommandService(
         }
 
         const payment = await repository.addPaymentRecord({
+          ...(await capturePaymentFundingContext(
+            memberId,
+            kind,
+            target.cycle.period,
+            currency
+          ).then((c) => (c ? { purchaseFundingContext: c } : {}))),
           cycleId: target.cycle.id,
           memberId,
           kind,
@@ -5015,28 +5466,15 @@ export function createFinanceCommandService(
           firstPayment = payment
         }
 
-        const allocationResult = target.allowOverflow
-          ? await allocatePaymentPurchaseOverage({
-              dependencies,
-              cyclePeriod: target.cycle.period,
-              memberId,
-              kind,
-              paymentAmount: Money.fromMinor(amountMinor, currency),
-              settings
-            })
-          : {
-              allocations: [],
-              resolutionMethod:
-                kind === 'utilities' ? ('utilities_plan' as const) : ('rent_plan' as const),
-              resolutionPlanId: null
-            }
-        await repository.replacePaymentPurchaseAllocations({
-          paymentRecordId: payment.id,
-          cycleId: target.cycle.id,
-          resolutionMethod: allocationResult.resolutionMethod,
-          resolutionPlanId: allocationResult.resolutionPlanId,
-          allocations: allocationResult.allocations
-        })
+        if (target.allowOverflow) {
+          try {
+            await reconcilePaymentPurchaseAllocations(payment.id)
+          } catch {
+            /* The saved receipt retains durable pending work. */
+          }
+        } else {
+          await repository.clearPaymentReconciliationPending(payment.id)
+        }
 
         remainingMinor -= amountMinor
       }
@@ -5254,6 +5692,7 @@ export function createFinanceCommandService(
       if (!existingPayment) {
         return null
       }
+      await prepareFundingContexts(paymentId)
       const payment = await repository.updatePaymentRecord({
         paymentId,
         memberId,
@@ -5267,30 +5706,22 @@ export function createFinanceCommandService(
         return null
       }
 
-      await repository.replacePaymentPurchaseAllocations({
-        paymentRecordId: paymentId,
-        cycleId: existingPayment.cycleId,
-        resolutionMethod: kind === 'utilities' ? 'utilities_plan' : 'rent_plan',
-        resolutionPlanId: null,
-        allocations: []
-      })
-
-      const allocationResult = await allocatePaymentPurchaseOverage({
-        dependencies,
-        cyclePeriod:
-          existingPayment.cyclePeriod ?? expectedOpenCyclePeriod(settings, nowInstant()).toString(),
-        memberId,
-        kind,
-        paymentAmount: amount,
-        settings
-      })
-      await repository.replacePaymentPurchaseAllocations({
-        paymentRecordId: paymentId,
-        cycleId: existingPayment.cycleId,
-        resolutionMethod: allocationResult.resolutionMethod,
-        resolutionPlanId: allocationResult.resolutionPlanId,
-        allocations: allocationResult.allocations
-      })
+      try {
+        await reconcilePaymentPurchaseAllocations(payment.id)
+      } catch {
+        /* The saved receipt retains durable pending work. */
+      }
+      if (existingPayment.memberId !== memberId || existingPayment.kind !== kind) {
+        const previous = (
+          await repository.listPaymentRecordsForCycle(existingPayment.cycleId)
+        ).find((p) => p.memberId === existingPayment.memberId && p.kind === existingPayment.kind)
+        if (previous)
+          try {
+            await reconcilePaymentPurchaseAllocations(previous.id)
+          } catch {
+            /* Durable pending work keeps the saved correction recoverable. */
+          }
+      }
 
       return {
         paymentId: payment.id,
@@ -5301,6 +5732,7 @@ export function createFinanceCommandService(
 
     async deletePayment(paymentId) {
       const existing = await repository.getPaymentRecord(paymentId)
+      await prepareFundingContexts(paymentId)
       const deleted = await repository.deletePaymentRecord(paymentId)
       if (!deleted || !existing) {
         return deleted
@@ -5315,11 +5747,21 @@ export function createFinanceCommandService(
       }
       await invalidateUtilityBillingPlanForCycle(repository, existing.cycleId)
 
+      const remaining = (await repository.listPaymentRecordsForCycle(existing.cycleId)).find(
+        (p) => p.memberId === existing.memberId && p.kind === existing.kind
+      )
+      if (remaining)
+        try {
+          await reconcilePaymentPurchaseAllocations(remaining.id)
+        } catch {
+          /* The deletion is saved; surviving receipts retain pending reconciliation. */
+        }
       return true
     },
 
     async deleteUtilityVendorPaymentFact(factId) {
       const fact = await repository.getUtilityVendorPaymentFact(factId)
+      if (fact?.paymentRecordId) await prepareFundingContexts(fact.paymentRecordId)
       const deleted = await repository.deleteUtilityVendorPaymentFact(factId)
       if (!deleted || !fact) {
         return deleted
@@ -5332,6 +5774,15 @@ export function createFinanceCommandService(
       }
       await invalidateUtilityBillingPlanForCycle(repository, fact.cycleId)
 
+      const remaining = (await repository.listPaymentRecordsForCycle(fact.cycleId)).find(
+        (p) => p.memberId === fact.payerMemberId && p.kind === 'utilities'
+      )
+      if (remaining)
+        try {
+          await reconcilePaymentPurchaseAllocations(remaining.id)
+        } catch {
+          /* The deletion is saved; surviving receipts retain pending reconciliation. */
+        }
       return true
     },
 
@@ -6118,12 +6569,29 @@ export function createFinanceCommandService(
       ].join('\n')
     },
 
-    generateDashboard(periodArg, options) {
+    async generateDashboard(periodArg, options) {
+      const current = periodArg
+        ? await repository.getCycleByPeriod(periodArg)
+        : await getDefaultOpenCycle(dependencies)
+      if (current && !current.closedAt) {
+        const pending = await repository.listPendingPaymentReconciliations(current.id)
+        const seen = new Set<string>()
+        for (const record of pending) {
+          const key = record.memberId + ':' + record.kind
+          if (seen.has(key)) continue
+          seen.add(key)
+          try {
+            await reconcilePaymentPurchaseAllocations(record.id)
+          } catch {
+            /* Keep pending status visible until recovery succeeds. */
+          }
+        }
+      }
       return materializeDashboard(periodArg, options)
     },
 
     ensureDashboardMaterialized(periodArg, options) {
-      return materializeDashboard(periodArg, options)
+      return service.generateDashboard(periodArg, options)
     },
 
     async manuallyResolvePurchase(input) {
@@ -6140,9 +6608,40 @@ export function createFinanceCommandService(
         throw new Error('No open billing cycle')
       }
 
+      await recoverPendingPaymentBalances(cycle.id)
+      let sourceRevision = ''
+      let dashboard: FinanceDashboard | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        operationCache.reset()
+        const before = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+        const next = await buildFinanceDashboard(dependencies, cycle.period, {
+          skipPlanRebalance: true
+        })
+        const after = await rawDependencies.repository.getPaymentPricingRevision(cycle.id)
+        if (before === after) {
+          sourceRevision = after
+          dashboard = next
+          break
+        }
+      }
+      if (!dashboard || !sourceRevision)
+        throw new Error('Payment pricing changed; retry manual resolution')
+      const outstanding =
+        dashboard?.ledger.find((e) => e.kind === 'purchase' && e.id === input.purchaseId)
+          ?.outstandingByMember ?? []
+      const seen = new Set<string>()
       // Parse and validate allocations
       const allocations = input.allocations.map((allocation) => {
-        const amount = Money.fromMajor(allocation.amountMajor, 'GEL')
+        const amount = Money.fromMajor(allocation.amountMajor, cycle.currency)
+        const remaining =
+          outstanding.find((m) => m.memberId === allocation.memberId)?.amount.amountMinor ?? 0n
+        if (
+          seen.has(allocation.memberId) ||
+          amount.amountMinor <= 0n ||
+          amount.amountMinor > remaining
+        )
+          throw new Error('Manual resolution exceeds the current unpaid purchase share')
+        seen.add(allocation.memberId)
         return {
           memberId: allocation.memberId,
           amountMinor: amount.amountMinor
@@ -6153,6 +6652,7 @@ export function createFinanceCommandService(
 
       // Create manual allocations
       await dependencies.repository.createManualPurchaseAllocations({
+        expectedPricingRevision: sourceRevision,
         purchaseId: input.purchaseId,
         cycleId: cycle.id,
         allocations,
@@ -6161,7 +6661,7 @@ export function createFinanceCommandService(
 
       return {
         purchaseId: input.purchaseId,
-        resolvedAmount: Money.fromMinor(totalResolved, 'GEL')
+        resolvedAmount: Money.fromMinor(totalResolved, cycle.currency)
       }
     }
   }

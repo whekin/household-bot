@@ -1,3 +1,4 @@
+import { nextPaymentFundingPhase } from './payment-funding-phase'
 import { createHash } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 
@@ -307,6 +308,8 @@ export function createUtilityBillImportRepository(
                   amountMinor,
                   currency: 'GEL',
                   recordedAt,
+                  fundingPhase: await nextPaymentFundingPhase(tx, householdId, cycle.id),
+                  purchaseReconciliationPending: 1,
                   idempotencyKey
                 })
                 .returning({ id: schema.paymentRecords.id })

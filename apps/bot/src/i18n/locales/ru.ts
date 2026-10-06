@@ -308,13 +308,10 @@ export const ruBotTranslations: BotTranslationCatalog = {
     onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
     paidButton: 'Отметить оплату',
     paidUtilitiesButton: 'Я оплатил свои счета',
-    closeUnpaidButton: 'Закрыть неоплаченных',
-    confirmCloseButton: 'Подтвердить закрытие',
     fullyPaid: (kind, month) =>
       `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${month} полностью оплачена.`,
     alreadyPaid: 'Уже отмечено как оплачено.',
     notMember: 'Не удалось сопоставить вас с участником дома.',
-    adminOnly: 'Это действие доступно только админам дома.',
     paymentRecordedToast: 'Оплата отмечена.',
     reminderUnavailable: 'Это напоминание уже недоступно.',
     noRentDestinations: 'Реквизиты для аренды пока не настроены.',
@@ -466,6 +463,11 @@ export const ruBotTranslations: BotTranslationCatalog = {
     timingDueNow: (kind, dueDate) =>
       `⚠️ ${kind === 'rent' ? 'Аренду' : 'Коммуналку'} уже пора оплачивать. Срок оплаты: ${dueDate}.`,
     confirmButton: '✅ Подтвердить оплату',
+    balanceUpdatePendingReminder:
+      '⚠️ Баланс после сохранённого платежа ещё обновляется. Откройте дашборд и обновите его перед следующей оплатой.',
+    balanceUpdatePending:
+      '⚠️ Платёж сохранён. Обновление баланса ещё не завершено. Повторите ниже — платёж не запишется второй раз.',
+    retryBalanceButton: '🔄 Повторить обновление баланса',
     confirmSelectedButton: '✅ Подтвердить выбранных',
     cancelButton: '🚫 Отменить',
     multiProposal: (kind, period) =>

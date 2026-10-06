@@ -111,9 +111,9 @@ Writes:
   `maybeCreatePaymentProposalFromCandidate` (extended with explicit `memberIds`),
   existing single/multi cards + callbacks.
 - `propose_purchase {description, amountMajor, currency?, payerMemberId?,
-participantMemberIds?}` → `saveWithInterpretation`, existing purchase card.
+  participantMemberIds?}` → `saveWithInterpretation`, existing purchase card.
 - `update_payment / delete_payment / update_purchase / delete_purchase /
-set_purchase_participants {id, ...}` → generic `agent_action` confirmation card;
+  set_purchase_participants {id, ...}` → generic `agent_action` confirmation card;
   executes via `FinanceCommandService` on confirm.
 - `cancel_pending_proposal` — clears sender's pending payment proposal/clarification.
 

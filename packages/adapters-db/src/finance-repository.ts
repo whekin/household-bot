@@ -1,3 +1,4 @@
+import { paymentPricingRevision } from './payment-pricing-revision'
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 
 import { createDbClient, schema } from '@household/db'
@@ -15,11 +16,42 @@ import {
   instantFromDatabaseValue,
   instantToDate,
   nowInstant,
+  paymentFundingRevision,
+  parsePaymentFundingContext,
   type CurrencyCode
 } from '@household/domain'
 import { createRepaymentRepository } from './repayment-repository'
 import { createUtilityBillImportRepository } from './utility-bill-import-repository'
 import { randomUUID } from 'node:crypto'
+import { nextPaymentFundingPhase } from './payment-funding-phase'
+
+type FinanceTransaction = Parameters<
+  Parameters<ReturnType<typeof createDbClient>['db']['transaction']>[0]
+>[0]
+
+async function utilityBillMinorInCurrency(
+  tx: FinanceTransaction,
+  bill: typeof schema.utilityBills.$inferSelect,
+  currency: CurrencyCode
+): Promise<bigint> {
+  if (bill.currency === currency) return bill.amountMinor
+  const [rate] = await tx
+    .select()
+    .from(schema.billingCycleExchangeRates)
+    .where(
+      and(
+        eq(schema.billingCycleExchangeRates.cycleId, bill.cycleId),
+        eq(schema.billingCycleExchangeRates.sourceCurrency, bill.currency),
+        eq(schema.billingCycleExchangeRates.targetCurrency, currency)
+      )
+    )
+  if (!rate) throw new Error('The utility bill has no fixed exchange rate for this currency')
+  return convertMoney(
+    Money.fromMinor(bill.amountMinor, toCurrencyCode(bill.currency)),
+    currency,
+    rate.rateMicros
+  ).amountMinor
+}
 
 function toCurrencyCode(raw: string): CurrencyCode {
   const normalized = raw.trim().toUpperCase()
@@ -35,6 +67,17 @@ function asRecord(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === 'object' && !Array.isArray(raw)
     ? (raw as Record<string, unknown>)
     : {}
+}
+
+function paymentFundingFields(value: unknown) {
+  const row = asRecord(value)
+  const context = parsePaymentFundingContext(row.purchaseFundingContext)
+  if (row.purchaseFundingContext && !context) throw new Error('Invalid payment funding context')
+  return {
+    ...(typeof row.fundingPhase === 'bigint' ? { fundingPhase: row.fundingPhase } : {}),
+    ...(context ? { purchaseFundingContext: context } : {}),
+    purchaseReconciliationPending: row.purchaseReconciliationPending === 1
+  }
 }
 
 function mapUtilityBillingPlanPayload(raw: unknown): FinanceUtilityBillingPlanPayload {
@@ -383,6 +426,10 @@ export function createDbFinanceRepository(
         kind: schema.paymentRecords.kind,
         amountMinor: schema.paymentRecords.amountMinor,
         currency: schema.paymentRecords.currency,
+        idempotencyKey: schema.paymentRecords.idempotencyKey,
+        fundingPhase: schema.paymentRecords.fundingPhase,
+        purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+        purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
         recordedAt: schema.paymentRecords.recordedAt
       })
       .from(schema.paymentRecords)
@@ -398,8 +445,37 @@ export function createDbFinanceRepository(
       kind: row.kind === 'utilities' ? ('utilities' as const) : ('rent' as const),
       amountMinor: row.amountMinor,
       currency: toCurrencyCode(row.currency),
+      isRoundingAdjustment: row.idempotencyKey?.startsWith('utility-rounding:') ?? false,
+      ...paymentFundingFields(row),
       recordedAt: instantFromDatabaseValue(row.recordedAt)!
     }))
+  }
+
+  async function markOpenPaymentBalancesPending(tx: FinanceTransaction) {
+    const cycles = await tx
+      .select({ id: schema.billingCycles.id })
+      .from(schema.billingCycles)
+      .where(
+        and(
+          eq(schema.billingCycles.householdId, householdId),
+          isNull(schema.billingCycles.closedAt)
+        )
+      )
+      .orderBy(schema.billingCycles.period)
+      .for('update')
+    if (cycles.length)
+      await tx
+        .update(schema.paymentRecords)
+        .set({ purchaseReconciliationPending: 1 })
+        .where(
+          and(
+            inArray(
+              schema.paymentRecords.cycleId,
+              cycles.map((c) => c.id)
+            ),
+            sql`NOT EXISTS (SELECT 1 FROM payment_purchase_allocations a WHERE a.payment_record_id = ${schema.paymentRecords.id} AND a.resolution_method = 'manual')`
+          )
+        )
   }
 
   const repository: FinanceRepository = {
@@ -457,6 +533,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.billingCycles.id,
           period: schema.billingCycles.period,
+          closedAt: schema.billingCycles.closedAt,
           currency: schema.billingCycles.currency
         })
         .from(schema.billingCycles)
@@ -477,6 +554,7 @@ export function createDbFinanceRepository(
 
       return {
         ...row,
+        closedAt: instantFromDatabaseValue(row.closedAt),
         currency: toCurrencyCode(row.currency)
       }
     },
@@ -486,6 +564,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.billingCycles.id,
           period: schema.billingCycles.period,
+          closedAt: schema.billingCycles.closedAt,
           currency: schema.billingCycles.currency
         })
         .from(schema.billingCycles)
@@ -494,6 +573,7 @@ export function createDbFinanceRepository(
 
       return rows.map((row) => ({
         ...row,
+        closedAt: instantFromDatabaseValue(row.closedAt),
         currency: toCurrencyCode(row.currency)
       }))
     },
@@ -503,6 +583,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.billingCycles.id,
           period: schema.billingCycles.period,
+          closedAt: schema.billingCycles.closedAt,
           currency: schema.billingCycles.currency
         })
         .from(schema.billingCycles)
@@ -522,6 +603,7 @@ export function createDbFinanceRepository(
 
       return {
         ...row,
+        closedAt: instantFromDatabaseValue(row.closedAt),
         currency: toCurrencyCode(row.currency)
       }
     },
@@ -531,6 +613,7 @@ export function createDbFinanceRepository(
         .select({
           id: schema.billingCycles.id,
           period: schema.billingCycles.period,
+          closedAt: schema.billingCycles.closedAt,
           currency: schema.billingCycles.currency
         })
         .from(schema.billingCycles)
@@ -546,6 +629,7 @@ export function createDbFinanceRepository(
 
       return {
         ...row,
+        closedAt: instantFromDatabaseValue(row.closedAt),
         currency: toCurrencyCode(row.currency)
       }
     },
@@ -564,32 +648,75 @@ export function createDbFinanceRepository(
     },
 
     async closeCyclesBeforePeriod(period, closedAt) {
-      const rows = await db
-        .update(schema.billingCycles)
-        .set({
-          closedAt: instantToDate(closedAt)
-        })
-        .where(
-          and(
-            eq(schema.billingCycles.householdId, householdId),
-            isNull(schema.billingCycles.closedAt),
-            lt(schema.billingCycles.period, period)
+      return db.transaction(async (tx) => {
+        const cycles = await tx
+          .select({ id: schema.billingCycles.id })
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              isNull(schema.billingCycles.closedAt),
+              lt(schema.billingCycles.period, period)
+            )
           )
-        )
-        .returning({
-          id: schema.billingCycles.id
-        })
-
-      return rows.map((row) => row.id)
+          .orderBy(schema.billingCycles.period)
+          .for('update')
+        if (!cycles.length) return []
+        const ids = cycles.map((c) => c.id)
+        const pending = await tx
+          .select({ id: schema.paymentRecords.id })
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              inArray(schema.paymentRecords.cycleId, ids),
+              eq(schema.paymentRecords.purchaseReconciliationPending, 1)
+            )
+          )
+          .limit(1)
+        if (pending.length)
+          throw new Error('Pending balance reconciliation prevents closing the period')
+        await tx
+          .update(schema.billingCycles)
+          .set({ closedAt: instantToDate(closedAt) })
+          .where(inArray(schema.billingCycles.id, ids))
+        return ids
+      })
     },
-
-    async closeCycle(cycleId, closedAt) {
-      await db
-        .update(schema.billingCycles)
-        .set({
-          closedAt: instantToDate(closedAt)
-        })
-        .where(eq(schema.billingCycles.id, cycleId))
+    async closeCycle(cycleId, closedAt, expectedPricingRevision) {
+      await db.transaction(async (tx) => {
+        const [cycle] = await tx
+          .select()
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, cycleId)
+            )
+          )
+          .for('update')
+        if (!cycle || cycle.closedAt) return
+        if (
+          expectedPricingRevision &&
+          expectedPricingRevision !== (await paymentPricingRevision(tx, householdId, cycleId))
+        )
+          throw new Error('Payment pricing changed; retry closing the period')
+        const pending = await tx
+          .select({ id: schema.paymentRecords.id })
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.cycleId, cycleId),
+              eq(schema.paymentRecords.purchaseReconciliationPending, 1)
+            )
+          )
+          .limit(1)
+        if (pending.length)
+          throw new Error('Pending balance reconciliation prevents closing the period')
+        await tx
+          .update(schema.billingCycles)
+          .set({ closedAt: instantToDate(closedAt) })
+          .where(eq(schema.billingCycles.id, cycleId))
+      })
     },
 
     async saveRentRule(period, amountMinor, currency, options) {
@@ -845,6 +972,7 @@ export function createDbFinanceRepository(
 
     async updateParsedPurchase(input) {
       return await db.transaction(async (tx) => {
+        await markOpenPaymentBalancesPending(tx)
         const rows = await tx
           .update(schema.purchaseMessages)
           .set({
@@ -941,19 +1069,22 @@ export function createDbFinanceRepository(
     },
 
     async deleteParsedPurchase(purchaseId) {
-      const rows = await db
-        .delete(schema.purchaseMessages)
-        .where(
-          and(
-            eq(schema.purchaseMessages.householdId, householdId),
-            eq(schema.purchaseMessages.id, purchaseId)
+      return db.transaction(async (tx) => {
+        await markOpenPaymentBalancesPending(tx)
+        const rows = await tx
+          .delete(schema.purchaseMessages)
+          .where(
+            and(
+              eq(schema.purchaseMessages.householdId, householdId),
+              eq(schema.purchaseMessages.id, purchaseId)
+            )
           )
-        )
-        .returning({
-          id: schema.purchaseMessages.id
-        })
+          .returning({
+            id: schema.purchaseMessages.id
+          })
 
-      return rows.length > 0
+        return rows.length > 0
+      })
     },
 
     async getParsedPurchase(purchaseId) {
@@ -1014,6 +1145,7 @@ export function createDbFinanceRepository(
           | { status: 'updated'; purchaseId: string }
           | { status: 'not_found' | 'forbidden' | 'not_editable' | 'at_least_one_required' }
         > => {
+          await markOpenPaymentBalancesPending(tx)
           const rows = await tx
             .select({
               participantId: schema.purchaseMessageParticipants.id,
@@ -1240,85 +1372,117 @@ export function createDbFinanceRepository(
     },
 
     async addPaymentRecord(input) {
-      const rows = await db
-        .insert(schema.paymentRecords)
-        .values({
-          householdId,
-          cycleId: input.cycleId,
-          memberId: input.memberId,
-          kind: input.kind,
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          recordedAt: instantToDate(input.recordedAt)
-        })
-        .returning({
-          id: schema.paymentRecords.id,
-          cycleId: schema.paymentRecords.cycleId,
-          memberId: schema.paymentRecords.memberId,
-          kind: schema.paymentRecords.kind,
-          amountMinor: schema.paymentRecords.amountMinor,
-          currency: schema.paymentRecords.currency,
-          recordedAt: schema.paymentRecords.recordedAt
-        })
+      return db.transaction(async (tx) => {
+        const phase = await nextPaymentFundingPhase(tx, householdId, input.cycleId)
+        if (
+          input.purchaseFundingContext?.inputRevision &&
+          input.purchaseFundingContext.inputRevision !==
+            (await paymentPricingRevision(tx, householdId, input.cycleId))
+        )
+          throw new Error('Payment pricing changed; retry confirmation')
+        const rows = await tx
+          .insert(schema.paymentRecords)
+          .values({
+            householdId,
+            fundingPhase: phase,
+            purchaseFundingContext: input.purchaseFundingContext ?? null,
+            purchaseReconciliationPending: 1,
+            cycleId: input.cycleId,
+            memberId: input.memberId,
+            kind: input.kind,
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            recordedAt: instantToDate(input.recordedAt)
+          })
+          .returning({
+            id: schema.paymentRecords.id,
+            cycleId: schema.paymentRecords.cycleId,
+            memberId: schema.paymentRecords.memberId,
+            kind: schema.paymentRecords.kind,
+            amountMinor: schema.paymentRecords.amountMinor,
+            currency: schema.paymentRecords.currency,
+            fundingPhase: schema.paymentRecords.fundingPhase,
+            purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+            purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
+            recordedAt: schema.paymentRecords.recordedAt
+          })
 
-      const row = rows[0]
-      if (!row) {
-        throw new Error('Failed to add payment record')
-      }
+        const row = rows[0]
+        if (!row) {
+          throw new Error('Failed to add payment record')
+        }
 
-      return {
-        id: row.id,
-        cycleId: row.cycleId,
-        cyclePeriod: null,
-        memberId: row.memberId,
-        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
-        amountMinor: row.amountMinor,
-        currency: toCurrencyCode(row.currency),
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!
-      }
+        return {
+          id: row.id,
+          cycleId: row.cycleId,
+          cyclePeriod: null,
+          memberId: row.memberId,
+          kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+          amountMinor: row.amountMinor,
+          currency: toCurrencyCode(row.currency),
+          ...paymentFundingFields(row),
+          recordedAt: instantFromDatabaseValue(row.recordedAt)!
+        }
+      })
     },
 
     async addPaymentRecordIfNew(input) {
-      const rows = await db
-        .insert(schema.paymentRecords)
-        .values({
-          householdId,
-          cycleId: input.cycleId,
-          memberId: input.memberId,
-          kind: input.kind,
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          idempotencyKey: input.idempotencyKey,
-          recordedAt: instantToDate(input.recordedAt)
-        })
-        .onConflictDoNothing({
-          target: schema.paymentRecords.idempotencyKey
-        })
-        .returning({
-          id: schema.paymentRecords.id,
-          cycleId: schema.paymentRecords.cycleId,
-          memberId: schema.paymentRecords.memberId,
-          kind: schema.paymentRecords.kind,
-          amountMinor: schema.paymentRecords.amountMinor,
-          currency: schema.paymentRecords.currency,
-          recordedAt: schema.paymentRecords.recordedAt
-        })
+      return db.transaction(async (tx) => {
+        const phase = await nextPaymentFundingPhase(tx, householdId, input.cycleId)
+        if (
+          input.purchaseFundingContext?.inputRevision &&
+          input.purchaseFundingContext.inputRevision !==
+            (await paymentPricingRevision(tx, householdId, input.cycleId))
+        )
+          throw new Error('Payment pricing changed; retry confirmation')
+        const rows = await tx
+          .insert(schema.paymentRecords)
+          .values({
+            householdId,
+            fundingPhase: phase,
+            purchaseFundingContext: input.purchaseFundingContext ?? null,
+            purchaseReconciliationPending: 1,
+            cycleId: input.cycleId,
+            memberId: input.memberId,
+            kind: input.kind,
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            idempotencyKey: input.idempotencyKey,
+            recordedAt: instantToDate(input.recordedAt)
+          })
+          .onConflictDoNothing({
+            target: schema.paymentRecords.idempotencyKey
+          })
+          .returning({
+            id: schema.paymentRecords.id,
+            cycleId: schema.paymentRecords.cycleId,
+            memberId: schema.paymentRecords.memberId,
+            kind: schema.paymentRecords.kind,
+            amountMinor: schema.paymentRecords.amountMinor,
+            currency: schema.paymentRecords.currency,
+            fundingPhase: schema.paymentRecords.fundingPhase,
+            purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+            purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
+            recordedAt: schema.paymentRecords.recordedAt
+          })
 
-      const row = rows[0]
-      if (!row) {
-        return null
-      }
+        const row = rows[0]
+        if (!row) {
+          return null
+        }
 
-      return {
-        id: row.id,
-        cycleId: row.cycleId,
-        cyclePeriod: null,
-        memberId: row.memberId,
-        kind: row.kind === 'utilities' ? 'utilities' : 'rent',
-        amountMinor: row.amountMinor,
-        currency: toCurrencyCode(row.currency),
-        recordedAt: instantFromDatabaseValue(row.recordedAt)!
-      }
+        return {
+          id: row.id,
+          cycleId: row.cycleId,
+          cyclePeriod: null,
+          memberId: row.memberId,
+          kind: row.kind === 'utilities' ? 'utilities' : 'rent',
+          amountMinor: row.amountMinor,
+          currency: toCurrencyCode(row.currency),
+          ...paymentFundingFields(row),
+          recordedAt: instantFromDatabaseValue(row.recordedAt)!
+        }
+      })
     },
 
     async getPaymentRecord(paymentId) {
@@ -1331,6 +1495,10 @@ export function createDbFinanceRepository(
           kind: schema.paymentRecords.kind,
           amountMinor: schema.paymentRecords.amountMinor,
           currency: schema.paymentRecords.currency,
+          idempotencyKey: schema.paymentRecords.idempotencyKey,
+          fundingPhase: schema.paymentRecords.fundingPhase,
+          purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+          purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
           recordedAt: schema.paymentRecords.recordedAt
         })
         .from(schema.paymentRecords)
@@ -1356,16 +1524,190 @@ export function createDbFinanceRepository(
         kind: row.kind === 'utilities' ? 'utilities' : 'rent',
         amountMinor: row.amountMinor,
         currency: toCurrencyCode(row.currency),
+        isRoundingAdjustment: row.idempotencyKey?.startsWith('utility-rounding:') ?? false,
+        ...paymentFundingFields(row),
         recordedAt: instantFromDatabaseValue(row.recordedAt)!
       }
     },
 
+    async getPaymentRecordByConfirmationSource(telegramChatId, sourceKey) {
+      const [row] = await db
+        .select({ payment: schema.paymentRecords })
+        .from(schema.paymentRecords)
+        .innerJoin(
+          schema.paymentConfirmations,
+          eq(schema.paymentRecords.confirmationId, schema.paymentConfirmations.id)
+        )
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentConfirmations.telegramChatId, telegramChatId),
+            eq(schema.paymentConfirmations.sourceKey, sourceKey)
+          )
+        )
+        .limit(1)
+      if (!row) return null
+      const p = row.payment
+      return {
+        id: p.id,
+        cycleId: p.cycleId,
+        memberId: p.memberId,
+        kind: p.kind === 'rent' ? 'rent' : 'utilities',
+        amountMinor: p.amountMinor,
+        currency: toCurrencyCode(p.currency),
+        recordedAt: instantFromDatabaseValue(p.recordedAt)!,
+        ...paymentFundingFields(p)
+      }
+    },
+
+    async clearPaymentReconciliationPending(paymentId) {
+      await db
+        .update(schema.paymentRecords)
+        .set({ purchaseReconciliationPending: 0 })
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentRecords.id, paymentId)
+          )
+        )
+    },
+    async getPaymentPricingRevision(cycleId) {
+      return paymentPricingRevision(db, householdId, cycleId)
+    },
+    async listPendingPaymentReconciliations(cycleId) {
+      const rows = await db
+        .select()
+        .from(schema.paymentRecords)
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            ...(cycleId ? [eq(schema.paymentRecords.cycleId, cycleId)] : []),
+            eq(schema.paymentRecords.purchaseReconciliationPending, 1)
+          )
+        )
+      return rows.map((p) => ({
+        id: p.id,
+        cycleId: p.cycleId,
+        memberId: p.memberId,
+        kind: p.kind === 'rent' ? ('rent' as const) : ('utilities' as const),
+        amountMinor: p.amountMinor,
+        currency: toCurrencyCode(p.currency),
+        recordedAt: instantFromDatabaseValue(p.recordedAt)!,
+        ...paymentFundingFields(p)
+      }))
+    },
+
+    async setPaymentFundingContextIfMissing(paymentId, context) {
+      if (!parsePaymentFundingContext(context)) throw new Error('Invalid payment pricing context')
+      await db
+        .update(schema.paymentRecords)
+        .set({ purchaseFundingContext: context })
+        .where(
+          and(
+            eq(schema.paymentRecords.householdId, householdId),
+            eq(schema.paymentRecords.id, paymentId),
+            isNull(schema.paymentRecords.purchaseFundingContext)
+          )
+        )
+    },
+
     async replacePaymentPurchaseAllocations(input) {
       await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select()
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, input.cycleId)
+            )
+          )
+          .for('update')
+        if (!locked || locked.closedAt) throw new Error('Closed payment period is read-only')
+        if (
+          input.expectedPricingRevision &&
+          input.expectedPricingRevision !==
+            (await paymentPricingRevision(tx, householdId, input.cycleId))
+        )
+          throw new Error('Payment funding changed; retry reconciliation')
+        if (input.replaceRecordIds && input.expectedPaymentRevision) {
+          const [cycle] = await tx
+            .select()
+            .from(schema.billingCycles)
+            .where(
+              and(
+                eq(schema.billingCycles.householdId, householdId),
+                eq(schema.billingCycles.id, input.cycleId)
+              )
+            )
+            .for('update')
+          if (!cycle || cycle.closedAt)
+            throw new Error('Payment funding changed; retry reconciliation')
+          const [target] = await tx
+            .select()
+            .from(schema.paymentRecords)
+            .where(
+              and(
+                eq(schema.paymentRecords.householdId, householdId),
+                eq(schema.paymentRecords.id, input.paymentRecordId)
+              )
+            )
+          if (!target || target.cycleId !== input.cycleId)
+            throw new Error('Payment funding changed; retry reconciliation')
+          const scopedRecords = await tx
+            .select()
+            .from(schema.paymentRecords)
+            .where(
+              and(
+                eq(schema.paymentRecords.householdId, householdId),
+                eq(schema.paymentRecords.cycleId, input.cycleId),
+                eq(schema.paymentRecords.memberId, target.memberId),
+                eq(schema.paymentRecords.kind, target.kind)
+              )
+            )
+            .for('update')
+          const manual = await tx
+            .select({ paymentRecordId: schema.paymentPurchaseAllocations.paymentRecordId })
+            .from(schema.paymentPurchaseAllocations)
+            .where(
+              and(
+                inArray(
+                  schema.paymentPurchaseAllocations.paymentRecordId,
+                  scopedRecords.map((p) => p.id)
+                ),
+                eq(schema.paymentPurchaseAllocations.resolutionMethod, 'manual')
+              )
+            )
+          const manualIds = new Set(manual.map((a) => a.paymentRecordId))
+          const records = scopedRecords.filter((p) => !manualIds.has(p.id))
+          if (
+            paymentFundingRevision(records) !== input.expectedPaymentRevision ||
+            records.length !== input.replaceRecordIds.length ||
+            records.some((p) => !input.replaceRecordIds!.includes(p.id))
+          )
+            throw new Error('Payment funding changed; retry reconciliation')
+          if (input.allocations.some((a) => a.memberId !== target.memberId || a.amountMinor <= 0n))
+            throw new Error('Purchase allocation has an invalid payer or amount')
+        }
         await tx
           .delete(schema.paymentPurchaseAllocations)
-          .where(eq(schema.paymentPurchaseAllocations.paymentRecordId, input.paymentRecordId))
+          .where(
+            inArray(schema.paymentPurchaseAllocations.paymentRecordId, [
+              ...(input.replaceRecordIds ?? [input.paymentRecordId])
+            ])
+          )
 
+        await tx
+          .update(schema.paymentRecords)
+          .set({ purchaseReconciliationPending: 0 })
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              inArray(schema.paymentRecords.id, [
+                ...(input.replaceRecordIds ?? [input.paymentRecordId])
+              ])
+            )
+          )
         if (input.allocations.length === 0) {
           return
         }
@@ -1387,6 +1729,29 @@ export function createDbFinanceRepository(
 
     async updatePaymentRecord(input) {
       return db.transaction(async (tx) => {
+        const [candidate] = await tx
+          .select({ cycleId: schema.paymentRecords.cycleId })
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, input.paymentId)
+            )
+          )
+        if (!candidate) return null
+        const [lockedCycle] = await tx
+          .select({ id: schema.billingCycles.id, closedAt: schema.billingCycles.closedAt })
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, candidate.cycleId)
+            )
+          )
+          .for('update')
+
+        if (!lockedCycle || lockedCycle.closedAt)
+          throw new Error('Closed payment period is read-only')
         const [existing] = await tx
           .select()
           .from(schema.paymentRecords)
@@ -1398,10 +1763,54 @@ export function createDbFinanceRepository(
           )
           .for('update')
         if (!existing) return null
-        if (existing.idempotencyKey?.startsWith('utility-rounding:')) {
-          if (input.kind !== 'utilities' || input.currency !== 'GEL' || input.amountMinor <= 0n)
+        if (
+          !(
+            existing.idempotencyKey?.startsWith('utility-rounding:') ||
+            existing.idempotencyKey?.startsWith('utility-confirmation:')
+          ) &&
+          (existing.amountMinor !== input.amountMinor ||
+            existing.memberId !== input.memberId ||
+            existing.kind !== input.kind ||
+            existing.currency !== input.currency)
+        ) {
+          const linked = await tx
+            .select({ id: schema.utilityVendorPaymentFacts.id })
+            .from(schema.utilityVendorPaymentFacts)
+            .where(
+              and(
+                eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                eq(schema.utilityVendorPaymentFacts.paymentRecordId, existing.id)
+              )
+            )
+            .limit(1)
+          if (linked.length)
             throw new Error(
-              'A rounding payment must remain a positive utilities payment in GEL; delete and re-record to change kind or currency'
+              'A combined utility receipt has a saved provider distribution; delete it and record corrected payments by provider'
+            )
+        }
+        if (existing.memberId !== input.memberId || existing.kind !== input.kind)
+          await tx
+            .update(schema.paymentRecords)
+            .set({ purchaseReconciliationPending: 1 })
+            .where(
+              and(
+                eq(schema.paymentRecords.householdId, householdId),
+                eq(schema.paymentRecords.cycleId, existing.cycleId),
+                eq(schema.paymentRecords.memberId, existing.memberId),
+                eq(schema.paymentRecords.kind, existing.kind)
+              )
+            )
+        if (
+          existing.idempotencyKey?.startsWith('utility-rounding:') ||
+          existing.idempotencyKey?.startsWith('utility-confirmation:')
+        ) {
+          if (
+            input.kind !== 'utilities' ||
+            input.currency !== existing.currency ||
+            input.amountMinor <= 0n
+          )
+            throw new Error(
+              'A linked provider payment must remain positive utilities in its original currency; delete and re-record to change kind or currency'
             )
           const [actor] = await tx
             .select()
@@ -1417,7 +1826,9 @@ export function createDbFinanceRepository(
             actor.lifecycleStatus === 'left' ||
             (actor.isAdmin !== 1 && (existing.memberId !== actor.id || input.memberId !== actor.id))
           )
-            throw new Error('Rounding payment correction requires its payer or an administrator')
+            throw new Error(
+              'Provider-linked payment correction requires its payer or an administrator'
+            )
           const [payer] = await tx
             .select({ id: schema.members.id, status: schema.members.lifecycleStatus })
             .from(schema.members)
@@ -1449,7 +1860,7 @@ export function createDbFinanceRepository(
               )
             )
           if (linked.length !== 1 || !linked[0]!.utilityBillId)
-            throw new Error('Rounding payment provider fact is missing or ambiguous')
+            throw new Error('Linked provider fact is missing or ambiguous')
           const [bill] = await tx
             .select()
             .from(schema.utilityBills)
@@ -1460,8 +1871,7 @@ export function createDbFinanceRepository(
               )
             )
             .for('update')
-          if (!bill || bill.currency !== 'GEL')
-            throw new Error('Rounding payment provider bill is missing or has another currency')
+          if (!bill) throw new Error('Linked provider bill is missing')
           const contributions = (
             await tx
               .select()
@@ -1479,11 +1889,16 @@ export function createDbFinanceRepository(
                 (!fact.utilityBillId &&
                   fact.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase()))
           )
-          if (contributions.some((fact) => fact.currency !== 'GEL'))
+          if (contributions.some((fact) => fact.currency !== input.currency))
             throw new Error('Provider payments have conflicting currencies')
           const remaining =
-            bill.amountMinor - contributions.reduce((sum, fact) => sum + fact.amountMinor, 0n)
-          if (input.amountMinor > 200n || input.amountMinor > remaining)
+            (await utilityBillMinorInCurrency(tx, bill, input.currency)) -
+            contributions.reduce((sum, fact) => sum + fact.amountMinor, 0n)
+          if (
+            (existing.idempotencyKey?.startsWith('utility-rounding:') &&
+              input.amountMinor > 200n) ||
+            input.amountMinor > remaining
+          )
             throw new Error(
               'Rounding correction exceeds the shortcut limit or remaining supplier balance'
             )
@@ -1505,8 +1920,7 @@ export function createDbFinanceRepository(
               )
             )
             .returning({ id: schema.utilityVendorPaymentFacts.id })
-          if (facts.length !== 1)
-            throw new Error('Rounding payment provider fact is missing or ambiguous')
+          if (facts.length !== 1) throw new Error('Linked provider fact is missing or ambiguous')
           await tx
             .update(schema.utilityBillingPlans)
             .set({ status: 'diverged' })
@@ -1522,6 +1936,19 @@ export function createDbFinanceRepository(
           .update(schema.paymentRecords)
           .set({
             memberId: input.memberId,
+            purchaseReconciliationPending: 1,
+            fundingPhase:
+              existing.memberId !== input.memberId ||
+              existing.kind !== input.kind ||
+              existing.currency !== input.currency
+                ? await nextPaymentFundingPhase(tx, householdId, existing.cycleId)
+                : existing.fundingPhase,
+            purchaseFundingContext:
+              existing.memberId !== input.memberId ||
+              existing.kind !== input.kind ||
+              existing.currency !== input.currency
+                ? null
+                : existing.purchaseFundingContext,
             kind: input.kind,
             amountMinor: input.amountMinor,
             currency: input.currency
@@ -1539,6 +1966,9 @@ export function createDbFinanceRepository(
             kind: schema.paymentRecords.kind,
             amountMinor: schema.paymentRecords.amountMinor,
             currency: schema.paymentRecords.currency,
+            fundingPhase: schema.paymentRecords.fundingPhase,
+            purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+            purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
             recordedAt: schema.paymentRecords.recordedAt
           })
 
@@ -1555,6 +1985,7 @@ export function createDbFinanceRepository(
           kind: row.kind === 'utilities' ? 'utilities' : 'rent',
           amountMinor: row.amountMinor,
           currency: toCurrencyCode(row.currency),
+          ...paymentFundingFields(row),
           recordedAt: instantFromDatabaseValue(row.recordedAt)!
         }
       })
@@ -1562,6 +1993,29 @@ export function createDbFinanceRepository(
 
     async deletePaymentRecord(paymentId) {
       return db.transaction(async (tx) => {
+        const [candidate] = await tx
+          .select({ cycleId: schema.paymentRecords.cycleId })
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, paymentId)
+            )
+          )
+        if (!candidate) return false
+        const [lockedCycle] = await tx
+          .select({ id: schema.billingCycles.id, closedAt: schema.billingCycles.closedAt })
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, candidate.cycleId)
+            )
+          )
+          .for('update')
+
+        if (!lockedCycle || lockedCycle.closedAt)
+          throw new Error('Closed payment period is read-only')
         const [existing] = await tx
           .select()
           .from(schema.paymentRecords)
@@ -1572,7 +2026,11 @@ export function createDbFinanceRepository(
             )
           )
           .for('update')
-        if (existing?.idempotencyKey?.startsWith('utility-rounding:'))
+        if (
+          existing &&
+          (existing.idempotencyKey?.startsWith('utility-rounding:') ||
+            existing.idempotencyKey?.startsWith('utility-confirmation:'))
+        )
           await tx
             .update(schema.utilityBillingPlans)
             .set({ status: 'diverged' })
@@ -1581,6 +2039,18 @@ export function createDbFinanceRepository(
                 eq(schema.utilityBillingPlans.householdId, householdId),
                 eq(schema.utilityBillingPlans.cycleId, existing.cycleId),
                 inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+              )
+            )
+        if (existing)
+          await tx
+            .update(schema.paymentRecords)
+            .set({ purchaseReconciliationPending: 1 })
+            .where(
+              and(
+                eq(schema.paymentRecords.householdId, householdId),
+                eq(schema.paymentRecords.cycleId, existing.cycleId),
+                eq(schema.paymentRecords.memberId, existing.memberId),
+                eq(schema.paymentRecords.kind, existing.kind)
               )
             )
         const rows = await tx
@@ -1822,11 +2292,15 @@ export function createDbFinanceRepository(
           current.dueDate === input.dueDate &&
           current.currency === input.currency &&
           current.maxCategoriesPerMemberApplied === input.maxCategoriesPerMemberApplied &&
-          JSON.stringify(current.payload) === JSON.stringify(input.payload)
+          JSON.stringify(current.payload) ===
+            JSON.stringify(mapUtilityBillingPlanPayload(input.payload))
         ) {
           return current
         }
 
+        // A concurrent request can have committed a newer plan while this caller
+        // was computing. Never replace that plan with the caller's stale snapshot.
+        if (current && current.id !== input.previousPlanId) return current
         const planToReplace = current
         if (planToReplace && input.previousPlanReplacementStatus) {
           await tx
@@ -1977,6 +2451,19 @@ export function createDbFinanceRepository(
             )
           )
         if (!fact) return false
+        const [lockedCycle] = await tx
+          .select({ id: schema.billingCycles.id, closedAt: schema.billingCycles.closedAt })
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, fact.cycleId)
+            )
+          )
+          .for('update')
+
+        if (!lockedCycle || lockedCycle.closedAt)
+          throw new Error('Closed supplier period is read-only')
         if (fact.paymentRecordId) {
           const [payment] = await tx
             .select()
@@ -1988,7 +2475,21 @@ export function createDbFinanceRepository(
               )
             )
             .for('update')
-          if (payment?.idempotencyKey?.startsWith('utility-rounding:')) {
+          if (
+            payment &&
+            !(
+              payment.idempotencyKey?.startsWith('utility-rounding:') ||
+              payment.idempotencyKey?.startsWith('utility-confirmation:')
+            )
+          )
+            throw new Error(
+              'A combined utility receipt has a saved provider distribution; delete the entire receipt to correct it'
+            )
+          if (
+            payment &&
+            (payment.idempotencyKey?.startsWith('utility-rounding:') ||
+              payment.idempotencyKey?.startsWith('utility-confirmation:'))
+          ) {
             await tx
               .update(schema.utilityBillingPlans)
               .set({ status: 'diverged' })
@@ -1997,6 +2498,17 @@ export function createDbFinanceRepository(
                   eq(schema.utilityBillingPlans.householdId, householdId),
                   eq(schema.utilityBillingPlans.cycleId, payment.cycleId),
                   inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+                )
+              )
+            await tx
+              .update(schema.paymentRecords)
+              .set({ purchaseReconciliationPending: 1 })
+              .where(
+                and(
+                  eq(schema.paymentRecords.householdId, householdId),
+                  eq(schema.paymentRecords.cycleId, payment.cycleId),
+                  eq(schema.paymentRecords.memberId, payment.memberId),
+                  eq(schema.paymentRecords.kind, payment.kind)
                 )
               )
             const deleted = await tx
@@ -2028,21 +2540,76 @@ export function createDbFinanceRepository(
     },
 
     async attachUtilityVendorPaymentFactsToPayment(input) {
-      if (input.factIds.length === 0) {
-        return
-      }
-
-      await db
-        .update(schema.utilityVendorPaymentFacts)
-        .set({
-          paymentRecordId: input.paymentRecordId
-        })
-        .where(
-          and(
-            eq(schema.utilityVendorPaymentFacts.householdId, householdId),
-            inArray(schema.utilityVendorPaymentFacts.id, [...input.factIds])
+      await db.transaction(async (tx) => {
+        const [candidate] = await tx
+          .select({ cycleId: schema.paymentRecords.cycleId })
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, input.paymentRecordId)
+            )
           )
-        )
+        if (!candidate) throw new Error('Payment receipt is unavailable')
+        const [cycle] = await tx
+          .select()
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, candidate.cycleId)
+            )
+          )
+          .for('update')
+        if (!cycle || cycle.closedAt) throw new Error('Closed payment period is read-only')
+        const [receipt] = await tx
+          .select()
+          .from(schema.paymentRecords)
+          .where(
+            and(
+              eq(schema.paymentRecords.householdId, householdId),
+              eq(schema.paymentRecords.id, input.paymentRecordId)
+            )
+          )
+          .for('update')
+        if (!receipt || receipt.kind !== 'utilities')
+          throw new Error('Utility receipt is unavailable')
+        if (input.factIds.length > 0) {
+          const facts = await tx
+            .select()
+            .from(schema.utilityVendorPaymentFacts)
+            .where(
+              and(
+                eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                inArray(schema.utilityVendorPaymentFacts.id, [...input.factIds])
+              )
+            )
+            .for('update')
+          if (
+            facts.length !== new Set(input.factIds).size ||
+            facts.some(
+              (f) =>
+                f.cycleId !== receipt.cycleId ||
+                f.payerMemberId !== receipt.memberId ||
+                (f.paymentRecordId && f.paymentRecordId !== receipt.id)
+            )
+          )
+            throw new Error('Provider contribution does not belong to this receipt')
+          await tx
+            .update(schema.utilityVendorPaymentFacts)
+            .set({ paymentRecordId: receipt.id })
+            .where(
+              inArray(
+                schema.utilityVendorPaymentFacts.id,
+                facts.map((f) => f.id)
+              )
+            )
+        }
+        await tx
+          .update(schema.paymentRecords)
+          .set({ purchaseReconciliationPending: 1 })
+          .where(eq(schema.paymentRecords.id, receipt.id))
+      })
     },
 
     async addUtilityVendorPaymentFact(input) {
@@ -2423,6 +2990,9 @@ export function createDbFinanceRepository(
           resolutionCycleId: schema.paymentPurchaseAllocations.resolutionCycleId,
           resolutionMethod: schema.paymentPurchaseAllocations.resolutionMethod,
           resolutionPlanId: schema.paymentPurchaseAllocations.resolutionPlanId,
+          fundingPhase: schema.paymentRecords.fundingPhase,
+          purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+          purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
           recordedAt: schema.paymentRecords.recordedAt
         })
         .from(schema.paymentPurchaseAllocations)
@@ -2449,36 +3019,56 @@ export function createDbFinanceRepository(
         return
       }
 
-      // Create a synthetic payment record to track manual allocations
-      const paymentRecord = await db
-        .insert(schema.paymentRecords)
-        .values({
-          householdId,
-          cycleId: input.cycleId,
-          memberId: sql`(SELECT payer_member_id FROM purchase_messages WHERE id = ${input.purchaseId})`,
-          kind: 'utilities',
-          amountMinor: 0n,
-          currency: sql`(SELECT parsed_currency FROM purchase_messages WHERE id = ${input.purchaseId})`,
-          recordedAt: instantToDate(input.recordedAt)
-        })
-        .returning({ id: schema.paymentRecords.id })
+      await db.transaction(async (tx) => {
+        await markOpenPaymentBalancesPending(tx)
+        const [cycle] = await tx
+          .select()
+          .from(schema.billingCycles)
+          .where(
+            and(
+              eq(schema.billingCycles.householdId, householdId),
+              eq(schema.billingCycles.id, input.cycleId)
+            )
+          )
+          .for('update')
+        if (!cycle || cycle.closedAt) throw new Error('Closed payment period is read-only')
+        if (
+          input.expectedPricingRevision &&
+          input.expectedPricingRevision !==
+            (await paymentPricingRevision(tx, householdId, input.cycleId))
+        )
+          throw new Error('Payment pricing changed; retry manual resolution')
+        // Create a synthetic payment record to track manual allocations
+        const paymentRecord = await tx
+          .insert(schema.paymentRecords)
+          .values({
+            householdId,
+            cycleId: input.cycleId,
+            memberId: sql`(SELECT payer_member_id FROM purchase_messages WHERE id = ${input.purchaseId})`,
+            kind: 'utilities',
+            amountMinor: 0n,
+            currency: sql`(SELECT parsed_currency FROM purchase_messages WHERE id = ${input.purchaseId})`,
+            recordedAt: instantToDate(input.recordedAt)
+          })
+          .returning({ id: schema.paymentRecords.id })
 
-      const paymentRecordId = paymentRecord[0]?.id
-      if (!paymentRecordId) {
-        throw new Error('Failed to create manual payment record')
-      }
+        const paymentRecordId = paymentRecord[0]?.id
+        if (!paymentRecordId) {
+          throw new Error('Failed to create manual payment record')
+        }
 
-      await db.insert(schema.paymentPurchaseAllocations).values(
-        input.allocations.map((allocation) => ({
-          paymentRecordId,
-          purchaseId: input.purchaseId,
-          memberId: allocation.memberId,
-          amountMinor: allocation.amountMinor,
-          resolutionCycleId: input.cycleId,
-          resolutionMethod: 'manual' as const,
-          resolutionPlanId: null
-        }))
-      )
+        await tx.insert(schema.paymentPurchaseAllocations).values(
+          input.allocations.map((allocation) => ({
+            paymentRecordId,
+            purchaseId: input.purchaseId,
+            memberId: allocation.memberId,
+            amountMinor: allocation.amountMinor,
+            resolutionCycleId: input.cycleId,
+            resolutionMethod: 'manual' as const,
+            resolutionPlanId: null
+          }))
+        )
+      })
     },
 
     async getSettlementSnapshotLines(cycleId) {
@@ -2566,6 +3156,117 @@ export function createDbFinanceRepository(
 
     async savePaymentConfirmation(input) {
       return db.transaction(async (tx) => {
+        let providerBill: typeof schema.utilityBills.$inferSelect | undefined
+        let providerPlan: typeof schema.utilityBillingPlans.$inferSelect | undefined
+        let providerMatched = false
+        if (input.status === 'recorded' && input.utilityBillId) {
+          const [cycle] = await tx
+            .select()
+            .from(schema.billingCycles)
+            .where(
+              and(
+                eq(schema.billingCycles.householdId, householdId),
+                eq(schema.billingCycles.id, input.cycleId)
+              )
+            )
+            .for('update')
+          if (!cycle || cycle.closedAt)
+            throw new Error('The utility period is unavailable or closed')
+          const [duplicate] = await tx
+            .select({ id: schema.paymentConfirmations.id })
+            .from(schema.paymentConfirmations)
+            .where(
+              and(
+                eq(schema.paymentConfirmations.householdId, householdId),
+                eq(schema.paymentConfirmations.telegramChatId, input.telegramChatId),
+                eq(
+                  schema.paymentConfirmations.sourceKey,
+                  input.sourceKey?.trim() || input.telegramMessageId
+                )
+              )
+            )
+          if (duplicate) return { status: 'duplicate' as const }
+          const [payer] = await tx
+            .select()
+            .from(schema.members)
+            .where(
+              and(
+                eq(schema.members.householdId, householdId),
+                eq(schema.members.id, input.memberId)
+              )
+            )
+          if (!payer || payer.lifecycleStatus === 'left')
+            throw new Error('Utility payer is unavailable')
+          const [bill] = await tx
+            .select()
+            .from(schema.utilityBills)
+            .where(
+              and(
+                eq(schema.utilityBills.householdId, householdId),
+                eq(schema.utilityBills.cycleId, input.cycleId),
+                eq(schema.utilityBills.id, input.utilityBillId)
+              )
+            )
+            .for('update')
+          if (!bill || input.kind !== 'utilities' || input.amountMinor <= 0n)
+            throw new Error('The named utility bill or payment currency is invalid')
+          const facts = await tx
+            .select()
+            .from(schema.utilityVendorPaymentFacts)
+            .where(
+              and(
+                eq(schema.utilityVendorPaymentFacts.householdId, householdId),
+                eq(schema.utilityVendorPaymentFacts.cycleId, input.cycleId)
+              )
+            )
+          const billFacts = facts.filter(
+            (f) =>
+              f.utilityBillId === bill.id ||
+              (!f.utilityBillId &&
+                f.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase())
+          )
+          if (
+            billFacts.some((f) => f.currency !== input.currency) ||
+            input.amountMinor >
+              (await utilityBillMinorInCurrency(tx, bill, input.currency)) -
+                billFacts.reduce((n, f) => n + f.amountMinor, 0n)
+          )
+            throw new Error('Payment exceeds the remaining supplier balance')
+          const [plan] = await tx
+            .select()
+            .from(schema.utilityBillingPlans)
+            .where(
+              and(
+                eq(schema.utilityBillingPlans.householdId, householdId),
+                eq(schema.utilityBillingPlans.cycleId, input.cycleId),
+                inArray(schema.utilityBillingPlans.status, ['active', 'settled'])
+              )
+            )
+            .orderBy(desc(schema.utilityBillingPlans.version))
+            .limit(1)
+          const category = plan
+            ? mapUtilityBillingPlanPayload(plan.payload).categories.find(
+                (c) => c.utilityBillId === bill.id && c.assignedMemberId === input.memberId
+              )
+            : undefined
+          const currentPaid = plan
+            ? billFacts
+                .filter(
+                  (f) =>
+                    f.planId === plan.id &&
+                    f.matchedPlan === 1 &&
+                    f.payerMemberId === input.memberId
+                )
+                .reduce((n, f) => n + f.amountMinor, 0n)
+            : 0n
+          providerMatched = Boolean(
+            category &&
+            input.amountMinor <=
+              BigInt(category.remainingAmountMinor ?? category.assignedAmountMinor) - currentPaid
+          )
+          providerBill = bill
+          providerPlan = plan
+        }
         const insertedConfirmation = await tx
           .insert(schema.paymentConfirmations)
           .values({
@@ -2615,10 +3316,20 @@ export function createDbFinanceRepository(
           }
         }
 
+        const phase = await nextPaymentFundingPhase(tx, householdId, input.cycleId)
+        if (
+          input.purchaseFundingContext?.inputRevision &&
+          input.purchaseFundingContext.inputRevision !==
+            (await paymentPricingRevision(tx, householdId, input.cycleId))
+        )
+          throw new Error('Payment pricing changed; retry confirmation')
         const insertedPayment = await tx
           .insert(schema.paymentRecords)
           .values({
             householdId,
+            fundingPhase: phase,
+            purchaseFundingContext: input.purchaseFundingContext ?? null,
+            purchaseReconciliationPending: 1,
             cycleId: input.cycleId,
             memberId: input.memberId,
             kind: input.kind,
@@ -2633,12 +3344,39 @@ export function createDbFinanceRepository(
             kind: schema.paymentRecords.kind,
             amountMinor: schema.paymentRecords.amountMinor,
             currency: schema.paymentRecords.currency,
+            fundingPhase: schema.paymentRecords.fundingPhase,
+            purchaseFundingContext: schema.paymentRecords.purchaseFundingContext,
+            purchaseReconciliationPending: schema.paymentRecords.purchaseReconciliationPending,
             recordedAt: schema.paymentRecords.recordedAt
           })
 
         const paymentRow = insertedPayment[0]
         if (!paymentRow) {
           throw new Error('Failed to persist payment record')
+        }
+
+        if (input.utilityBillId && providerBill) {
+          await tx.insert(schema.utilityVendorPaymentFacts).values({
+            householdId,
+            cycleId: input.cycleId,
+            utilityBillId: providerBill.id,
+            billName: providerBill.billName,
+            payerMemberId: input.memberId,
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            planId: providerMatched ? providerPlan?.id : null,
+            planVersion: providerMatched ? providerPlan?.version : null,
+            plannedForMemberId: providerMatched ? input.memberId : null,
+            matchedPlan: providerMatched ? 1 : 0,
+            paymentRecordId: paymentRow.id,
+            recordedByMemberId: input.memberId,
+            recordedAt: instantToDate(input.recordedAt),
+            idempotencyKey: `utility-confirmation:${confirmationId}`
+          })
+          await tx
+            .update(schema.paymentRecords)
+            .set({ idempotencyKey: `utility-confirmation:${confirmationId}` })
+            .where(eq(schema.paymentRecords.id, paymentRow.id))
         }
 
         return {
@@ -2651,6 +3389,7 @@ export function createDbFinanceRepository(
             kind: paymentRow.kind === 'utilities' ? 'utilities' : 'rent',
             amountMinor: paymentRow.amountMinor,
             currency: toCurrencyCode(paymentRow.currency),
+            ...paymentFundingFields(paymentRow),
             recordedAt: instantFromDatabaseValue(paymentRow.recordedAt)!
           }
         }

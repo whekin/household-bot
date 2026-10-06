@@ -117,6 +117,7 @@ export function buildMemberPaymentGuidance(input: {
           (member) => member.memberId === input.memberLine.memberId
         ) ?? null)
       : null
+  const settledForKind = input.paymentKindSummary?.kind === input.kind && !paymentPeriodMember
   const baseAmount = paymentPeriodMember
     ? paymentPeriodMember.baseDue
     : input.kind === 'rent'
@@ -128,16 +129,18 @@ export function buildMemberPaymentGuidance(input: {
   const adjustedMinor = adjustmentApplies(policy, input.kind)
     ? baseAmount.amountMinor + purchaseOffset.amountMinor
     : baseAmount.amountMinor
-  const proposalAmount = paymentPeriodMember
-    ? paymentPeriodMember.suggestedAmount
-    : Money.fromMinor(
-        input.kind === 'rent'
-          ? roundRentMinor(adjustedMinor > 0n ? adjustedMinor : 0n)
-          : adjustedMinor > 0n
-            ? adjustedMinor
-            : 0n,
-        baseAmount.currency
-      )
+  const proposalAmount = settledForKind
+    ? Money.zero(baseAmount.currency)
+    : paymentPeriodMember
+      ? paymentPeriodMember.suggestedAmount
+      : Money.fromMinor(
+          input.kind === 'rent'
+            ? roundRentMinor(adjustedMinor > 0n ? adjustedMinor : 0n)
+            : adjustedMinor > 0n
+              ? adjustedMinor
+              : 0n,
+          baseAmount.currency
+        )
 
   const reminderDay =
     input.kind === 'rent' ? input.settings.rentWarningDay : input.settings.utilitiesReminderDay
@@ -154,8 +157,10 @@ export function buildMemberPaymentGuidance(input: {
     baseAmount,
     purchaseOffset,
     proposalAmount,
-    totalRemaining: paymentPeriodMember?.remaining ?? input.memberLine.remaining,
-    source: paymentPeriodMember ? 'payment_period' : 'settlement',
+    totalRemaining: settledForKind
+      ? Money.zero(baseAmount.currency)
+      : (paymentPeriodMember?.remaining ?? input.memberLine.remaining),
+    source: paymentPeriodMember || settledForKind ? 'payment_period' : 'settlement',
     reminderDate: reminderDate.toString(),
     dueDate: dueDate.toString(),
     paymentWindowOpen: Temporal.PlainDate.compare(localDate, reminderDate) >= 0,

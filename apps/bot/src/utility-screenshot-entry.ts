@@ -835,6 +835,24 @@ export function registerUtilityScreenshotEntry(options: {
       return
     }
     const replyIsBot = ctx.message.reply_to_message?.from?.id === ctx.me.id
+    const paymentProposalReply =
+      replyIsBot &&
+      ctx.message.reply_to_message?.reply_markup?.inline_keyboard?.some((row) =>
+        row.some(
+          (button) =>
+            'callback_data' in button &&
+            /^(payment_topic:confirm:|pt:mc:)/.test(button.callback_data)
+        )
+      )
+    const savedPaymentReply =
+      replyIsBot &&
+      /(?:оплата (?:аренды|коммуналки) записана|(?:rent|utilities) payment recorded)/iu.test(
+        ctx.message.reply_to_message?.text ?? ''
+      )
+    if (paymentProposalReply || savedPaymentReply) {
+      await next()
+      return
+    }
     let period = utilityReminderReplyPeriod(ctx)
     if (!period && replyIsBot) {
       const card = await options.paymentCardRepository.findPaymentCard({

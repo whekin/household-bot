@@ -48,6 +48,7 @@ export type TodayViewModel = {
   currentMemberUtilityLines: {
     billName: string
     amountMajor: string
+    paidMajor: string
   }[]
   currentMemberUtilityBreakdown: {
     shareMajor: string
@@ -472,7 +473,11 @@ export function buildTodayViewModel(input: {
           )
           .map((category) => ({
             billName: category.billName,
-            amountMajor: category.remainingAmountMajor
+            amountMajor: category.remainingAmountMajor,
+            paidMajor: minorToMajorString(
+              majorStringToMinor(category.assignedAmountMajor) -
+                majorStringToMinor(category.remainingAmountMajor)
+            )
           }))
           .sort((left, right) =>
             Number(majorStringToMinor(right.amountMajor) - majorStringToMinor(left.amountMajor))

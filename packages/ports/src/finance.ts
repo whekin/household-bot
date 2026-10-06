@@ -1,5 +1,5 @@
 import type { RepaymentRepository } from './repayments'
-import type { CurrencyCode, Instant } from '@household/domain'
+import type { CurrencyCode, Instant, PaymentFundingContext } from '@household/domain'
 
 export interface FinanceMemberRecord {
   id: string
@@ -10,6 +10,7 @@ export interface FinanceMemberRecord {
 }
 
 export interface FinanceCycleRecord {
+  closedAt?: Instant | null
   id: string
   period: string
   currency: CurrencyCode
@@ -213,6 +214,10 @@ export interface FinancePaymentRecord {
   amountMinor: bigint
   currency: CurrencyCode
   recordedAt: Instant
+  isRoundingAdjustment?: boolean
+  fundingPhase?: bigint
+  purchaseFundingContext?: PaymentFundingContext
+  purchaseReconciliationPending?: boolean
 }
 
 export interface FinanceSettlementSnapshotLineRecord {
@@ -244,6 +249,8 @@ export type FinancePaymentConfirmationReviewReason =
   | 'kind_ambiguous'
   | 'multiple_members'
   | 'non_positive_amount'
+  | 'invalid_amount'
+  | 'amount_ambiguous'
 
 export type FinancePaymentConfirmationSaveInput =
   | (FinancePaymentConfirmationMessage & {
@@ -256,6 +263,8 @@ export type FinancePaymentConfirmationSaveInput =
       explicitAmountMinor: bigint | null
       explicitCurrency: CurrencyCode | null
       recordedAt: Instant
+      utilityBillId?: string
+      purchaseFundingContext?: PaymentFundingContext
     })
   | (FinancePaymentConfirmationMessage & {
       status: 'needs_review'
@@ -308,7 +317,7 @@ export interface FinanceRepository extends RepaymentRepository {
   getCycleByPeriod(period: string): Promise<FinanceCycleRecord | null>
   getLatestCycle(): Promise<FinanceCycleRecord | null>
   openCycle(period: string, currency: CurrencyCode): Promise<void>
-  closeCycle(cycleId: string, closedAt: Instant): Promise<void>
+  closeCycle(cycleId: string, closedAt: Instant, expectedPricingRevision?: string): Promise<void>
   closeCyclesBeforePeriod(period: string, closedAt: Instant): Promise<readonly string[]>
   saveRentRule(
     period: string,
@@ -395,6 +404,7 @@ export interface FinanceRepository extends RepaymentRepository {
     amountMinor: bigint
     currency: CurrencyCode
     recordedAt: Instant
+    purchaseFundingContext?: PaymentFundingContext
   }): Promise<FinancePaymentRecord>
   addPaymentRecordIfNew(input: {
     cycleId: string
@@ -403,11 +413,26 @@ export interface FinanceRepository extends RepaymentRepository {
     amountMinor: bigint
     currency: CurrencyCode
     recordedAt: Instant
+    purchaseFundingContext?: PaymentFundingContext
     idempotencyKey: string
   }): Promise<FinancePaymentRecord | null>
   getPaymentRecord(paymentId: string): Promise<FinancePaymentRecord | null>
+  getPaymentRecordByConfirmationSource(
+    telegramChatId: string,
+    sourceKey: string
+  ): Promise<FinancePaymentRecord | null>
+  clearPaymentReconciliationPending(paymentId: string): Promise<void>
+  getPaymentPricingRevision(cycleId: string): Promise<string>
+  listPendingPaymentReconciliations(cycleId?: string): Promise<readonly FinancePaymentRecord[]>
+  setPaymentFundingContextIfMissing(
+    paymentId: string,
+    context: PaymentFundingContext
+  ): Promise<void>
   replacePaymentPurchaseAllocations(input: {
     paymentRecordId: string
+    replaceRecordIds?: readonly string[]
+    expectedPricingRevision?: string
+    expectedPaymentRevision?: string
     cycleId: string
     resolutionMethod: 'utilities_plan' | 'rent_plan'
     resolutionPlanId?: string | null
@@ -536,6 +561,7 @@ export interface FinanceRepository extends RepaymentRepository {
   listParsedPurchases(): Promise<readonly FinanceParsedPurchaseRecord[]>
   listPaymentPurchaseAllocations(): Promise<readonly FinancePaymentPurchaseAllocationRecord[]>
   createManualPurchaseAllocations(input: {
+    expectedPricingRevision?: string
     purchaseId: string
     cycleId: string
     allocations: readonly {

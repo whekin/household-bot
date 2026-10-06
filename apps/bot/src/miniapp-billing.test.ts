@@ -371,6 +371,8 @@ function createFinanceServiceStub(): FinanceCommandService & {
     deletedVendorPaymentFactIds,
     resolvedUtilityPlans: [],
     utilityVendorPayments: [],
+    capturePaymentFundingContext: async () => undefined,
+    reconcilePaymentPurchaseAllocations: async () => {},
     repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async () => null,
     listMembers: async () => [],

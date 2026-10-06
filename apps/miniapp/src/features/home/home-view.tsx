@@ -43,7 +43,7 @@ export function HomeView() {
     refresh,
     applyDashboard
   } = useDashboard()
-  const { copy } = useI18n()
+  const { copy, locale } = useI18n()
   const { showToast } = useToast()
 
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
@@ -158,6 +158,13 @@ export function HomeView() {
 
   return (
     <div className="space-y-4">
+      {dashboard.balanceUpdatePending ? (
+        <p role="status" className="rounded-xl bg-elevated p-3 text-sm text-status-warning">
+          {locale === 'ru'
+            ? 'Платёж сохранён, но обновление баланса ещё не завершено. Обновите страницу перед следующей оплатой.'
+            : 'Payment saved; the balance update is still pending. Refresh before making another payment.'}
+        </p>
+      ) : null}
       <RoutinesEntry />
       <StageBanner
         model={model}

@@ -101,3 +101,8 @@ export {
   routineDate
 } from './routine-service'
 export type { RoutineService, RoutineActor } from './routine-service'
+export {
+  explicitMoneyAmounts,
+  hasExplicitMoneyUnit,
+  hasInvalidMoneyAmount
+} from './payment-amounts'

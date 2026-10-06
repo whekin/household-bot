@@ -300,13 +300,10 @@ export const enBotTranslations: BotTranslationCatalog = {
     onlyOriginalSender: 'Only the person who started this utility submission can confirm it.',
     paidButton: 'I paid',
     paidUtilitiesButton: 'I paid my bills',
-    closeUnpaidButton: 'Close unpaid',
-    confirmCloseButton: 'Confirm close',
     fullyPaid: (kind, month) =>
       `${kind === 'rent' ? 'Rent' : 'Utilities'} for ${month} is fully paid.`,
     alreadyPaid: 'Already marked as paid.',
     notMember: 'I could not match you to a household member.',
-    adminOnly: 'Only household admins can do that.',
     paymentRecordedToast: 'Payment marked as paid.',
     reminderUnavailable: 'This reminder is no longer available.',
     noRentDestinations: 'No rent requisites are configured yet.',
@@ -460,6 +457,11 @@ export const enBotTranslations: BotTranslationCatalog = {
     timingDueNow: (kind, dueDate) =>
       `⚠️ ${kind === 'rent' ? 'Rent' : 'Utilities'} are due now. Due date: ${dueDate}.`,
     confirmButton: '✅ Confirm payment',
+    balanceUpdatePendingReminder:
+      '⚠️ A saved payment is still updating the balance. Open the dashboard and refresh before another payment.',
+    balanceUpdatePending:
+      '⚠️ Payment saved. Balance update is pending. Retry below; the payment will not be recorded twice.',
+    retryBalanceButton: '🔄 Retry balance update',
     confirmSelectedButton: '✅ Confirm selected',
     cancelButton: '🚫 Cancel',
     multiProposal: (kind, period) =>

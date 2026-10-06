@@ -330,6 +330,13 @@
       "when": 1789421532209,
       "tag": "0046_fat_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791290769243,
+      "tag": "0047_colorful_the_twelve",
+      "breakpoints": true
     }
   ]
 }

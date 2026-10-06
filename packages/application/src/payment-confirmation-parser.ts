@@ -1,5 +1,10 @@
 import { Money, type CurrencyCode } from '@household/domain'
 import type { FinancePaymentKind, FinancePaymentConfirmationReviewReason } from '@household/ports'
+import {
+  explicitMoneyAmounts,
+  hasExplicitMoneyUnit,
+  hasInvalidMoneyAmount
+} from './payment-amounts'
 
 export interface ParsedPaymentConfirmation {
   normalizedText: string
@@ -57,21 +62,11 @@ export function hasCompletedPaymentCaption(rawText: string): boolean {
 }
 
 function parseExplicitAmount(rawText: string, defaultCurrency: CurrencyCode): Money | null {
-  const symbolMatch = rawText.match(/(?:^|[^\d])(\$|₾)\s*(\d+(?:[.,]\d{1,2})?)/i)
-  if (symbolMatch) {
-    const currency = symbolMatch[1] === '$' ? 'USD' : 'GEL'
-    return Money.fromMajor(symbolMatch[2]!.replace(',', '.'), currency)
-  }
+  const amounts = explicitMoneyAmounts(rawText)
+  if (amounts.length > 0) return amounts[0]!
+  if (hasExplicitMoneyUnit(rawText)) return null
 
-  const suffixMatch = rawText.match(/(\d+(?:[.,]\d{1,2})?)\s*(usd|gel|лари|лар|ლარი|ლარ|₾|\$)\b/i)
-  if (suffixMatch) {
-    const rawCurrency = suffixMatch[2]!.toUpperCase()
-    const currency = rawCurrency === 'USD' || rawCurrency === '$' ? 'USD' : 'GEL'
-
-    return Money.fromMajor(suffixMatch[1]!.replace(',', '.'), currency)
-  }
-
-  const bareAmountMatch = rawText.match(/(?:^|[^\d])(\d+(?:[.,]\d{1,2})?)(?:\s|$)/)
+  const bareAmountMatch = rawText.match(/(?:^|[^\d.,])(\d+(?:[.,]\d{1,2})?)(?![\d.,])(?:\s|$)/)
   if (!bareAmountMatch) {
     return null
   }
@@ -85,6 +80,15 @@ export function parsePaymentConfirmationMessage(
 ): ParsedPaymentConfirmation {
   const normalizedText = rawText.trim().replaceAll(/\s+/g, ' ')
   const lowercase = normalizedText.toLowerCase()
+  if (hasInvalidMoneyAmount(normalizedText)) {
+    return { normalizedText, kind: null, explicitAmount: null, reviewReason: 'invalid_amount' }
+  }
+
+  const explicit = explicitMoneyAmounts(normalizedText)
+  if (explicit.length > 1)
+    return { normalizedText, kind: null, explicitAmount: null, reviewReason: 'amount_ambiguous' }
+  if (hasExplicitMoneyUnit(normalizedText) && /\d/.test(normalizedText) && explicit.length === 0)
+    return { normalizedText, kind: null, explicitAmount: null, reviewReason: 'invalid_amount' }
 
   if (normalizedText.length === 0) {
     return {

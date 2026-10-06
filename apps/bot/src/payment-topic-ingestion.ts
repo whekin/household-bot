@@ -1,5 +1,6 @@
 import {
   buildMemberPaymentGuidance,
+  explicitMoneyAmounts,
   paymentKindSummaryForRecording,
   type FinanceCommandService,
   type HouseholdAuditNotificationService,
@@ -74,6 +75,8 @@ interface PaymentTopicConfirmationPayload {
   period?: string
   amountMinor: string
   currency: 'GEL' | 'USD'
+  utilityBillId?: string
+  utilityBillName?: string
   rawText: string
   senderTelegramUserId: string
   reportedTelegramUserId: string | null
@@ -694,32 +697,10 @@ async function resolveCurrentPayableMultiMemberAmounts(input: {
 export function parseCurrentMessageAmounts(
   rawText: string
 ): readonly { amountMinor: bigint; currency: 'GEL' | 'USD' }[] {
-  const results: { amountMinor: bigint; currency: 'GEL' | 'USD' }[] = []
-  const pushAmount = (rawAmount: string, rawCurrency: string) => {
-    const currency = /^(usd|dollar|dollars|\$)$/iu.test(rawCurrency.toLowerCase()) ? 'USD' : 'GEL'
-    results.push({
-      amountMinor: Money.fromMajor(rawAmount.replace(',', '.'), currency).amountMinor,
-      currency
-    })
-  }
-
-  const amountThenCurrency =
-    /(\d+(?:[.,]\d{1,2})?)\s*(usd|dollars?|gel|lari|лар[и]?|ლარ[ი]?|₾|\$)(?=$|[^\p{L}\p{N}])/giu
-  for (const match of rawText.matchAll(amountThenCurrency)) {
-    if (match[1] && match[2]) {
-      pushAmount(match[1], match[2])
-    }
-  }
-
-  const currencyThenAmount =
-    /(?:^|[^\p{L}\p{N}])(usd|dollars?|gel|lari|лар[и]?|ლარ[ი]?|₾|\$)\s*(\d+(?:[.,]\d{1,2})?)/giu
-  for (const match of rawText.matchAll(currencyThenAmount)) {
-    if (match[1] && match[2]) {
-      pushAmount(match[2], match[1])
-    }
-  }
-
-  return results
+  return explicitMoneyAmounts(rawText).map((amount) => ({
+    amountMinor: amount.amountMinor,
+    currency: amount.currency
+  }))
 }
 
 async function isActorHouseholdAdmin(input: {
@@ -1531,6 +1512,33 @@ export function registerPaymentTopicCallbacks(
         parseText: synthesizePaymentConfirmationText(payload)
       })
 
+      if (
+        (result.status === 'recorded' || result.status === 'duplicate') &&
+        result.balanceUpdatePending &&
+        result.kind &&
+        result.amount
+      ) {
+        await safeEditPaymentCallbackMessage(
+          ctx,
+          [formatRecordedPaymentText(locale, payload, result.amount), t.balanceUpdatePending].join(
+            '\n\n'
+          ),
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: t.retryBalanceButton,
+                    callback_data: `${PAYMENT_TOPIC_CONFIRM_CALLBACK_PREFIX}${proposalId}`
+                  }
+                ]
+              ]
+            }
+          },
+          options.logger
+        )
+        return
+      }
       await clearPaymentProposalPendingActions(promptRepository, payload)
 
       if (result.status === 'already_settled') {
@@ -1547,7 +1555,11 @@ export function registerPaymentTopicCallbacks(
         return
       }
 
-      if (result.status !== 'recorded') {
+      if (
+        (result.status !== 'recorded' && result.status !== 'duplicate') ||
+        !result.kind ||
+        !result.amount
+      ) {
         await safeEditPaymentCallbackMessage(
           ctx,
           t.proposalUnavailable,
@@ -1592,7 +1604,7 @@ export function registerPaymentTopicCallbacks(
         options.logger
       )
 
-      if (options.auditNotificationService) {
+      if (result.status === 'recorded' && options.auditNotificationService) {
         const memberDisplayName = payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'
         await options.auditNotificationService.recordEvent({
           householdId: payload.householdId,

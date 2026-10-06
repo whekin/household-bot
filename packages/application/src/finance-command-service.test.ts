@@ -442,7 +442,27 @@ class FinanceRepositoryStub implements FinanceRepository {
     }
   }
 
-  async getPaymentRecord(paymentId: string) {
+  async getPaymentRecordByConfirmationSource() {
+    return null
+  }
+  async clearPaymentReconciliationPending() {}
+  async getPaymentPricingRevision() {
+    return 'test-pricing'
+  }
+  async listPendingPaymentReconciliations() {
+    return []
+  }
+  async setPaymentFundingContextIfMissing(
+    paymentId: string,
+    context: Parameters<FinanceRepository['setPaymentFundingContextIfMissing']>[1]
+  ) {
+    this.paymentRecords = this.paymentRecords.map((p) =>
+      p.id === paymentId ? { ...p, purchaseFundingContext: context } : p
+    )
+  }
+  async getPaymentRecord(paymentId: string): ReturnType<FinanceRepository['getPaymentRecord']> {
+    const saved = this.paymentRecords.find((p) => p.id === paymentId)
+    if (saved) return saved
     return {
       id: paymentId,
       cycleId: this.openCycleRecord?.id ?? 'cycle-1',
@@ -462,7 +482,8 @@ class FinanceRepositoryStub implements FinanceRepository {
     const recordedAt = instantFromIso('2026-04-03T12:00:00.000Z')
     this.paymentPurchaseAllocations = [
       ...this.paymentPurchaseAllocations.filter(
-        (allocation) => allocation.paymentRecordId !== input.paymentRecordId
+        (allocation) =>
+          !(input.replaceRecordIds ?? [input.paymentRecordId]).includes(allocation.paymentRecordId)
       ),
       ...input.allocations.map((allocation, index) => ({
         id: `${input.paymentRecordId}-allocation-${index + 1}`,
@@ -946,6 +967,18 @@ const exchangeRateProvider: ExchangeRateProvider = {
   }
 }
 
+function exposePaymentWrites(repository: FinanceRepositoryStub): void {
+  const add = repository.addPaymentRecord.bind(repository)
+  const get = repository.getPaymentRecord.bind(repository)
+  repository.addPaymentRecord = async (input) => {
+    const payment = await add(input)
+    repository.paymentRecords = [...repository.paymentRecords, payment]
+    return payment
+  }
+  repository.getPaymentRecord = async (id) =>
+    repository.paymentRecords.find((p) => p.id === id) ?? get(id)
+}
+
 function createService(repository: FinanceRepositoryStub) {
   financeRepositories.set(repository.householdId, repository)
 
@@ -1087,6 +1120,7 @@ describe('createFinanceCommandService', () => {
       householdConfigurationRepository,
       exchangeRateProvider,
       repository: {
+        getPaymentRecordByConfirmationSource: async () => null,
         getOpenCycle: () => repository.getOpenCycle(),
         getLatestCycle: () => repository.getLatestCycle(),
         getCycleByPeriod: (period) => repository.getCycleByPeriod(period),
@@ -2945,6 +2979,7 @@ describe('createFinanceCommandService', () => {
 
   test('addPayment allocates utilities overage to the oldest unresolved purchase balance', async () => {
     const repository = new FinanceRepositoryStub()
+    exposePaymentWrites(repository)
     repository.members = [
       {
         id: 'alice',
@@ -3032,7 +3067,7 @@ describe('createFinanceCommandService', () => {
     const service = createService(repository)
     await service.addPayment('bob', 'utilities', '40.00', 'GEL', '2026-04')
 
-    expect(repository.lastReplacedPaymentPurchaseAllocations).toEqual({
+    expect(repository.lastReplacedPaymentPurchaseAllocations).toMatchObject({
       paymentRecordId: 'payment-record-1',
       cycleId: 'cycle-2026-04',
       resolutionMethod: 'utilities_plan',
@@ -3302,7 +3337,7 @@ describe('createFinanceCommandService', () => {
     const service = createService(repository)
     await service.addPayment('bob', 'rent', '15.00', 'GEL')
 
-    expect(repository.addedPaymentRecords).toEqual([
+    expect(repository.addedPaymentRecords).toMatchObject([
       {
         cycleId: 'cycle-2026-01',
         memberId: 'bob',
@@ -6899,6 +6934,9 @@ describe('reverting utility payment state', () => {
   test('deleting a payment drops the vendor facts it created and reopens the plan', async () => {
     const repository = new FinanceRepositoryStub()
     planFixture(repository, 'settled')
+    repository.members = [
+      { id: 'alice', telegramUserId: '1', displayName: 'Alice', rentShareWeight: 1, isAdmin: true }
+    ]
     repository.paymentRecords = [
       {
         id: 'payment-1',
@@ -7121,6 +7159,7 @@ describe('member repayment accounting', () => {
 
   test('real billing payments allocate only the remaining debt and preserve transfer source references', async () => {
     const { repository, service } = repaymentFixture()
+    exposePaymentWrites(repository)
     repository.repayments[0]!.status = 'confirmed'
     repository.utilityBills = [
       {
@@ -7137,6 +7176,7 @@ describe('member repayment accounting', () => {
       { purchaseId: 'large-purchase', memberId: 'bob', amountMinor: 25000n }
     ])
     const excess = repaymentFixture(100000n)
+    exposePaymentWrites(excess.repository)
     excess.repository.repayments[0]!.status = 'confirmed'
     excess.repository.utilityBills = repository.utilityBills
     await excess.service.addPayment('alice', 'utilities', '200', 'GEL', '2026-03')

@@ -154,6 +154,8 @@ function createPromptRepository(): TelegramPendingActionRepository {
 
 function createFinanceService(): FinanceCommandService {
   return {
+    capturePaymentFundingContext: async () => undefined,
+    reconcilePaymentPurchaseAllocations: async () => {},
     repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async (telegramUserId) =>
       telegramUserId === '20002'
@@ -975,4 +977,75 @@ describe('publishAgentPaymentProposal', () => {
       'Аренда за 2026-06 уже оплачена. За какой период этот новый платёж?'
     )
   })
+})
+
+test('a saved receipt retries pending balances without a second payment or unavailable acknowledgement', async () => {
+  const calls: Array<{ method: string; payload: unknown }> = []
+  const bot = createAgentTestBot(calls)
+  const prompts = createPromptRepository()
+  const finance = createMultiMemberRentFinanceService()
+  const proposal = await createAgentPaymentProposal({
+    householdId: 'household-1',
+    payerMemberId: 'member-2',
+    additionalMemberIds: [],
+    kind: 'rent',
+    explicitAmount: null,
+    perMemberAmount: null,
+    financeService: finance,
+    householdConfigurationRepository: createHouseholdRepository() as never
+  })
+  if (proposal.status !== 'proposal') throw new Error('Missing proposal')
+  let attempts = 0
+  const service: PaymentConfirmationService = {
+    submit: async () =>
+      ++attempts === 1
+        ? {
+            status: 'recorded',
+            kind: 'rent',
+            amount: Money.fromMajor('469', 'GEL'),
+            balanceUpdatePending: true
+          }
+        : { status: 'duplicate', kind: 'rent', amount: Money.fromMajor('469', 'GEL') }
+  }
+  bot.on('message', async (ctx) => {
+    await publishAgentPaymentProposal({
+      ctx,
+      locale: 'ru',
+      record: agentPaymentRecord('Дима оплатил аренду'),
+      proposal,
+      payerTelegramUserId: '20002',
+      payerDisplayName: 'Dima',
+      isThirdParty: true,
+      promptRepository: prompts
+    })
+  })
+  registerPaymentTopicCallbacks(
+    bot,
+    createHouseholdRepository() as never,
+    prompts,
+    () => finance,
+    () => service
+  )
+  await bot.handleUpdate(paymentUpdate('Дима оплатил аренду') as never)
+  const callback = `payment_topic:confirm:${proposal.payload.proposalId}`
+  await bot.handleUpdate(paymentCallbackUpdate(callback, 20002) as never)
+  const first = calls.findLast((c) => c.method === 'editMessageText')!.payload as {
+    text: string
+    reply_markup: { inline_keyboard: unknown[][] }
+  }
+  expect(first.text).toContain('Платёж сохранён')
+  expect(first.reply_markup.inline_keyboard).toHaveLength(1)
+  expect(
+    await prompts.getPendingAction('-10012345', '20002', 'payment_topic_confirmation')
+  ).not.toBeNull()
+  await bot.handleUpdate(paymentCallbackUpdate(callback, 20002) as never)
+  const second = calls.findLast((c) => c.method === 'editMessageText')!.payload as {
+    text: string
+    reply_markup: { inline_keyboard: unknown[][] }
+  }
+  expect(second.text).toContain('Оплата аренды записана')
+  expect(second.reply_markup.inline_keyboard).toEqual([])
+  expect(
+    await prompts.getPendingAction('-10012345', '20002', 'payment_topic_confirmation')
+  ).toBeNull()
 })

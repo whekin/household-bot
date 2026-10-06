@@ -10,13 +10,11 @@ import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
 import { buildBotStartDeepLink } from './telegram-deep-links'
 
 export type PaymentReminderKind = FinancePaymentKind
-export type PaymentReminderViewMode = 'compact' | 'details' | 'confirm-close'
+export type PaymentReminderViewMode = 'compact' | 'details'
 export type PaymentReminderDispatchKind = 'utilities' | 'rent_warning' | 'rent_due'
 
 export const PAYMENT_REMINDER_PAID_CALLBACK_PREFIX = 'pr:p:'
 export const PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX = 'pr:d:'
-export const PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX = 'pr:c:'
-export const PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX = 'pr:cc:'
 
 export interface PaymentReminderMessageContent {
   text: string
@@ -234,6 +232,9 @@ function utilitiesByMemberLines(input: {
     const settledEverythingAssigned =
       !unresolved && memberCategories.length > 0 && memberCategories.every(isPaidByThisMember)
 
+    if (lines.length > 0) {
+      lines.push('')
+    }
     lines.push(
       `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(
         settledEverythingAssigned
@@ -248,8 +249,13 @@ function utilitiesByMemberLines(input: {
       )}`
     )
     for (const category of memberCategories) {
+      const paidMinor = category.assignedAmount.amountMinor - category.remainingAmount.amountMinor
+      const partial =
+        !isPaidByThisMember(category) && paidMinor > 0n
+          ? ` · ${escapeHtml(moneyText(Money.fromMinor(paidMinor, category.assignedAmount.currency)))} ${input.locale === 'ru' ? 'уже оплачено' : 'already paid'}`
+          : ''
       lines.push(
-        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(isPaidByThisMember(category) ? category.assignedAmount : category.remainingAmount))}`
+        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(isPaidByThisMember(category) ? category.assignedAmount : category.remainingAmount))}${partial ? (input.locale === 'ru' ? ' осталось' : ' remaining') + partial : ''}`
       )
     }
     // Nothing left to pay on the plan does not mean nothing is owed: shared
@@ -336,7 +342,7 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
   const dashboardUrl = buildBotStartDeepLink(input.botUsername, 'dashboard')
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
 
-  if (input.kind === 'rent' && input.viewMode !== 'confirm-close') {
+  if (input.kind === 'rent') {
     const destinations =
       input.dashboard.rentBillingState.paymentDestinations ??
       input.dashboard.rentPaymentDestinations ??
@@ -357,7 +363,7 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
     }
   }
 
-  if (!fullyPaid && input.viewMode !== 'confirm-close') {
+  if (!fullyPaid) {
     rows.push([
       {
         text: input.kind === 'utilities' ? t.paidUtilitiesButton : t.paidButton,
@@ -366,31 +372,7 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
     ])
   }
 
-  if (input.viewMode === 'confirm-close') {
-    rows.push([
-      {
-        text: t.confirmCloseButton,
-        callback_data: `${PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
-      },
-      {
-        text: t.cancelButton,
-        callback_data: `${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}${input.kind}:${input.period}:compact`
-      }
-    ])
-  } else if (input.surface !== 'scheduled-reminder' && !fullyPaid) {
-    rows.push([
-      {
-        text: t.closeUnpaidButton,
-        callback_data: `${PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX}${input.kind}:${input.period}`
-      }
-    ])
-  }
-
-  if (
-    input.kind === 'utilities' &&
-    input.viewMode !== 'confirm-close' &&
-    input.surface === 'billing-reminder-prompt'
-  ) {
+  if (input.kind === 'utilities' && input.surface === 'billing-reminder-prompt') {
     rows.push(
       ...buildUtilitiesReminderReplyMarkup(input.locale, {
         ...(input.miniAppUrl ? { miniAppUrl: input.miniAppUrl } : {}),
@@ -435,6 +417,12 @@ export function buildPaymentReminderMessageContentForSurface(
           `📅 ${escapeHtml(month)} · ${escapeHtml(input.locale === 'ru' ? 'срок' : 'due')} ${escapeHtml(dueDate)}`
         ]
 
+  if (input.dashboard.balanceUpdatePending)
+    lines.push(
+      '',
+      escapeHtml(getBotTranslations(input.locale).payments.balanceUpdatePendingReminder)
+    )
+
   if (fullyPaid) {
     lines.push('', `✅ <b>${escapeHtml(t.fullyPaid(input.kind, month))}</b>`)
   } else if (input.kind === 'utilities') {
@@ -458,6 +446,7 @@ export function buildPaymentReminderMessageContentForSurface(
     lines.push(
       '',
       `<b>${escapeHtml(input.locale === 'ru' ? 'Кто сколько платит' : 'Who pays what')}</b>`,
+      '',
       ...utilitiesByMemberLines({
         dashboard: input.dashboard,
         locale: input.locale,
@@ -477,34 +466,17 @@ export function buildPaymentReminderMessageContentForSurface(
     )
   }
 
-  if (input.viewMode !== 'confirm-close' && buildBotStartDeepLink(input.botUsername, 'dashboard')) {
+  if (buildBotStartDeepLink(input.botUsername, 'dashboard')) {
     lines.push('', `ℹ️ ${escapeHtml(t.dashboardDetailsHint)}`)
   }
 
-  if (
-    input.kind === 'utilities' &&
-    input.surface === 'scheduled-reminder' &&
-    input.viewMode !== 'confirm-close'
-  ) {
+  if (input.kind === 'utilities' && input.surface === 'scheduled-reminder') {
     lines.push(
       '',
       escapeHtml(
         input.locale === 'ru'
           ? 'Чтобы внести счета, ответьте на это сообщение скриншотом из Credo или TBC.'
           : 'To enter bills, reply to this message with a Credo or TBC screenshot.'
-      )
-    )
-  }
-
-  if (input.viewMode === 'confirm-close') {
-    const unresolvedCount = summary?.unresolvedMembers.length ?? 0
-    lines.push(
-      '',
-      `⚠️ <b>${escapeHtml(input.locale === 'ru' ? 'Подтвердите закрытие' : 'Confirm close')}</b>`,
-      escapeHtml(
-        input.locale === 'ru'
-          ? `${month}, ${input.kind === 'rent' ? 'аренда' : 'коммуналка'}: неоплаченных ${unresolvedCount}.`
-          : `${month}, ${input.kind}: ${unresolvedCount} unpaid.`
       )
     )
   }

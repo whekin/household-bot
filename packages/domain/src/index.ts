@@ -70,3 +70,9 @@ export {
 export type { RoutineQuickAction } from './routines'
 
 export { netRepaymentObligations } from './repayment-netting'
+export {
+  paymentFundingRevision,
+  parsePaymentFundingContext,
+  replayPaymentPurchaseFunding
+} from './payment-funding-revision'
+export type { PaymentFundingContext } from './payment-funding-revision'

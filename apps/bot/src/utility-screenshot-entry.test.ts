@@ -368,6 +368,22 @@ function setup(
   }
 }
 
+test('a complaint screenshot replying to a payment confirmation reaches the normal conversation', async () => {
+  const f = setup()
+  const update = photo({ reply: 'other', caption: 'Чё за баги?' })
+  const reply = update.message.reply_to_message!
+  Object.assign(reply, {
+    reply_markup: {
+      inline_keyboard: [[{ text: 'Confirm', callback_data: 'payment_topic:confirm:proposal' }]]
+    }
+  })
+  await f.bot.handleUpdate(update as never)
+  expect(f.metrics().passed).toBe(1)
+  expect(f.metrics().ocrCalls).toBe(0)
+  expect(f.imports).toHaveLength(0)
+  expect(f.messages()).toEqual([])
+})
+
 test('ordinary Save automatically accounts for cents without selecting a payer', async () => {
   const f = setup()
   f.setSnapshot({
@@ -699,3 +715,16 @@ test('an uneditable preview does not prevent refreshing cards after a successful
   expect(f.metrics().publishCalls).toBe(1)
   expect(f.messages().join()).toContain('Счета сохранены, но')
 })
+
+test.each(['✅ Оплата коммуналки записана', '✅ Utilities payment recorded'])(
+  'a complaint replying to a completed card stays in conversation: %s',
+  async (text) => {
+    const f = setup()
+    const update = photo({ reply: 'other', caption: 'Чё за баги?' })
+    update.message.reply_to_message!.text = text
+    await f.bot.handleUpdate(update as never)
+    expect(f.metrics().passed).toBe(1)
+    expect(f.metrics().ocrCalls).toBe(0)
+    expect(f.imports).toHaveLength(0)
+  }
+)

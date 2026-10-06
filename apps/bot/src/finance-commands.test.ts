@@ -458,6 +458,8 @@ function sameCurrencyRentConversion() {
 
 function createFinanceService(): FinanceCommandService {
   return {
+    capturePaymentFundingContext: async () => undefined,
+    reconcilePaymentPurchaseAllocations: async () => {},
     repayments: { execute: async () => [] },
     getMemberByTelegramUserId: async (telegramUserId) =>
       telegramUserId === '123456'

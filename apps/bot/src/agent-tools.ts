@@ -1,5 +1,7 @@
 import {
   buildMemberPaymentGuidance,
+  hasExplicitMoneyUnit,
+  hasInvalidMoneyAmount,
   paymentKindSummaryForRecording,
   type FinanceCommandService,
   type FinanceDashboard
@@ -103,6 +105,7 @@ export function explicitAmountFromMessage(input: {
   amountMajor: string
   currency: 'GEL' | 'USD'
 }): Money | null {
+  if (hasInvalidMoneyAmount(input.rawText)) return null
   let amount: Money
   try {
     amount = Money.fromMajor(input.amountMajor.replace(',', '.'), input.currency)
@@ -124,6 +127,8 @@ export function explicitAmountFromMessage(input: {
 
   const major = amount.toMajorString()
   const numberVariants = [major, major.replace('.', ','), major.replace(/\.00$/, '')]
+  if (hasExplicitMoneyUnit(input.rawText)) return null
+
   const bareNumber = numberVariants.some((variant) =>
     new RegExp(`(?:^|[^\\d.,])${escapeRegExp(variant)}(?:[^\\d.,]|$)`).test(input.rawText)
   )
@@ -194,12 +199,6 @@ function readPaymentKindArgument(
 function readCurrencyArgument(args: Record<string, unknown>, key: string): 'GEL' | 'USD' | null {
   const value = args[key]
   return value === 'GEL' || value === 'USD' ? value : null
-}
-
-function currentPeriodSummary(dashboard: FinanceDashboard) {
-  return dashboard.paymentPeriods?.find(
-    (period) => period.isCurrentPeriod || period.period === dashboard.period
-  )
 }
 
 function memberSummaries(dashboard: FinanceDashboard) {
@@ -388,6 +387,13 @@ async function getPaymentInstructions(context: AgentToolContext): Promise<unknow
     return { error: 'no_open_billing_cycle' }
   }
 
+  if (dashboard.balanceUpdatePending)
+    return {
+      error: 'balance_update_pending',
+      paymentSaved: true,
+      nextStep: 'Refresh the dashboard before quoting another payment amount.'
+    }
+
   const destinations =
     dashboard.rentBillingState.paymentDestinations ?? dashboard.rentPaymentDestinations ?? []
   const guidanceForMember = (memberId: string, kind: FinancePaymentKind) => {
@@ -396,17 +402,18 @@ async function getPaymentInstructions(context: AgentToolContext): Promise<unknow
       return null
     }
 
+    const summary = paymentKindSummaryForRecording(dashboard, dashboard.period, kind)
     const guidance = buildMemberPaymentGuidance({
       kind,
       period: dashboard.period,
       memberLine: line,
       settings,
-      paymentKindSummary:
-        currentPeriodSummary(dashboard)?.kinds.find((candidate) => candidate.kind === kind) ?? null
+      paymentKindSummary: summary
     })
     return {
       payNow: formatMoney(guidance.proposalAmount),
       remaining: formatMoney(guidance.totalRemaining),
+      paid: guidance.totalRemaining.amountMinor <= 0n,
       dueDate: guidance.dueDate,
       windowOpen: guidance.paymentWindowOpen
     }
@@ -435,14 +442,19 @@ async function getPaymentInstructions(context: AgentToolContext): Promise<unknow
         .map((category) => ({
           name: category.name,
           provider: category.providerName,
+          customerNumber: category.customerNumber,
           paymentLink: category.paymentLink,
           note: category.note
         })),
+      balanceUpdatePending: dashboard.balanceUpdatePending ?? false,
       assignedBills:
         dashboard.utilityBillingPlan?.categories.map((category) => ({
+          utilityBillId: category.utilityBillId,
           bill: category.billName,
           assignedTo: category.assignedMemberId,
-          amount: formatMoney(category.assignedAmount)
+          amount: formatMoney(category.remainingAmount),
+          remaining: formatMoney(category.remainingAmount),
+          paid: category.remainingAmount.amountMinor <= 0n
         })) ?? [],
       perMember: dashboard.members.map((member) => ({
         memberId: member.memberId,
@@ -611,7 +623,7 @@ async function listLedger(
         ? entry.kind === kindFilter
         : true
     )
-    .slice(-limit)
+    .slice(0, limit)
 
   return {
     period: dashboard.period,
@@ -624,6 +636,7 @@ async function listLedger(
       actor: entry.actorDisplayName,
       occurredAt: String(entry.occurredAt),
       ...(entry.paymentKind ? { paymentKind: entry.paymentKind } : {}),
+      isRoundingAdjustment: entry.isRoundingAdjustment ?? false,
       ...(entry.payerMemberId ? { payerMemberId: entry.payerMemberId } : {})
     }))
   }
@@ -677,13 +690,41 @@ async function proposePayment(
       })
     : null
 
+  if (hasInvalidMoneyAmount(context.record.rawText)) return { result: { error: 'invalid_amount' } }
+  const writtenAmounts = parseCurrentMessageAmounts(context.record.rawText)
+  if (
+    hasExplicitMoneyUnit(context.record.rawText) &&
+    /\d/.test(context.record.rawText) &&
+    writtenAmounts.length === 0
+  )
+    return { result: { error: 'invalid_amount' } }
+  if (amountMajor && !explicitAmount && hasExplicitMoneyUnit(context.record.rawText))
+    return {
+      result: {
+        error: 'amount_does_not_match_message',
+        observedAmounts: writtenAmounts.map(
+          (a) => Money.fromMinor(a.amountMinor, a.currency).toMajorString() + ' ' + a.currency
+        )
+      }
+    }
+  const exactAmount =
+    explicitAmount ??
+    (!amountMajor && writtenAmounts.length === 1
+      ? Money.fromMinor(writtenAmounts[0]!.amountMinor, writtenAmounts[0]!.currency)
+      : null)
+  if (!amountMajor && writtenAmounts.length > 1)
+    return { result: { error: 'multiple_amounts_choose_reported_transfer' } }
   const proposal = await createAgentPaymentProposal({
     householdId: context.householdId,
     payerMemberId,
     additionalMemberIds: coveredMemberIds,
     kind: readPaymentKindArgument(args, 'kind'),
+    ...(readStringArgument(args, 'utility_bill_id')
+      ? { utilityBillId: readStringArgument(args, 'utility_bill_id')! }
+      : {}),
+    rawText: context.record.rawText,
     ...(args.period !== undefined ? { period: readStringArgument(args, 'period') ?? '' } : {}),
-    explicitAmount,
+    explicitAmount: exactAmount,
     perMemberAmount,
     financeService: context.financeService,
     householdConfigurationRepository: context.householdConfigurationRepository
@@ -1019,6 +1060,23 @@ async function updatePaymentTool(
   const payment = await context.financeService.getPayment(paymentId)
   if (!payment) {
     return { result: { error: 'payment_not_found' } }
+  }
+
+  if (payment.isRoundingAdjustment) {
+    let requested: Money
+    try {
+      requested = Money.fromMajor(amountMajor, payment.currency)
+    } catch {
+      return { result: { error: 'invalid_amount' } }
+    }
+    if (requested.amountMinor > 200n)
+      return {
+        result: {
+          error: 'rounding_adjustment_not_actual_transfer',
+          instruction:
+            'This entry is a small automatic rounding adjustment, not the reported transfer. Do not turn it into a larger payment. Check existing bill payments and clarify whether a separate additional transfer needs recording.'
+        }
+      }
   }
 
   if (payment.memberId !== context.senderMember.id && !context.senderMember.isAdmin) {
@@ -1375,6 +1433,7 @@ export function agentToolDefinitions(input: {
         'Use when a member reports having paid. payer_member_id: who the payment belongs to (defaults to the sender; set it when the sender reports someone else paid, e.g. "Ion paid the rent").',
         'covered_member_ids: additional members whose shares the payer covered (e.g. "paid for me and Alisa" → sender is payer, Alisa in covered_member_ids; "paid for everyone" / "за всех" → every other member id here). Amounts default to each member\'s billed share.',
         'amount_major: only if the sender explicitly wrote the amount in THIS message.',
+        'For a payment to a named utility provider, get_payment_instructions supplies utilityBillId; pass it as utility_bill_id. This includes partial payments and additional top-ups. If the member says a payment was already made or already counted, inspect list_ledger before proposing another payment; ask whether it is additional if unclear.',
         'period: YYYY-MM for the billing period the member identifies, including an advance payment. Paying early does not necessarily mean next month: use the due date and get_bill_status. If the default period is settled, ask which period the new payment covers; never silently advance it or change rent to utilities.',
         MEMBER_ID_NOTE
       ].join(' '),
@@ -1382,6 +1441,7 @@ export function agentToolDefinitions(input: {
         type: 'object',
         properties: {
           kind: { type: 'string', enum: ['rent', 'utilities'] },
+          utility_bill_id: { type: 'string' },
           period: { type: 'string' },
           payer_member_id: { type: 'string' },
           covered_member_ids: { type: 'array', items: { type: 'string' } },

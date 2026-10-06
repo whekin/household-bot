@@ -1,6 +1,7 @@
 import type {
   ExchangeRateProvider,
   FinancePaymentKind,
+  FinancePaymentConfirmationReviewReason,
   FinanceRepository,
   HouseholdConfigurationRepository
 } from '@household/ports'
@@ -62,6 +63,7 @@ async function convertIntoCycleCurrency(
 
 export interface PaymentConfirmationMessageInput {
   period?: string
+  utilityBillId?: string
   senderTelegramUserId: string
   memberId?: string | null
   sourceKey?: string | null
@@ -78,6 +80,9 @@ export interface PaymentConfirmationMessageInput {
 export type PaymentConfirmationSubmitResult =
   | {
       status: 'duplicate'
+      kind?: FinancePaymentKind
+      amount?: Money
+      balanceUpdatePending?: boolean
     }
   | {
       status: 'already_settled'
@@ -87,17 +92,11 @@ export type PaymentConfirmationSubmitResult =
       status: 'recorded'
       kind: FinancePaymentKind
       amount: Money
+      balanceUpdatePending?: boolean
     }
   | {
       status: 'needs_review'
-      reason:
-        | 'member_not_found'
-        | 'cycle_not_found'
-        | 'settlement_not_ready'
-        | 'intent_missing'
-        | 'kind_ambiguous'
-        | 'multiple_members'
-        | 'non_positive_amount'
+      reason: FinancePaymentConfirmationReviewReason
     }
 
 export interface PaymentConfirmationService {
@@ -106,7 +105,13 @@ export interface PaymentConfirmationService {
 
 export function createPaymentConfirmationService(input: {
   householdId: string
-  financeService: Pick<FinanceCommandService, 'getMemberByTelegramUserId' | 'generateDashboard'>
+  financeService: Pick<FinanceCommandService, 'getMemberByTelegramUserId' | 'generateDashboard'> &
+    Partial<
+      Pick<
+        FinanceCommandService,
+        'reconcilePaymentPurchaseAllocations' | 'capturePaymentFundingContext'
+      >
+    >
   repository: Pick<
     FinanceRepository,
     | 'getOpenCycle'
@@ -116,6 +121,7 @@ export function createPaymentConfirmationService(input: {
     | 'saveCycleExchangeRate'
     | 'getLatestExchangeRate'
     | 'savePaymentConfirmation'
+    | 'getPaymentRecordByConfirmationSource'
   >
   householdConfigurationRepository: Pick<
     HouseholdConfigurationRepository,
@@ -126,6 +132,24 @@ export function createPaymentConfirmationService(input: {
   return {
     async submit(message) {
       const sourceKey = message.sourceKey?.trim() || message.telegramMessageId
+      const existing = await input.repository.getPaymentRecordByConfirmationSource(
+        message.telegramChatId,
+        sourceKey
+      )
+      if (existing) {
+        let balanceUpdatePending = false
+        try {
+          await input.financeService.reconcilePaymentPurchaseAllocations?.(existing.id)
+        } catch {
+          balanceUpdatePending = true
+        }
+        return {
+          status: 'duplicate',
+          kind: existing.kind,
+          amount: Money.fromMinor(existing.amountMinor, existing.currency),
+          ...(balanceUpdatePending ? { balanceUpdatePending: true } : {})
+        }
+      }
       const reporter = message.memberId
         ? null
         : await input.financeService.getMemberByTelegramUserId(message.senderTelegramUserId)
@@ -273,7 +297,15 @@ export function createPaymentConfirmationService(input: {
       const unpaid = kindSummary
         ? kindSummary.unresolvedMembers.some((member) => member.memberId === targetMemberId)
         : memberLine.remaining.amountMinor > 0n
-      if (!unpaid) {
+      if (
+        !unpaid &&
+        !(
+          message.utilityBillId &&
+          parsed.kind === 'utilities' &&
+          parsed.explicitAmount &&
+          parsed.explicitAmount.amountMinor > 0n
+        )
+      ) {
         return {
           status: 'already_settled',
           kind: parsed.kind
@@ -313,23 +345,61 @@ export function createPaymentConfirmationService(input: {
         }
       }
 
-      const saveResult = await input.repository.savePaymentConfirmation({
-        ...message,
-        sourceKey,
-        normalizedText: parsed.normalizedText,
-        status: 'recorded',
-        cycleId: cycle.id,
-        memberId: targetMemberId,
-        kind: parsed.kind,
-        amountMinor: resolvedAmount.amountMinor,
-        currency: resolvedAmount.currency,
-        explicitAmountMinor: parsed.explicitAmount?.amountMinor ?? null,
-        explicitCurrency: parsed.explicitAmount?.currency ?? null,
-        recordedAt: message.messageSentAt ?? nowInstant()
-      })
+      let saveResult: Awaited<ReturnType<FinanceRepository['savePaymentConfirmation']>> | undefined
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const pricing = await input.financeService.capturePaymentFundingContext?.(
+          targetMemberId,
+          parsed.kind,
+          cycle.period,
+          resolvedAmount.currency
+        )
+        try {
+          saveResult = await input.repository.savePaymentConfirmation({
+            ...message,
+            sourceKey,
+            normalizedText: parsed.normalizedText,
+            status: 'recorded',
+            cycleId: cycle.id,
+            memberId: targetMemberId,
+            kind: parsed.kind,
+            amountMinor: resolvedAmount.amountMinor,
+            currency: resolvedAmount.currency,
+            explicitAmountMinor: parsed.explicitAmount?.amountMinor ?? null,
+            explicitCurrency: parsed.explicitAmount?.currency ?? null,
+            recordedAt: message.messageSentAt ?? nowInstant(),
+            ...(pricing ? { purchaseFundingContext: pricing } : {}),
+            ...(message.utilityBillId ? { utilityBillId: message.utilityBillId } : {})
+          })
+          break
+        } catch (error) {
+          if (
+            attempt === 2 ||
+            !(error instanceof Error) ||
+            !error.message.includes('Payment pricing changed')
+          )
+            throw error
+        }
+      }
+      if (!saveResult) throw new Error('Payment confirmation could not be saved')
 
       if (saveResult.status === 'duplicate') {
-        return saveResult
+        const record = await input.repository.getPaymentRecordByConfirmationSource(
+          message.telegramChatId,
+          sourceKey
+        )
+        if (!record) return saveResult
+        let balanceUpdatePending = false
+        try {
+          await input.financeService.reconcilePaymentPurchaseAllocations?.(record.id)
+        } catch {
+          balanceUpdatePending = true
+        }
+        return {
+          status: 'duplicate',
+          kind: record.kind,
+          amount: Money.fromMinor(record.amountMinor, record.currency),
+          ...(balanceUpdatePending ? { balanceUpdatePending: true } : {})
+        }
       }
 
       if (saveResult.status === 'needs_review') {
@@ -339,9 +409,18 @@ export function createPaymentConfirmationService(input: {
         }
       }
 
+      let balanceUpdatePending = false
+      try {
+        await input.financeService.reconcilePaymentPurchaseAllocations?.(
+          saveResult.paymentRecord.id
+        )
+      } catch {
+        balanceUpdatePending = true
+      }
       return {
         status: 'recorded',
         kind: saveResult.paymentRecord.kind,
+        ...(balanceUpdatePending ? { balanceUpdatePending: true } : {}),
         amount: Money.fromMinor(
           saveResult.paymentRecord.amountMinor,
           saveResult.paymentRecord.currency

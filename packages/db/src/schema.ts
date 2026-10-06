@@ -757,10 +757,18 @@ export const paymentRecords = pgTable(
       onDelete: 'set null'
     }),
     idempotencyKey: text('idempotency_key'),
+    fundingPhase: bigint('funding_phase', { mode: 'bigint' }),
+    purchaseFundingContext: jsonb('purchase_funding_context'),
+    purchaseReconciliationPending: integer('purchase_reconciliation_pending').default(0).notNull(),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
+    reconciliationIdx: index('payment_records_reconciliation_idx').on(
+      table.householdId,
+      table.cycleId,
+      table.purchaseReconciliationPending
+    ),
     cycleMemberIdx: index('payment_records_cycle_member_idx').on(table.cycleId, table.memberId),
     cycleKindIdx: index('payment_records_cycle_kind_idx').on(table.cycleId, table.kind),
     confirmationUnique: uniqueIndex('payment_records_confirmation_unique').on(table.confirmationId),

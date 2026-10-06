@@ -22,6 +22,8 @@ export interface PaymentProposalPayload {
   period?: string
   amountMinor: string
   currency: 'GEL' | 'USD'
+  utilityBillId?: string
+  utilityBillName?: string
   reporterTelegramUserId?: string
   reportedTelegramUserId?: string | null
   reportedDisplayName?: string | null
@@ -77,6 +79,10 @@ export function parsePaymentProposalPayload(
     ...(typeof payload.period === 'string' ? { period: payload.period } : {}),
     amountMinor: payload.amountMinor,
     currency: payload.currency,
+    ...(typeof payload.utilityBillId === 'string' ? { utilityBillId: payload.utilityBillId } : {}),
+    ...(typeof payload.utilityBillName === 'string'
+      ? { utilityBillName: payload.utilityBillName }
+      : {}),
     ...(typeof payload.reporterTelegramUserId === 'string'
       ? {
           reporterTelegramUserId: payload.reporterTelegramUserId
@@ -367,9 +373,12 @@ export function formatPaymentProposalText(input: {
             amount.currency
           )
 
-  const periodLine = input.proposal.payload.period
-    ? `\n📅 ${escapeHtml(input.proposal.payload.period)}`
+  const billLine = input.proposal.payload.utilityBillName
+    ? `\n💡 ${escapeHtml(input.proposal.payload.utilityBillName)}`
     : ''
+  const periodLine =
+    billLine +
+    (input.proposal.payload.period ? `\n📅 ${escapeHtml(input.proposal.payload.period)}` : '')
   const confirmHint = getBotTranslations(input.locale).payments.confirmHint
 
   if (
@@ -414,12 +423,35 @@ export type AgentPaymentProposalResult =
       breakdown: PaymentProposalBreakdown
     }
 
+function utilityBillKinds(text: string): string[] {
+  return [
+    ['electricity', /electricity|электр|эл[\s-]*во|свет/iu],
+    ['internet', /internet|интернет/iu],
+    ['cleaning', /cleaning|уборк/iu],
+    ['gas', /gas|газ/iu],
+    ['water', /water|вод/iu]
+  ]
+    .filter(([, pattern]) => (pattern as RegExp).test(text))
+    .map(([kind]) => kind as string)
+}
+
+function utilityBillKind(text: string): string | null {
+  if (/electricity|электр|эл[\s-]*во|свет/iu.test(text)) return 'electricity'
+  if (/internet|интернет/iu.test(text)) return 'internet'
+  if (/cleaning|уборк/iu.test(text)) return 'cleaning'
+  if (/gas|газ/iu.test(text)) return 'gas'
+  if (/water|вод/iu.test(text)) return 'water'
+  return null
+}
+
 export async function createAgentPaymentProposal(input: {
   householdId: string
   payerMemberId: string
   additionalMemberIds: readonly string[]
   kind: FinancePaymentKind | null
   period?: string
+  utilityBillId?: string
+  rawText?: string
   explicitAmount: Money | null
   perMemberAmount: Money | null
   financeService: FinanceCommandService
@@ -479,6 +511,8 @@ export async function createAgentPaymentProposal(input: {
     return { status: 'no_action', reason: 'payment_kind_ambiguous' }
   }
 
+  if (dashboard.balanceUpdatePending && !input.explicitAmount && !input.perMemberAmount)
+    return { status: 'no_action', reason: 'balance_update_pending' }
   let explicitAmount = targetMemberIds.length > 1 ? input.perMemberAmount : input.explicitAmount
   if (explicitAmount && explicitAmount.currency !== dashboard.currency) {
     // Rent is often quoted in its source currency ("оплатил аренду 175usd");
@@ -496,6 +530,11 @@ export async function createAgentPaymentProposal(input: {
   }
 
   if (targetMemberIds.length > 1) {
+    if (input.utilityBillId)
+      return {
+        status: 'no_action',
+        reason: 'named_utility_bill_requires_single_payer_confirmation'
+      }
     const proposalMembers = (targetMembers as FinanceMemberRecord[])
       .map((member): MultiMemberPaymentProposalMember | null => {
         const line = dashboard.members.find((candidate) => candidate.memberId === member.id)
@@ -573,12 +612,73 @@ export async function createAgentPaymentProposal(input: {
       kind,
       memberId: input.payerMemberId,
       fallbackAmount: guidance.proposalAmount
-    })
+    }) &&
+    !(
+      kind === 'utilities' &&
+      explicitAmount &&
+      (input.utilityBillId || utilityBillKind(input.rawText ?? ''))
+    )
   ) {
     return settledResult(kind)
   }
 
-  const amount = explicitAmount ?? guidance.proposalAmount
+  const candidates = kind === 'utilities' ? (dashboard.utilityBillingPlan?.categories ?? []) : []
+  const namedKinds = utilityBillKinds(input.rawText ?? '')
+  if (kind === 'utilities' && namedKinds.length > 1)
+    return { status: 'no_action', reason: 'multiple_utility_bills_need_separate_amounts' }
+  const namedKind = namedKinds[0] ?? null
+  const namedBillIds = [
+    ...new Set(
+      candidates
+        .filter((c) => namedKind && utilityBillKind(c.billName) === namedKind)
+        .map((c) => c.utilityBillId)
+    )
+  ]
+  const utilityBillId =
+    input.utilityBillId ?? (namedBillIds.length === 1 ? namedBillIds[0] : undefined)
+  const bill = utilityBillId ? candidates.find((c) => c.utilityBillId === utilityBillId) : null
+  if (input.utilityBillId && !bill)
+    return { status: 'no_action', reason: 'utility_bill_unavailable' }
+  if (input.utilityBillId && namedKind && !namedBillIds.includes(input.utilityBillId))
+    return { status: 'no_action', reason: 'named_utility_bill_mismatch' }
+  if (namedKind && !bill) return { status: 'no_action', reason: 'utility_bill_ambiguous' }
+  const billRemaining = bill
+    ? candidates
+        .filter(
+          (c) =>
+            c.utilityBillId === bill.utilityBillId && c.assignedMemberId === input.payerMemberId
+        )
+        .reduce((n, c) => n.add(c.remainingAmount), Money.zero(dashboard.currency))
+    : null
+  const previousBillPaid = bill
+    ? (dashboard.utilityBillingPlan?.vendorPayments ?? [])
+        .filter(
+          (p) => p.utilityBillId === bill.utilityBillId && p.payerMemberId === input.payerMemberId
+        )
+        .reduce((n, p) => n + p.amount.amountMinor, 0n)
+    : 0n
+  if (
+    explicitAmount &&
+    previousBillPaid === explicitAmount.amountMinor &&
+    /уже|как.*указан|already/iu.test(input.rawText ?? '') &&
+    !/докин|доплат|добав|ещ[её]|additional|top.?up/iu.test(input.rawText ?? '')
+  )
+    return { status: 'no_action', reason: 'payment_already_recorded_clarify_if_additional' }
+  if (bill && explicitAmount) {
+    const paid = (dashboard.utilityBillingPlan?.vendorPayments ?? [])
+      .filter(
+        (p) =>
+          p.utilityBillId === bill.utilityBillId ||
+          (!p.utilityBillId &&
+            p.billName.trim().toLowerCase() === bill.billName.trim().toLowerCase())
+      )
+      .reduce((n, p) => n + p.amount.amountMinor, 0n)
+    const providerRemaining =
+      bill.billTotal.amountMinor > paid ? bill.billTotal.amountMinor - paid : 0n
+    if (explicitAmount.amountMinor > providerRemaining)
+      return { status: 'no_action', reason: 'payment_exceeds_remaining_supplier_balance' }
+  }
+  const amount = explicitAmount ?? billRemaining ?? guidance.proposalAmount
   if (amount.amountMinor <= 0n) {
     return settledResult(kind)
   }
@@ -592,7 +692,8 @@ export async function createAgentPaymentProposal(input: {
       kind,
       period: dashboard.period,
       amountMinor: amount.amountMinor.toString(),
-      currency: amount.currency
+      currency: amount.currency,
+      ...(bill ? { utilityBillId: bill.utilityBillId, utilityBillName: bill.billName } : {})
     },
     breakdown: {
       guidance,

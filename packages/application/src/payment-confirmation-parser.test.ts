@@ -3,6 +3,21 @@ import { describe, expect, test } from 'bun:test'
 import { parsePaymentConfirmationMessage } from './payment-confirmation-parser'
 
 describe('parsePaymentConfirmationMessage', () => {
+  test.each([
+    ['paid electricity 15.70₾', 1570n, 'GEL'],
+    ['paid electricity 4лари', 400n, 'GEL'],
+    ['paid rent 175$', 17500n, 'USD']
+  ] as const)('keeps exact units in %s', (text, minor, currency) => {
+    const result = parsePaymentConfirmationMessage(text, 'GEL')
+    expect(result.explicitAmount?.amountMinor).toBe(minor)
+    expect(result.explicitAmount?.currency).toBe(currency)
+  })
+  test.each(['paid electricity 4.001 GEL', 'paid electricity .5 GEL', 'paid electricity -4 GEL'])(
+    'does not replace a malformed amount with billing guidance: %s',
+    (text) => {
+      expect(parsePaymentConfirmationMessage(text, 'GEL').reviewReason).not.toBeNull()
+    }
+  )
   test('detects rent confirmation without explicit amount', () => {
     const result = parsePaymentConfirmationMessage('за жилье закинул', 'GEL')
 

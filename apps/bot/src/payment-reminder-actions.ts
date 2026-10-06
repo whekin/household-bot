@@ -12,8 +12,6 @@ import { getBotTranslations } from './i18n'
 import {
   buildScheduledPaymentReminderContent,
   formatBillingMonth,
-  PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX,
-  PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX,
   PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX,
   PAYMENT_REMINDER_PAID_CALLBACK_PREFIX,
   type PaymentReminderMessageContent,
@@ -29,13 +27,6 @@ const PAYMENT_REMINDER_PAID_PATTERN = new RegExp(
 const PAYMENT_REMINDER_DETAILS_PATTERN = new RegExp(
   `^${PAYMENT_REMINDER_DETAILS_CALLBACK_PREFIX}(rent|utilities):(\\d{4}-\\d{2}):(compact|details)$`
 )
-const PAYMENT_REMINDER_CLOSE_PATTERN = new RegExp(
-  `^${PAYMENT_REMINDER_CLOSE_CALLBACK_PREFIX}(rent|utilities):(\\d{4}-\\d{2})$`
-)
-const PAYMENT_REMINDER_CONFIRM_CLOSE_PATTERN = new RegExp(
-  `^${PAYMENT_REMINDER_CONFIRM_CLOSE_CALLBACK_PREFIX}(rent|utilities):(\\d{4}-\\d{2})$`
-)
-
 type CallbackMatch = RegExpMatchArray & {
   1: PaymentReminderKind
   2: string
@@ -194,26 +185,6 @@ export function registerPaymentReminderActions(options: {
     await refresh(ctx, action, (ctx.match as CallbackMatch)[3] ?? 'compact')
   })
 
-  options.bot.callbackQuery(PAYMENT_REMINDER_CLOSE_PATTERN, async (ctx) => {
-    const action = await resolveAction(ctx, ctx.match as CallbackMatch)
-    if (!action) {
-      return
-    }
-    if (!action.actorContext.member.isAdmin) {
-      await safeAnswerCallback(ctx, { text: action.t.adminOnly, show_alert: true }, options.logger)
-      return
-    }
-
-    // Answer on the cheap admin check rather than after the dashboard build.
-    await safeAnswerCallback(ctx, { text: action.t.confirmPrompt }, options.logger)
-    const dashboard = await action.loadDashboard()
-    if (!dashboard) {
-      return
-    }
-    action.dashboard = dashboard
-    await refresh(ctx, action, 'confirm-close')
-  })
-
   options.bot.callbackQuery(PAYMENT_REMINDER_PAID_PATTERN, async (ctx) => {
     const action = await resolveAction(ctx, ctx.match as CallbackMatch)
     if (!action) {
@@ -261,44 +232,6 @@ export function registerPaymentReminderActions(options: {
       })
     }
 
-    await refresh(ctx, action, 'compact')
-  })
-
-  options.bot.callbackQuery(PAYMENT_REMINDER_CONFIRM_CLOSE_PATTERN, async (ctx) => {
-    const action = await resolveAction(ctx, ctx.match as CallbackMatch)
-    if (!action) {
-      return
-    }
-    if (!action.actorContext.member.isAdmin) {
-      await safeAnswerCallback(ctx, { text: action.t.adminOnly, show_alert: true }, options.logger)
-      return
-    }
-
-    const result = await action.service.closePaymentPeriod({
-      kind: action.kind,
-      allMembers: true,
-      actorMemberId: action.actorContext.member.id,
-      periodArg: action.period
-    })
-    action.dashboard = result?.dashboard ?? (await action.loadDashboard())
-    await safeAnswerCallback(
-      ctx,
-      {
-        text:
-          result && result.closedMembers.length > 0
-            ? action.t.paymentRecordedToast
-            : action.t.alreadyPaid
-      },
-      options.logger
-    )
-    if (result && result.closedMembers.length > 0 && options.livePaymentCardService) {
-      await options.livePaymentCardService.refresh({
-        householdId: action.actorContext.householdId,
-        kind: action.kind,
-        period: action.period,
-        ...(action.dashboard ? { dashboard: action.dashboard } : {})
-      })
-    }
     await refresh(ctx, action, 'compact')
   })
 }

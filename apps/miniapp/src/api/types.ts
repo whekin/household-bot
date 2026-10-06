@@ -110,6 +110,7 @@ export interface MiniAppTopicBinding {
 }
 
 export interface MiniAppDashboard {
+  balanceUpdatePending?: boolean
   period: string
   currency: 'USD' | 'GEL'
   timezone: string
@@ -258,6 +259,7 @@ export interface MiniAppDashboard {
     title: string
     memberId: string | null
     paymentKind: 'rent' | 'utilities' | null
+    isRoundingAdjustment?: boolean
     amountMajor: string
     currency: 'USD' | 'GEL'
     displayAmountMajor: string

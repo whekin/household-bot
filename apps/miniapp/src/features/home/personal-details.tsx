@@ -113,7 +113,12 @@ export function PersonalDetails({
           {utilityLines.map((utilityLine) => (
             <PersonalLine
               key={utilityLine.billName}
-              label={utilityLine.billName}
+              label={
+                utilityLine.billName +
+                (majorStringToMinor(utilityLine.paidMajor) > 0n
+                  ? ` · ${locale === 'ru' ? 'уже оплачено' : 'already paid'} ${formatMoneyLabel(utilityLine.paidMajor, currency, locale)}`
+                  : '')
+              }
               value={formatMoneyLabel(utilityLine.amountMajor, currency, locale)}
             />
           ))}

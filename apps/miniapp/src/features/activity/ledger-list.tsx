@@ -42,6 +42,7 @@ export function LedgerList({
 
   function entryTitle(entry: LedgerEntry): string {
     if (entry.kind === 'payment') {
+      if (entry.isRoundingAdjustment) return copy.paymentLedgerRounding
       return entry.paymentKind === 'rent' ? copy.paymentLedgerRent : copy.paymentLedgerUtilities
     }
     return entry.title

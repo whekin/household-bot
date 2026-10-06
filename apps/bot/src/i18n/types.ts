@@ -276,12 +276,9 @@ export interface BotTranslationCatalog {
     onlyOriginalSender: string
     paidButton: string
     paidUtilitiesButton: string
-    closeUnpaidButton: string
-    confirmCloseButton: string
     fullyPaid: (kind: 'rent' | 'utilities', month: string) => string
     alreadyPaid: string
     notMember: string
-    adminOnly: string
     paymentRecordedToast: string
     reminderUnavailable: string
     noRentDestinations: string
@@ -412,6 +409,9 @@ export interface BotTranslationCatalog {
     ) => string
     timingDueNow: (kind: 'rent' | 'utilities', dueDate: string) => string
     confirmButton: string
+    balanceUpdatePendingReminder: string
+    balanceUpdatePending: string
+    retryBalanceButton: string
     confirmSelectedButton: string
     cancelButton: string
     multiProposal: (kind: 'rent' | 'utilities', period: string) => string

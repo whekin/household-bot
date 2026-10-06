@@ -51,11 +51,15 @@ function createRepositoryStub(): Pick<
   | 'saveCycleExchangeRate'
   | 'getLatestExchangeRate'
   | 'savePaymentConfirmation'
+  | 'getPaymentRecordByConfirmationSource'
 > & {
   saved: FinancePaymentConfirmationSaveInput[]
 } {
   return {
     saved: [],
+    async getPaymentRecordByConfirmationSource() {
+      return null
+    },
     async getCycleByPeriod(period) {
       const cycle = await this.getOpenCycle()
       return cycle?.period === period ? cycle : null

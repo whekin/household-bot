@@ -323,8 +323,8 @@ describe('today view model', () => {
     })
 
     expect(model.currentMemberUtilityLines).toEqual([
-      { billName: 'Electricity', amountMajor: '24.00' },
-      { billName: 'Water', amountMajor: '18.00' }
+      { billName: 'Electricity', amountMajor: '24.00', paidMajor: '0.00' },
+      { billName: 'Water', amountMajor: '18.00', paidMajor: '0.00' }
     ])
   })
 

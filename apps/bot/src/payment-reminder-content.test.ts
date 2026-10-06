@@ -169,6 +169,62 @@ function dashboard(): FinanceDashboard {
 }
 
 describe('payment reminder content', () => {
+  test('explains the paid baseline alongside a remaining electricity top-up', () => {
+    const base = dashboard()
+    const category = base.utilityBillingPlan!.categories[0]!
+    const content = buildScheduledPaymentReminderContent({
+      locale: 'ru',
+      kind: 'utilities',
+      dispatchKind: 'utilities',
+      period: '2026-05',
+      viewMode: 'compact',
+      dashboard: {
+        ...base,
+        utilityBillingPlan: {
+          ...base.utilityBillingPlan!,
+          categories: [
+            {
+              ...category,
+              billName: 'Electricity',
+              assignedAmount: Money.fromMajor('27.34', 'GEL'),
+              remainingAmount: Money.fromMajor('15.64', 'GEL')
+            }
+          ]
+        }
+      }
+    })
+    expect(content.text).toContain('Electricity · 15.64 ₾ осталось · 11.70 ₾ уже оплачено')
+    expect(content.text).toContain('<b>Кто сколько платит</b>\n\n')
+  })
+  test('keeps bulk admin actions out of every public payment card', () => {
+    for (const buildContent of [
+      buildScheduledPaymentReminderContent,
+      buildBillingReminderPromptContent,
+      buildPaymentInstructionContent
+    ]) {
+      for (const locale of ['ru', 'en'] as const) {
+        for (const kind of ['rent', 'utilities'] as const) {
+          for (const viewMode of ['compact', 'details'] as const) {
+            const content = buildContent({
+              locale,
+              kind,
+              dispatchKind: kind === 'rent' ? 'rent_due' : 'utilities',
+              period: '2026-05',
+              dashboard: dashboard(),
+              viewMode,
+              botUsername: 'household_test_bot'
+            })
+            const markup = JSON.stringify(content.replyMarkup)
+            expect(markup).toContain(`pr:p:${kind}:2026-05`)
+            expect(markup).toContain('start=dashboard')
+            expect(markup).not.toContain('pr:c:')
+            expect(markup).not.toContain('pr:cc:')
+          }
+        }
+      }
+    }
+  })
+
   test('formats month names instead of raw periods', () => {
     expect(formatBillingMonth('en', '2026-05')).toBe('May 2026')
     expect(formatBillingMonth('ru', '2026-05')).toContain('2026')

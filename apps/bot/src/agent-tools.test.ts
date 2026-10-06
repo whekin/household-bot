@@ -336,6 +336,187 @@ function createAllMembersPaymentToolContext(input: {
   }
 }
 
+describe('executeAgentTool get_payment_instructions', () => {
+  test('quotes the remaining assignment and marks a settled bill paid', async () => {
+    const context = createAllMembersPaymentToolContext({
+      rawText: 'мне ещё нужно оплатить электричество?',
+      replies: [],
+      pending: []
+    })
+    const base = (await context.financeService.generateDashboard())!
+    context.householdConfigurationRepository.listHouseholdUtilityCategories = async () => []
+    for (const remaining of ['15.35', '0.00']) {
+      context.financeService.generateDashboard = async () => ({
+        ...base,
+        utilityBillingPlan: {
+          id: 'plan-1',
+          version: 1,
+          status: 'active',
+          dueDate: '2026-07-05',
+          updatedFromVersion: null,
+          reason: null,
+          memberSummaries: [],
+          categories: [
+            {
+              utilityBillId: 'electricity',
+              billName: 'Electricity',
+              billTotal: Money.fromMajor('44.02', 'GEL'),
+              assignedAmount: Money.fromMajor('16.68', 'GEL'),
+              remainingAmount: Money.fromMajor(remaining, 'GEL'),
+              assignedMemberId: 'ion',
+              assignedDisplayName: 'Ион',
+              paidAmount: Money.fromMajor('16.68', 'GEL'),
+              isFullAssignment: false,
+              splitGroupId: 'electricity-split'
+            }
+          ]
+        }
+      })
+      const result = await executeAgentTool(context, {
+        name: 'get_payment_instructions',
+        arguments: {}
+      })
+      expect(result.result).toMatchObject({
+        utilities: {
+          assignedBills: [
+            {
+              assignedTo: 'ion',
+              amount: `${remaining} GEL`,
+              remaining: `${remaining} GEL`,
+              paid: remaining === '0.00'
+            }
+          ]
+        }
+      })
+      expect(result.result).toMatchObject({
+        utilities: {
+          perMember: expect.arrayContaining([
+            {
+              memberId: 'dima',
+              name: 'Дима',
+              payNow: '0.00 GEL',
+              remaining: '0.00 GEL',
+              paid: true,
+              dueDate: '2026-07-05',
+              windowOpen: true
+            }
+          ])
+        }
+      })
+    }
+  })
+})
+
+test('list_ledger returns recent records first and identifies automatic rounding', async () => {
+  const context = createAllMembersPaymentToolContext({
+    rawText: '4 тетри вместо 4 лари',
+    replies: [],
+    pending: []
+  })
+  const base = (await context.financeService.generateDashboard())!
+  context.financeService.generateDashboard = async () => ({
+    ...base,
+    ledger: ['newest', 'older'].map((id, index) => ({
+      id,
+      kind: 'payment',
+      title: 'utilities',
+      memberId: 'dima',
+      amount: Money.fromMajor('0.04', 'GEL'),
+      currency: 'GEL',
+      displayAmount: Money.fromMajor('0.04', 'GEL'),
+      displayCurrency: 'GEL',
+      fxRateMicros: null,
+      fxEffectiveDate: null,
+      actorDisplayName: 'Дима',
+      occurredAt: `2026-07-0${6 - index}`,
+      paymentKind: 'utilities',
+      isRoundingAdjustment: true
+    }))
+  })
+  const result = await executeAgentTool(context, {
+    name: 'list_ledger',
+    arguments: { kind: 'payment', limit: 1 }
+  })
+  expect(result.result).toMatchObject({
+    entries: [{ id: 'newest', amount: '0.04 GEL', isRoundingAdjustment: true }]
+  })
+})
+
+test.each([
+  ['докинул 4 лари за эл-во', '4', '400'],
+  ['докинул 4 тетри за эл-во', '0.04', '4'],
+  ['докинул 4 лари 70 тетри за эл-во', '4.70', '470']
+])('a named payment retains exact bill and amount: %s', async (rawText, amountMajor, minor) => {
+  const pending: TelegramPendingActionRecord[] = []
+  const context = createAllMembersPaymentToolContext({
+    rawText,
+    replies: [],
+    pending
+  })
+  const base = (await context.financeService.generateDashboard())!
+  context.financeService.generateDashboard = async () => ({
+    ...base,
+    utilityBillingPlan: {
+      id: 'plan-1',
+      version: 1,
+      status: 'active',
+      dueDate: '2026-07-05',
+      updatedFromVersion: null,
+      reason: null,
+      memberSummaries: [],
+      categories: [
+        {
+          utilityBillId: 'electricity',
+          billName: 'Electricity',
+          billTotal: Money.fromMajor('40.00', 'GEL'),
+          assignedAmount: Money.fromMajor('10.00', 'GEL'),
+          remainingAmount: Money.fromMajor('10.00', 'GEL'),
+          assignedMemberId: 'stas',
+          assignedDisplayName: 'Стас',
+          paidAmount: Money.zero('GEL'),
+          isFullAssignment: false,
+          splitGroupId: 'electricity'
+        }
+      ]
+    }
+  })
+  const result = await executeAgentTool(context, {
+    name: 'propose_payment',
+    arguments: { kind: 'utilities', amount_major: amountMajor, currency: 'GEL' }
+  })
+  expect(result.result).toMatchObject({ status: 'card_posted' })
+  expect(pending[0]!.payload).toMatchObject({
+    amountMinor: minor,
+    utilityBillId: 'electricity',
+    utilityBillName: 'Electricity'
+  })
+})
+
+test('a rounding adjustment cannot be mistaken for a larger reported transfer', async () => {
+  const pending: TelegramPendingActionRecord[] = []
+  const context = createAllMembersPaymentToolContext({
+    rawText: '4 тетри вместо 4 лари',
+    replies: [],
+    pending
+  })
+  context.financeService.getPayment = async () => ({
+    id: 'rounding',
+    cycleId: 'cycle',
+    memberId: 'stas',
+    kind: 'utilities',
+    amountMinor: 4n,
+    currency: 'GEL',
+    recordedAt: instantFromIso('2026-07-06T09:00:00Z'),
+    isRoundingAdjustment: true
+  })
+  const result = await executeAgentTool(context, {
+    name: 'update_payment',
+    arguments: { payment_id: 'rounding', amount_major: '4.00' }
+  })
+  expect(result.result).toMatchObject({ error: 'rounding_adjustment_not_actual_transfer' })
+  expect(pending).toEqual([])
+})
+
 describe('executeAgentTool propose_payment', () => {
   test('passes an explicit period through billing and the stored confirmation card', async () => {
     const replies: Array<{ text: string; payload: unknown }> = []
@@ -912,4 +1093,94 @@ describe('executeAgentAction household facts', () => {
 
     expect(succeeded).toBe(false)
   })
+})
+
+test.each(['paid Electricity and Internet 9 GEL', 'оплатил электричество и интернет 9 лари'])(
+  'multiple provider names never assign all money to the first provider: %s',
+  async (rawText) => {
+    const pending: TelegramPendingActionRecord[] = []
+    const context = createAllMembersPaymentToolContext({ rawText, replies: [], pending })
+    const result = await executeAgentTool(context, {
+      name: 'propose_payment',
+      arguments: { kind: 'utilities', amount_major: '9', currency: 'GEL' }
+    })
+    expect(result.result).toMatchObject({
+      status: 'no_action',
+      reason: 'multiple_utility_bills_need_separate_amounts'
+    })
+    expect(pending).toEqual([])
+  }
+)
+test.each(['paid electricity -4 GEL', 'paid electricity 4.001 GEL'])(
+  'the assistant cannot replace malformed money with a planned amount: %s',
+  async (rawText) => {
+    const pending: TelegramPendingActionRecord[] = []
+    const context = createAllMembersPaymentToolContext({ rawText, replies: [], pending })
+    expect(
+      (
+        await executeAgentTool(context, {
+          name: 'propose_payment',
+          arguments: { kind: 'utilities' }
+        })
+      ).result
+    ).toMatchObject({ error: 'invalid_amount' })
+    expect(pending).toEqual([])
+  }
+)
+
+test('a named payment above the supplier remainder asks for clarification before posting a card', async () => {
+  const pending: TelegramPendingActionRecord[] = []
+  const context = createAllMembersPaymentToolContext({
+    rawText: 'докинул 10 лари за электричество',
+    replies: [],
+    pending
+  })
+  const base = (await context.financeService.generateDashboard())!
+  context.financeService.generateDashboard = async () => ({
+    ...base,
+    utilityBillingPlan: {
+      id: 'plan',
+      version: 1,
+      status: 'active',
+      dueDate: '2026-07-05',
+      updatedFromVersion: null,
+      reason: null,
+      memberSummaries: [],
+      categories: [
+        {
+          utilityBillId: 'electricity',
+          billName: 'Electricity',
+          billTotal: Money.fromMajor('40', 'GEL'),
+          assignedAmount: Money.fromMajor('10', 'GEL'),
+          remainingAmount: Money.fromMajor('6', 'GEL'),
+          assignedMemberId: 'stas',
+          assignedDisplayName: 'Стас',
+          paidAmount: Money.fromMajor('34', 'GEL'),
+          isFullAssignment: false,
+          splitGroupId: 'electricity'
+        }
+      ],
+      vendorPayments: [
+        {
+          id: 'paid',
+          utilityBillId: 'electricity',
+          billName: 'Electricity',
+          payerMemberId: 'dima',
+          payerDisplayName: 'Дима',
+          amount: Money.fromMajor('34', 'GEL'),
+          matchedPlan: true,
+          recordedAt: instantFromIso('2026-07-06T09:00:00Z')
+        }
+      ]
+    }
+  })
+  expect(
+    (
+      await executeAgentTool(context, {
+        name: 'propose_payment',
+        arguments: { kind: 'utilities', amount_major: '10', currency: 'GEL' }
+      })
+    ).result
+  ).toMatchObject({ status: 'no_action', reason: 'payment_exceeds_remaining_supplier_balance' })
+  expect(pending).toEqual([])
 })

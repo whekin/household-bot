@@ -117,6 +117,11 @@ function repository(
       recordedAt: input.recordedAt
     }),
     updatePaymentRecord: async () => null,
+    getPaymentRecordByConfirmationSource: async () => null,
+    clearPaymentReconciliationPending: async () => {},
+    getPaymentPricingRevision: async () => 'test-pricing',
+    listPendingPaymentReconciliations: async () => [],
+    setPaymentFundingContextIfMissing: async () => {},
     getPaymentRecord: async () => null,
     replacePaymentPurchaseAllocations: async () => {},
     deletePaymentRecord: async () => false,
