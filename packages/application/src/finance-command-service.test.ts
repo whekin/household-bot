@@ -7295,3 +7295,46 @@ describe('member repayment accounting', () => {
     })
   })
 })
+
+test('dashboard purchase balances remain identical when persisted participants are returned in a different order', async () => {
+  const repository = new FinanceRepositoryStub()
+  repository.members = ['alice', 'bob', 'carol'].map((id, index) => ({
+    id,
+    telegramUserId: String(index + 1),
+    displayName: id,
+    rentShareWeight: 1,
+    isAdmin: index === 0
+  }))
+  repository.openCycleRecord = { id: 'cycle-1', period: '2026-03', currency: 'GEL' }
+  repository.latestCycleRecord = repository.openCycleRecord
+  const service = createService(repository)
+  for (const order of [
+    ['alice', 'bob', 'carol'],
+    ['bob', 'alice', 'carol'],
+    ['carol', 'bob', 'alice']
+  ]) {
+    repository.purchases = [
+      {
+        id: 'uneven',
+        cycleId: 'cycle-1',
+        cyclePeriod: '2026-03',
+        createdByMemberId: 'alice',
+        payerMemberId: 'alice',
+        amountMinor: 1000n,
+        currency: 'GEL',
+        description: 'Uneven shared purchase',
+        occurredAt: instantFromIso('2026-03-12T12:00:00Z'),
+        splitMode: 'equal',
+        participants: order.map((memberId) => ({
+          memberId,
+          included: true,
+          shareAmountMinor: null
+        }))
+      }
+    ]
+    const dashboard = (await service.generateDashboard('2026-03'))!
+    expect(
+      Object.fromEntries(dashboard.members.map((m) => [m.memberId, m.purchaseOffset.amountMinor]))
+    ).toEqual({ alice: -666n, bob: 333n, carol: 333n })
+  }
+})

@@ -42,6 +42,7 @@ import {
   nowInstant,
   paymentFundingRevision,
   replayPaymentPurchaseFunding,
+  splitEvenlyByMember,
   type PaymentFundingContext,
   type CurrencyCode,
   type Instant
@@ -2351,7 +2352,12 @@ function purchaseShareForMember(input: {
     return participant.shareAmount
   }
 
-  return input.entry.displayAmount.splitEvenly(participants.length)[participantIndex] ?? null
+  return (
+    splitEvenlyByMember(
+      input.entry.displayAmount,
+      participants.map((participant) => participant.memberId)
+    ).get(input.memberId) ?? null
+  )
 }
 
 function purchaseDriverForMember(input: {
@@ -2523,21 +2529,13 @@ function buildPurchaseShareMap(input: {
       return shares
     }
 
-    const splitShares = input.amount.splitEvenly(explicitParticipants.length)
-    for (const [index, participant] of explicitParticipants.entries()) {
-      shares.set(participant.memberId, splitShares[index] ?? Money.zero(input.amount.currency))
-    }
-
-    return shares
+    return splitEvenlyByMember(
+      input.amount,
+      explicitParticipants.map((participant) => participant.memberId)
+    )
   }
 
-  const fallbackIds = input.activePurchaseParticipantIds
-  const splitShares = input.amount.splitEvenly(fallbackIds.length)
-  for (const [index, memberId] of fallbackIds.entries()) {
-    shares.set(memberId, splitShares[index] ?? Money.zero(input.amount.currency))
-  }
-
-  return shares
+  return splitEvenlyByMember(input.amount, input.activePurchaseParticipantIds)
 }
 
 function sumAllocationMinor(

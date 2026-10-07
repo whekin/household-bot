@@ -9,6 +9,8 @@ cumulative confirmed payments. History presented rounding adjustments as ordinar
 
 ## Required behavior
 
+- Equal purchase splits assign remainder units by ascending stable member ID. Cards,
+  settlement, dashboard balances and previews use the same rule regardless of participant row order.
 - Cards, dashboard and assistant use exact remaining amounts. Settled obligations pay zero;
   show an already-paid baseline alongside an additional utility remainder.
 - Carried contributions continue to lock issued assignments. New purchases remain separate;

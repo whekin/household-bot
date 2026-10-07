@@ -419,3 +419,28 @@ describe('createPurchaseTopicNoticeService', () => {
     }
   })
 })
+
+test('uneven purchase card balances do not depend on database participant row order', () => {
+  for (const order of [
+    ['member-1', 'member-2', 'member-3'],
+    ['member-2', 'member-1', 'member-3'],
+    ['member-3', 'member-2', 'member-1']
+  ]) {
+    const rendered = renderPurchaseTopicNotice({
+      locale: 'en',
+      purchase: purchase({
+        amountMinor: 1000n,
+        currency: 'USD',
+        participants: order.map((memberId) => ({
+          memberId,
+          included: true,
+          shareAmountMinor: null
+        }))
+      }),
+      members
+    })
+    expect(rendered.text).toContain('• Стас · +$6.66')
+    expect(rendered.text).toContain('• Дима · −$3.33')
+    expect(rendered.text).toContain('• Алиса · −$3.33')
+  }
+})

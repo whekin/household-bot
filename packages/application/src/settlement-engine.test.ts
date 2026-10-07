@@ -272,3 +272,36 @@ describe('calculateMonthlySettlement', () => {
     expect(result.lines.map((line) => line.netDue.amountMinor)).toEqual([26334n, 28333n, 27333n])
   })
 })
+
+test('uneven purchase offsets are invariant to member and participant row order', () => {
+  for (const order of [
+    ['alice', 'bob', 'carol'],
+    ['bob', 'alice', 'carol'],
+    ['carol', 'bob', 'alice']
+  ]) {
+    for (const explicit of [true, false]) {
+      const result = calculateMonthlySettlement({
+        ...fixtureBase(),
+        rent: Money.zero('USD'),
+        utilities: Money.zero('USD'),
+        utilitySplitMode: 'equal',
+        members: order.map((id) => ({ memberId: MemberId.from(id), active: true })),
+        purchases: [
+          {
+            purchaseId: PurchaseEntryId.from('uneven'),
+            payerId: MemberId.from('alice'),
+            amount: Money.fromMinor(1000n, 'USD'),
+            ...(explicit
+              ? { participants: order.map((id) => ({ memberId: MemberId.from(id) })) }
+              : {})
+          }
+        ]
+      })
+      expect(
+        Object.fromEntries(
+          result.lines.map((line) => [line.memberId.toString(), line.purchaseOffset.amountMinor])
+        )
+      ).toEqual({ alice: -666n, bob: 333n, carol: 333n })
+    }
+  }
+})

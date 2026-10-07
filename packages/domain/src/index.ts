@@ -2,6 +2,7 @@ export { BillingPeriod } from './billing-period'
 export { DOMAIN_ERROR_CODE, DomainError } from './errors'
 export { BillingCycleId, HouseholdId, MemberId, PurchaseEntryId } from './ids'
 export { CURRENCIES, FX_RATE_SCALE_MICROS, Money, convertMoney } from './money'
+export { splitEvenlyByMember } from './member-split'
 export { normalizeSupportedLocale, SUPPORTED_LOCALES } from './locale'
 export {
   HOUSEHOLD_FACT_BODY_MAX_LENGTH,

@@ -125,7 +125,9 @@ export function buildQuickPurchasePreview(
     return []
   }
 
-  const includedParticipants = draft.participants.filter((participant) => participant.included)
+  const includedParticipants = draft.participants
+    .filter((participant) => participant.included)
+    .sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0))
   if (includedParticipants.length === 0) {
     return []
   }

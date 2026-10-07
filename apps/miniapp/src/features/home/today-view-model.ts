@@ -156,7 +156,9 @@ export function purchaseShareForMember(
   )
   if (explicit?.shareAmountMajor) return explicit.shareAmountMajor
 
-  const included = (entry.purchaseParticipants ?? []).filter((participant) => participant.included)
+  const included = (entry.purchaseParticipants ?? [])
+    .filter((participant) => participant.included)
+    .sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0))
   const index = included.findIndex((participant) => participant.memberId === memberId)
   if (index < 0 || included.length === 0) return null
 

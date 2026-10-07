@@ -1,7 +1,12 @@
 import type { Bot, Context } from 'grammy'
 
 import type { FinanceCommandService } from '@household/application'
-import { Money, type CurrencyCode, type SupportedLocale } from '@household/domain'
+import {
+  Money,
+  splitEvenlyByMember,
+  type CurrencyCode,
+  type SupportedLocale
+} from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   FinanceParsedPurchaseRecord,
@@ -97,7 +102,7 @@ function perHeadShareText(purchase: FinanceParsedPurchaseRecord): string | null 
 
 /**
  * Mirrors how settlement splits a purchase: explicit shares when any are set,
- * otherwise an even split over included participants in their stored order.
+ * otherwise an even split using the same stable member order as settlement.
  */
 function participantShareMinors(
   purchase: FinanceParsedPurchaseRecord
@@ -112,12 +117,11 @@ function participantShareMinors(
     )
   }
 
-  const shares = Money.fromMinor(purchase.amountMinor, purchase.currency).splitEvenly(
-    included.length
+  const shares = splitEvenlyByMember(
+    Money.fromMinor(purchase.amountMinor, purchase.currency),
+    included.map((participant) => participant.memberId)
   )
-  return new Map(
-    included.map((participant, index) => [participant.memberId, shares[index]?.amountMinor ?? 0n])
-  )
+  return new Map([...shares].map(([memberId, share]) => [memberId, share.amountMinor]))
 }
 
 /** Positive means the member is owed more, matching the "in credit" wording elsewhere. */

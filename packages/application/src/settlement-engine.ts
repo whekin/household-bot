@@ -2,6 +2,7 @@ import {
   DOMAIN_ERROR_CODE,
   DomainError,
   Money,
+  splitEvenlyByMember,
   type SettlementInput,
   type SettlementMemberInput,
   type SettlementMemberLine,
@@ -291,15 +292,18 @@ export function calculateMonthlySettlement(input: SettlementInput): SettlementRe
       continue
     }
 
-    const purchaseShares = purchase.amount.splitEvenly(participants.length)
-    for (const [index, member] of participants.entries()) {
+    const purchaseShares = splitEvenlyByMember(
+      purchase.amount,
+      participants.map((member) => member.memberId.toString())
+    )
+    for (const member of participants) {
       const state = membersById.get(member.memberId.toString())
       if (!state) {
         continue
       }
 
       state.purchaseSharedCost = state.purchaseSharedCost.add(
-        purchaseShares[index] ?? Money.zero(currency)
+        purchaseShares.get(member.memberId.toString()) ?? Money.zero(currency)
       )
     }
   }

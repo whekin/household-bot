@@ -205,3 +205,15 @@ describe('buildEmptyPurchaseDraft', () => {
     expect(draft.participants.map((participant) => participant.memberId)).toEqual(['alisa'])
   })
 })
+
+test('uneven purchase previews keep the same member deltas after participant reordering', () => {
+  const draft = equalSplitDraft('alisa')
+  draft.amountMajor = '10.01'
+  const expected = new Map(
+    buildQuickPurchasePreview(draft, members).map((row) => [row.memberId, row.deltaMajor])
+  )
+  draft.participants.reverse()
+  expect(
+    new Map(buildQuickPurchasePreview(draft, members).map((row) => [row.memberId, row.deltaMajor]))
+  ).toEqual(expected)
+})

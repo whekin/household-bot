@@ -363,7 +363,10 @@ export function rebalancePurchaseSplit(
   // Special case: if it's 'equal' mode and we aren't handling a specific change, force equal
   // Also initialize equal split for exact/percentage modes when no specific change provided
   if (draft.splitInputMode !== 'equal' && changedMemberId === null) {
-    const active = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+    const active = participants
+      .map((p, idx) => ({ ...p, idx }))
+      .filter((p) => p.included)
+      .sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0))
     if (active.length > 0) {
       const count = BigInt(active.length)
       const baseShare = totalMinor / count
@@ -378,7 +381,10 @@ export function rebalancePurchaseSplit(
       })
     }
   } else if (draft.splitInputMode === 'equal' && changedMemberId === null) {
-    const active = participants.map((p, idx) => ({ ...p, idx })).filter((p) => p.included)
+    const active = participants
+      .map((p, idx) => ({ ...p, idx }))
+      .filter((p) => p.included)
+      .sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0))
     if (active.length > 0) {
       const count = BigInt(active.length)
       const baseShare = totalMinor / count

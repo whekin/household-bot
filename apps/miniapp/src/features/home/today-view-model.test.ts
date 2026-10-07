@@ -6,6 +6,7 @@ import {
   buildTodayViewModel,
   chooseTodayStage,
   railSegmentState,
+  purchaseShareForMember,
   type TodayPeriodSummary
 } from './today-view-model'
 
@@ -657,4 +658,38 @@ describe('today view model', () => {
     expect(model.stage).toBe('utilities')
     expect(model.currentTimelineSegmentKey).toBe('pause-before-rent')
   })
+})
+
+test('displayed purchase shares do not change when API participant order changes', () => {
+  const entry: MiniAppDashboard['ledger'][number] = {
+    id: 'p',
+    kind: 'purchase',
+    title: 'Uneven purchase',
+    memberId: 'alice',
+    payerMemberId: 'alice',
+    paymentKind: null,
+    amountMajor: '10.00',
+    currency: 'GEL',
+    displayAmountMajor: '10.00',
+    displayCurrency: 'GEL',
+    fxRateMicros: null,
+    fxEffectiveDate: null,
+    actorDisplayName: 'Alice',
+    occurredAt: null,
+    purchaseSplitMode: 'equal'
+  }
+  for (const ids of [
+    ['alice', 'bob', 'carol'],
+    ['bob', 'alice', 'carol'],
+    ['carol', 'bob', 'alice']
+  ]) {
+    entry.purchaseParticipants = ids.map((memberId) => ({
+      memberId,
+      included: true,
+      shareAmountMajor: null
+    }))
+    expect(purchaseShareForMember(entry, 'alice')).toBe('3.34')
+    expect(purchaseShareForMember(entry, 'bob')).toBe('3.33')
+    expect(purchaseShareForMember(entry, 'carol')).toBe('3.33')
+  }
 })
