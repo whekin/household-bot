@@ -2,7 +2,7 @@
 
 ## Goal
 
-Deploy `household-bot` on a VPS that already runs Coolify, while keeping Supabase external and preserving cloud compatibility in the codebase.
+Deploy `household-bot` on the Coolify VPS with its private PostgreSQL resource, while preserving cloud compatibility in the codebase.
 
 ## Why Coolify-first
 
@@ -27,7 +27,7 @@ The Coolify stack has three services:
 - `miniapp` — static frontend container
 - `scheduler` — periodic due-dispatch runner
 
-Database stays external in Supabase / managed Postgres. Do not add a Postgres container to this stack unless the operational ownership model changes.
+Production data lives in the separate `household-postgres` PostgreSQL 17 Coolify resource. Keep it outside this Compose stack so application redeploys cannot replace its volume. The Compose application has **Connect To Predefined Network** enabled; `DATABASE_URL` uses the database resource's private internal URL. The old Supabase project was paused after the [database cutover](db-migration-to-coolify.md).
 
 ## Compose principles for Coolify
 
@@ -51,7 +51,7 @@ Runtime model:
 
 ## Migrations
 
-Run database migrations manually before or immediately after deployment, not from app startup.
+The production `bot` command in `docker-compose.coolify.yml` runs `bun packages/db/dist/migrate.js` before starting the webhook server. Confirm the startup logs say `Migrations applied successfully!` after each deploy. A separate manual run is useful for diagnosis, but is not the normal production path.
 
 Use the bot image/container environment because it contains the compiled migration runner and Drizzle migration files:
 
@@ -78,12 +78,11 @@ Coolify should manage the public routing/TLS for these services.
 
 In Coolify's domain fields:
 
-- Domains for `bot`: `https://kojori-bot-api-coolify.whekin.dev:8080`
+- Domains for `bot`: `https://kojori-bot-api-coolify.whekin.dev`
 - Domains for `miniapp`: `https://kojori-bot-miniapp-coolify.whekin.dev`
 - Domains for `scheduler`: leave blank
 
-The `:8080` suffix is only needed for the bot because it listens on container port `8080`.
-The mini app uses nginx on container port `80`, so no port suffix is needed for its domain.
+The bot listens on internal container port `8080`; the mini app's nginx listens on `80`. Coolify's saved domain mapping targets those ports without a public host-port mapping.
 
 ## Required Coolify variables
 
@@ -140,8 +139,8 @@ The deployment target changes; the app should not become Coolify-only.
 3. Set the compose file path to `docker-compose.coolify.yml`.
 4. Fill all required variables in Coolify.
 5. Assign domains to `bot:8080` and `miniapp:80`.
-6. Deploy the stack.
-7. Run the manual migration command in the `bot` service environment.
+6. Enable **Connect To Predefined Network** so the Compose bot can reach the private PostgreSQL resource.
+7. Deploy the stack and verify the bot's startup migration log.
 8. Set the Telegram webhook:
 
 ```sh

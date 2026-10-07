@@ -23,6 +23,7 @@ Implemented today:
 - DM assistant with household-aware context, payment confirmation flow, and tagged replies in group topics
 - deterministic household accounting for rent, utilities, purchases, payments, lifecycle status, and days-present handling
 - mini app authentication, member/admin controls, ledger view, balance dashboard, and household settings
+- production deployment on Coolify with a private PostgreSQL 17 database, bot, mini app, and scheduler
 - GCP deployment baseline with Cloud Run, Cloud Scheduler, Secret Manager, Artifact Registry, and Terraform-managed alerting
 
 Still evolving:

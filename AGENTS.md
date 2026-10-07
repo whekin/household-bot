@@ -21,8 +21,8 @@ Household Telegram bot + mini app monorepo for shared rent/utilities/purchase ac
 - Format: Oxfmt (no semicolons)
 - Bot: grammY
 - Mini app: SolidJS + Vite
-- Data platform: Supabase (planned)
-- Deploy: Cloud Run + Cloud Scheduler (planned)
+- Data platform: PostgreSQL 17 on Coolify (production)
+- Deploy: Coolify Docker Compose with bot, mini app, and scheduler (production)
 
 ## Local tool paths
 
@@ -118,11 +118,8 @@ Required before PR/merge:
 ## CI/CD
 
 - CI workflow runs parallel quality jobs on push/PR to `main`
-- CD workflow deploys on successful `main` CI or manual trigger
-- Required CD secrets:
-  - `GCP_PROJECT_ID`
-  - `GCP_WORKLOAD_IDENTITY_PROVIDER`
-  - `GCP_SERVICE_ACCOUNT`
+- Coolify auto-deploys the production Compose app from `main`; there is no active CD workflow
+- The former GCP deployment remains available in the repository as a separate infrastructure path
 
 ## Docs as source of truth
 

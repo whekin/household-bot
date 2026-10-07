@@ -1,17 +1,21 @@
 # Database Migration: Supabase Cloud → Coolify
 
+## Production status (2026-09-23)
+
+Cutover completed. The bot uses the private `household-postgres` PostgreSQL 17 resource, and the old Supabase Free project is **paused**, not deleted. The final stopped-source and restored-target fingerprint matched exactly: `37|3870|caf69c077364aaf82ca162421c01693d`. Bot startup migrations, API and mini-app health, Telegram webhook delivery, and scheduler database reads passed after the switch. The final owner-only local dump is `tmp/db-migration/cutover-2026-09-23T11-38-12-658Z.dump` (SHA-256 `852f807676127145fb99c23369ea70973a597744f9fb396d89341d1c04b14e0f`). Coolify's daily local backup with 30-day retention succeeded after cutover. No offsite S3 destination is configured yet.
+
 ## Goal
 
 Move household data from hosted Supabase (`aws-1-eu-west-1.pooler.supabase.com`) to a Postgres you run in Coolify, next to the bot.
 
 ## What the app actually needs
 
-Nothing from Supabase except Postgres:
+The running app uses Supabase for Postgres only:
 
 - no `@supabase/*` dependency anywhere in the workspace
 - no auth, storage, realtime or edge functions
-- no RLS policies, no references to `auth.*` in the 44 migrations under `packages/db/drizzle`
-- schema is `public`, 34 tables, all UUID primary keys — the only sequence in the database belongs to `__drizzle_migrations`
+- no RLS policies or references to `auth.*` in the migrations under `packages/db/drizzle`
+- the application schema is `public`; its migration history is in `__drizzle_migrations`
 
 So the target is a plain `postgres:17` container. Supabase Studio is still available as an admin UI on top of it — see [Studio on plain Postgres](#studio-on-plain-postgres).
 
@@ -19,17 +23,18 @@ Co-locating the database with the bot also removes the per-query round trip to `
 
 ## Model
 
-- The **schema** comes from drizzle migrations, run against the new database. It is never dumped.
-- Only **data** is copied, with `pg_dump --data-only`.
-- Both databases are compared table by table before anything is switched over.
+The preferred private-network path uses a **custom-format dump of the `public` schema and data**. It includes `__drizzle_migrations`, so the new database receives the exact production schema and migration history. Coolify's built-in Import Backup can load it without making Postgres public. The bot's startup migration runner then checks for any newer migrations.
 
-`pg_dump` and `psql` run inside a `postgres:17` container, so the client is never older than the server and nothing has to be installed locally.
+The existing `pg-dump-data.sh` and `pg-restore-data.sh` remain an alternative when the target is directly reachable: run repository migrations first, then transfer data only. Do not mix the two restore methods.
+
+`pg_dump` and `psql` run inside a `postgres:17` container. Use a client major version at least as new as the source server. A full local restore rehearsal and matching table counts/content fingerprints are required before cutover.
 
 ## Prerequisites
 
 - Docker running locally
-- A **direct or session** connection string for the Supabase database (port `5432`). The transaction pooler on `6543` cannot serve `pg_dump`.
-- A Postgres service in Coolify, reachable from your machine for the load (Coolify can expose it temporarily, or run the load from the VPS)
+- A **direct or session** connection string for Supabase on port `5432`. The app's transaction-pooler URL on `6543` is unsuitable for `pg_dump`; remove its app-only `?pgbouncer=true` parameter as well.
+- A private PostgreSQL 17 resource in the same Coolify destination as the bot. Keep **Make it publicly available** off.
+- Local Docker and an ignored, private `tmp/db-migration` directory for the temporary backup.
 
 ## Step 0 — pre-flight
 
@@ -45,14 +50,14 @@ docker run --rm -e PGURL="$SOURCE_DATABASE_URL" postgres:17 psql "$PGURL" -tAX -
 
 ## Step 1 — provision the target
 
-In Coolify: add a PostgreSQL 17 database, give it a persistent volume, and note the connection string. Keep it on the internal network; expose it publicly only for the duration of the load, if at all.
+In the production Coolify environment, add a standalone PostgreSQL 17 resource on the default `coolify` destination. Verify its persistent volume and internal URL; leave its public port disabled. The bot is a Docker Compose application, so **Configuration → Advanced → Connect To Predefined Network** must be enabled before the bot can reach this separate private resource. Apply that setting at cutover with the app redeploy.
 
 ## Step 2 — rehearse locally (no downtime, no risk)
 
-Run the whole procedure into a throwaway container first. Nothing writes to the source.
+Test the existing data-only path into a throwaway container. Nothing writes to the source.
 
 ```bash
-docker run -d --name pgdrill -e POSTGRES_PASSWORD=pg -p 55433:5432 postgres:17
+docker run -d --name pgdrill -e POSTGRES_PASSWORD=pg -p 127.0.0.1:55433:5432 postgres:17
 ```
 
 ```bash
@@ -71,92 +76,89 @@ TARGET_DATABASE_URL='postgres://postgres:pg@host.docker.internal:55433/postgres'
 SOURCE_DATABASE_URL="$SOURCE_DATABASE_URL" TARGET_DATABASE_URL='postgres://postgres:pg@127.0.0.1:55433/postgres' bun run ops:db:compare
 ```
 
-The comparison prints every table with both row counts and exits non-zero on any difference. Tear the drill container down with `docker rm -f pgdrill`.
+The comparison checks both row counts and row-content hashes. A live source can change after the dump, causing an expected mismatch; inspect the table and timestamps rather than declaring the backup corrupt.
+
+Also rehearse the Coolify import path. Create a custom-format dump, keeping its file owner-only:
+
+```bash
+mkdir -p tmp/db-migration
+chmod 700 tmp/db-migration
+DUMP_NAME="full-$(date +%Y%m%d-%H%M%S).dump"
+docker run --rm -e PGURL="$SOURCE_DATABASE_URL" -e DUMP_NAME="$DUMP_NAME" \
+  -v "$PWD/tmp/db-migration:/dump" postgres:17 sh -c \
+  'pg_dump "$PGURL" --format=custom --schema=public --no-owner --no-privileges --file="/dump/$DUMP_NAME"'
+chmod 600 "tmp/db-migration/$DUMP_NAME"
+shasum -a 256 "tmp/db-migration/$DUMP_NAME"
+```
+
+Restore it into a second empty local database and compare. A new Postgres database already contains a `public` schema, so `--clean --if-exists` is necessary.
+
+```bash
+docker exec pgdrill createdb -U postgres full_restore
+docker run --rm \
+  -e PGURL='postgres://postgres:pg@host.docker.internal:55433/full_restore' \
+  -e DUMP_NAME="$DUMP_NAME" -v "$PWD/tmp/db-migration:/dump:ro" \
+  postgres:17 sh -c \
+  'pg_restore --clean --if-exists --exit-on-error --single-transaction --no-owner --no-acl -d "$PGURL" "/dump/$DUMP_NAME"'
+SOURCE_DATABASE_URL="$SOURCE_DATABASE_URL" \
+  TARGET_DATABASE_URL='postgres://postgres:pg@127.0.0.1:55433/full_restore' \
+  bun run ops:db:compare
+docker rm -f pgdrill
+```
 
 ## Step 3 — cutover
 
-Writes that land in the old database after the dump are lost, so the bot stops first. Budget a few minutes.
+Writes that land in Supabase after the final dump are lost, so stop **both bot and scheduler** first. Budget for the actual transfer path: the 0.37 MB Coolify browser upload took much longer than expected during this cutover. The Coolify Compose application's Stop control stops all three services, including the mini app.
 
-1. Stop the bot in Coolify (stop the `bot` service; the mini app can stay up, it only reads through the bot).
-2. Remove the Telegram webhook so updates queue on Telegram's side instead of erroring:
-
-```bash
-bun run ops:telegram:webhook delete
-```
-
-3. Dump the source:
+1. Remove the Telegram webhook so updates queue on Telegram's side, then stop the Coolify application. Confirm the bot and scheduler are stopped:
 
 ```bash
-SOURCE_DATABASE_URL="$SOURCE_DATABASE_URL" ./scripts/ops/pg-dump-data.sh
+bun --env-file=.env scripts/ops/telegram-webhook.ts delete
 ```
 
-4. Migrate the Coolify database:
+2. Take a **fresh** custom-format source dump using the command from Step 2 through the direct/session URL. Store it under ignored `tmp/db-migration` with file mode `0600` and record its SHA-256 checksum. Do not reuse the rehearsal dump.
+
+3. Upload that dump to the private Coolify database under **Configuration → Import Backup → Restore from File**. Use this tested Custom Import Command:
 
 ```bash
-DATABASE_URL="$TARGET_DATABASE_URL" bun run db:migrate
+pg_restore --clean --if-exists --exit-on-error --single-transaction --no-owner --no-acl -U $POSTGRES_USER -d ${POSTGRES_DB:-${POSTGRES_USER:-postgres}}
 ```
 
-5. Load the data:
+4. Verify the restore output has exit code 0. Compare the count and content fingerprint from `scripts/ops/database-fingerprint.sql` on both databases while Supabase writes remain stopped. Check `__drizzle_migrations` count separately. The one-line fingerprint result is `table_count|row_count|content_fingerprint`; it must match exactly. The local comparison script can also be used if the target is reachable through a private tunnel.
+
+5. In the Coolify Compose app, enable **Connect To Predefined Network**, set its `DATABASE_URL` to the database resource's **internal** URL, and redeploy. The bot starts by running the repository migration runner. Verify all services are healthy and the bot can read household data.
+
+6. Restore the webhook and run the smoke check:
 
 ```bash
-TARGET_DATABASE_URL="$TARGET_DATABASE_URL" DUMP_PATH=./tmp/db-migration/<dump>.sql ./scripts/ops/pg-restore-data.sh
+bun --env-file=.env scripts/ops/telegram-webhook.ts set
+bun --env-file=.env scripts/ops/deploy-smoke.ts
 ```
 
-6. Compare:
-
-```bash
-SOURCE_DATABASE_URL="$SOURCE_DATABASE_URL" TARGET_DATABASE_URL="$TARGET_DATABASE_URL" bun run ops:db:compare
-```
-
-7. Point `DATABASE_URL` in the Coolify stack at the new database, restart the bot, restore the webhook with `bun run ops:telegram:webhook set`, and run the smoke check:
-
-```bash
-bun run ops:deploy:smoke
-```
-
-8. Send one real payment through the mini app and confirm the row lands in the new database.
+7. Check an authenticated mini-app dashboard and a real, already-authorized bot flow. Confirm any new row lands only in Coolify. Record the cutover time and keep Supabase unchanged for rollback analysis.
 
 ## Step 4 — after the switch
 
 - **Prepared statements.** `packages/db/src/client.ts` passes `prepare: false` because Supabase's transaction pooler cannot prepare. A direct Postgres connection can, and it saves a parse per query — flip it once nothing is behind PgBouncer.
 - **Pool size.** `DB_POOL_MAX` (default 10) is now bounded by your own `max_connections`, not by a Supabase plan.
-- **Backups are yours now.** Supabase was taking them for you. Add a scheduled `pg_dump` (the dump script works unchanged against the new URL) plus a Coolify volume snapshot, and restore one into a throwaway container occasionally to prove it works.
-- Keep the Supabase project around, read-only, until you trust the new one.
+- **Backups are yours now.** Configure Coolify's scheduled PostgreSQL backups with retention and an offsite S3 destination. A local persistent volume and local backups share the same VPS failure domain. Restore a backup into a throwaway container occasionally to prove it works. Keep the final local cutover dump off the VPS until offsite backups are verified.
+- The Supabase Free project is paused and remains a rollback source. New Coolify writes are not replicated back to it.
 
-## Studio on plain Postgres
+## Database administration
 
-Supabase Studio runs against any Postgres through `postgres-meta`. Two extra containers, no auth/kong/realtime:
+The production PostgreSQL resource stays private. Its Coolify **Terminal** provides immediate remote `psql` access without publishing port 5432.
 
-```yaml
-services:
-  postgres-meta:
-    image: supabase/postgres-meta:v0.84.2
-    environment:
-      PG_META_PORT: '8080'
-      PG_META_DB_HOST: postgres
-      PG_META_DB_PORT: '5432'
-      PG_META_DB_NAME: ${POSTGRES_DB}
-      PG_META_DB_USER: ${POSTGRES_USER}
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
-    restart: unless-stopped
+For a persistent web UI, prefer a separate Coolify service on the same predefined Docker network. [Drizzle Gateway](https://orm.drizzle.team/drizzle-studio/overview) is the closest lightweight fit for this Drizzle-based project: one container, a persistent configuration volume, table/SQL editors, and a master password. Coolify also offers [CloudBeaver and pgAdmin templates](https://coolify.io/docs/services/all). Give the admin UI its own authenticated HTTPS entry point; keep PostgreSQL's public port disabled. A dedicated database role is preferable to handing the UI the production `postgres` superuser credential.
 
-  studio:
-    image: supabase/studio:20250224-d10db0f
-    environment:
-      STUDIO_PG_META_URL: http://postgres-meta:8080
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      DEFAULT_ORGANIZATION_NAME: household
-      DEFAULT_PROJECT_NAME: household
-    restart: unless-stopped
-```
+Supabase Studio **can** use an existing PostgreSQL through `postgres-meta`, but the old two-container example was incomplete and pinned to 2025 images, so it has been removed. The [current Supabase self-hosted Compose file](https://github.com/supabase/supabase/blob/master/docker/docker-compose.yml) configures Studio with additional Supabase services and environment; [Studio's own README](https://github.com/supabase/supabase/blob/master/apps/studio/README.md) says self-hosted features are limited to database-oriented screens. A standalone Studio plus `postgres-meta` would need version pinning, extra configuration, and a separate authentication layer. Do not deploy the full Supabase template over the existing plain PostgreSQL volume merely to get its UI.
 
-**Studio has no login of its own.** Whoever reaches it has full SQL access to the household data. Put it behind Coolify's basic auth or keep it off the public internet and reach it through a tunnel. `bun run db:studio` (drizzle-kit) is the zero-infrastructure alternative when you only want to browse rows.
+For local occasional use, this repository already has `bun run db:studio`; it needs a private connection path from the developer machine. [Drizzle documents](https://orm.drizzle.team/docs/drizzle-kit-studio) that this command is for local development, while Gateway is the deployable server version. To use a desktop SQL client remotely, establish a verified SSH tunnel or private VPN path; [Coolify's public database proxy](https://coolify.io/docs/databases/) is available but exposes a PostgreSQL port and should be firewall restricted with TLS if chosen. The local `.env` still points at paused Supabase and must not be reused for new production writes.
 
 ## Rollback
 
 Until `DATABASE_URL` is switched, there is nothing to roll back — the source is untouched and read-only throughout.
 
-After the switch, roll back by pointing `DATABASE_URL` at Supabase again and restarting. Anything written to the new database in the meantime does not exist in Supabase, so this is only clean if you catch the problem immediately; otherwise dump the new database and load it back the same way.
+After the switch, a simple URL rollback is clean only before any new write reaches Coolify. Otherwise reconcile or reverse-migrate the new writes first; do not silently discard them.
 
 ## Gotchas
 
