@@ -6,8 +6,8 @@
 # so the two databases stay described by the same drizzle migrations rather than by
 # a snapshot of whatever the old one happened to look like.
 #
-# pg_dump runs inside a container so the client version always matches the server;
-# a client older than the server refuses to dump at all.
+# pg_dump runs inside a container so its client version is explicit; choose an
+# image major version at least as new as the source server.
 #
 # Usage:
 #   SOURCE_DATABASE_URL='postgres://...:5432/postgres' ./scripts/ops/pg-dump-data.sh
@@ -15,6 +15,7 @@
 # The URL must be a direct or session connection. A transaction pooler (port 6543
 # on Supabase) cannot serve pg_dump.
 set -euo pipefail
+umask 077
 
 : "${SOURCE_DATABASE_URL:?SOURCE_DATABASE_URL is required}"
 
@@ -42,6 +43,9 @@ docker run --rm \
     --schema="$DB_SCHEMA" \
     --exclude-table="$DB_SCHEMA.__drizzle_migrations" \
     --file="/dump/$DUMP_FILE"'
+
+# Docker creates the file with the container's umask, not this shell's.
+chmod 600 "$DUMP_DIR_ABS/$DUMP_FILE"
 
 echo "rows in dump: $(grep -c '^' "$DUMP_DIR_ABS/$DUMP_FILE") lines"
 echo "done: $DUMP_DIR_ABS/$DUMP_FILE"

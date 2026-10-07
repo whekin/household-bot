@@ -1,6 +1,7 @@
 /**
  * Compares two databases table by table so a migration can be checked before the
- * bot is pointed at the new one.
+ * bot is pointed at the new one. Counts catch missing rows; content hashes also
+ * catch changed values when the row counts happen to match.
  *
  * Why this exists: a data-only restore fails quietly in the ways that matter —
  * a table skipped because of a foreign key, a partial COPY, a schema that was
@@ -59,6 +60,18 @@ async function countRows(sql: postgres.Sql, schema: string, table: string): Prom
   return Number(rows[0]?.total ?? '0')
 }
 
+async function hashRows(sql: postgres.Sql, schema: string, table: string): Promise<string> {
+  const rows = await sql<{ digest: string }[]>`
+    select md5(string_agg(row_digest, '' order by row_digest)) as digest
+    from (
+      select md5(row_to_json(row)::text) as row_digest
+      from ${sql(schema)}.${sql(table)} as row
+    ) hashed
+  `
+
+  return rows[0]?.digest ?? ''
+}
+
 async function countAll(
   sql: postgres.Sql,
   schema: string,
@@ -69,6 +82,18 @@ async function countAll(
   )
 
   return new Map(counted)
+}
+
+async function hashAll(
+  sql: postgres.Sql,
+  schema: string,
+  tables: readonly string[]
+): Promise<Map<string, string>> {
+  const hashed = await Promise.all(
+    tables.map(async (table) => [table, await hashRows(sql, schema, table)] as const)
+  )
+
+  return new Map(hashed)
 }
 
 function formatRow(columns: readonly string[], widths: readonly number[]): string {
@@ -96,9 +121,16 @@ async function run(): Promise<void> {
       countAll(source, schema, comparable),
       countAll(target, schema, comparable)
     ])
+    const [sourceHashes, targetHashes] = await Promise.all([
+      hashAll(source, schema, comparable),
+      hashAll(target, schema, comparable)
+    ])
 
-    const mismatched = comparable.filter(
+    const countMismatched = comparable.filter(
       (table) => sourceCounts.get(table) !== targetCounts.get(table)
+    )
+    const contentMismatched = comparable.filter(
+      (table) => sourceHashes.get(table) !== targetHashes.get(table)
     )
 
     const widths = [
@@ -118,7 +150,11 @@ async function run(): Promise<void> {
             table,
             String(sourceCount),
             String(targetCount),
-            sourceCount === targetCount ? 'ok' : 'MISMATCH'
+            sourceCount !== targetCount
+              ? 'COUNT MISMATCH'
+              : sourceHashes.get(table) !== targetHashes.get(table)
+                ? 'CONTENT MISMATCH'
+                : 'ok'
           ],
           widths
         )
@@ -138,11 +174,19 @@ async function run(): Promise<void> {
     if (extraInTarget.length > 0) {
       console.error(`extra in target: ${extraInTarget.join(', ')}`)
     }
-    if (mismatched.length > 0) {
-      console.error(`row count mismatch: ${mismatched.join(', ')}`)
+    if (countMismatched.length > 0) {
+      console.error(`row count mismatch: ${countMismatched.join(', ')}`)
+    }
+    if (contentMismatched.length > 0) {
+      console.error(`row content mismatch: ${contentMismatched.join(', ')}`)
     }
 
-    if (missingInTarget.length > 0 || extraInTarget.length > 0 || mismatched.length > 0) {
+    if (
+      missingInTarget.length > 0 ||
+      extraInTarget.length > 0 ||
+      countMismatched.length > 0 ||
+      contentMismatched.length > 0
+    ) {
       process.exitCode = 1
       return
     }
