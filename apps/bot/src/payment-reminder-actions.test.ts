@@ -397,6 +397,13 @@ describe('registerPaymentReminderActions', () => {
     expect(JSON.stringify(editCall?.payload)).not.toContain('pr:d:')
     expect(JSON.stringify(editCall?.payload)).not.toContain('pr:c:')
     expect(auditEvents).toHaveLength(1)
+    expect(auditEvents[0]).toMatchObject({
+      metadata: {
+        closedMembers: [
+          { memberId: 'member-1', displayName: 'Mia', amountMinor: '46900', currency: 'GEL' }
+        ]
+      }
+    })
   })
 
   test('accepts payment buttons from the payments topic', async () => {

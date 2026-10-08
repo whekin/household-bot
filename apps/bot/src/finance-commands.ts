@@ -3679,6 +3679,7 @@ export function createFinanceCommandsService(options: {
           metadata: {
             paymentId: result.paymentId,
             memberId: resolved.member.id,
+            memberDisplayName: resolved.member.displayName,
             kind,
             amountMinor: result.amount.amountMinor.toString(),
             currency: result.currency,

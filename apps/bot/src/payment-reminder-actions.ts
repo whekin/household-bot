@@ -218,7 +218,13 @@ export function registerPaymentReminderActions(options: {
         metadata: {
           memberId: action.actorContext.member.id,
           kind: action.kind,
-          period: action.period
+          period: action.period,
+          closedMembers: (result?.closedMembers ?? []).map((member) => ({
+            memberId: member.memberId,
+            displayName: member.displayName,
+            amountMinor: member.amount.amountMinor.toString(),
+            currency: member.amount.currency
+          }))
         }
       })
     }

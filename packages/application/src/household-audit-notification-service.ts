@@ -170,7 +170,7 @@ function eventEmoji(eventType: string): string | null {
     'payment.recorded': '✅',
     'payment.updated': '✏️',
     'payment.deleted': '🗑',
-    'payment_period.closed': '📦',
+    'payment_period.closed': '✅',
     'utility_plan.resolved': '✅',
     'utility_plan.settled': '✅',
     'utility_vendor_payment.recorded': '🏦'
@@ -193,7 +193,7 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.recorded': 'recorded payment:',
     'payment.updated': 'updated payment:',
     'payment.deleted': 'deleted payment',
-    'payment_period.closed': 'closed',
+    'payment_period.closed': 'marked payment as paid:',
     'utility_plan.resolved': 'marked planned utilities paid:',
     'utility_plan.settled': 'settled planned utilities:',
     'utility_vendor_payment.recorded': 'recorded utility bill payment'
@@ -212,7 +212,7 @@ function actionText(locale: SupportedLocale, eventType: string): string | null {
     'payment.recorded': 'запись платежа',
     'payment.updated': 'обновление платежа',
     'payment.deleted': 'удаление платежа',
-    'payment_period.closed': 'закрытие',
+    'payment_period.closed': 'отметка оплаты',
     'utility_plan.resolved': 'отметил коммуналку по плану:',
     'utility_plan.settled': 'закрыл коммуналку по плану:',
     'utility_vendor_payment.recorded': 'запись оплаты коммуналки'
@@ -501,7 +501,7 @@ function buildExpandedText(input: {
   }
   if (closedMembers.length > 0) {
     lines.push(
-      `${input.locale === 'ru' ? 'Закрыто для' : 'Closed for'}: ${closedMembers
+      `${input.locale === 'ru' ? 'Оплата отмечена для' : 'Marked paid for'}: ${closedMembers
         .map((member) =>
           member.amountText ? `${member.displayName} ${member.amountText}` : member.displayName
         )
@@ -564,19 +564,38 @@ export function renderAuditNotification(input: {
       : null)
   const period = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
   const amount = formatMoneyFromMetadata(input.metadata)
-  const kind =
-    input.eventType === 'payment_period.closed'
-      ? localizedClosedPaymentKind(input.locale, metadataString(input.metadata, 'kind'))
-      : localizedKind(input.locale, metadataString(input.metadata, 'kind'))
+  const isPaymentMark =
+    input.eventType === 'payment_period.closed' || input.eventType === 'payment.recorded'
+  const memberTargets = isPaymentMark ? paymentMemberDetails(input.metadata, 'closedMembers') : []
+  const namedMember =
+    input.eventType === 'payment.recorded'
+      ? metadataString(input.metadata, 'memberDisplayName')
+      : null
+  const paymentTargets =
+    memberTargets.length > 0
+      ? memberTargets
+          .map((member) =>
+            member.amountText ? `${member.displayName} ${member.amountText}` : member.displayName
+          )
+          .join(', ')
+      : namedMember
+        ? [namedMember, amount].filter(Boolean).join(' ')
+        : ''
+  const showPaymentTargets = input.eventType === 'payment_period.closed' || Boolean(paymentTargets)
+  const kind = showPaymentTargets
+    ? localizedClosedPaymentKind(input.locale, metadataString(input.metadata, 'kind'))
+    : localizedKind(input.locale, metadataString(input.metadata, 'kind'))
 
   const compactText =
-    action && input.eventType === 'payment_period.closed'
+    action && showPaymentTargets
       ? cleanSummaryText(
           [
             actorPrefix,
             action,
             kind,
-            period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null
+            metadataString(input.metadata, 'billName'),
+            period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null,
+            paymentTargets ? `— ${paymentTargets}` : null
           ]
             .filter((part): part is string => Boolean(part))
             .join(' ')

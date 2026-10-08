@@ -255,10 +255,14 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe('📦 Стас: закрытие аренды за май 2026 г.')
+    expect(rendered.compactText).toBe(
+      '✅ Стас: отметка оплаты аренды за май 2026 г. — Стас 469.00 ₾, Дима 469.00 ₾'
+    )
     expect(rendered.compactText).not.toContain('2026-05')
     expect(rendered.details?.expandedText).toContain('Период: май 2026 г.')
-    expect(rendered.details?.expandedText).toContain('Закрыто для: Стас 469.00 ₾, Дима 469.00 ₾')
+    expect(rendered.details?.expandedText).toContain(
+      'Оплата отмечена для: Стас 469.00 ₾, Дима 469.00 ₾'
+    )
   })
 
   test('renders recorded payment target member details', () => {
@@ -276,7 +280,7 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe('✅ Stas recorded payment: rent 469.00 ₾ (May 2026)')
+    expect(rendered.compactText).toBe('✅ Stas recorded payment: rent for May 2026 — Dima 469.00 ₾')
     expect(rendered.details?.expandedText).toContain('Member: Dima')
     expect(rendered.details?.expandedText).toContain('Period: May 2026')
   })
@@ -301,10 +305,10 @@ describe('renderAuditNotification', () => {
     })
 
     expect(rendered.compactText).toBe(
-      '✅ Stas: запись платежа Stas, Alisa, Ion коммуналка (июль 2026 г.)'
+      '✅ Stas: запись платежа коммуналки за июль 2026 г. — Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
     )
     expect(rendered.details?.expandedText).toContain(
-      'Закрыто для: Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
+      'Оплата отмечена для: Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
     )
     expect(rendered.details?.expandedText).toContain('Пропущены: Dima (already_settled)')
   })
@@ -700,3 +704,29 @@ describe('createHouseholdAuditNotificationService', () => {
     expect(warnings).toHaveLength(1)
   })
 })
+
+test.each(['ru', 'en'] as const)(
+  'member payment completion names the affected member without claiming household closure: %s',
+  (locale) => {
+    const rendered = renderAuditNotification({
+      locale,
+      actorDisplayName: 'Стас',
+      eventType: 'payment_period.closed',
+      fallbackSummaryText: 'closed utilities',
+      metadata: {
+        kind: 'utilities',
+        period: '2026-10',
+        closedMembers: [
+          { memberId: 'alice', displayName: 'Алиса', amountMinor: '1234', currency: 'GEL' }
+        ],
+        skippedMembers: []
+      }
+    })
+    expect(rendered.compactText).toContain('Алиса')
+    expect(rendered.compactText).toContain('12.34')
+    expect(rendered.compactText).not.toContain('закрытие')
+    expect(rendered.compactText).not.toContain('fully settled')
+    expect(rendered.compactText).not.toContain('everyone has paid')
+    expect(rendered.compactText).toStartWith('✅')
+  }
+)

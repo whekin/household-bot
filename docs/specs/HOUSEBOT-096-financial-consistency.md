@@ -51,6 +51,9 @@ cumulative confirmed payments. History presented rounding adjustments as ordinar
   distinguish a new transfer from one already recorded.
 - Screenshots replying to payment confirmations retain payment/conversation context and do
   not enter the bill-import flow automatically.
+- Payment-marking notifications name the affected members and amounts in compact text.
+  A member payment mark never claims the household or billing period is fully closed.
+  Whole-household completion uses its distinct fully-paid milestone.
 - Bulk admin actions stay in authenticated dashboard tools, outside public payment messages.
 
 ## Verification
