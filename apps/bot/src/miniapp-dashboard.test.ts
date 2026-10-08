@@ -14,7 +14,7 @@ import type {
   HouseholdTopicBindingRecord
 } from '@household/ports'
 
-import { createMiniAppDashboardHandler } from './miniapp-dashboard'
+import { createMiniAppDashboardHandler, loadMiniAppDashboardPayload } from './miniapp-dashboard'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
 
 function repository(
@@ -330,6 +330,7 @@ function repository(
     }),
     getSettlementSnapshotLines: async () => [],
     getSettlementSnapshot: async () => null,
+    listSettlementSnapshotsForCycles: async () => [],
     savePaymentConfirmation: async () =>
       ({
         status: 'needs_review',
@@ -504,6 +505,65 @@ function notificationService(
 }
 
 describe('createMiniAppDashboardHandler', () => {
+  test('overlaps independent reads but loads history after dashboard materialization', async () => {
+    const financeService = createFinanceCommandService({
+      householdId: 'household-1',
+      repository: repository(null),
+      householdConfigurationRepository: onboardingRepository(),
+      exchangeRateProvider
+    })
+    const generateDashboard = financeService.generateDashboard.bind(financeService)
+    const gate = Promise.withResolvers<void>()
+    const events: string[] = []
+    const pending = loadMiniAppDashboardPayload({
+      householdId: 'household-1',
+      viewerMemberId: 'member-1',
+      financeService: {
+        ...financeService,
+        generateDashboard: async (...args) => {
+          events.push('dashboard:start')
+          await gate.promise
+          const dashboard = await generateDashboard(...args)
+          events.push('dashboard:done')
+          return dashboard
+        },
+        listCycleHistory: async () => {
+          events.push('history')
+          expect(events).toContain('dashboard:done')
+          return []
+        }
+      },
+      adHocNotificationService: {
+        ...notificationService(),
+        listUpcomingNotifications: async () => {
+          events.push('notifications')
+          return []
+        }
+      },
+      householdConfigurationRepository: {
+        listHouseholdUtilityCategories: async () => {
+          events.push('categories')
+          return []
+        }
+      },
+      periodOverride: '2026-03'
+    })
+    try {
+      await Promise.resolve()
+      expect(events).toEqual(['dashboard:start', 'notifications', 'categories'])
+    } finally {
+      gate.resolve()
+      await pending
+    }
+    expect(events).toEqual([
+      'dashboard:start',
+      'notifications',
+      'categories',
+      'dashboard:done',
+      'history'
+    ])
+  })
+
   test('forwards QA period and today overrides to dashboard generation', async () => {
     const authDate = Math.floor(Date.now() / 1000)
     const householdRepository = onboardingRepository()

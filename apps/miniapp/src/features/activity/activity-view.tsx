@@ -60,6 +60,7 @@ export function ActivityView() {
   const {
     dashboard,
     loading,
+    adminLoading,
     effectiveIsAdmin,
     activePurchaseLedger,
     resolvedPurchaseLedger,
@@ -88,7 +89,7 @@ export function ActivityView() {
   }>({ open: false, entry: null, prefill: null })
   const [rentOpen, setRentOpen] = useState(false)
 
-  if (loading) {
+  if (loading || adminLoading) {
     return (
       <>
         <Card>

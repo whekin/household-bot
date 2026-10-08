@@ -46,9 +46,10 @@ function divideRoundedHalfUp(dividend: bigint, divisor: bigint): bigint {
 
 /** A published rate never changes, but the cache must not outlive a long-running process. */
 const RATE_CACHE_TTL_MS = 12 * 60 * 60_000
-const REQUEST_TIMEOUT_MS = 5_000
-const REQUEST_ATTEMPTS = 3
-const RETRY_DELAY_MS = 300
+// A failed lookup reaches the application's stored-rate fallback in at most 2.1s.
+const REQUEST_TIMEOUT_MS = 1_000
+const REQUEST_ATTEMPTS = 2
+const RETRY_DELAY_MS = 100
 
 interface GelRate {
   gelRateMicros: bigint
@@ -82,30 +83,47 @@ export function createNbgExchangeRateProvider(
   const cache = new Map<string, { value: GelRate; expiresAt: number }>()
   const inFlight = new Map<string, Promise<GelRate>>()
 
+  async function fetchPayload(url: URL): Promise<NbgDayPayload[]> {
+    const abortController = new AbortController()
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new RetryableNbgError(`NBG request failed: timed out after ${requestTimeoutMs}ms`))
+        abortController.abort()
+      }, requestTimeoutMs)
+    })
+    const request = (async () => {
+      let response: Response
+      try {
+        response = await fetchImpl(url, { signal: abortController.signal })
+      } catch (error) {
+        throw new RetryableNbgError(`NBG request failed: ${(error as Error).message}`)
+      }
+
+      if (!response.ok) {
+        const message = `NBG request failed: ${response.status}`
+        throw response.status >= 500 || response.status === 429
+          ? new RetryableNbgError(message)
+          : new Error(message)
+      }
+
+      return (await response.json()) as NbgDayPayload[]
+    })()
+
+    try {
+      // A deadline also bounds custom fetch implementations that ignore abort signals.
+      return await Promise.race([request, deadline])
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
   async function fetchGelRate(currency: CurrencyCode, effectiveDate: string): Promise<GelRate> {
     const url = new URL('https://nbg.gov.ge/gw/api/ct/monetarypolicy/currencies/en/json/')
     url.searchParams.set('currencies', currency)
     url.searchParams.set('date', effectiveDate)
 
-    const abortController = new AbortController()
-    const timeout = setTimeout(() => abortController.abort(), requestTimeoutMs)
-    let response: Response
-    try {
-      response = await fetchImpl(url, { signal: abortController.signal })
-    } catch (error) {
-      throw new RetryableNbgError(`NBG request failed: ${(error as Error).message}`)
-    } finally {
-      clearTimeout(timeout)
-    }
-
-    if (!response.ok) {
-      const message = `NBG request failed: ${response.status}`
-      throw response.status >= 500 || response.status === 429
-        ? new RetryableNbgError(message)
-        : new Error(message)
-    }
-
-    const payload = (await response.json()) as NbgDayPayload[]
+    const payload = await fetchPayload(url)
     const day = payload[0]
     const currencyPayload = day?.currencies?.find((entry) => entry.code === currency)
     if (!currencyPayload) {

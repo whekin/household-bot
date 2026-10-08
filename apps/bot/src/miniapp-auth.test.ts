@@ -13,9 +13,22 @@ import {
   createMiniAppAuthHandler,
   createMiniAppJoinHandler,
   miniAppErrorResponse,
+  miniAppJsonResponse,
   toMiniAppClientValidationError
 } from './miniapp-auth'
 import { buildMiniAppInitData } from './telegram-miniapp-test-helpers'
+
+test('caches allowed preflight permissions without caching household responses', () => {
+  const origin = 'https://miniapp.example'
+  const preflight = miniAppJsonResponse({ ok: true }, 204, origin)
+  expect(preflight.headers.get('access-control-max-age')).toBe('600')
+  expect(preflight.headers.get('access-control-allow-origin')).toBe(origin)
+  expect(preflight.headers.get('vary')).toBe('origin')
+  const dashboard = miniAppJsonResponse({ authorized: true }, 200, origin)
+  expect(dashboard.headers.get('cache-control')).toBe('no-store')
+  expect(dashboard.headers.get('access-control-max-age')).toBeNull()
+  expect(miniAppJsonResponse({}, 204).headers.get('access-control-max-age')).toBeNull()
+})
 
 function onboardingRepository(): HouseholdConfigurationRepository {
   const household = {

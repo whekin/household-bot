@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 export interface QueryMetricsSnapshot {
   /** Repository calls that actually reached the database. */
   queryCount: number
-  /** Wall time spent inside those calls, in milliseconds. */
+  /** Sum of call durations in milliseconds; overlapping calls can exceed request wall time. */
   queryMs: number
   /** Per-method counts, so a hot spot is identifiable without a profiler. */
   byMethod: Record<string, number>

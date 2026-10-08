@@ -1,11 +1,11 @@
-import { miniAppApiError, postMiniApp } from './client'
+import { miniAppApiError, postMiniApp, readMiniApp } from './client'
 import type { MiniAppLocalePreference, MiniAppSession } from './types'
 
 export async function fetchMiniAppSession(
   initData: string,
   joinToken?: string
 ): Promise<MiniAppSession> {
-  const { response, payload } = await postMiniApp<{
+  const { response, payload } = await readMiniApp<{
     ok: boolean
     authorized?: boolean
     member?: MiniAppSession['member']

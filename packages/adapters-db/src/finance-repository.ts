@@ -6,6 +6,8 @@ import type {
   FinanceParsedPurchaseRecord,
   FinancePurchaseTopicMessageRecord,
   FinanceRepository,
+  SettlementSnapshotRecord,
+  SettlementSnapshotLineRecord,
   FinanceSavedPurchaseParticipantToggleResult,
   FinanceUtilityBillingPlanPayload,
   FinanceUtilityBillingPlanRecord
@@ -476,6 +478,69 @@ export function createDbFinanceRepository(
             sql`NOT EXISTS (SELECT 1 FROM payment_purchase_allocations a WHERE a.payment_record_id = ${schema.paymentRecords.id} AND a.resolution_method = 'manual')`
           )
         )
+  }
+
+  async function selectSettlementSnapshotsForCycles(
+    cycleIds: readonly string[]
+  ): Promise<readonly SettlementSnapshotRecord[]> {
+    if (cycleIds.length === 0) return []
+    const rows = await db
+      .select({
+        cycleId: schema.settlements.cycleId,
+        inputHash: schema.settlements.inputHash,
+        totalDueMinor: schema.settlements.totalDueMinor,
+        currency: schema.settlements.currency,
+        metadata: schema.settlements.metadata,
+        memberId: schema.settlementLines.memberId,
+        rentShareMinor: schema.settlementLines.rentShareMinor,
+        utilityShareMinor: schema.settlementLines.utilityShareMinor,
+        purchaseOffsetMinor: schema.settlementLines.purchaseOffsetMinor,
+        netDueMinor: schema.settlementLines.netDueMinor,
+        explanations: schema.settlementLines.explanations
+      })
+      .from(schema.settlements)
+      .leftJoin(
+        schema.settlementLines,
+        eq(schema.settlementLines.settlementId, schema.settlements.id)
+      )
+      .where(
+        and(
+          eq(schema.settlements.householdId, householdId),
+          inArray(schema.settlements.cycleId, [...cycleIds])
+        )
+      )
+      .orderBy(schema.settlements.cycleId, schema.settlementLines.memberId)
+    const snapshots = new Map<
+      string,
+      Omit<SettlementSnapshotRecord, 'lines'> & { lines: SettlementSnapshotLineRecord[] }
+    >()
+    for (const row of rows) {
+      let snapshot = snapshots.get(row.cycleId)
+      if (!snapshot) {
+        snapshot = {
+          cycleId: row.cycleId,
+          inputHash: row.inputHash,
+          totalDueMinor: row.totalDueMinor,
+          currency: toCurrencyCode(row.currency),
+          metadata: asRecord(row.metadata),
+          lines: []
+        }
+        snapshots.set(row.cycleId, snapshot)
+      }
+      if (row.memberId !== null) {
+        snapshot.lines.push({
+          memberId: row.memberId,
+          rentShareMinor: row.rentShareMinor!,
+          utilityShareMinor: row.utilityShareMinor!,
+          purchaseOffsetMinor: row.purchaseOffsetMinor!,
+          netDueMinor: row.netDueMinor!,
+          explanations: Array.isArray(row.explanations)
+            ? row.explanations.filter((value): value is string => typeof value === 'string')
+            : []
+        })
+      }
+    }
+    return [...snapshots.values()]
   }
 
   const repository: FinanceRepository = {
@@ -3097,61 +3162,11 @@ export function createDbFinanceRepository(
     },
 
     async getSettlementSnapshot(cycleId) {
-      const rows = await db
-        .select({
-          cycleId: schema.settlements.cycleId,
-          inputHash: schema.settlements.inputHash,
-          totalDueMinor: schema.settlements.totalDueMinor,
-          currency: schema.settlements.currency,
-          metadata: schema.settlements.metadata
-        })
-        .from(schema.settlements)
-        .where(
-          and(
-            eq(schema.settlements.householdId, householdId),
-            eq(schema.settlements.cycleId, cycleId)
-          )
-        )
-        .limit(1)
+      return (await selectSettlementSnapshotsForCycles([cycleId]))[0] ?? null
+    },
 
-      const row = rows[0]
-      if (!row) {
-        return null
-      }
-
-      const lineRows = await db
-        .select({
-          memberId: schema.settlementLines.memberId,
-          rentShareMinor: schema.settlementLines.rentShareMinor,
-          utilityShareMinor: schema.settlementLines.utilityShareMinor,
-          purchaseOffsetMinor: schema.settlementLines.purchaseOffsetMinor,
-          netDueMinor: schema.settlementLines.netDueMinor,
-          explanations: schema.settlementLines.explanations
-        })
-        .from(schema.settlementLines)
-        .innerJoin(
-          schema.settlements,
-          eq(schema.settlementLines.settlementId, schema.settlements.id)
-        )
-        .where(eq(schema.settlements.cycleId, cycleId))
-
-      return {
-        cycleId: row.cycleId,
-        inputHash: row.inputHash,
-        totalDueMinor: row.totalDueMinor,
-        currency: toCurrencyCode(row.currency),
-        metadata: asRecord(row.metadata),
-        lines: lineRows.map((line) => ({
-          memberId: line.memberId,
-          rentShareMinor: line.rentShareMinor,
-          utilityShareMinor: line.utilityShareMinor,
-          purchaseOffsetMinor: line.purchaseOffsetMinor,
-          netDueMinor: line.netDueMinor,
-          explanations: Array.isArray(line.explanations)
-            ? line.explanations.filter((value): value is string => typeof value === 'string')
-            : []
-        }))
-      }
+    async listSettlementSnapshotsForCycles(cycleIds) {
+      return selectSettlementSnapshotsForCycles(cycleIds)
     },
 
     async savePaymentConfirmation(input) {

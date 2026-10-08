@@ -19,7 +19,7 @@ import {
   updateMiniAppOwnDisplayName
 } from '@/api'
 import { getTelegramWebApp } from '@/telegram/webapp'
-import { demoMember, demoTelegramUser } from '@/demo/miniapp-demo'
+import { miniAppDemo } from '@/demo/loader'
 import { hasEffectiveAdminAccess } from '@/lib/admin-access'
 
 /* ── Types ──────────────────────────────────────────── */
@@ -96,12 +96,14 @@ export function joinDeepLink(): string | null {
   return `https://t.me/${context.botUsername}?start=join_${encodeURIComponent(context.joinToken)}`
 }
 
-const demoSession: Extract<SessionState, { status: 'ready' }> = {
-  status: 'ready',
-  mode: 'demo',
-  member: demoMember,
-  telegramUser: demoTelegramUser
-}
+const demoSession: Extract<SessionState, { status: 'ready' }> | null = miniAppDemo
+  ? {
+      status: 'ready',
+      mode: 'demo',
+      member: miniAppDemo.demoMember,
+      telegramUser: miniAppDemo.demoTelegramUser
+    }
+  : null
 
 function readInitData(): string | undefined {
   return getTelegramWebApp()?.initData?.trim() || undefined
@@ -156,7 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       const data = await waitForTelegramInitData()
       if (!data) {
-        if (import.meta.env.DEV) {
+        if (import.meta.env.DEV && demoSession) {
           setSession(demoSession)
           return
         }
@@ -194,7 +196,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           telegramUser: payload.telegramUser
         })
       } catch (error) {
-        if (import.meta.env.DEV) {
+        if (import.meta.env.DEV && demoSession) {
           setSession(demoSession)
           return
         }

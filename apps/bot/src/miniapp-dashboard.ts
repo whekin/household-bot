@@ -135,17 +135,14 @@ export async function loadMiniAppDashboardPayload(input: {
   // than paying for a second build; the dashboard is the most expensive read in the app.
   prebuiltDashboard?: FinanceDashboard | undefined
 }) {
-  const dashboard =
-    input.prebuiltDashboard ??
-    (await input.financeService.generateDashboard(
-      input.periodOverride,
-      input.todayOverride ? { todayOverride: input.todayOverride } : {}
-    ))
-  if (!dashboard) {
-    return null
-  }
-
-  const [notifications, utilityCategories, cycleHistory] = await Promise.all([
+  const dashboardPromise = input.prebuiltDashboard
+    ? Promise.resolve(input.prebuiltDashboard)
+    : input.financeService.generateDashboard(
+        input.periodOverride,
+        input.todayOverride ? { todayOverride: input.todayOverride } : {}
+      )
+  const [dashboard, notifications, utilityCategories, cycleHistory] = await Promise.all([
+    dashboardPromise,
     input.adHocNotificationService.listUpcomingNotifications({
       householdId: input.householdId,
       viewerMemberId: input.viewerMemberId
@@ -153,8 +150,13 @@ export async function loadMiniAppDashboardPayload(input: {
     input.householdConfigurationRepository
       ? input.householdConfigurationRepository.listHouseholdUtilityCategories(input.householdId)
       : Promise.resolve([]),
-    input.financeService.listCycleHistory()
+    // Generation can open/close a cycle and materialize snapshots. History must see
+    // that completed state, while notifications/categories can load independently.
+    dashboardPromise.then((generated) => (generated ? input.financeService.listCycleHistory() : []))
   ])
+  if (!dashboard) {
+    return null
+  }
 
   return {
     period: dashboard.period,

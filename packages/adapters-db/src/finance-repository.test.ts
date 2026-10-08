@@ -25,6 +25,9 @@ describe('createDbFinanceRepository', () => {
       prepare: false
     })
 
+    await db
+      .delete(schema.settlements)
+      .where(inArray(schema.settlements.householdId, createdHouseholdIds))
     await db.delete(schema.households).where(inArray(schema.households.id, createdHouseholdIds))
     await queryClient.end({ timeout: 5 })
   })
@@ -352,8 +355,78 @@ describe('createDbFinanceRepository', () => {
         }
       ]
     })
+    expect(await financeClient.repository.listSettlementSnapshotsForCycles([cycleId])).toEqual([
+      snapshot!
+    ])
 
     await financeClient.close()
     await queryClient.end({ timeout: 5 })
   })
+
+  testIfDatabase(
+    'batched snapshots preserve empty lines and exclude other households',
+    async () => {
+      const { db, queryClient } = createDbClient(databaseUrl!, {
+        dedicated: true,
+        max: 1,
+        prepare: false
+      })
+      const householdId = randomUUID()
+      const otherHouseholdId = randomUUID()
+      const cycleId = randomUUID()
+      const otherCycleId = randomUUID()
+      createdHouseholdIds.push(householdId, otherHouseholdId)
+      await db.insert(schema.households).values([
+        { id: householdId, name: 'Batched history household' },
+        { id: otherHouseholdId, name: 'Other history household' }
+      ])
+      await db.insert(schema.billingCycles).values([
+        { id: cycleId, householdId, period: '2026-06', currency: 'GEL' },
+        { id: otherCycleId, householdId: otherHouseholdId, period: '2026-06', currency: 'GEL' }
+      ])
+      await db.insert(schema.settlements).values([
+        {
+          householdId,
+          cycleId,
+          inputHash: 'empty-snapshot',
+          totalDueMinor: 0n,
+          currency: 'GEL',
+          metadata: { preserved: true }
+        },
+        {
+          householdId: otherHouseholdId,
+          cycleId: otherCycleId,
+          inputHash: 'other-snapshot',
+          totalDueMinor: 100n,
+          currency: 'GEL',
+          metadata: {}
+        }
+      ])
+      const financeClient = createDbFinanceRepository(databaseUrl!, householdId)
+      try {
+        expect(await financeClient.repository.listSettlementSnapshotsForCycles([])).toEqual([])
+        expect(
+          await financeClient.repository.listSettlementSnapshotsForCycles([
+            cycleId,
+            otherCycleId,
+            randomUUID(),
+            cycleId
+          ])
+        ).toEqual([
+          {
+            cycleId,
+            inputHash: 'empty-snapshot',
+            totalDueMinor: 0n,
+            currency: 'GEL',
+            metadata: { preserved: true },
+            lines: []
+          }
+        ])
+        expect(await financeClient.repository.getSettlementSnapshot(otherCycleId)).toBeNull()
+      } finally {
+        await financeClient.close()
+        await queryClient.end({ timeout: 5 })
+      }
+    }
+  )
 })

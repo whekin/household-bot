@@ -13,6 +13,9 @@ export const en = {
   unexpectedErrorTitle: 'Unable to load the household app',
   unexpectedErrorBody:
     'Retry in Telegram. If this keeps failing, ask the household admin to resend the join button.',
+  dashboardLoadErrorTitle: 'Unable to load household data',
+  viewLoadErrorTitle: 'Unable to load this screen',
+  dashboardLoadErrorBody: 'Check your connection and try again.',
   householdFallback: 'this household',
   joinAction: 'Join household',
   joining: 'Sending request…',
@@ -39,6 +42,9 @@ export const ru: Record<keyof typeof en, string> = {
   unexpectedErrorTitle: 'Не удалось загрузить приложение',
   unexpectedErrorBody:
     'Попробуй ещё раз из Telegram. Если не помогает, попроси админа заново прислать кнопку вступления.',
+  dashboardLoadErrorTitle: 'Не удалось загрузить данные дома',
+  viewLoadErrorTitle: 'Не удалось загрузить этот экран',
+  dashboardLoadErrorBody: 'Проверь подключение и попробуй ещё раз.',
   householdFallback: 'этот дом',
   joinAction: 'Вступить в дом',
   joining: 'Отправляем заявку…',

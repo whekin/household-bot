@@ -6,6 +6,7 @@ import {
 import { createRepaymentService } from './repayment-service'
 import { netRepaymentObligations } from '@household/domain'
 import { createHash } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import type {
   ExchangeRateProvider,
@@ -13,7 +14,6 @@ import type {
   FinanceMemberRecord,
   FinanceMemberOverduePaymentRecord,
   FinancePaymentKind,
-  FinancePaymentPurchaseAllocationRecord,
   FinancePaymentRecord,
   FinanceParsedPurchaseRecord,
   FinanceRentRuleRangeRecord,
@@ -1189,7 +1189,10 @@ function groupBy<R>(records: readonly R[], keyOf: (record: R) => string): Readon
   return grouped
 }
 
-function batchPerCycleReads(repository: FinanceRepository): FinanceRepository {
+function batchPerCycleReads(
+  repository: FinanceRepository,
+  operationCache: OperationReadCache
+): FinanceRepository {
   const loadBills = createBatchQueue(async (cycleIds) => {
     const groups = await repository.listUtilityBillsForCycles(cycleIds)
     return new Map(groups.map((group) => [group.cycleId, group.bills]))
@@ -1209,17 +1212,20 @@ function batchPerCycleReads(repository: FinanceRepository): FinanceRepository {
 
   // Rent rules are few and cover period ranges, so one read answers every period the
   // operation asks about.
-  let rentRuleRanges: Promise<readonly FinanceRentRuleRangeRecord[]> | null = null
-
   const overrides: Partial<FinanceRepository> = {
     listUtilityBillsForCycle: (cycleId) => loadBills(cycleId),
     listPaymentRecordsForCycle: (cycleId) => loadPaymentRecords(cycleId),
     listUtilityBillingPlansForCycle: (cycleId) => loadBillingPlans(cycleId),
     listUtilityVendorPaymentFactsForCycle: (cycleId) => loadVendorFacts(cycleId),
     async getRentRuleForPeriod(period) {
-      rentRuleRanges ??= repository.listRentRuleRanges()
-      const ranges = await rentRuleRanges.catch((error: unknown) => {
-        rentRuleRanges = null
+      const entries = operationCache.entries()
+      const key = 'finance:rentRuleRanges'
+      const pending =
+        (entries?.get(key) as Promise<readonly FinanceRentRuleRangeRecord[]> | undefined) ??
+        repository.listRentRuleRanges()
+      entries?.set(key, pending)
+      const ranges = await pending.catch((error: unknown) => {
+        if (entries?.get(key) === pending) entries.delete(key)
         throw error
       })
 
@@ -1244,15 +1250,7 @@ function batchPerCycleReads(repository: FinanceRepository): FinanceRepository {
         return value
       }
 
-      if (READ_METHOD_PATTERN.test(property)) {
-        return typeof override === 'function' ? override : value.bind(target)
-      }
-
-      // A write can move a rent rule boundary, so the cached ranges have to go with it.
-      return (...args: unknown[]) => {
-        rentRuleRanges = null
-        return value.apply(target, args)
-      }
+      return typeof override === 'function' ? override : value.bind(target)
     }
   })
 }
@@ -1269,10 +1267,12 @@ function batchPerCycleReads(repository: FinanceRepository): FinanceRepository {
 const READ_METHOD_PATTERN = /^(get|list)/
 
 interface OperationReadCache {
+  entries(): Map<string, Promise<unknown>> | undefined
   reset(): void
+  run<T>(operation: () => T): T
 }
 
-function memoizeReads<T extends object>(target: T, cache: Map<string, Promise<unknown>>): T {
+function memoizeReads<T extends object>(target: T, cache: OperationReadCache): T {
   const bound = new Map<PropertyKey, unknown>()
 
   return new Proxy(target, {
@@ -1289,25 +1289,27 @@ function memoizeReads<T extends object>(target: T, cache: Map<string, Promise<un
 
       const isRead = READ_METHOD_PATTERN.test(property)
       const wrapped = (...args: unknown[]) => {
+        const entries = cache.entries()
+        if (!entries) return value.apply(source, args)
         if (!isRead) {
           // Conservative: any mutation invalidates every cached read, including ones
           // it cannot possibly affect. Cheap, and it cannot serve stale rows.
-          cache.clear()
+          entries.clear()
           return value.apply(source, args)
         }
 
         const key = `${property}(${stableCacheKey(args)})`
-        const hit = cache.get(key)
+        const hit = entries.get(key)
         if (hit) {
           return hit
         }
 
         const pending = Promise.resolve(value.apply(source, args)).catch((error: unknown) => {
           // A rejected read must not be replayed to later callers.
-          cache.delete(key)
+          if (entries.get(key) === pending) entries.delete(key)
           throw error
         })
-        cache.set(key, pending)
+        entries.set(key, pending)
         return pending
       }
 
@@ -1325,23 +1327,28 @@ function withOperationReadCache(dependencies: FinanceCommandServiceDependencies)
   dependencies: FinanceCommandServiceDependencies
   cache: OperationReadCache
 } {
-  const entries = new Map<string, Promise<unknown>>()
+  const storage = new AsyncLocalStorage<Map<string, Promise<unknown>>>()
+  const cache: OperationReadCache = {
+    entries: () => storage.getStore(),
+    reset() {
+      storage.getStore()?.clear()
+    },
+    run(operation) {
+      return storage.run(new Map(), operation)
+    }
+  }
 
   return {
     dependencies: {
       ...dependencies,
-      repository: memoizeReads(batchPerCycleReads(dependencies.repository), entries),
+      repository: memoizeReads(batchPerCycleReads(dependencies.repository, cache), cache),
       householdConfigurationRepository: memoizeReads(
         dependencies.householdConfigurationRepository,
-        entries
+        cache
       ),
-      exchangeRateProvider: memoizeReads(dependencies.exchangeRateProvider, entries)
+      exchangeRateProvider: memoizeReads(dependencies.exchangeRateProvider, cache)
     },
-    cache: {
-      reset() {
-        entries.clear()
-      }
-    }
+    cache
   }
 }
 
@@ -1362,10 +1369,7 @@ function withOperationBoundary<T extends object>(service: T, cache: OperationRea
         return cached
       }
 
-      const wrapped = (...args: unknown[]) => {
-        cache.reset()
-        return value.apply(source, args)
-      }
+      const wrapped = (...args: unknown[]) => cache.run(() => value.apply(source, args))
       bound.set(property, wrapped)
       return wrapped
     }
@@ -2538,18 +2542,6 @@ function buildPurchaseShareMap(input: {
   return splitEvenlyByMember(input.amount, input.activePurchaseParticipantIds)
 }
 
-function sumAllocationMinor(
-  allocations: readonly FinancePaymentPurchaseAllocationRecord[],
-  purchaseId: string,
-  memberId: string
-): bigint {
-  return allocations
-    .filter(
-      (allocation) => allocation.purchaseId === purchaseId && allocation.memberId === memberId
-    )
-    .reduce((sum, allocation) => sum + allocation.amountMinor, 0n)
-}
-
 async function convertIntoCycleCurrency(
   dependencies: FinanceCommandServiceDependencies,
   input: {
@@ -3346,6 +3338,21 @@ async function buildFinanceDashboardOnce(
   const activePurchaseParticipantIds = members
     .filter((member) => member.status === 'active')
     .map((member) => member.id)
+  const allocationsByPurchaseId = groupBy(
+    paymentPurchaseAllocations,
+    (allocation) => allocation.purchaseId
+  )
+  const allocatedByPurchaseAndMemberId = new Map<string, Map<string, bigint>>()
+  for (const [purchaseId, allocations] of allocationsByPurchaseId) {
+    const byMemberId = new Map<string, bigint>()
+    for (const allocation of allocations) {
+      byMemberId.set(
+        allocation.memberId,
+        (byMemberId.get(allocation.memberId) ?? 0n) + allocation.amountMinor
+      )
+    }
+    allocatedByPurchaseAndMemberId.set(purchaseId, byMemberId)
+  }
 
   const purchaseHistory: PurchaseHistoryState[] = convertedPurchases.map(
     ({ purchase, converted }) => {
@@ -3360,11 +3367,8 @@ async function buildFinanceDashboardOnce(
       const outstandingEntries = [...shareMap.entries()]
         .filter(([memberId]) => memberId !== purchase.payerMemberId)
         .map(([memberId, shareAmount]) => {
-          const allocatedMinor = sumAllocationMinor(
-            paymentPurchaseAllocations,
-            purchase.id,
-            memberId
-          )
+          const allocatedMinor =
+            allocatedByPurchaseAndMemberId.get(purchase.id)?.get(memberId) ?? 0n
           const outstandingMinor =
             shareAmount.amountMinor > allocatedMinor ? shareAmount.amountMinor - allocatedMinor : 0n
 
@@ -3380,9 +3384,7 @@ async function buildFinanceDashboardOnce(
         (sum, [, amount]) => sum.add(amount),
         Money.zero(converted.settlementAmount.currency)
       )
-      const purchaseAllocations = paymentPurchaseAllocations.filter(
-        (allocation) => allocation.purchaseId === purchase.id
-      )
+      const purchaseAllocations = allocationsByPurchaseId.get(purchase.id) ?? []
       const resolvedAt =
         outstandingEntries.length === 0
           ? (purchaseAllocations
@@ -3485,11 +3487,9 @@ async function buildFinanceDashboardOnce(
             activePurchaseParticipantIds
           })
     const unallocatedByMember = new Map([...shares].map(([id, amount]) => [id, amount.amountMinor]))
-    const allocations = paymentPurchaseAllocations
-      .filter((allocation) => allocation.purchaseId === purchase.id)
-      .toSorted(
-        (a, b) => Temporal.Instant.compare(a.recordedAt, b.recordedAt) || a.id.localeCompare(b.id)
-      )
+    const allocations = (allocationsByPurchaseId.get(purchase.id) ?? []).toSorted(
+      (a, b) => Temporal.Instant.compare(a.recordedAt, b.recordedAt) || a.id.localeCompare(b.id)
+    )
     for (const allocation of allocations) {
       const capacity = unallocatedByMember.get(allocation.memberId) ?? 0n
       const funded = allocation.amountMinor < capacity ? allocation.amountMinor : capacity
@@ -4609,17 +4609,22 @@ export function createFinanceCommandService(
         .filter((c) => c.period < period && !c.closedAt)
         .map((c) => c.id)
     )
-    const recovered = new Set<string>()
-    for (const record of await repository.listPendingPaymentReconciliations()) {
-      const key = record.cycleId + ':' + record.memberId + ':' + record.kind
-      if (priorOpenIds.has(record.cycleId) && !recovered.has(key)) {
-        await reconcilePaymentPurchaseAllocations(record.id)
-        recovered.add(key)
+    if (priorOpenIds.size > 0) {
+      const recovered = new Set<string>()
+      for (const record of await repository.listPendingPaymentReconciliations()) {
+        const key = record.cycleId + ':' + record.memberId + ':' + record.kind
+        if (priorOpenIds.has(record.cycleId) && !recovered.has(key)) {
+          await reconcilePaymentPurchaseAllocations(record.id)
+          recovered.add(key)
+        }
       }
+      await repository.closeCyclesBeforePeriod(period, referenceInstant)
     }
-    await repository.closeCyclesBeforePeriod(period, referenceInstant)
 
-    if (settings.rentAmountMinor !== null) {
+    if (
+      settings.rentAmountMinor !== null &&
+      !(await repository.getRentRuleStartingAtPeriod(period))
+    ) {
       await repository.saveRentRule(period, settings.rentAmountMinor, settings.rentCurrency, {
         overwriteExisting: false
       })
@@ -4916,33 +4921,45 @@ export function createFinanceCommandService(
     },
 
     async listCycleHistory() {
-      const [cycles, openCycle, members, purchases] = await Promise.all([
+      const [cycles, openCycle] = await Promise.all([
         repository.listCycles(),
-        getDefaultOpenCycle(dependencies),
-        repository.listMembers(),
-        repository.listParsedPurchases()
+        getDefaultOpenCycle(dependencies)
       ])
       const closedCycles = cycles
         .filter((cycle) => cycle.id !== openCycle?.id)
         .sort((left, right) => right.period.localeCompare(left.period))
 
+      const snapshots = new Map(
+        (
+          await repository.listSettlementSnapshotsForCycles(closedCycles.map((cycle) => cycle.id))
+        ).map((snapshot) => [snapshot.cycleId, snapshot])
+      )
+      let legacyInputs:
+        | Promise<{
+            members: readonly FinanceMemberRecord[]
+            purchases: readonly FinanceParsedPurchaseRecord[]
+          }>
+        | undefined
       const history = await Promise.all(
         closedCycles.map(async (cycle) => {
-          const snapshot = await repository.getSettlementSnapshot(cycle.id)
+          const snapshot = snapshots.get(cycle.id)
           if (!snapshot) {
             return null
           }
 
-          return (
-            parseFrozenCycleHistory({ cycle, snapshot }) ??
-            buildLegacyCycleHistory({
-              repository,
-              cycle,
-              snapshot,
-              members,
-              purchases
-            })
-          )
+          const frozen = parseFrozenCycleHistory({ cycle, snapshot })
+          if (frozen) return frozen
+
+          legacyInputs ??= Promise.all([
+            repository.listMembers(),
+            repository.listParsedPurchases()
+          ]).then(([members, purchases]) => ({ members, purchases }))
+          return buildLegacyCycleHistory({
+            repository,
+            cycle,
+            snapshot,
+            ...(await legacyInputs)
+          })
         })
       )
 

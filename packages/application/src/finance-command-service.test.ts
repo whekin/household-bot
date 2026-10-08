@@ -844,6 +844,11 @@ class FinanceRepositoryStub implements FinanceRepository {
     return this.settlementSnapshots.get(cycleId) ?? null
   }
 
+  async listSettlementSnapshotsForCycles(cycleIds: readonly string[]) {
+    const ids = new Set(cycleIds)
+    return [...this.settlementSnapshots.values()].filter((snapshot) => ids.has(snapshot.cycleId))
+  }
+
   async savePaymentConfirmation() {
     return {
       status: 'needs_review' as const,
@@ -989,6 +994,284 @@ function createService(repository: FinanceRepositoryStub) {
     exchangeRateProvider
   })
 }
+
+function countRepositoryCalls<T extends object>(repository: T, calls: Map<string, number>): T {
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (typeof value !== 'function' || typeof property !== 'string') return value
+      return (...args: unknown[]) => {
+        calls.set(property, (calls.get(property) ?? 0) + 1)
+        return value.apply(target, args)
+      }
+    }
+  })
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+describe('finance read budgets', () => {
+  test('frozen history has a constant read budget and does not reload live purchases', async () => {
+    const repository = new FinanceRepositoryStub()
+    const period = BillingPeriod.fromString(expectedCurrentCyclePeriod('Asia/Tbilisi'))
+    repository.openCycleRecord = { id: 'open', period: period.toString(), currency: 'GEL' }
+    const cycles: FinanceCycleRecord[] = [repository.openCycleRecord]
+    let previous = period.previous()
+    for (let index = 0; index < 18; index++) {
+      const cycle: FinanceCycleRecord = {
+        id: `closed-${index}`,
+        period: previous.toString(),
+        currency: 'GEL',
+        closedAt: instantFromIso(`${previous.next().toString()}-01T00:00:00Z`)
+      }
+      cycles.push(cycle)
+      repository.settlementSnapshots.set(cycle.id, {
+        cycleId: cycle.id,
+        currency: 'GEL',
+        inputHash: cycle.id,
+        totalDueMinor: 100n,
+        lines: [],
+        metadata: {
+          cycleHistoryArchive: {
+            version: 1,
+            period: cycle.period,
+            totalDueMinor: '100',
+            totalPaidMinor: '80',
+            totalRemainingMinor: '20',
+            rentTotalMinor: '100',
+            utilityTotalMinor: '0',
+            purchaseVolumeMinor: '0',
+            purchaseCount: 0,
+            members: [],
+            purchaseContributors: []
+          }
+        }
+      })
+      previous = previous.previous()
+    }
+    repository.cycles = cycles
+    financeRepositories.set(repository.householdId, repository)
+    const calls = new Map<string, number>()
+    const service = createFinanceCommandService({
+      householdId: repository.householdId,
+      repository: countRepositoryCalls(repository, calls),
+      householdConfigurationRepository,
+      exchangeRateProvider
+    })
+
+    const history = await service.listCycleHistory()
+
+    expect(history).toHaveLength(18)
+    expect(history.every((entry) => entry.source === 'frozen')).toBe(true)
+    expect(history[0]?.totalRemaining.amountMinor).toBe(20n)
+    expect([...calls.values()].reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(4)
+    expect(calls.get('listSettlementSnapshotsForCycles')).toBe(1)
+    expect(calls.get('getSettlementSnapshot')).toBeUndefined()
+    expect(calls.get('listMembers')).toBeUndefined()
+    expect(calls.get('listParsedPurchases')).toBeUndefined()
+  })
+
+  test('an unchanged default dashboard does not perform cycle or rent writes', async () => {
+    const repository = new FinanceRepositoryStub()
+    const period = expectedCurrentCyclePeriod('Asia/Tbilisi')
+    repository.openCycleRecord = { id: 'open', period, currency: 'GEL' }
+    repository.cycles = [repository.openCycleRecord]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.rentRule = { amountMinor: 10000n, currency: 'GEL' }
+    repository.rentRulesByPeriod.set(period, repository.rentRule)
+    repository.billingSettingsOverride = { rentAmountMinor: 10000n, rentCurrency: 'GEL' }
+    financeRepositories.set(repository.householdId, repository)
+    const calls = new Map<string, number>()
+    const service = createFinanceCommandService({
+      householdId: repository.householdId,
+      repository: countRepositoryCalls(repository, calls),
+      householdConfigurationRepository,
+      exchangeRateProvider
+    })
+    const before = await service.generateDashboard()
+    calls.clear()
+
+    const after = await service.generateDashboard()
+
+    expect(after).toEqual(before)
+    expect(calls.get('closeCyclesBeforePeriod')).toBeUndefined()
+    expect(calls.get('saveRentRule')).toBeUndefined()
+    expect(calls.get('replaceSettlementSnapshot')).toBeUndefined()
+    expect(calls.get('listPendingPaymentReconciliations')).toBe(1)
+    expect(calls.get('getCycleByPeriod')).toBe(2)
+    expect(calls.get('listCycles')).toBe(1)
+    expect([...calls.values()].reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(15)
+  })
+
+  test('rent-rule reads expire between dashboard operations', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.openCycleRecord = { id: 'open', period: '2026-03', currency: 'GEL' }
+    repository.cycles = [repository.openCycleRecord]
+    repository.members = [
+      {
+        id: 'alice',
+        telegramUserId: '100',
+        displayName: 'Alice',
+        rentShareWeight: 1,
+        isAdmin: true
+      }
+    ]
+    repository.rentRulesByPeriod.set('2026-03', { amountMinor: 10000n, currency: 'GEL' })
+    const service = createService(repository)
+    await service.generateDashboard('2026-03')
+    await service.generateDashboard('2026-03')
+
+    repository.rentRulesByPeriod.set('2026-03', { amountMinor: 20000n, currency: 'GEL' })
+
+    expect((await service.generateDashboard('2026-03'))?.rentDisplayAmount.amountMinor).toBe(20000n)
+  })
+
+  test('overlapping dashboard operations keep their pending reads isolated', async () => {
+    const repository = new FinanceRepositoryStub()
+    const march = { id: 'march', period: '2026-03', currency: 'GEL' as const }
+    const april = { id: 'april', period: '2026-04', currency: 'GEL' as const }
+    repository.openCycleRecord = march
+    repository.cycles = [march, april]
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    repository.members = ['alice', 'bob', 'carol'].map((id, index) => ({
+      id,
+      telegramUserId: String(index),
+      displayName: id,
+      rentShareWeight: 1,
+      isAdmin: index === 0
+    }))
+    financeRepositories.set(repository.householdId, repository)
+    const memberEntries = [deferred(), deferred()]
+    const memberGates = [deferred(), deferred()]
+    const firstPurchaseRead = deferred()
+    const secondBillsRead = deferred()
+    const purchaseGate = deferred()
+    let memberReads = 0
+    let purchaseReads = 0
+    repository.listParsedPurchases = async () => {
+      const read = ++purchaseReads
+      firstPurchaseRead.resolve()
+      await purchaseGate.promise
+      return [
+        purchaseRecord({
+          id: 'purchase',
+          cycleId: march.id,
+          cyclePeriod: march.period,
+          payerMemberId: 'alice',
+          amountMinor: BigInt(read) * 300n,
+          currency: 'GEL',
+          description: 'Concurrent purchase view',
+          occurredAt: instantFromIso('2026-03-01T00:00:00Z')
+        })
+      ]
+    }
+    const listBills = repository.listUtilityBillsForCycles.bind(repository)
+    repository.listUtilityBillsForCycles = async (cycleIds) => {
+      if (cycleIds.includes(april.id)) secondBillsRead.resolve()
+      return listBills(cycleIds)
+    }
+    const service = createFinanceCommandService({
+      householdId: repository.householdId,
+      repository,
+      householdConfigurationRepository: {
+        ...householdConfigurationRepository,
+        async listHouseholdMembers(householdId) {
+          const index = memberReads++
+          memberEntries[index]!.resolve()
+          await memberGates[index]!.promise
+          return householdConfigurationRepository.listHouseholdMembers(householdId)
+        }
+      },
+      exchangeRateProvider
+    })
+    const first = service.generateDashboard(march.period)
+    await memberEntries[0]!.promise
+    const second = service.generateDashboard(april.period)
+    await memberEntries[1]!.promise
+    memberGates[0]!.resolve()
+    await firstPurchaseRead.promise
+    memberGates[1]!.resolve()
+    await secondBillsRead.promise
+    purchaseGate.resolve()
+    const [firstDashboard, secondDashboard] = await Promise.all([first, second])
+
+    expect(purchaseReads).toBe(2)
+    expect(
+      firstDashboard?.ledger.find((entry) => entry.id === 'purchase')?.amount.amountMinor
+    ).toBe(300n)
+    expect(
+      secondDashboard?.ledger.find((entry) => entry.id === 'purchase')?.amount.amountMinor
+    ).toBe(600n)
+  })
+
+  test('purchase allocation work grows linearly with settled purchase history', async () => {
+    const repository = new FinanceRepositoryStub()
+    repository.openCycleRecord = { id: 'open', period: '2026-03', currency: 'GEL' }
+    repository.cycles = [repository.openCycleRecord]
+    repository.members = ['alice', 'bob', 'carol'].map((id, index) => ({
+      id,
+      telegramUserId: String(index),
+      displayName: id,
+      rentShareWeight: 1,
+      isAdmin: index === 0
+    }))
+    repository.rentRule = { amountMinor: 0n, currency: 'GEL' }
+    const recordedAt = instantFromIso('2026-03-01T00:00:00Z')
+    repository.purchases = Array.from({ length: 250 }, (_, index) => ({
+      id: `purchase-${index}`,
+      cycleId: 'open',
+      cyclePeriod: '2026-03',
+      payerMemberId: 'alice',
+      amountMinor: 300n,
+      currency: 'GEL' as const,
+      description: 'Settled purchase',
+      occurredAt: recordedAt
+    }))
+    let allocationVisits = 0
+    repository.paymentPurchaseAllocations = repository.purchases.flatMap((purchase) =>
+      ['bob', 'carol'].map((memberId) => ({
+        id: `${purchase.id}-${memberId}`,
+        paymentRecordId: 'receipt',
+        get purchaseId() {
+          allocationVisits++
+          return purchase.id
+        },
+        memberId,
+        amountMinor: 100n,
+        resolutionCycleId: 'open',
+        resolutionMethod: 'manual' as const,
+        resolutionPlanId: null,
+        recordedAt
+      }))
+    )
+
+    const dashboard = (await createService(repository).generateDashboard('2026-03'))!
+
+    expect(dashboard.ledger.filter((entry) => entry.resolutionStatus === 'resolved')).toHaveLength(
+      250
+    )
+    expect(dashboard.members.map((member) => member.purchaseOffset.amountMinor)).toEqual([
+      0n,
+      0n,
+      0n
+    ])
+    expect(allocationVisits).toBeLessThanOrEqual(repository.paymentPurchaseAllocations.length * 4)
+  })
+})
 
 function seedPurchaseMutationFixture(repository: FinanceRepositoryStub) {
   repository.members = [

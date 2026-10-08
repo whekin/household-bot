@@ -1,4 +1,4 @@
-import { miniAppApiError, postMiniApp } from './client'
+import { miniAppApiError, postMiniApp, readMiniApp } from './client'
 import type {
   MiniAppAdminSettingsPayload,
   MiniAppAssistantConfig,
@@ -16,7 +16,7 @@ import type {
 export async function fetchMiniAppPendingMembers(
   initData: string
 ): Promise<readonly MiniAppPendingMember[]> {
-  const { response, payload } = await postMiniApp<{
+  const { response, payload } = await readMiniApp<{
     ok: boolean
     authorized?: boolean
     members?: MiniAppPendingMember[]
@@ -71,7 +71,7 @@ export async function rejectMiniAppPendingMember(
 export async function fetchMiniAppAdminSettings(
   initData: string
 ): Promise<MiniAppAdminSettingsPayload> {
-  const { response, payload } = await postMiniApp<{
+  const { response, payload } = await readMiniApp<{
     ok: boolean
     authorized?: boolean
     householdName?: string

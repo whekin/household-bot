@@ -27,11 +27,8 @@ import {
   type MiniAppDashboard,
   type MiniAppPendingMember
 } from '@/api'
-import {
-  getDemoScenarioDefaultToday,
-  getDemoScenarioState,
-  type DemoScenarioId
-} from '@/demo/miniapp-demo'
+import type { DemoScenarioId } from '@/demo/miniapp-demo'
+import { miniAppDemo } from '@/demo/loader'
 import { useI18n } from '@/i18n/context'
 import { useSession } from './session-context'
 
@@ -61,7 +58,10 @@ const chartPalette = [
 type DashboardContextValue = {
   dashboard: MiniAppDashboard | null
   loading: boolean
+  error: Error | null
   refreshing: boolean
+  adminLoading: boolean
+  adminError: Error | null
   adminSettings: MiniAppAdminSettingsPayload | null
   cycleState: MiniAppAdminCycleState | null
   pendingMembers: readonly MiniAppPendingMember[]
@@ -271,7 +271,13 @@ function periodFromCalendarValue(value: string | null | undefined): string | nul
 
 /* ── Provider ───────────────────────────────────────── */
 
-export function DashboardProvider({ children }: { children: ReactNode }) {
+export function DashboardProvider({
+  children,
+  loadAdminData = false
+}: {
+  children: ReactNode
+  loadAdminData?: boolean
+}) {
   const { readySession, initData, handleMiniAppRequestError } = useSession()
   const { copy } = useI18n()
   const queryClient = useQueryClient()
@@ -281,14 +287,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [testingPeriodOverride, setTestingPeriodOverride] = useState<string | null>(null)
   const [testingTodayOverride, setTestingTodayOverride] = useState<string | null>(null)
 
-  const isDemo = readySession?.mode === 'demo' || !initData
+  const isDemo = miniAppDemo !== null && (readySession?.mode === 'demo' || !initData)
   const member = readySession?.member ?? null
 
   const derivedTestingPeriodOverride =
     normalizePeriodOverride(testingPeriodOverride) ?? periodFromCalendarValue(testingTodayOverride)
 
   const demoDefaultTodayOverride = isDemo
-    ? getDemoScenarioDefaultToday(demoScenario, derivedTestingPeriodOverride)
+    ? (miniAppDemo?.getDemoScenarioDefaultToday(demoScenario, derivedTestingPeriodOverride) ?? null)
     : null
   const demoDefaultPeriodOverride = isDemo
     ? periodFromCalendarValue(demoDefaultTodayOverride)
@@ -309,10 +315,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const demoState = useMemo(
     () =>
       isDemo
-        ? getDemoScenarioState(demoScenario, {
+        ? (miniAppDemo?.getDemoScenarioState(demoScenario, {
             periodOverride: requestPeriodOverride,
             todayOverride: requestTodayOverride
-          })
+          }) ?? null)
         : null,
     [isDemo, demoScenario, requestPeriodOverride, requestTodayOverride]
   )
@@ -335,17 +341,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const adminSettingsQuery = useQuery({
     queryKey: miniAppQueryKeys.adminSettings(initData ?? ''),
     queryFn: () => fetchMiniAppAdminSettings(initData ?? ''),
-    enabled: adminEnabled
+    enabled: adminEnabled && loadAdminData
   })
   const cycleStateQuery = useQuery({
     queryKey: miniAppQueryKeys.billingCycle(initData ?? ''),
     queryFn: () => fetchMiniAppBillingCycle(initData ?? ''),
-    enabled: adminEnabled
+    enabled: adminEnabled && loadAdminData
   })
   const pendingMembersQuery = useQuery({
     queryKey: miniAppQueryKeys.pendingMembers(initData ?? ''),
     queryFn: () => fetchMiniAppPendingMembers(initData ?? ''),
-    enabled: adminEnabled
+    enabled: adminEnabled && loadAdminData
   })
 
   const queryError =
@@ -377,6 +383,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       : []
 
   const loading = !isDemo && dashboardQuery.isPending
+  const error = isDemo ? null : dashboardQuery.error
+  const adminLoading =
+    adminEnabled && loadAdminData && (adminSettingsQuery.isPending || cycleStateQuery.isPending)
+  const adminError = adminEnabled
+    ? (adminSettingsQuery.error ?? cycleStateQuery.error ?? pendingMembersQuery.error)
+    : null
   const refreshing = !isDemo && !dashboardQuery.isPending && dashboardQuery.isFetching
 
   const refresh = useCallback(async () => {
@@ -508,7 +520,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const value: DashboardContextValue = {
     dashboard,
     loading,
+    error,
     refreshing,
+    adminLoading,
+    adminError,
     adminSettings,
     cycleState,
     pendingMembers,

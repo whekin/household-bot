@@ -13,7 +13,8 @@ export interface MiniAppRequestPayload {
 
 export function miniAppJsonResponse(body: object, status = 200, origin?: string): Response {
   const headers = new Headers({
-    'content-type': 'application/json; charset=utf-8'
+    'content-type': 'application/json; charset=utf-8',
+    ...(status !== 204 ? { 'cache-control': 'no-store' } : {})
   })
 
   if (origin) {
@@ -21,6 +22,9 @@ export function miniAppJsonResponse(body: object, status = 200, origin?: string)
     headers.set('access-control-allow-methods', 'POST, OPTIONS')
     headers.set('access-control-allow-headers', 'content-type')
     headers.set('vary', 'origin')
+    if (status === 204) {
+      headers.set('access-control-max-age', '600')
+    }
   }
 
   return new Response(status === 204 ? null : JSON.stringify(body), {

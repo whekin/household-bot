@@ -169,10 +169,10 @@ function AdminArea() {
 
 export function SettingsView() {
   const session = useReadySession()
-  const { loading, effectiveIsAdmin } = useDashboard()
+  const { loading, adminLoading, effectiveIsAdmin } = useDashboard()
   const { copy } = useI18n()
 
-  if (loading) {
+  if (loading || adminLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-40 w-full" />

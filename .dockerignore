@@ -2,6 +2,7 @@
 .github
 .linear
 .codex
+.omx
 node_modules
 **/node_modules
 **/dist

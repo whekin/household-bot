@@ -61,17 +61,50 @@ export function miniAppApiError(
 
 export async function postMiniApp<TPayload extends MiniAppErrorPayload>(
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<{ response: Response; payload: TPayload }> {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    ...(signal ? { signal } : {})
   })
 
   const payload = (await response.json()) as TPayload
 
   return { response, payload }
+}
+
+// Bound reads so a lost response can leave loading and offer a retry. Financial writes
+// deliberately use postMiniApp without a timeout: aborting cannot undo a saved payment.
+export async function readMiniApp<TPayload extends MiniAppErrorPayload>(
+  path: string,
+  body: Record<string, unknown>,
+  timeoutMs = 8_000
+): Promise<{ response: Response; payload: TPayload }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await postMiniApp<TPayload>(path, body, controller.signal)
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new MiniAppApiError('The request timed out. Please try again.', {
+        status: 408,
+        code: 'request_failed'
+      })
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export function shouldRetryMiniAppQuery(failureCount: number, error: unknown): boolean {
+  if (error instanceof MiniAppApiError && error.status >= 400 && error.status < 500) {
+    return false
+  }
+  return failureCount < 1
 }

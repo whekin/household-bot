@@ -44,6 +44,7 @@ import {
   createMiniAppUpsertUtilityCategoryHandler
 } from './miniapp-admin'
 import { createMiniAppDashboardHandler } from './miniapp-dashboard'
+import { withMiniAppTiming } from './miniapp-timing'
 import {
   createMiniAppAddPaymentHandler,
   createMiniAppRepaymentsHandler,
@@ -1192,8 +1193,8 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
   }
 
   return {
-    // One log line per request carrying its real query count and query time, so mini
-    // app and webhook latency is attributable to the database rather than guessed at.
+    // Repository-call counts are not SQL statement counts; summed concurrent call
+    // times can exceed wall time. Both help identify where a slow request waits.
     fetch: async (request) => {
       const startedAt = performance.now()
       const url = new URL(request.url)
@@ -1202,19 +1203,22 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
       }
 
       const { result, metrics } = await withQueryMetrics(() => server.fetch(request))
+      const durationMs = Math.round(performance.now() - startedAt)
       logger.info(
         {
           event: 'http.request_handled',
           method: request.method,
           path: url.pathname,
           status: result.status,
-          durationMs: Math.round(performance.now() - startedAt),
+          durationMs,
           ...metrics
         },
         'Handled request'
       )
 
-      return result
+      return url.pathname.startsWith('/api/miniapp/')
+        ? withMiniAppTiming(result, durationMs, metrics)
+        : result
     },
     runtime,
     runRoutineTick: async () => {

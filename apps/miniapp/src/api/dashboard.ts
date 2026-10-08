@@ -1,4 +1,4 @@
-import { miniAppApiError, postMiniApp } from './client'
+import { miniAppApiError, postMiniApp, readMiniApp } from './client'
 import type { MiniAppDashboard } from './types'
 
 export async function fetchMiniAppDashboard(
@@ -8,7 +8,7 @@ export async function fetchMiniAppDashboard(
     todayOverride?: string | null
   } = {}
 ): Promise<MiniAppDashboard> {
-  const { response, payload } = await postMiniApp<{
+  const { response, payload } = await readMiniApp<{
     ok: boolean
     authorized?: boolean
     dashboard?: MiniAppDashboard

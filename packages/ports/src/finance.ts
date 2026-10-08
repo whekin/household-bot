@@ -574,6 +574,9 @@ export interface FinanceRepository extends RepaymentRepository {
     cycleId: string
   ): Promise<readonly FinanceSettlementSnapshotLineRecord[]>
   getSettlementSnapshot(cycleId: string): Promise<SettlementSnapshotRecord | null>
+  listSettlementSnapshotsForCycles(
+    cycleIds: readonly string[]
+  ): Promise<readonly SettlementSnapshotRecord[]>
   savePaymentConfirmation(
     input: FinancePaymentConfirmationSaveInput
   ): Promise<FinancePaymentConfirmationSaveResult>
