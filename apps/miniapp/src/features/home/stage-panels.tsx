@@ -211,12 +211,19 @@ export function HouseholdSummaryPanel({ model }: { model: TodayViewModel }) {
           </p>
         </div>
         <div className="rounded-xl bg-elevated p-3">
-          <p className="text-xs text-muted-foreground">{copy.todayHouseOpenLabel}</p>
-          <p className="mt-0.5 font-mono text-lg font-semibold text-foreground">
-            {model.openMemberCount}
+          <p className="text-xs text-muted-foreground">{copy.todayAccountedLabel}</p>
+          <p className="mt-0.5 font-mono text-lg font-semibold text-status-credit">
+            {formatMoneyLabel(
+              model.kindSummary?.totalPaidMajor ?? '0.00',
+              dashboard.currency,
+              locale
+            )}
           </p>
         </div>
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {copy.todayHouseOpenLabel}: {model.openMemberCount}
+      </p>
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-field" aria-hidden>
         <span

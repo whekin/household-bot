@@ -123,6 +123,179 @@ function dashboard(summary: TodayPeriodSummary): MiniAppDashboard {
   }
 }
 
+function installmentDashboard(additionalPayment = false): MiniAppDashboard {
+  const remainingMajor = additionalPayment ? '19.95' : '23.95'
+  const paidMajor = additionalPayment ? '38.57' : '34.57'
+  const summary = periodSummary({ utilitiesRemaining: remainingMajor })
+  Object.assign(summary.kinds[0]!.unresolvedMembers[0]!, {
+    baseDueMajor: '58.52',
+    paidMajor
+  })
+  const data = dashboard(summary)
+  data.members[0]!.utilityShareMajor = '45.05'
+  data.utilityBillingPlan = {
+    version: 3,
+    status: 'active',
+    dueDate: '2026-03-05',
+    updatedFromVersion: 2,
+    reason: 'rebalanced_after_cycle_change',
+    categories: [
+      {
+        utilityBillId: 'electricity',
+        billName: 'Electricity',
+        billTotalMajor: '44.02',
+        assignedAmountMajor: '15.64',
+        remainingAmountMajor: additionalPayment ? '11.64' : '15.64',
+        assignedMemberId: 'member-a',
+        assignedDisplayName: 'Ada',
+        paidAmountMajor: additionalPayment ? '32.38' : '28.38',
+        isFullAssignment: false,
+        splitGroupId: 'electricity'
+      },
+      {
+        utilityBillId: 'internet',
+        billName: 'Internet',
+        billTotalMajor: '61.39',
+        assignedAmountMajor: '8.31',
+        remainingAmountMajor: '8.31',
+        assignedMemberId: 'member-a',
+        assignedDisplayName: 'Ada',
+        paidAmountMajor: '53.08',
+        isFullAssignment: false,
+        splitGroupId: 'internet'
+      }
+    ],
+    memberSummaries: [
+      {
+        memberId: 'member-a',
+        displayName: 'Ada',
+        fairShareMajor: '58.52',
+        vendorPaidMajor: paidMajor,
+        assignedThisCycleMajor: remainingMajor,
+        projectedDeltaAfterPlanMajor: '0.00'
+      }
+    ],
+    vendorPayments: [
+      ['gas', 'Gas', 'member-a', '20.37'],
+      ['cleaning', 'Cleaning', 'member-a', '2.50'],
+      ['electricity', 'Electricity', 'member-a', '11.66'],
+      ['electricity', 'Electricity', 'member-a', '0.04'],
+      ['electricity', 'Electricity', 'member-b', '16.68'],
+      ...(additionalPayment ? [['electricity', 'Electricity', 'member-a', '4.00']] : [])
+    ].map(([utilityBillId, billName, payerMemberId, amountMajor], index) => ({
+      id: `fact-${index}`,
+      utilityBillId: utilityBillId!,
+      billName: billName!,
+      payerMemberId: payerMemberId!,
+      payerDisplayName: payerMemberId === 'member-a' ? 'Ada' : 'Bob',
+      amountMajor: amountMajor!,
+      matchedPlan: additionalPayment && index === 5,
+      recordedAt: '2026-03-06T06:00:00Z'
+    }))
+  }
+  return data
+}
+
+describe('member payment transparency', () => {
+  function modelFor(data: MiniAppDashboard, currentMemberId = 'member-a') {
+    return buildTodayViewModel({
+      dashboard: data,
+      currentMemberId,
+      effectivePeriod: data.period,
+      effectiveStage: 'utilities'
+    })
+  }
+
+  test('shows accounted installments and the exact remainder for another member', () => {
+    const line = modelFor(installmentDashboard(), 'member-b').memberLines[0]!
+    expect(line.paidMajor).toBe('34.57')
+    expect(line.amountMajor).toBe('23.95')
+    expect(line.utilityLines).toEqual([
+      { billId: 'electricity', billName: 'Electricity', amountMajor: '15.64', paidMajor: '11.70' },
+      { billId: 'internet', billName: 'Internet', amountMajor: '8.31', paidMajor: '0.00' },
+      { billId: 'cleaning', billName: 'Cleaning', amountMajor: '0.00', paidMajor: '2.50' },
+      { billId: 'gas', billName: 'Gas', amountMajor: '0.00', paidMajor: '20.37' }
+    ])
+  })
+
+  test('counts a new installment once while preserving carried payments', () => {
+    const line = modelFor(installmentDashboard(true)).memberLines[0]!
+    expect(line.paidMajor).toBe('38.57')
+    expect(line.amountMajor).toBe('19.95')
+    expect(line.utilityLines.find((item) => item.billId === 'electricity')).toEqual({
+      billId: 'electricity',
+      billName: 'Electricity',
+      amountMajor: '11.64',
+      paidMajor: '15.70'
+    })
+  })
+
+  test('identifies accounted cash that has not been attributed to a provider', () => {
+    const data = installmentDashboard()
+    Object.assign(data.paymentPeriods![0]!.kinds[0]!.unresolvedMembers[0]!, {
+      paidMajor: '38.57',
+      remainingMajor: '19.95'
+    })
+    const line = modelFor(data).memberLines[0]!
+    expect(line.paidMajor).toBe('38.57')
+    expect(line.amountMajor).toBe('19.95')
+    expect(line.unallocatedPaidMajor).toBe('4.00')
+    expect(line.utilityLines[0]!.paidMajor).toBe('11.70')
+  })
+
+  test('retains fully paid bills and accounted totals for a settled member', () => {
+    const data = installmentDashboard()
+    data.paymentPeriods![0]!.kinds[0]!.unresolvedMembers = []
+    data.utilityBillingPlan!.categories = []
+    data.utilityBillingPlan!.memberSummaries[0]!.assignedThisCycleMajor = '0.00'
+    const line = modelFor(data).memberLines[0]!
+    expect(line.settled).toBe(true)
+    expect(line.paidMajor).toBe('34.57')
+    expect(line.amountMajor).toBe('0.00')
+    expect(line.utilityLines).toHaveLength(3)
+    expect(line.utilityLines.every((item) => item.amountMajor === '0.00')).toBe(true)
+  })
+
+  test('does not treat an unrelated rent receipt as an accounted utility payment', () => {
+    const data = installmentDashboard()
+    data.paymentPeriods![0]!.kinds[0]!.unresolvedMembers = []
+    data.ledger = [
+      {
+        id: 'rent',
+        kind: 'payment',
+        title: 'Rent',
+        memberId: 'member-a',
+        paymentKind: 'rent',
+        amountMajor: '300.00',
+        currency: 'USD',
+        displayAmountMajor: '810.00',
+        displayCurrency: 'GEL',
+        fxRateMicros: '2700000',
+        fxEffectiveDate: '2026-03-01',
+        actorDisplayName: 'Ada',
+        occurredAt: null
+      }
+    ]
+    expect(modelFor(data).memberLines[0]!.paidMajor).toBe('34.57')
+    data.ledger[0]!.paymentKind = 'utilities'
+    expect(modelFor(data).memberLines[0]!.paidMajor).toBe('810.00')
+  })
+
+  test('shows partial rent payments from the server rent summary', () => {
+    const data = dashboard(periodSummary({ rentRemaining: '180.00' }))
+    data.rentBillingState.memberSummaries[0]!.paidMajor = '120.00'
+    data.rentBillingState.memberSummaries[0]!.remainingMajor = '180.00'
+    const model = buildTodayViewModel({
+      dashboard: data,
+      currentMemberId: 'member-a',
+      effectivePeriod: data.period,
+      effectiveStage: 'rent'
+    })
+    expect(model.memberLines[0]!.paidMajor).toBe('120.00')
+    expect(model.memberLines[0]!.amountMajor).toBe('180.00')
+  })
+})
+
 describe('today view model', () => {
   test('keeps utilities active when the period is extended by unpaid utilities', () => {
     const summary = periodSummary({ utilitiesRemaining: '42.00' })
@@ -174,8 +347,11 @@ describe('today view model', () => {
         memberId: 'member-a',
         displayName: 'Ada',
         amountMajor: '300.00',
+        paidMajor: '0.00',
         settled: false,
-        isCurrent: true
+        isCurrent: true,
+        utilityLines: [],
+        utilityBreakdown: null
       }
     ])
   })
@@ -323,9 +499,14 @@ describe('today view model', () => {
       effectiveStage: 'utilities'
     })
 
-    expect(model.currentMemberUtilityLines).toEqual([
-      { billName: 'Electricity', amountMajor: '24.00', paidMajor: '0.00' },
-      { billName: 'Water', amountMajor: '18.00', paidMajor: '0.00' }
+    expect(model.memberLines[0]!.utilityLines).toEqual([
+      {
+        billId: 'bill-electricity',
+        billName: 'Electricity',
+        amountMajor: '24.00',
+        paidMajor: '0.00'
+      },
+      { billId: 'bill-water', billName: 'Water', amountMajor: '18.00', paidMajor: '0.00' }
     ])
   })
 
@@ -436,7 +617,7 @@ describe('today view model', () => {
       effectiveStage: 'utilities'
     })
 
-    expect(model.currentMemberUtilityBreakdown).toEqual({
+    expect(model.memberLines[0]!.utilityBreakdown).toEqual({
       shareMajor: '63.05',
       purchaseOffsetMajor: '-34.93',
       targetMajor: '28.12',

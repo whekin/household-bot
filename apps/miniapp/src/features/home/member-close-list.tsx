@@ -1,4 +1,4 @@
-import { CheckCircle2, Sparkles, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, Sparkles, X } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { useDashboard } from '@/app/dashboard-context'
@@ -106,7 +106,6 @@ export function MemberCloseList({
                   onClick={() => onSelectMember(line)}
                   className={cn(
                     'flex w-full items-center gap-3 rounded-xl bg-elevated px-3 py-2.5 text-left transition-colors active:bg-field-hover disabled:pointer-events-none',
-                    line.settled && 'opacity-60',
                     line.isCurrent && 'ring-1 ring-inset ring-primary/40'
                   )}
                 >
@@ -131,6 +130,10 @@ export function MemberCloseList({
                           ? copy.todayTapToClose
                           : copy.todayWaitingForMember}
                     </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {copy.todayAccountedLabel}:{' '}
+                      {formatMoneyLabel(line.paidMajor, dashboard.currency, locale)}
+                    </span>
                     {line.purchaseBalanceMajor ? (
                       <PurchaseBalanceHint
                         balanceMajor={line.purchaseBalanceMajor}
@@ -140,18 +143,28 @@ export function MemberCloseList({
                       />
                     ) : null}
                   </span>
-                  <span
-                    className={cn(
-                      'shrink-0 font-mono text-sm font-semibold',
-                      line.settled ? 'text-status-credit' : 'text-foreground'
-                    )}
-                  >
-                    {line.settled
-                      ? copy.todayDone
-                      : formatMoneyLabel(line.amountMajor, dashboard.currency, locale)}
+                  <span className="shrink-0 text-right">
+                    <span className="block text-[11px] text-faint">{copy.todayRemainingLabel}</span>
+                    <span
+                      className={cn(
+                        'font-mono text-sm font-semibold',
+                        line.settled ? 'text-status-credit' : 'text-foreground'
+                      )}
+                    >
+                      {formatMoneyLabel(line.amountMajor, dashboard.currency, locale)}
+                    </span>
                   </span>
                 </button>
-                {line.isCurrent ? <PersonalDetails model={model} line={line} /> : null}
+                <details open={line.isCurrent} className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-1.5 text-xs text-primary [&::-webkit-details-marker]:hidden">
+                    <span>{copy.todayPaymentDetailsLabel}</span>
+                    <ChevronDown
+                      className="size-3.5 transition-transform group-open:rotate-180"
+                      aria-hidden
+                    />
+                  </summary>
+                  <PersonalDetails model={model} line={line} />
+                </details>
               </div>
             )
           })}

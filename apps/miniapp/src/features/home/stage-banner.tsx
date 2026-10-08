@@ -107,9 +107,15 @@ export function StageBanner({
           {formatMoneyLabel(focusAmountMajor, currency, locale)}
         </p>
         {model.stage !== 'idle' ? (
-          <p className="text-xs text-muted-foreground">
-            {copy.todayHouseStillOpen}: {formatMoneyLabel(model.remainingMajor, currency, locale)}
-          </p>
+          <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+            <p>
+              {copy.todayAccountedLabel}:{' '}
+              {formatMoneyLabel(currentMemberLine?.paidMajor ?? '0.00', currency, locale)}
+            </p>
+            <p>
+              {copy.todayHouseStillOpen}: {formatMoneyLabel(model.remainingMajor, currency, locale)}
+            </p>
+          </div>
         ) : null}
         <h2 className="mt-1 font-display text-lg font-semibold text-foreground">{stageTitle}</h2>
         {/* Only the quiet stage needs a sentence: with no window open and nothing

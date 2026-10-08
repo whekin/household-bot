@@ -13,6 +13,11 @@ cumulative confirmed payments. History presented rounding adjustments as ordinar
   settlement, dashboard balances and previews use the same rule regardless of participant row order.
 - Cards, dashboard and assistant use exact remaining amounts. Settled obligations pay zero;
   show an already-paid baseline alongside an additional utility remainder.
+- Miniapp member rows show accounted payments and the remaining amount separately. Payment
+  details are inspectable for every member without recording a payment. Keep fully paid bills
+  visible, include carried provider payments after plan changes, and never attribute another
+  member's payment on a shared bill to the viewer. Show the purchase/share calculation separately.
+  Identify accounted cash without a provider allocation explicitly; never guess its bill.
 - Carried contributions continue to lock issued assignments. New purchases remain separate;
   late bills and explicit redraw preserve existing funding exactly once.
 - Named utility confirmations include bill identity and the exact confirmed amount. Record

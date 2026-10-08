@@ -35,7 +35,7 @@ export function PersonalLine({
       </span>
       <span
         className={cn(
-          'font-mono text-xs',
+          'shrink-0 font-mono text-xs',
           tone === 'muted' && 'text-muted-foreground',
           tone === 'default' && 'font-semibold text-foreground',
           tone === 'credit' && 'font-semibold text-status-credit'
@@ -57,12 +57,11 @@ export function PersonalGroup({ title, children }: { title: string; children: Re
 }
 
 /**
- * How the reader's own number came out the way it did: their raw share, the
+ * How a member's number came out the way it did: their raw share, the
  * shared-purchase adjustment on top of it, and the bills it was routed into.
  *
- * This sits under their row in the close list rather than in the stage banner,
- * so a member's amount and its derivation live in one place instead of being
- * split across two cards that each showed a different framing of it.
+ * Recorded payments and provider remainders are separate from the purchase/share
+ * calculation: the fair share is not necessarily the amount routed to bills.
  */
 export function PersonalDetails({
   model,
@@ -76,18 +75,55 @@ export function PersonalDetails({
   const currency = dashboard?.currency ?? 'GEL'
 
   const breakdown =
-    model.stage === 'utilities' && model.currentMemberUtilityBreakdown?.hasAdjustment
-      ? model.currentMemberUtilityBreakdown
+    model.stage === 'utilities' && line.utilityBreakdown?.hasAdjustment
+      ? line.utilityBreakdown
       : null
-  const utilityLines = model.stage === 'utilities' ? model.currentMemberUtilityLines : []
+  const utilityLines = model.stage === 'utilities' ? line.utilityLines : []
   const showRent = model.stage === 'rent'
-
-  if (!breakdown && utilityLines.length === 0 && !showRent) {
-    return null
-  }
 
   return (
     <div className="space-y-2 pt-1">
+      <PersonalGroup title={copy.todayPaymentSummaryTitle}>
+        <PersonalLine
+          tone="credit"
+          label={copy.todayAccountedLabel}
+          value={formatMoneyLabel(line.paidMajor, currency, locale)}
+        />
+        <PersonalLine
+          label={copy.todayRemainingLabel}
+          value={formatMoneyLabel(line.amountMajor, currency, locale)}
+        />
+      </PersonalGroup>
+
+      {line.unallocatedPaidMajor ? (
+        <div className="rounded-xl bg-elevated px-3 py-2 text-xs text-muted-foreground">
+          <PersonalLine
+            label={copy.todayUnallocatedPaymentLabel}
+            value={formatMoneyLabel(line.unallocatedPaidMajor, currency, locale)}
+          />
+          <p className="mt-1">{copy.todayUnallocatedPaymentBody}</p>
+        </div>
+      ) : null}
+
+      {utilityLines.length > 0 ? (
+        <PersonalGroup title={copy.todayUtilityPaymentsTitle}>
+          {utilityLines.map((utilityLine) => (
+            <div key={utilityLine.billId} className="py-2">
+              <p className="text-sm font-medium text-foreground">{utilityLine.billName}</p>
+              <PersonalLine
+                tone={majorStringToMinor(utilityLine.paidMajor) > 0n ? 'credit' : 'muted'}
+                label={copy.todayAccountedLabel}
+                value={formatMoneyLabel(utilityLine.paidMajor, currency, locale)}
+              />
+              <PersonalLine
+                label={copy.todayRemainingLabel}
+                value={formatMoneyLabel(utilityLine.amountMajor, currency, locale)}
+              />
+            </div>
+          ))}
+        </PersonalGroup>
+      ) : null}
+
       {breakdown ? (
         <PersonalGroup title={copy.todayUtilityBreakdownTitle}>
           <PersonalLine
@@ -105,23 +141,6 @@ export function PersonalDetails({
             label={copy.todayUtilityPlanTargetLabel}
             value={formatMoneyLabel(breakdown.targetMajor, currency, locale)}
           />
-        </PersonalGroup>
-      ) : null}
-
-      {utilityLines.length > 0 ? (
-        <PersonalGroup title={copy.todayPersonalLinesTitle}>
-          {utilityLines.map((utilityLine) => (
-            <PersonalLine
-              key={utilityLine.billName}
-              label={
-                utilityLine.billName +
-                (majorStringToMinor(utilityLine.paidMajor) > 0n
-                  ? ` · ${locale === 'ru' ? 'уже оплачено' : 'already paid'} ${formatMoneyLabel(utilityLine.paidMajor, currency, locale)}`
-                  : '')
-              }
-              value={formatMoneyLabel(utilityLine.amountMajor, currency, locale)}
-            />
-          ))}
         </PersonalGroup>
       ) : null}
 

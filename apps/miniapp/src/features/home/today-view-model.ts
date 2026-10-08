@@ -14,8 +14,22 @@ export type TodayMemberCloseLine = {
   memberId: string
   displayName: string
   amountMajor: string
+  paidMajor: string
+  unallocatedPaidMajor?: string
   settled: boolean
   isCurrent: boolean
+  utilityLines: {
+    billId: string
+    billName: string
+    amountMajor: string
+    paidMajor: string
+  }[]
+  utilityBreakdown: {
+    shareMajor: string
+    purchaseOffsetMajor: string
+    targetMajor: string
+    hasAdjustment: boolean
+  } | null
   /**
    * Live shared-purchase balance once the member's plan row is closed.
    * Positive means they still owe the household, negative means they are owed.
@@ -45,17 +59,6 @@ export type TodayViewModel = {
   memberLines: TodayMemberCloseLine[]
   openMemberCount: number
   settledMemberCount: number
-  currentMemberUtilityLines: {
-    billName: string
-    amountMajor: string
-    paidMajor: string
-  }[]
-  currentMemberUtilityBreakdown: {
-    shareMajor: string
-    purchaseOffsetMajor: string
-    targetMajor: string
-    hasAdjustment: boolean
-  } | null
   rentPaymentDestinations: readonly RentPaymentDestination[]
   currentMemberRentDueDate: string | null
   nextWindow: {
@@ -123,11 +126,95 @@ export function memberRemainingMajor(
     return minorToMajorString(
       data.utilityBillingPlan.categories
         .filter((category) => category.assignedMemberId === memberId)
-        .reduce((sum, category) => sum + majorStringToMinor(category.assignedAmountMajor), 0n)
+        .reduce((sum, category) => sum + majorStringToMinor(category.remainingAmountMajor), 0n)
     )
   }
 
   return '0.00'
+}
+
+function memberPaidMajor(
+  data: MiniAppDashboard,
+  memberId: string,
+  kind: TodayPaymentKind,
+  periodSummary: TodayPeriodSummary | null
+): string {
+  if (kind === 'rent') {
+    return (
+      data.rentBillingState.memberSummaries.find((row) => row.memberId === memberId)?.paidMajor ??
+      '0.00'
+    )
+  }
+  const unresolved = periodKindSummary(periodSummary, kind)?.unresolvedMembers.find(
+    (row) => row.memberId === memberId
+  )
+  if (unresolved) return unresolved.paidMajor
+
+  // Paid members no longer appear in unresolvedMembers. Cash receipts and provider
+  // facts can describe the same payment, so take their maximum, never their sum.
+  const receiptPaid = data.ledger
+    .filter(
+      (entry) =>
+        entry.kind === 'payment' && entry.paymentKind === kind && entry.memberId === memberId
+    )
+    .reduce((sum, entry) => sum + majorStringToMinor(entry.displayAmountMajor), 0n)
+  const vendorPaid = majorStringToMinor(
+    data.utilityBillingPlan?.memberSummaries.find((row) => row.memberId === memberId)
+      ?.vendorPaidMajor ?? '0.00'
+  )
+  return minorToMajorString(receiptPaid > vendorPaid ? receiptPaid : vendorPaid)
+}
+
+function memberUtilityLines(
+  data: MiniAppDashboard,
+  memberId: string
+): TodayMemberCloseLine['utilityLines'] {
+  const plan = data.utilityBillingPlan
+  if (!plan) return []
+  const lines = new Map<
+    string,
+    { billId: string; billName: string; remaining: bigint; paid: bigint }
+  >()
+  for (const category of plan.categories.filter((row) => row.assignedMemberId === memberId)) {
+    lines.set(category.utilityBillId, {
+      billId: category.utilityBillId,
+      billName: category.billName,
+      remaining: majorStringToMinor(category.remainingAmountMajor),
+      paid: 0n
+    })
+  }
+  for (const payment of plan.vendorPayments ?? []) {
+    if (payment.payerMemberId !== memberId) continue
+    const billId =
+      payment.utilityBillId ??
+      plan.categories.find(
+        (row) => row.billName.trim().toLowerCase() === payment.billName.trim().toLowerCase()
+      )?.utilityBillId ??
+      `name:${payment.billName.trim().toLowerCase()}`
+    const line = lines.get(billId) ?? {
+      billId,
+      billName: payment.billName,
+      remaining: 0n,
+      paid: 0n
+    }
+    line.paid += majorStringToMinor(payment.amountMajor)
+    lines.set(billId, line)
+  }
+  return [...lines.values()]
+    .filter((line) => line.remaining > 0n || line.paid > 0n)
+    .sort((a, b) =>
+      a.remaining === b.remaining
+        ? a.billName.localeCompare(b.billName) || a.billId.localeCompare(b.billId)
+        : a.remaining > b.remaining
+          ? -1
+          : 1
+    )
+    .map((line) => ({
+      billId: line.billId,
+      billName: line.billName,
+      amountMajor: minorToMajorString(line.remaining),
+      paidMajor: minorToMajorString(line.paid)
+    }))
 }
 
 /**
@@ -385,12 +472,6 @@ export function buildTodayViewModel(input: {
   const currentMember = input.dashboard.members.find(
     (member) => member.memberId === input.currentMemberId
   )
-  const currentMemberUtilitySummary =
-    currentMember && input.dashboard.utilityBillingPlan
-      ? input.dashboard.utilityBillingPlan.memberSummaries.find(
-          (summary) => summary.memberId === currentMember.memberId
-        )
-      : null
 
   return {
     period,
@@ -424,6 +505,25 @@ export function buildTodayViewModel(input: {
                 periodSummary
               )
               const settled = majorStringToMinor(amountMajor) <= 0n
+              const paidMajor = memberPaidMajor(
+                input.dashboard,
+                member.memberId,
+                stage,
+                periodSummary
+              )
+              const utilityLines =
+                stage === 'utilities' ? memberUtilityLines(input.dashboard, member.memberId) : []
+              const unallocatedPaidMinor =
+                stage === 'utilities'
+                  ? majorStringToMinor(paidMajor) -
+                    utilityLines.reduce((sum, row) => sum + majorStringToMinor(row.paidMajor), 0n)
+                  : 0n
+              const utilitySummary =
+                stage === 'utilities'
+                  ? input.dashboard.utilityBillingPlan?.memberSummaries.find(
+                      (row) => row.memberId === member.memberId
+                    )
+                  : null
               // A closed row settles nothing about shared purchases: the member can
               // still owe the household, or be owed by it.
               // Read the live offset, not the plan's projected delta — that one is
@@ -437,8 +537,26 @@ export function buildTodayViewModel(input: {
                 memberId: member.memberId,
                 displayName: member.displayName,
                 amountMajor,
+                paidMajor,
+                ...(unallocatedPaidMinor > 0n
+                  ? { unallocatedPaidMajor: minorToMajorString(unallocatedPaidMinor) }
+                  : {}),
                 settled,
                 isCurrent: member.memberId === input.currentMemberId,
+                utilityLines,
+                utilityBreakdown: utilitySummary
+                  ? {
+                      shareMajor: member.utilityShareMajor,
+                      purchaseOffsetMajor: minorToMajorString(
+                        majorStringToMinor(utilitySummary.fairShareMajor) -
+                          majorStringToMinor(member.utilityShareMajor)
+                      ),
+                      targetMajor: utilitySummary.fairShareMajor,
+                      hasAdjustment:
+                        majorStringToMinor(utilitySummary.fairShareMajor) !==
+                        majorStringToMinor(member.utilityShareMajor)
+                    }
+                  : null,
                 ...(purchaseBalanceMinor !== 0n
                   ? { purchaseBalanceMajor: minorToMajorString(purchaseBalanceMinor) }
                   : {})
@@ -466,39 +584,6 @@ export function buildTodayViewModel(input: {
                   memberRemainingMajor(input.dashboard, member.memberId, stage, periodSummary)
                 ) <= 0n
             ).length,
-    currentMemberUtilityLines: currentMember
-      ? (input.dashboard.utilityBillingPlan?.categories ?? [])
-          .filter(
-            (category) =>
-              category.assignedMemberId === currentMember.memberId &&
-              majorStringToMinor(category.remainingAmountMajor) > 0n
-          )
-          .map((category) => ({
-            billName: category.billName,
-            amountMajor: category.remainingAmountMajor,
-            paidMajor: minorToMajorString(
-              majorStringToMinor(category.assignedAmountMajor) -
-                majorStringToMinor(category.remainingAmountMajor)
-            )
-          }))
-          .sort((left, right) =>
-            Number(majorStringToMinor(right.amountMajor) - majorStringToMinor(left.amountMajor))
-          )
-      : [],
-    currentMemberUtilityBreakdown:
-      stage === 'utilities' && currentMember && currentMemberUtilitySummary
-        ? {
-            shareMajor: currentMember.utilityShareMajor,
-            purchaseOffsetMajor: minorToMajorString(
-              majorStringToMinor(currentMemberUtilitySummary.fairShareMajor) -
-                majorStringToMinor(currentMember.utilityShareMajor)
-            ),
-            targetMajor: currentMemberUtilitySummary.fairShareMajor,
-            hasAdjustment:
-              majorStringToMinor(currentMemberUtilitySummary.fairShareMajor) !==
-              majorStringToMinor(currentMember.utilityShareMajor)
-          }
-        : null,
     rentPaymentDestinations:
       input.dashboard.rentBillingState.paymentDestinations !== null
         ? input.dashboard.rentBillingState.paymentDestinations
