@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet } from '@/components/ui/dialog'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
+import { fxRateFromMicros } from '@/lib/fx'
 import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 import { getTelegramWebApp, haptics } from '@/telegram/webapp'
 import { dueText } from './hero-card'
@@ -45,14 +46,6 @@ function openExternal(url: string) {
   const webApp = getTelegramWebApp()
   if (webApp?.openLink) webApp.openLink(url)
   else window.open(url, '_blank', 'noopener')
-}
-
-function rateMicrosToString(value: string | null): string | null {
-  if (!value) return null
-  const normalized = value.padStart(7, '0')
-  const whole = normalized.slice(0, -6) || '0'
-  const fraction = normalized.slice(-6).replace(/0+$/, '')
-  return fraction.length > 0 ? `${whole}.${fraction}` : whole
 }
 
 /**
@@ -299,7 +292,7 @@ function WhyThisAmount({
 
 function RentDetails({ dashboard }: { dashboard: MiniAppDashboard }) {
   const { copy } = useI18n()
-  const rate = rateMicrosToString(dashboard.rentFxRateMicros)
+  const rate = fxRateFromMicros(dashboard.rentFxRateMicros)
   if (dashboard.rentSourceCurrency === dashboard.currency || !rate) return null
 
   return (

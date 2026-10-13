@@ -1,5 +1,7 @@
 import * as activity from './activity'
+import * as buys from './buys'
 import * as common from './common'
+import * as forms from './forms'
 import * as history from './history'
 import * as home from './home'
 import * as house from './house'
@@ -19,7 +21,9 @@ const en = {
   ...shell.en,
   ...month.en,
   ...history.en,
-  ...house.en
+  ...house.en,
+  ...forms.en,
+  ...buys.en
 }
 
 const ru: typeof en = {
@@ -31,7 +35,9 @@ const ru: typeof en = {
   ...shell.ru,
   ...month.ru,
   ...history.ru,
-  ...house.ru
+  ...house.ru,
+  ...forms.ru,
+  ...buys.ru
 }
 
 export const dictionary: Record<Locale, typeof en> = { en, ru }

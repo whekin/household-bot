@@ -27,17 +27,17 @@ const HouseView = lazy(() =>
   import('@/features/house/house-view').then((module) => ({ default: module.HouseView }))
 )
 const PurchaseEditor = lazy(() =>
-  import('@/features/activity/purchase-editor').then((module) => ({
+  import('@/features/forms/purchase-form').then((module) => ({
     default: module.PurchaseEditor
   }))
 )
 const UtilityEditor = lazy(() =>
-  import('@/features/activity/utility-editor').then((module) => ({
+  import('@/features/forms/bill-form').then((module) => ({
     default: module.UtilityEditor
   }))
 )
 const PaymentEditor = lazy(() =>
-  import('@/features/activity/payment-editor').then((module) => ({
+  import('@/features/forms/payment-form').then((module) => ({
     default: module.PaymentEditor
   }))
 )

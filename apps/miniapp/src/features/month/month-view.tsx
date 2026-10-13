@@ -20,27 +20,19 @@ import { useToast } from '@/components/toast'
 import { Button } from '@/components/ui/button'
 import { Sheet } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PaymentEditor } from '@/features/activity/payment-editor'
-import { RentEditor } from '@/features/activity/rent-editor'
-import type { PaymentPrefill } from '@/features/activity/types'
-import { UtilityEditor } from '@/features/activity/utility-editor'
+import { PaymentEditor, type PaymentPrefill } from '@/features/forms/payment-form'
+import { RentEditor } from '@/features/forms/rent-form'
+import { UtilityEditor } from '@/features/forms/bill-form'
 import type { MoneyKind } from '@/features/home/home-model'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
+import { fxRateFromMicros } from '@/lib/fx'
 import { formatCyclePeriod, formatFriendlyDate, formatTodayParts } from '@/lib/dates'
 import { majorStringToMinor } from '@/lib/money'
 import { BillSheet } from './bill-sheet'
 import { MemberSheet, type MemberTarget } from './member-sheet'
 import { buildMonthModel, type KindStatus, type MemberPayment, type MonthBill } from './month-model'
 import { RefreshPlanSheet } from './refresh-plan-sheet'
-
-function rateMicrosToString(value: string | null): string | null {
-  if (!value) return null
-  const normalized = value.padStart(7, '0')
-  const whole = normalized.slice(0, -6) || '0'
-  const fraction = normalized.slice(-6).replace(/0+$/, '')
-  return fraction.length > 0 ? `${whole}.${fraction}` : whole
-}
 
 /**
  * The house's month: each kind of payment as one card with the people who owe it,
@@ -119,7 +111,7 @@ export function MonthView() {
   const utilities = model.utilities
   const rent = model.rent
   const activeCount = utilities.members.length
-  const rate = rateMicrosToString(dashboard.rentFxRateMicros)
+  const rate = fxRateFromMicros(dashboard.rentFxRateMicros)
 
   return (
     <div className="space-y-3">

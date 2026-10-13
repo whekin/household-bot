@@ -3,13 +3,13 @@ import { useReadySession } from '@/app/session-context'
 import { Avatar } from '@/components/avatar'
 import { formatMoney } from '@/components/money'
 import { Sheet } from '@/components/ui/dialog'
-import { RepaymentsSection } from '@/features/activity/repayments-section'
 import { purchaseShareForMember } from '@/features/history/entries'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
 import { formatFriendlyDate } from '@/lib/dates'
 import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 import { buysSummary } from './home-model'
+import { SettleUp } from './settle-up'
 
 function absolute(amountMajor: string): string {
   const minor = majorStringToMinor(amountMajor)
@@ -166,7 +166,7 @@ export function BuysSheet({
           </section>
         ) : null}
 
-        <RepaymentsSection autoOpenTransfer={startWithTransfer} />
+        <SettleUp startWithTransfer={startWithTransfer} />
       </div>
     </Sheet>
   )

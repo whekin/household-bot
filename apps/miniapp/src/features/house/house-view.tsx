@@ -367,7 +367,7 @@ function YouGroup() {
           <div className="space-y-4">
             <Field label={copy.houseName} hint={copy.houseNameHint}>
               <Input
-                autoFocus
+                data-autofocus=""
                 value={draft}
                 maxLength={64}
                 onChange={(event) => setDraft(event.target.value)}

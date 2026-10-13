@@ -29,6 +29,16 @@ export function Sheet({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-overlay" />
         <DialogPrimitive.Content
           {...(description ? {} : { 'aria-describedby': undefined })}
+          onOpenAutoFocus={(event) => {
+            // Forms mark their first field; everything else keeps Radix's default focus.
+            const target = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
+              '[data-autofocus]'
+            )
+            if (target) {
+              event.preventDefault()
+              target.focus()
+            }
+          }}
           className={cn(
             'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[90dvh] w-full max-w-lg animate-sheet-in flex-col rounded-t-[28px] bg-background shadow-modal outline-none'
           )}
