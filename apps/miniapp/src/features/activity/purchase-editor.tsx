@@ -25,7 +25,7 @@ import {
   purchaseDraftWithSelectedPayer
 } from '@/lib/purchase-draft'
 import { confirmDialog } from '@/telegram/webapp'
-import { CurrencyToggle } from './currency-toggle'
+import { CurrencyToggle } from '@/components/ui/segmented'
 import type { LedgerEntry } from './types'
 
 function initialsForName(name: string): string {

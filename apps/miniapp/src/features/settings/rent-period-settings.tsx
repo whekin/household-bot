@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n/context'
 import { formatCyclePeriod } from '@/lib/dates'
 
-import { CurrencyToggle } from './toggles'
+import { CurrencyToggle } from '@/components/ui/segmented'
 
 export type RentPeriodDraft = {
   period: string

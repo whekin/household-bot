@@ -25,7 +25,7 @@ import {
   type MiniAppRentPaymentDestination
 } from '@/api'
 
-import { CurrencyToggle, LocaleToggle } from './toggles'
+import { CurrencyToggle, LocaleToggle } from '@/components/ui/segmented'
 import { RentPeriodSettings, type RentPeriodDraft } from './rent-period-settings'
 
 export type BillingFormState = {

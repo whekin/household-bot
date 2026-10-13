@@ -1,5 +1,5 @@
 import { Check, ChevronRight, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -44,10 +44,13 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 export function MembersSheet({
   open,
-  onOpenChange
+  onOpenChange,
+  initialMemberId = null
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opens straight into this member's editor. */
+  initialMemberId?: string | null
 }) {
   const { initData, handleMiniAppRequestError } = useSession()
   const { dashboard, adminSettings, effectivePeriod, refresh } = useDashboard()
@@ -87,6 +90,14 @@ export function MembersSheet({
       daysPresentDirty: false
     })
   }
+
+  useEffect(() => {
+    if (!open || !initialMemberId) return
+    const member = members.find((entry) => entry.id === initialMemberId)
+    if (member) openEditor(member)
+    // Only when the sheet opens; later list refreshes must not reset an edit in progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialMemberId])
 
   function handleSheetOpenChange(next: boolean) {
     if (!next) setEditMemberId(null)

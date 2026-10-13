@@ -1,7 +1,7 @@
 import { Check, ChevronRight } from 'lucide-react'
 
+import { useAppNav } from '@/app/app-nav'
 import { useToast } from '@/components/toast'
-import { openRoutines } from '@/features/routines/routines-entry'
 import { useRoutinesToday } from '@/features/routines/use-routines'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
@@ -14,6 +14,7 @@ import { haptics } from '@/telegram/webapp'
 export function RoutinesCard() {
   const { copy } = useI18n()
   const { showToast } = useToast()
+  const { openRoutines } = useAppNav()
   const { routines, loading, toggle } = useRoutinesToday()
 
   if (loading || routines.length === 0) return null

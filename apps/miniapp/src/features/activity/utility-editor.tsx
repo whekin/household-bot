@@ -18,7 +18,7 @@ import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n/context'
 import { confirmDialog } from '@/telegram/webapp'
-import { CurrencyToggle } from './currency-toggle'
+import { CurrencyToggle } from '@/components/ui/segmented'
 import type { LedgerEntry } from './types'
 
 type UtilityDraft = {

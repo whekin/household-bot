@@ -349,7 +349,7 @@ function buildLedger(period: string, facts: ScenarioFacts): Ledger {
 
   UTILITY_BILLS.forEach((bill, index) => {
     entries.push({
-      id: `utility-${bill.id}`,
+      id: bill.id,
       kind: 'utility',
       title: bill.name,
       memberId: null,

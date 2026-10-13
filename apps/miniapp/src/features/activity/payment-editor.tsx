@@ -18,7 +18,7 @@ import {
   type PaymentDraft
 } from '@/lib/ledger-helpers'
 import { confirmDialog } from '@/telegram/webapp'
-import { CurrencyToggle } from './currency-toggle'
+import { CurrencyToggle } from '@/components/ui/segmented'
 import type { LedgerEntry, PaymentPrefill } from './types'
 
 export function PaymentEditor({

@@ -3,10 +3,11 @@ import { cn } from '@/lib/cn'
 
 type Currency = MiniAppDashboard['currency']
 
-const NARROW_NBSP = ' '
+// A regular no-break space: the display face has no narrow one.
+const NBSP = '\u00a0'
 
 export function groupDigits(digits: string): string {
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, NARROW_NBSP)
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)
 }
 
 export function moneyParts(amountMajor: string, currency: Currency) {
@@ -26,7 +27,7 @@ export function moneyParts(amountMajor: string, currency: Currency) {
 export function formatMoney(amountMajor: string, currency: Currency): string {
   const parts = moneyParts(amountMajor, currency)
   const number = `${parts.whole}.${parts.fraction}`
-  return parts.symbolFirst ? `${parts.symbol}${number}` : `${number}${NARROW_NBSP}${parts.symbol}`
+  return parts.symbolFirst ? `${parts.symbol}${number}` : `${number}${NBSP}${parts.symbol}`
 }
 
 /**

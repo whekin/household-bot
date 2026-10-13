@@ -1,25 +1,16 @@
-import { CircleCheck, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 
-import type { MiniAppDashboard } from '@/api'
-import { KindIcon, type Kind } from '@/components/kind'
+import { KindIcon } from '@/components/kind'
 import { formatMoney } from '@/components/money'
-import type { Copy } from '@/i18n'
+import {
+  entryIcon,
+  entryKind,
+  entryTitle,
+  newestFirst,
+  type LedgerEntry
+} from '@/features/history/entries'
 import { useI18n } from '@/i18n/context'
 import { formatFriendlyDate } from '@/lib/dates'
-
-type LedgerEntry = MiniAppDashboard['ledger'][number]
-
-export function entryKind(entry: LedgerEntry): Kind {
-  if (entry.kind === 'purchase') return 'buys'
-  if (entry.kind === 'utility') return 'utilities'
-  return entry.paymentKind === 'rent' ? 'rent' : 'utilities'
-}
-
-export function entryTitle(entry: LedgerEntry, copy: Copy): string {
-  if (entry.kind === 'purchase') return entry.title
-  if (entry.kind === 'utility') return copy.entryBill.replace('{name}', entry.title)
-  return entry.paymentKind === 'rent' ? copy.entryRentPaid : copy.entryUtilitiesPaid
-}
 
 /** The last few things that happened in the house, newest first. */
 export function RecentCard({
@@ -30,10 +21,7 @@ export function RecentCard({
   onSeeAll: () => void
 }) {
   const { copy, locale } = useI18n()
-  const entries = [...ledger]
-    .filter((entry) => !entry.isRoundingAdjustment)
-    .sort((left, right) => (right.occurredAt ?? '').localeCompare(left.occurredAt ?? ''))
-    .slice(0, 4)
+  const entries = newestFirst(ledger.filter((entry) => !entry.isRoundingAdjustment)).slice(0, 4)
 
   return (
     <section className="animate-rise rounded-[24px] bg-card p-4 [animation-delay:180ms]">
@@ -55,10 +43,7 @@ export function RecentCard({
         <ul>
           {entries.map((entry) => (
             <li key={entry.id} className="flex items-center gap-3 py-2">
-              <KindIcon
-                kind={entryKind(entry)}
-                {...(entry.kind === 'payment' ? { icon: CircleCheck } : {})}
-              />
+              <KindIcon kind={entryKind(entry)} icon={entryIcon(entry)} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[15px] font-medium">{entryTitle(entry, copy)}</p>
                 <p className="truncate text-xs text-faint">

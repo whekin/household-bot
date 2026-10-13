@@ -24,7 +24,7 @@ const HistoryView = lazy(() =>
   import('@/features/history/history-view').then((module) => ({ default: module.HistoryView }))
 )
 const HouseView = lazy(() =>
-  import('@/features/settings/settings-view').then((module) => ({ default: module.SettingsView }))
+  import('@/features/house/house-view').then((module) => ({ default: module.HouseView }))
 )
 const PurchaseEditor = lazy(() =>
   import('@/features/activity/purchase-editor').then((module) => ({
@@ -186,12 +186,6 @@ function AuthenticatedApp() {
   const [tab, setTab] = useState<TabId>(tabFromHash)
   const [addOpen, setAddOpen] = useState(false)
   const [buys, setBuys] = useState({ open: false, transfer: false })
-
-  useEffect(() => {
-    const open = () => setRoutinesOpen(true)
-    window.addEventListener('miniapp:routines', open)
-    return () => window.removeEventListener('miniapp:routines', open)
-  }, [])
 
   useEffect(() => {
     const hash = routinesOpen ? '#routines' : tab === 'home' ? '' : `#${tab}`

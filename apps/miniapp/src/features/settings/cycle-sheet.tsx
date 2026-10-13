@@ -14,7 +14,7 @@ import { minorToMajorString } from '@/lib/money'
 import { confirmDialog } from '@/telegram/webapp'
 import { closeMiniAppBillingCycle, openMiniAppBillingCycle } from '@/api'
 
-import { CurrencyToggle } from './toggles'
+import { CurrencyToggle } from '@/components/ui/segmented'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (

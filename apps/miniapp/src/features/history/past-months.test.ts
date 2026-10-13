@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  cycleHistoryStatus,
-  cyclePaymentProgressPercent,
-  formatHistoryPeriod
-} from './cycle-history-helpers'
+import { cycleHistoryStatus, cyclePaymentProgressPercent, formatHistoryPeriod } from './past-months'
 
 describe('cycle history helpers', () => {
   test('formats a canonical period in the active locale', () => {

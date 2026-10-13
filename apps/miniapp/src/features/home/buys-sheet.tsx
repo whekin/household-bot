@@ -1,13 +1,14 @@
 import { useDashboard } from '@/app/dashboard-context'
 import { useReadySession } from '@/app/session-context'
+import { Avatar } from '@/components/avatar'
 import { formatMoney } from '@/components/money'
 import { Sheet } from '@/components/ui/dialog'
 import { RepaymentsSection } from '@/features/activity/repayments-section'
+import { purchaseShareForMember } from '@/features/history/entries'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
 import { formatFriendlyDate } from '@/lib/dates'
 import { majorStringToMinor, minorToMajorString } from '@/lib/money'
-import { initialsForName, purchaseShareForMember } from './today-view-model'
 import { buysSummary } from './home-model'
 
 function absolute(amountMajor: string): string {
@@ -80,9 +81,7 @@ export function BuysSheet({
               const width = Number(((minor < 0n ? -minor : minor) * 100n) / largest)
               return (
                 <li key={member.memberId} className="flex items-center gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-elevated text-xs font-bold">
-                    {initialsForName(member.displayName)}
-                  </span>
+                  <Avatar name={member.displayName} me={member.memberId === meId} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2 text-sm">
                       <span className="truncate font-medium">

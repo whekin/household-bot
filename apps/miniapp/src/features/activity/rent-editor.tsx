@@ -13,7 +13,7 @@ import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n/context'
 import { formatMoneyLabel } from '@/lib/ledger-helpers'
 import { minorToMajorString } from '@/lib/money'
-import { CurrencyToggle } from './currency-toggle'
+import { CurrencyToggle } from '@/components/ui/segmented'
 
 export function rateMicrosToString(value: string | null): string {
   if (!value) return ''

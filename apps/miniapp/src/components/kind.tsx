@@ -71,7 +71,7 @@ export function KindIcon({
 }: {
   kind: Kind
   /** Overrides the kind's default icon while keeping its color. */
-  icon?: LucideIcon
+  icon?: LucideIcon | undefined
   className?: string
 }) {
   const style = KIND_STYLE[kind]
