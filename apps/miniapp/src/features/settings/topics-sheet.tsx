@@ -31,7 +31,7 @@ function TopicGroup({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wide text-faint">{label}</p>
+      <p className="text-[13px] font-semibold text-muted-foreground">{label}</p>
       {topics.map((topic) => (
         <div
           key={topic.role}

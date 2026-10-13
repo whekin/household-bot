@@ -5,7 +5,7 @@ import { useSession } from '@/app/session-context'
 import { Button } from '@/components/ui/button'
 import { Sheet } from '@/components/ui/dialog'
 import { useI18n } from '@/i18n/context'
-import { formatMoneyLabel } from '@/lib/ledger-helpers'
+import { formatMoney } from '@/components/money'
 
 function planKey(plan: MiniAppUtilityPlanShape | null): string {
   return JSON.stringify({ categories: plan?.categories ?? [], members: plan?.members ?? [] })
@@ -20,11 +20,11 @@ function PlanColumn({
   plan: MiniAppUtilityPlanShape | null
   currency: 'USD' | 'GEL'
 }) {
-  const { copy, locale } = useI18n()
+  const { copy } = useI18n()
 
   return (
-    <div className="rounded-xl bg-elevated px-3 py-2">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-faint">{title}</p>
+    <div className="rounded-[24px] bg-card px-4 py-3">
+      <p className="text-[13px] font-semibold text-muted-foreground">{title}</p>
       <div className="mt-1 divide-y divide-border/60">
         {(plan?.members ?? []).map((member) => (
           <div
@@ -32,8 +32,8 @@ function PlanColumn({
             className="flex items-center justify-between gap-3 py-2 text-sm"
           >
             <span>{member.displayName}</span>
-            <span className="font-mono font-semibold">
-              {formatMoneyLabel(member.toPayNowMajor, currency, locale)}
+            <span className="font-semibold tabular-nums">
+              {formatMoney(member.toPayNowMajor, currency)}
             </span>
           </div>
         ))}
@@ -51,8 +51,8 @@ function PlanColumn({
                 {category.isPaid ? ` · ${copy.todayRefreshPlanPaid}` : ''}
               </span>
             </span>
-            <span className="shrink-0 font-mono text-xs font-semibold text-foreground">
-              {formatMoneyLabel(category.amountMajor, currency, locale)}
+            <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">
+              {formatMoney(category.amountMajor, currency)}
             </span>
           </div>
         ))}

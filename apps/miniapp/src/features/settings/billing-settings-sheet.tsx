@@ -115,9 +115,7 @@ function buildFactDrafts(settings: MiniAppAdminSettingsPayload | null): FactDraf
 }
 
 function SectionTitle({ children }: { children: string }) {
-  return (
-    <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-primary">{children}</p>
-  )
+  return <h3 className="text-[15px] font-semibold text-foreground">{children}</h3>
 }
 
 export function BillingSettingsSheet({

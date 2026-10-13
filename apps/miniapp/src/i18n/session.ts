@@ -1,6 +1,6 @@
 export const en = {
-  loadingTitle: 'Checking your household access',
-  loadingBody: 'Validating Telegram session and membership…',
+  loadingTitle: 'Opening your house',
+  loadingBody: 'Checking it’s you…',
   loadingBadge: 'Secure session',
   joinTitle: 'Welcome to your household',
   joinBody:
@@ -29,8 +29,8 @@ export const en = {
 }
 
 export const ru: Record<keyof typeof en, string> = {
-  loadingTitle: 'Проверяем доступ к дому',
-  loadingBody: 'Сверяем Telegram-сессию и участие в доме…',
+  loadingTitle: 'Открываем ваш дом',
+  loadingBody: 'Проверяем, что это вы…',
   loadingBadge: 'Защищённая сессия',
   joinTitle: 'Добро пожаловать домой',
   joinBody: 'Ты пока не в {household}. Отправь заявку и подожди, пока админ её одобрит.',

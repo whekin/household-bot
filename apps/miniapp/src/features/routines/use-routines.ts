@@ -7,6 +7,10 @@ import type { RoutineView, RoutinesResponse } from './types'
 type RoutineRow = NonNullable<RoutineView['day']>['rows'][number]
 type RowAction = 'complete' | 'reopen'
 
+export function routinesQueryKey(demo: boolean, initData: string | undefined) {
+  return ['routines', demo ? 'demo' : (initData ?? '')] as const
+}
+
 /* The demo keeps one in-memory household so a tick on Home survives a remount. */
 let demoState: RoutinesResponse | null = null
 
@@ -66,7 +70,7 @@ export function useRoutinesToday() {
   const { initData, readySession, handleMiniAppRequestError } = useSession()
   const queryClient = useQueryClient()
   const demo = readySession?.mode === 'demo'
-  const key = ['routines', demo ? 'demo' : (initData ?? '')] as const
+  const key = routinesQueryKey(demo, initData)
 
   const query = useQuery({
     queryKey: key,

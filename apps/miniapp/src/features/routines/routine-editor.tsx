@@ -174,7 +174,7 @@ export function RoutineEditor({
           {t('Что нужно делать', 'What needs doing')}
         </legend>
         {tasks.map((task, index) => (
-          <div key={task.id} className="space-y-3 rounded-2xl border border-border bg-surface p-4">
+          <div key={task.id} className="space-y-3 rounded-[24px] bg-card p-4">
             <div className="flex items-center gap-2">
               <span className="text-xs tabular-nums text-faint">
                 {String(index + 1).padStart(2, '0')}
@@ -626,7 +626,7 @@ export function RoutineEditor({
           {error || validation}
         </p>
       )}
-      <div className="sticky bottom-20 flex gap-2 rounded-2xl border border-border bg-surface p-3 shadow-lg">
+      <div className="sticky bottom-24 flex gap-2 rounded-[24px] bg-card p-3 shadow-float">
         <Button className="min-h-11" onClick={onCancel} disabled={busy}>
           {t('Отмена', 'Cancel')}
         </Button>

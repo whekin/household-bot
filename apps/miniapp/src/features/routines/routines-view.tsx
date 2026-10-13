@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, ChevronRight, Circle, Link2, Plus, RefreshCw } from 'lucide-react'
 import type { RoutineDefinition } from '@household/domain'
@@ -6,7 +7,9 @@ import { Input } from '@/components/ui/input'
 import { useReadySession, useSession } from '@/app/session-context'
 import { useI18n } from '@/i18n/context'
 import { miniAppApiError, postMiniApp } from '@/api/client'
+import { useBackButton } from '@/telegram/hooks'
 import { RoutineEditor } from './routine-editor'
+import { routinesQueryKey } from './use-routines'
 import { demoRoutinesResponse as demoData } from './routine-demo'
 import type { RoutineView, RoutinesResponse } from './types'
 
@@ -29,8 +32,13 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
   const [notice, setNotice] = useState<string | null>(null)
   const createId = useRef(crypto.randomUUID().replaceAll('-', '').slice(0, 16))
   const mounted = useRef(true)
+  const queryClient = useQueryClient()
   function store(value: RoutinesResponse) {
     dataRef.current = value
+    // Home reads the same list; keep it in step with what this screen just saw.
+    if (session.mode === 'live') {
+      queryClient.setQueryData(routinesQueryKey(false, initData), value)
+    }
     if (mounted.current) setData(value)
   }
   async function request(
@@ -140,6 +148,8 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
       setError(null)
     } else onBack()
   }
+  // Telegram's own back button mirrors the on-screen one.
+  useBackButton(back)
   const header = (
     <div className="space-y-4">
       <Button variant="ghost" className="min-h-11 -ml-3" onClick={back} disabled={busy}>
@@ -147,10 +157,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
         {t('Назад', 'Back')}
       </Button>
       <div>
-        <p className="mb-1 text-xs font-medium uppercase tracking-widest text-primary">
-          {t('Общее, без суеты', 'Shared, without the fuss')}
-        </p>
-        <h1 className="font-display text-3xl font-semibold">
+        <h1 className="font-display text-[28px] font-bold tracking-tight">
           {editing
             ? editing === 'new'
               ? t('Новый список', 'New list')
@@ -159,7 +166,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
               ? t('Карточка в группе', 'Group card')
               : t('Дела на сегодня', 'Today’s routines')}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           {binding
             ? binding.definition.title
             : editing
@@ -361,12 +368,15 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
         </p>
       )}
       {notice && (
-        <p role="status" className="rounded-xl bg-primary-soft p-3 text-sm text-primary">
+        <p role="status" className="rounded-2xl bg-routine-soft p-3 text-sm text-routine-ink">
           {notice}
         </p>
       )}
       {error && (
-        <div role="alert" className="space-y-2 rounded-xl bg-destructive-soft p-3 text-sm">
+        <div
+          role="alert"
+          className="space-y-2 rounded-2xl bg-danger-soft p-3 text-sm text-danger-ink"
+        >
           <p>{error}</p>
           <Button onClick={() => void request()} disabled={busy}>
             <RefreshCw className="size-4" />
@@ -375,9 +385,9 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
         </div>
       )}
       {data?.routines.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center">
-          <Circle className="mx-auto mb-4 size-8 text-primary" />
-          <p className="font-display text-xl">
+        <div className="rounded-[24px] border border-dashed border-border-hover px-6 py-10 text-center">
+          <Circle className="mx-auto mb-4 size-8 text-routine" />
+          <p className="font-display text-xl font-bold">
             {t('Пока можно выдохнуть', 'Nothing on the list yet')}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -397,16 +407,13 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
         const done = routine.day?.rows.filter((r) => r.status === 'completed').length ?? 0
         const total = routine.day?.rows.length ?? 0
         return (
-          <section
-            key={routine.id}
-            className="overflow-hidden rounded-2xl border border-border bg-surface"
-          >
+          <section key={routine.id} className="overflow-hidden rounded-[24px] bg-card">
             <div className="space-y-2 p-4">
               <div className="flex items-start justify-between gap-3">
-                <h2 className="break-words font-display text-xl font-semibold">
+                <h2 className="break-words font-display text-lg font-bold">
                   {routine.day?.title ?? routine.definition.title}
                 </h2>
-                <span className="shrink-0 rounded-full bg-elevated px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-routine-soft px-2.5 py-1 text-xs font-bold tabular-nums text-routine-ink">
                   {routine.paused ? t('Пауза', 'Paused') : `${done} / ${total}`}
                 </span>
               </div>
@@ -476,7 +483,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                 ))}
               </div>
             ) : null}
-            <div className="divide-y divide-border border-y border-border">
+            <div className="divide-y divide-border border-t border-border">
               {routine.day?.rows.map((row) => (
                 <div key={row.id} className="px-4 py-1">
                   <button
@@ -496,7 +503,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
                     className="flex min-h-16 w-full items-center gap-3 text-left disabled:opacity-60"
                   >
                     <span
-                      className={`flex size-6 shrink-0 items-center justify-center rounded-full border ${row.status === 'completed' ? 'border-primary bg-primary text-primary-foreground' : 'border-border-hover'}`}
+                      className={`flex size-7 shrink-0 items-center justify-center rounded-full border-2 ${row.status === 'completed' ? 'border-routine bg-routine text-white' : 'border-border-hover'}`}
                     >
                       {row.status === 'completed' && <Check className="size-4" />}
                     </span>
@@ -605,7 +612,7 @@ export function RoutinesView({ onBack }: { onBack: () => void }) {
               </label>
               {data.botUrl && (
                 <a
-                  className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline"
+                  className="inline-flex min-h-11 items-center text-sm font-semibold text-routine-ink underline"
                   href={data.botUrl}
                   target="_blank"
                   rel="noreferrer"

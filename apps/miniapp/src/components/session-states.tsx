@@ -1,4 +1,4 @@
-import { ArrowRight, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
+import { ArrowRight, ExternalLink, House, Loader2, RotateCcw } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -6,23 +6,29 @@ import { useI18n } from '@/i18n/context'
 import { joinDeepLink, useSession } from '@/app/session-context'
 
 function CenteredCard({
-  badge,
   title,
   body,
+  busy = false,
   children
 }: {
-  badge: string
   title: string
   body: string
+  busy?: boolean
   children?: ReactNode
 }) {
   return (
     <main className="flex min-h-dvh items-center justify-center px-6">
-      <div className="w-full max-w-sm text-center">
-        <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-primary">
-          {badge}
+      <div className="w-full max-w-sm animate-rise text-center">
+        <span className="mx-auto flex size-16 items-center justify-center rounded-[22px] bg-hero text-hero-foreground">
+          {busy ? (
+            <Loader2 className="size-7 animate-spin" aria-hidden />
+          ) : (
+            <House className="size-7" aria-hidden />
+          )}
         </span>
-        <h1 className="mt-3 font-display text-2xl font-semibold text-foreground">{title}</h1>
+        <h1 className="mt-5 font-display text-2xl font-bold tracking-tight text-foreground">
+          {title}
+        </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
         {children ? <div className="mt-6 flex flex-col gap-2">{children}</div> : null}
       </div>
@@ -32,11 +38,7 @@ function CenteredCard({
 
 export function LoadingScreen() {
   const { copy } = useI18n()
-  return (
-    <CenteredCard badge={copy.loadingBadge} title={copy.loadingTitle} body={copy.loadingBody}>
-      <Loader2 className="mx-auto size-6 animate-spin text-primary" aria-hidden />
-    </CenteredCard>
-  )
+  return <CenteredCard busy title={copy.loadingTitle} body={copy.loadingBody} />
 }
 
 export function BlockedScreen({
@@ -60,7 +62,7 @@ export function BlockedScreen({
         : copy.unexpectedErrorBody
 
   return (
-    <CenteredCard badge={copy.loadingBadge} title={title} body={body}>
+    <CenteredCard title={title} body={body}>
       <Button variant="primary" size="lg" onClick={() => window.location.reload()}>
         <RotateCcw className="size-5" aria-hidden />
         {copy.reload}
@@ -95,7 +97,7 @@ export function OnboardingScreen({
   ).replace('{household}', householdName ?? copy.householdFallback)
 
   return (
-    <CenteredCard badge={copy.loadingBadge} title={title} body={body}>
+    <CenteredCard title={title} body={body}>
       {mode === 'join_required' ? (
         <Button
           variant="primary"

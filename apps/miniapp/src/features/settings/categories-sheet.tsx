@@ -51,7 +51,7 @@ function CategoryGroup({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium uppercase tracking-wide text-faint">{label}</p>
+      <p className="text-[13px] font-semibold text-muted-foreground">{label}</p>
       {categories.map((category) => (
         <button
           key={category.slug}
@@ -67,7 +67,9 @@ function CategoryGroup({
               {category.providerName || category.customerNumber || category.note || '—'}
             </p>
           </div>
-          <span className="shrink-0 text-xs font-medium text-primary">{editLabel}</span>
+          <span className="shrink-0 text-[13px] font-semibold text-muted-foreground">
+            {editLabel}
+          </span>
         </button>
       ))}
     </div>
