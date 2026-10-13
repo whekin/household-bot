@@ -48,6 +48,10 @@ export type TelegramWebApp = {
   onEvent(eventType: string, handler: () => void): void
   offEvent(eventType: string, handler: () => void): void
   openTelegramLink(url: string): void
+  openLink?(url: string): void
+  setHeaderColor?(color: string): void
+  setBackgroundColor?(color: string): void
+  setBottomBarColor?(color: string): void
   showConfirm(message: string, callback: (confirmed: boolean) => void): void
   MainButton: TelegramMainButton
   BackButton: TelegramBackButton

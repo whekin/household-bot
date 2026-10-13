@@ -14,7 +14,7 @@ import { useI18n } from '@/i18n/context'
 import { formatMoneyLabel } from '@/lib/ledger-helpers'
 import { majorStringToMinor, minorToMajorString } from '@/lib/money'
 
-export function RepaymentsSection() {
+export function RepaymentsSection({ autoOpenTransfer = false }: { autoOpenTransfer?: boolean }) {
   const { initData, readySession, handleMiniAppRequestError } = useSession()
   const { dashboard, currentMemberLine, refresh } = useDashboard()
   const { locale } = useI18n()
@@ -60,6 +60,13 @@ export function RepaymentsSection() {
       active = false
     }
   }, [initData, live, handleMiniAppRequestError])
+
+  // Opened from "Add → Money I sent": go straight to the transfer form.
+  useEffect(() => {
+    if (autoOpenTransfer && live) open('transfer')
+    // Only on mount; later renders must not reopen a form the reader closed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function run(command: RepaymentCommand) {
     if (!initData || busy) return

@@ -10,6 +10,8 @@
     "lint": "oxlint \"src\""
   },
   "dependencies": {
+    "@fontsource-variable/onest": "5.3.1",
+    "@fontsource-variable/unbounded": "5.3.0",
     "@household/domain": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.3",

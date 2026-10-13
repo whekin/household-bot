@@ -1,236 +1,71 @@
-import { RoutinesEntry } from '@/features/routines/routines-entry'
 import { useMemo, useState } from 'react'
 
-import { closeMiniAppPaymentPeriod } from '@/api'
+import { useAppNav } from '@/app/app-nav'
 import { useDashboard } from '@/app/dashboard-context'
-import { useReadySession, useSession } from '@/app/session-context'
-import { useToast } from '@/components/toast'
+import { useReadySession } from '@/app/session-context'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useI18n } from '@/i18n/context'
-import { majorStringToMinor } from '@/lib/money'
-import {
-  buildTodayViewModel,
-  type TodayMemberCloseLine,
-  type TodayPaymentKind
-} from './today-view-model'
-import { StageBanner } from './stage-banner'
-import {
-  AdminClosePanel,
-  HouseholdSummaryPanel,
-  IdleHouseholdPanel,
-  RentDetailsPanel,
-  UtilitiesBillsPanel
-} from './stage-panels'
-import {
-  MemberCloseList,
-  AdminCloseConfirmSheet,
-  MemberCloseConfirmSheet
-} from './member-close-list'
-import { RefreshPlanSheet } from './refresh-plan-sheet'
-import { PurchaseStream } from './purchase-stream'
-import { QUICK_PURCHASE_COMPOSER_ID, QuickPurchaseComposer } from './quick-purchase-composer'
+import { formatTodayParts } from '@/lib/dates'
+import { HeroCard } from './hero-card'
+import { buildHomeModel } from './home-model'
+import { BuysTile, HouseTile } from './home-tiles'
+import { PaySheet } from './pay-sheet'
+import { RecentCard } from './recent-card'
+import { RoutinesCard } from './routines-card'
 
+/**
+ * Home is about the reader: what they pay now (or that they are clear), where they
+ * stand on shared buys, today's chores, and what just happened.
+ */
 export function HomeView() {
   const session = useReadySession()
-  const { initData, handleMiniAppRequestError } = useSession()
-  const {
-    dashboard,
-    loading,
-    effectiveIsAdmin,
-    effectiveBillingStage,
-    effectivePeriod,
-    effectiveTodayOverride,
-    refresh,
-    applyDashboard
-  } = useDashboard()
-  const { copy, locale } = useI18n()
-  const { showToast } = useToast()
+  const { dashboard, loading, effectiveTodayOverride } = useDashboard()
+  const { navigate, openBuys } = useAppNav()
+  const { locale } = useI18n()
+  const [payOpen, setPayOpen] = useState(false)
 
-  const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
-  const [refreshPlanOpen, setRefreshPlanOpen] = useState(false)
-  const [pendingCloseLine, setPendingCloseLine] = useState<TodayMemberCloseLine | null>(null)
-  const [processing, setProcessing] = useState(false)
-
-  const currentMemberId = session.member.id
   const model = useMemo(() => {
     if (!dashboard) return null
-
-    return buildTodayViewModel({
-      dashboard,
-      currentMemberId,
-      effectivePeriod,
-      effectiveStage: effectiveBillingStage,
-      todayOverride: effectiveTodayOverride
-    })
-  }, [dashboard, currentMemberId, effectivePeriod, effectiveBillingStage, effectiveTodayOverride])
-
-  const currentMemberCloseLine =
-    model?.memberLines.find((line) => line.memberId === currentMemberId) ?? null
-
-  async function closeMembers(input: {
-    kind: TodayPaymentKind
-    period: string
-    memberIds?: readonly string[]
-    allMembers?: boolean
-    successMessage: string
-  }) {
-    if (!initData || processing) return
-
-    setProcessing(true)
-    try {
-      const result = await closeMiniAppPaymentPeriod(initData, {
-        period: input.period,
-        kind: input.kind,
-        ...(input.memberIds ? { memberIds: input.memberIds } : {}),
-        ...(input.allMembers ? { allMembers: true } : {})
-      })
-      // The close response already carries the rebuilt dashboard, so refetching it would
-      // ask the server to build the same thing twice.
-      if (!applyDashboard(result.dashboard)) {
-        await refresh()
-      }
-      setAdminConfirmOpen(false)
-      showToast(input.successMessage, 'success')
-    } catch (error) {
-      if (handleMiniAppRequestError(error)) return
-      showToast(error instanceof Error ? error.message : copy.todayCloseFailed, 'error')
-    } finally {
-      setProcessing(false)
-    }
-  }
-
-  async function closeCurrentMember() {
-    if (
-      !model ||
-      model.stage === 'idle' ||
-      !currentMemberCloseLine ||
-      majorStringToMinor(currentMemberCloseLine.amountMajor) <= 0n
-    ) {
-      return
-    }
-
-    await closeMembers({
-      kind: model.stage,
-      period: model.period,
-      memberIds: [currentMemberCloseLine.memberId],
-      successMessage: copy.todayCloseSuccess
-    })
-  }
-
-  async function closeSelectedMember(line: TodayMemberCloseLine) {
-    if (!model || model.stage === 'idle' || line.settled) return
-    if (!effectiveIsAdmin && line.memberId !== currentMemberId) return
-
-    await closeMembers({
-      kind: model.stage,
-      period: model.period,
-      memberIds: [line.memberId],
-      successMessage: copy.todayCloseSuccess
-    })
-  }
-
-  async function closeAllMembers() {
-    if (!model || model.stage === 'idle') return
-
-    await closeMembers({
-      kind: model.stage,
-      period: model.period,
-      allMembers: true,
-      successMessage: copy.todayAdminCloseSuccess
-    })
-  }
-
-  function scrollToComposer() {
-    document
-      .getElementById(QUICK_PURCHASE_COMPOSER_ID)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+    const today = effectiveTodayOverride ?? formatTodayParts(dashboard.timezone)
+    if (!today) return null
+    return buildHomeModel({ dashboard, memberId: session.member.id, today })
+  }, [dashboard, effectiveTodayOverride, session.member.id])
 
   if (loading || !dashboard || !model) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-44 w-full" />
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-64 w-full" />
+      <div className="space-y-3" role="status">
+        <Skeleton className="h-72 w-full rounded-[28px]" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </div>
+        <Skeleton className="h-48 w-full" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {dashboard.balanceUpdatePending ? (
-        <p role="status" className="rounded-xl bg-elevated p-3 text-sm text-status-warning">
+        <p role="status" className="rounded-2xl bg-util-soft p-3 text-sm text-util-ink">
           {locale === 'ru'
-            ? 'Платёж сохранён, но обновление баланса ещё не завершено. Обновите страницу перед следующей оплатой.'
-            : 'Payment saved; the balance update is still pending. Refresh before making another payment.'}
+            ? 'Платёж сохранён, баланс ещё пересчитывается. Обновите страницу перед следующей оплатой.'
+            : 'Payment saved; the balance is still updating. Refresh before paying again.'}
         </p>
       ) : null}
-      <RoutinesEntry />
-      <StageBanner
-        model={model}
-        currentMemberLine={currentMemberCloseLine}
-        closing={processing}
-        onCloseMine={() => void closeCurrentMember()}
-      />
 
-      <QuickPurchaseComposer currentMemberId={currentMemberId} />
+      <HeroCard model={model} currency={dashboard.currency} onPay={() => setPayOpen(true)} />
 
-      {model.stage === 'utilities' ? <UtilitiesBillsPanel /> : null}
-      {model.stage === 'rent' ? <RentDetailsPanel model={model} /> : null}
-      {model.stage === 'idle' ? <IdleHouseholdPanel /> : null}
+      <div className="grid animate-rise grid-cols-2 gap-3 [animation-delay:60ms]">
+        <BuysTile model={model} currency={dashboard.currency} onClick={() => openBuys()} />
+        <HouseTile dashboard={dashboard} onClick={() => navigate('month')} />
+      </div>
 
-      {model.stage !== 'idle' ? <HouseholdSummaryPanel model={model} /> : null}
+      <RoutinesCard />
 
-      {effectiveIsAdmin ? (
-        <AdminClosePanel
-          model={model}
-          loading={processing}
-          onOpenAdminClose={() => setAdminConfirmOpen(true)}
-          onOpenRefreshPlan={() => setRefreshPlanOpen(true)}
-        />
-      ) : null}
+      <RecentCard ledger={dashboard.ledger} onSeeAll={() => navigate('history')} />
 
-      <MemberCloseList
-        model={model}
-        isAdmin={effectiveIsAdmin}
-        currentMemberId={currentMemberId}
-        onSelectMember={(line) => setPendingCloseLine(line)}
-      />
-
-      <PurchaseStream
-        model={model}
-        currentMemberId={currentMemberId}
-        onAddPurchase={scrollToComposer}
-      />
-
-      <MemberCloseConfirmSheet
-        line={pendingCloseLine}
-        loading={processing}
-        onOpenChange={(open) => {
-          if (!open) setPendingCloseLine(null)
-        }}
-        onConfirm={() => {
-          const line = pendingCloseLine
-          setPendingCloseLine(null)
-          if (line) void closeSelectedMember(line)
-        }}
-      />
-
-      <RefreshPlanSheet
-        open={refreshPlanOpen}
-        period={model.period}
-        currency={dashboard.currency}
-        onOpenChange={setRefreshPlanOpen}
-        onApplied={() => void refresh()}
-      />
-
-      <AdminCloseConfirmSheet
-        open={adminConfirmOpen}
-        onOpenChange={setAdminConfirmOpen}
-        model={model}
-        loading={processing}
-        onConfirm={() => void closeAllMembers()}
-      />
+      <PaySheet open={payOpen} onOpenChange={setPayOpen} model={model} />
     </div>
   )
 }

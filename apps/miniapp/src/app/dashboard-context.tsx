@@ -283,7 +283,10 @@ export function DashboardProvider({
   const queryClient = useQueryClient()
 
   const [testingRolePreview, setTestingRolePreview] = useState<TestingRolePreview | null>(null)
-  const [demoScenario, setDemoScenario] = useState<DemoScenarioId>('current-cycle')
+  const [demoScenario, setDemoScenario] = useState<DemoScenarioId>(() => {
+    const requested = new URLSearchParams(window.location.search).get('scenario')
+    return miniAppDemo?.demoScenarioIds.find((id) => id === requested) ?? 'utilities-due'
+  })
   const [testingPeriodOverride, setTestingPeriodOverride] = useState<string | null>(null)
   const [testingTodayOverride, setTestingTodayOverride] = useState<string | null>(null)
 

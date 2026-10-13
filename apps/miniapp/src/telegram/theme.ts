@@ -29,10 +29,22 @@ function resolveMode(): ThemeMode {
   return currentPreference === 'auto' ? autoMode() : currentPreference
 }
 
+/** Canvas colors from index.css, mirrored so Telegram's own chrome matches the page. */
+const CANVAS: Record<ThemeMode, string> = { light: '#f3f1ec', dark: '#0f0f12' }
+
 function apply() {
   if (typeof document === 'undefined') return
   const mode = resolveMode()
   document.documentElement.setAttribute('data-theme', mode)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', CANVAS[mode])
+  const webApp = getTelegramWebApp()
+  try {
+    webApp?.setHeaderColor?.(CANVAS[mode])
+    webApp?.setBackgroundColor?.(CANVAS[mode])
+    webApp?.setBottomBarColor?.(CANVAS[mode])
+  } catch {
+    // Older clients reject custom colors; their default chrome is fine.
+  }
   subscribers.forEach((cb) => cb(mode))
 }
 

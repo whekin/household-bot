@@ -7,70 +7,8 @@ import { useReadySession, useSession } from '@/app/session-context'
 import { useI18n } from '@/i18n/context'
 import { miniAppApiError, postMiniApp } from '@/api/client'
 import { RoutineEditor } from './routine-editor'
+import { demoRoutinesResponse as demoData } from './routine-demo'
 import type { RoutineView, RoutinesResponse } from './types'
-
-function demoData(): RoutinesResponse {
-  const date = new Date().toISOString().slice(0, 10)
-  const definition: RoutineDefinition = {
-    title: 'Забота о доме',
-    tasks: [
-      {
-        id: 'plants',
-        title: 'Проверить растения',
-        weekdays: [1, 2, 3, 4, 5, 6, 7],
-        times: ['09:00'],
-        reminderEnabled: true,
-        claimEnabled: true
-      },
-      {
-        id: 'water',
-        title: 'Заменить питьевую воду',
-        weekdays: [1, 2, 3, 4, 5, 6, 7],
-        times: [],
-        reminderEnabled: false,
-        claimEnabled: false
-      }
-    ]
-  }
-  return {
-    routines: [
-      {
-        id: 'aabbccddeeff0011',
-        revision: 1,
-        definition,
-        effectiveDate: null,
-        publishTime: '08:00',
-        timezone: 'Asia/Tbilisi',
-        paused: false,
-        destination: { chatId: '-1001', threadId: 136, name: 'Домашние дела' },
-        groupStatus: 'ready',
-        subscribed: false,
-        dmBlocked: false,
-        privateCardUnknown: false,
-        errors: [],
-        day: {
-          date,
-          title: definition.title,
-          rows: definition.tasks.map((task, i) => ({
-            ...task,
-            id: `${date.replaceAll('-', '')}${i}`,
-            taskId: task.id,
-            localTime: task.times[0] ?? null,
-            dueAt: null,
-            version: 0,
-            status: i === 0 ? 'completed' : 'pending',
-            actorId: i === 0 ? 'demo' : null,
-            actorName: i === 0 ? 'Саша' : null,
-            actedAt: null,
-            expiresAt: null
-          }))
-        }
-      }
-    ],
-    topics: [{ threadId: 136, name: 'Домашние дела' }],
-    botUrl: ''
-  }
-}
 
 export function RoutinesView({ onBack }: { onBack: () => void }) {
   const session = useReadySession()

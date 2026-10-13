@@ -124,7 +124,7 @@ export function nextCyclePeriod(period: string): string | null {
   return `${year}-${monthLabel}`
 }
 
-function formatTodayParts(timezone: string): CalendarDateParts | null {
+export function formatTodayParts(timezone: string): CalendarDateParts | null {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,

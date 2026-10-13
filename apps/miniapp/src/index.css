@@ -1,116 +1,200 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens — house green editorial theme.
+ * Design tokens — "soft bold".
  *
- * Light is the primary mode: warm off-white paper, sage/forest green accent,
- * terracotta demoted to a warning-only role.
+ * Warm off-white canvas, ink-black primary actions, and one color per kind of
+ * money that follows it everywhere: utilities are amber, rent is periwinkle,
+ * shared buys are green. Routines get lilac. Red is reserved for overdue.
  *
- * Dark mode kicks in via [data-theme='dark'] on <html>, which the app sets
- * from Telegram's colorScheme (falls back to prefers-color-scheme).
- *
- * Elevation via hairline borders + surface contrast; drop shadows only for
- * floating UI (sheets, toasts).
+ * Every hue ships three stops: a solid (fills, dots, bars), a soft tint (tiles,
+ * chips) and an ink (text on the soft tint). Dark mode re-points all of them under
+ * [data-theme='dark'], which the app sets from Telegram's colorScheme.
  */
 @theme {
   --color-*: initial;
 
   /* ── Light (default) ───────────────────────────────── */
 
-  --color-background: #faf8f3;
+  --color-background: #f3f1ec;
   --color-card: #ffffff;
-  --color-elevated: #f4efe4;
-  --color-overlay: rgb(38 47 40 / 0.42);
-  --color-field: #f0ebe0;
-  --color-field-hover: #e7e0d1;
+  --color-elevated: #ece9e2;
+  --color-overlay: rgb(23 23 27 / 0.45);
+  --color-field: #f0ede7;
+  --color-field-hover: #e6e2da;
 
-  --color-primary: #3f7d54;
-  --color-primary-hover: #2f6842;
-  --color-primary-soft: rgb(63 125 84 / 0.14);
-  --color-primary-softer: rgb(63 125 84 / 0.07);
-  --color-primary-border: rgb(63 125 84 / 0.35);
+  --color-foreground: #17171b;
+  --color-muted-foreground: #5e5b54;
+  --color-faint: #8f8b82;
+
+  --color-border: rgb(23 23 27 / 0.08);
+  --color-border-hover: rgb(23 23 27 / 0.18);
+  --color-ring: rgb(23 23 27 / 0.3);
+
+  /* Primary actions are ink. */
+  --color-primary: #17171b;
+  --color-primary-hover: #2c2c33;
+  --color-primary-soft: rgb(23 23 27 / 0.07);
+  --color-primary-softer: rgb(23 23 27 / 0.04);
+  --color-primary-border: rgb(23 23 27 / 0.2);
   --color-primary-foreground: #ffffff;
 
-  --color-destructive: #b04b2b;
-  --color-destructive-soft: rgb(176 75 43 / 0.12);
-  --color-destructive-border: rgb(176 75 43 / 0.32);
-  --color-destructive-foreground: #6a2b18;
+  /* Inverse hero surface. */
+  --color-hero: #17171b;
+  --color-hero-foreground: #ffffff;
+  --color-hero-muted: #a9a69e;
+  --color-hero-line: rgb(255 255 255 / 0.12);
 
-  --color-foreground: #1f2a24;
-  --color-muted-foreground: #4a544c;
-  --color-faint: #7f8a80;
-  --color-accent-foreground: #4a6b40;
+  /* Money and routine hues. */
+  --color-util: #ffb547;
+  --color-util-soft: #ffeacc;
+  --color-util-ink: #6b4300;
 
-  --color-border: rgb(31 42 36 / 0.11);
-  --color-border-hover: rgb(31 42 36 / 0.22);
-  --color-ring: rgb(63 125 84 / 0.38);
+  --color-rent: #7d93f2;
+  --color-rent-soft: #dfe5fb;
+  --color-rent-ink: #1e2f6e;
 
-  --color-status-credit: #3f7d54;
-  --color-status-settled: #7f8a80;
-  --color-status-due: #b57a26;
-  --color-status-overdue: #b04b2b;
-  --color-status-danger: #a83a2b;
+  --color-buys: #3fbf72;
+  --color-buys-soft: #d4efdc;
+  --color-buys-ink: #14532d;
 
-  --color-chart-1: #3f7d54;
-  --color-chart-2: #7fa07a;
-  --color-chart-3: #b57a26;
-  --color-chart-4: #7d9c8e;
-  --color-chart-5: #2f4632;
-  --color-chart-6: #c58c6d;
+  --color-routine: #a48bf5;
+  --color-routine-soft: #ebe4fd;
+  --color-routine-ink: #3e2a85;
 
-  --font-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Fraunces', Georgia, serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fde1df;
+  --color-danger-ink: #7f1d1d;
 
-  --shadow-float: 0 12px 28px rgb(31 42 36 / 0.1);
-  --shadow-modal: 0 24px 56px rgb(31 42 36 / 0.18);
+  /* Legacy role names still used by screens that have not moved yet. */
+  --color-destructive: #e5484d;
+  --color-destructive-soft: #fde1df;
+  --color-destructive-border: rgb(229 72 77 / 0.35);
+  --color-destructive-foreground: #7f1d1d;
+  --color-accent-foreground: #14532d;
+  --color-status-credit: #24924f;
+  --color-status-settled: #8f8b82;
+  --color-status-due: #b36b00;
+  --color-status-warning: #b36b00;
+  --color-status-overdue: #d13438;
+  --color-status-danger: #d13438;
+  --color-chart-1: #3fbf72;
+  --color-chart-2: #7d93f2;
+  --color-chart-3: #ffb547;
+  --color-chart-4: #a48bf5;
+  --color-chart-5: #17171b;
+  --color-chart-6: #e5484d;
+
+  --font-sans: 'Onest Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Unbounded Variable', 'Onest Variable', -apple-system, sans-serif;
+  --font-mono: 'Onest Variable', -apple-system, sans-serif;
+
+  --shadow-float: 0 10px 30px rgb(23 23 27 / 0.12);
+  --shadow-modal: 0 -12px 48px rgb(23 23 27 / 0.18);
+
+  --animate-rise: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-sheet-in: sheet-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-fade-in: fade-in 200ms ease-out both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
-/* ── Dark (Telegram colorScheme=dark or prefers-color-scheme:dark) ── */
+/* ── Dark ─────────────────────────────────────────────── */
 :where(html[data-theme='dark']) {
-  --color-background: #0f1613;
-  --color-card: #161d19;
-  --color-elevated: #1e2621;
-  --color-overlay: rgb(6 10 8 / 0.72);
-  --color-field: rgb(240 235 224 / 0.05);
-  --color-field-hover: rgb(240 235 224 / 0.09);
+  --color-background: #0f0f12;
+  --color-card: #1a1a1f;
+  --color-elevated: #24242b;
+  --color-overlay: rgb(0 0 0 / 0.6);
+  --color-field: #24242b;
+  --color-field-hover: #2e2e36;
 
-  --color-primary: #7fb08c;
-  --color-primary-hover: #93bf9c;
-  --color-primary-soft: rgb(127 176 140 / 0.16);
-  --color-primary-softer: rgb(127 176 140 / 0.08);
-  --color-primary-border: rgb(127 176 140 / 0.32);
-  --color-primary-foreground: #0b1a11;
+  --color-foreground: #f4f2ec;
+  --color-muted-foreground: #b8b5ad;
+  --color-faint: #807d76;
 
-  --color-destructive: #d37f5e;
-  --color-destructive-soft: rgb(211 127 94 / 0.14);
-  --color-destructive-border: rgb(211 127 94 / 0.32);
-  --color-destructive-foreground: #ffd7cf;
+  --color-border: rgb(255 255 255 / 0.08);
+  --color-border-hover: rgb(255 255 255 / 0.18);
+  --color-ring: rgb(255 255 255 / 0.3);
 
-  --color-foreground: #eef1ea;
-  --color-muted-foreground: #c4c9bd;
-  --color-faint: #8b9285;
-  --color-accent-foreground: #c8d4b1;
+  --color-primary: #f4f2ec;
+  --color-primary-hover: #ffffff;
+  --color-primary-soft: rgb(255 255 255 / 0.08);
+  --color-primary-softer: rgb(255 255 255 / 0.04);
+  --color-primary-border: rgb(255 255 255 / 0.2);
+  --color-primary-foreground: #17171b;
 
-  --color-border: rgb(200 210 195 / 0.13);
-  --color-border-hover: rgb(200 210 195 / 0.22);
-  --color-ring: rgb(127 176 140 / 0.36);
+  --color-hero: #23232b;
+  --color-hero-foreground: #f4f2ec;
+  --color-hero-muted: #9c9991;
+  --color-hero-line: rgb(255 255 255 / 0.1);
 
-  --color-status-credit: #7fb08c;
-  --color-status-settled: #b8bfaf;
-  --color-status-due: #d19a56;
-  --color-status-overdue: #d37f5e;
-  --color-status-danger: #d37f5e;
+  --color-util: #ffb547;
+  --color-util-soft: #3a2c12;
+  --color-util-ink: #ffd38a;
 
-  --color-chart-1: #7fb08c;
-  --color-chart-2: #a8c493;
-  --color-chart-3: #d19a56;
-  --color-chart-4: #94a898;
-  --color-chart-5: #55765f;
-  --color-chart-6: #c39882;
+  --color-rent: #8ea4ff;
+  --color-rent-soft: #1e2647;
+  --color-rent-ink: #c3cfff;
 
-  --shadow-float: 0 12px 28px rgb(0 0 0 / 0.32);
-  --shadow-modal: 0 24px 56px rgb(0 0 0 / 0.48);
+  --color-buys: #4fd187;
+  --color-buys-soft: #15331f;
+  --color-buys-ink: #a5e8bd;
+
+  --color-routine: #b49cff;
+  --color-routine-soft: #2b2147;
+  --color-routine-ink: #d8cbff;
+
+  --color-danger: #ff6b6b;
+  --color-danger-soft: #3b1517;
+  --color-danger-ink: #ffb4b0;
+
+  --color-destructive: #ff6b6b;
+  --color-destructive-soft: #3b1517;
+  --color-destructive-border: rgb(255 107 107 / 0.35);
+  --color-destructive-foreground: #ffb4b0;
+  --color-accent-foreground: #a5e8bd;
+  --color-status-credit: #4fd187;
+  --color-status-settled: #807d76;
+  --color-status-due: #ffc46b;
+  --color-status-warning: #ffc46b;
+  --color-status-overdue: #ff6b6b;
+  --color-status-danger: #ff6b6b;
+  --color-chart-1: #4fd187;
+  --color-chart-2: #8ea4ff;
+  --color-chart-3: #ffb547;
+  --color-chart-4: #b49cff;
+  --color-chart-5: #f4f2ec;
+  --color-chart-6: #ff6b6b;
+
+  --shadow-float: 0 10px 30px rgb(0 0 0 / 0.4);
+  --shadow-modal: 0 -12px 48px rgb(0 0 0 / 0.5);
 }
 
 html {
@@ -122,6 +206,7 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
+  font-feature-settings: 'tnum' 1;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
@@ -129,4 +214,13 @@ body {
 
 #root {
   min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
 }

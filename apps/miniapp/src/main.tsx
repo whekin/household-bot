@@ -1,6 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import '@fontsource-variable/onest'
+import '@fontsource-variable/unbounded'
+
 import { App } from './app/app'
 import { bindThemeToTelegram } from './telegram/theme'
 import './index.css'

@@ -1,4 +1,4 @@
-import { minorToMajorString, majorStringToMinor } from '@/lib/money'
+import { minorToMajorString } from '@/lib/money'
 import type {
   MiniAppAdminCycleState,
   MiniAppAdminSettingsPayload,
@@ -7,7 +7,19 @@ import type {
   MiniAppSession
 } from '../api'
 
-export type DemoScenarioId = 'current-cycle' | 'overdue-utilities' | 'overdue-rent-and-utilities'
+/**
+ * Dev-only demo household. Each scenario is generated from one small set of facts
+ * (members, bills, purchases, payments) so every screen reads the same story:
+ * what Home says you owe is what Month and History add up to.
+ */
+export type DemoScenarioId = 'utilities-due' | 'rent-due' | 'all-set' | 'overdue'
+
+export const demoScenarioIds: readonly DemoScenarioId[] = [
+  'utilities-due',
+  'rent-due',
+  'all-set',
+  'overdue'
+]
 
 type DemoScenarioState = {
   dashboard: MiniAppDashboard
@@ -20,6 +32,9 @@ type DemoStateOverrides = {
   periodOverride?: string | null
   todayOverride?: string | null
 }
+
+type Ledger = MiniAppDashboard['ledger']
+type MemberId = 'demo-member' | 'member-chorb' | 'member-el'
 
 export const demoMember: NonNullable<MiniAppSession['member']> = {
   id: 'demo-member',
@@ -38,9 +53,34 @@ export const demoTelegramUser: NonNullable<MiniAppSession['telegramUser']> = {
   languageCode: 'en'
 }
 
+const NAMES: Record<MemberId, string> = {
+  'demo-member': 'Stas',
+  'member-chorb': 'Chorbanaut',
+  'member-el': 'El'
+}
+const MEMBER_IDS: readonly MemberId[] = ['demo-member', 'member-chorb', 'member-el']
+
+const RENT_WARNING_DAY = 15
+const RENT_DUE_DAY = 20
+const UTILITIES_REMINDER_DAY = 1
+const UTILITIES_DUE_DAY = 10
+
+/** All amounts below are minor units (tetri). */
+const RENT_SHARE = 80500
+const UTILITY_BILLS = [
+  { id: 'bill-electricity', name: 'Electricity', amount: 16400 },
+  { id: 'bill-internet', name: 'Internet', amount: 8000 },
+  { id: 'bill-water', name: 'Water', amount: 4200 }
+] as const
+const UTILITY_SHARES: Record<MemberId, number> = {
+  'demo-member': 9533,
+  'member-chorb': 9533,
+  'member-el': 9534
+}
+
 const rentPaymentDestinations = [
   {
-    label: 'Landlord TBC card',
+    label: 'Landlord · TBC card',
     recipientName: 'Nana Beridze',
     bankName: 'TBC Bank',
     account: '1234 5678 9012 3456',
@@ -48,1122 +88,761 @@ const rentPaymentDestinations = [
     link: null
   },
   {
-    label: 'USD fallback transfer',
+    label: 'Bank of Georgia transfer',
     recipientName: 'Nana Beridze',
     bankName: 'Bank of Georgia',
     account: 'GE29BG0000000123456789',
-    note: 'Use only if GEL transfer is unavailable',
+    note: 'Use if the card transfer fails',
     link: 'https://bank.example/rent'
   }
 ] as const
 
+const utilityCategories = [
+  {
+    slug: 'electricity',
+    name: 'Electricity',
+    providerName: 'Telasi',
+    customerNumber: '00012345',
+    paymentLink: 'https://pay.example/telasi',
+    note: null
+  },
+  {
+    slug: 'internet',
+    name: 'Internet',
+    providerName: 'Magti',
+    customerNumber: 'KOJORI-88',
+    paymentLink: null,
+    note: 'Pay in the Magti app'
+  },
+  {
+    slug: 'water',
+    name: 'Water',
+    providerName: 'GWP',
+    customerNumber: '998877',
+    paymentLink: null,
+    note: null
+  }
+] as const
+
 const pendingMembers: readonly MiniAppPendingMember[] = [
-  {
-    telegramUserId: '555777',
-    displayName: 'Mia',
-    username: 'mia',
-    languageCode: 'ru'
-  },
-  {
-    telegramUserId: '777999',
-    displayName: 'Dima',
-    username: 'dima',
-    languageCode: 'en'
-  },
-  {
-    telegramUserId: '888111',
-    displayName: 'Nika',
-    username: 'nika_forest',
-    languageCode: 'en'
-  }
+  { telegramUserId: '555777', displayName: 'Mia', username: 'mia', languageCode: 'ru' }
 ]
 
-const adminSettings: MiniAppAdminSettingsPayload = {
-  householdName: 'Kojori House',
-  settings: {
-    householdId: 'demo-household',
-    settlementCurrency: 'GEL',
-    paymentBalanceAdjustmentPolicy: 'utilities',
-    rentAmountMinor: '241500',
-    rentCurrency: 'USD',
-    rentDueDay: 20,
-    rentWarningDay: 15,
-    utilitiesDueDay: 5,
-    utilitiesReminderDay: 30,
-    preferredUtilityPayerMemberId: null,
-    timezone: 'Asia/Tbilisi',
-    rentPaymentDestinations
-  },
-  assistantConfig: {
-    householdId: 'demo-household',
-    assistantContext:
-      'The household is a large shared house in Kojori with a backyard, a guest room, and a long-running purchase ledger.',
-    assistantTone: 'Playful but concise'
-  },
-  notificationSettings: {
-    householdId: 'demo-household',
-    periodEvents: true,
-    planEvents: true,
-    purchaseEvents: true,
-    paymentEvents: true
-  },
-  topics: [
-    { role: 'purchase', telegramThreadId: '101', topicName: 'Purchases' },
-    { role: 'feedback', telegramThreadId: '102', topicName: 'Anonymous feedback' },
-    { role: 'reminders', telegramThreadId: '103', topicName: 'Reminders' },
-    { role: 'payments', telegramThreadId: '104', topicName: 'Payments' },
-    { role: 'notifications', telegramThreadId: '105', topicName: 'Notifications' }
-  ],
-  categories: [
-    {
-      id: 'cat-electricity',
-      householdId: 'demo-household',
-      slug: 'electricity',
-      name: 'Electricity',
-      sortOrder: 0,
-      isActive: true,
-      providerName: 'Telasi',
-      customerNumber: '00012345',
-      paymentLink: null,
-      note: null
-    },
-    {
-      id: 'cat-internet',
-      householdId: 'demo-household',
-      slug: 'internet',
-      name: 'Internet',
-      sortOrder: 1,
-      isActive: true,
-      providerName: 'Magti',
-      customerNumber: 'KOJORI-88',
-      paymentLink: null,
-      note: null
-    },
-    {
-      id: 'cat-water',
-      householdId: 'demo-household',
-      slug: 'water',
-      name: 'Water',
-      sortOrder: 2,
-      isActive: true,
-      providerName: 'GWP',
-      customerNumber: '998877',
-      paymentLink: null,
-      note: null
-    },
-    {
-      id: 'cat-gas',
-      householdId: 'demo-household',
-      slug: 'gas',
-      name: 'Gas',
-      sortOrder: 3,
-      isActive: false,
-      providerName: 'Tbilisi Energy',
-      customerNumber: '445566',
-      paymentLink: null,
-      note: null
-    }
-  ],
-  facts: [
-    {
-      key: 'wifi',
-      title: 'Wi-Fi',
-      body: 'Network Kojori-5G, password hunter2hunter2',
-      updatedAt: '2026-07-01T10:00:00Z'
-    },
-    {
-      key: 'trash-day',
-      title: 'Trash',
-      body: 'Collected Tuesday and Friday mornings; bins go out the night before.',
-      updatedAt: '2026-07-02T08:30:00Z'
-    },
-    {
-      key: 'landlord',
-      title: 'Landlord',
-      body: 'Giorgi, +995 555 12 34 56. Text before calling.',
-      updatedAt: '2026-06-20T17:05:00Z'
-    }
-  ],
-  members: [
-    { id: 'demo-member', displayName: 'Stas', status: 'active', rentShareWeight: 1, isAdmin: true },
-    {
-      id: 'member-chorb',
-      displayName: 'Chorbanaut',
-      status: 'active',
-      rentShareWeight: 1,
-      isAdmin: false
-    },
-    { id: 'member-el', displayName: 'El', status: 'away', rentShareWeight: 2, isAdmin: false }
-  ]
+const money = (minor: number) => minorToMajorString(BigInt(minor))
+
+function pad(value: number) {
+  return String(value).padStart(2, '0')
 }
 
-const cycleState: MiniAppAdminCycleState = {
-  cycle: {
-    id: 'cycle-demo-2026-03',
-    period: '2026-03',
-    currency: 'GEL'
-  },
-  rentRule: {
-    amountMinor: '241500',
-    currency: 'USD'
-  },
-  utilityBills: [
-    {
-      id: 'utility-bill-1',
-      billName: 'Electricity',
-      amountMinor: '16400',
-      currency: 'GEL',
-      createdByMemberId: 'demo-member',
-      createdAt: '2026-03-02T09:15:00.000Z'
-    },
-    {
-      id: 'utility-bill-2',
-      billName: 'Internet',
-      amountMinor: '8000',
-      currency: 'GEL',
-      createdByMemberId: 'demo-member',
-      createdAt: '2026-03-03T10:30:00.000Z'
-    },
-    {
-      id: 'utility-bill-3',
-      billName: 'Water',
-      amountMinor: '4200',
-      currency: 'GEL',
-      createdByMemberId: 'member-chorb',
-      createdAt: '2026-03-03T12:45:00.000Z'
-    }
-  ]
+function parsePeriod(period: string) {
+  const [year, month] = period.split('-').map((part) => Number.parseInt(part, 10))
+  return { year: year ?? 2026, month: month ?? 1 }
 }
 
-function baseLedger(): MiniAppDashboard['ledger'] {
-  return [
-    {
-      id: 'purchase-resolved-1',
+function shiftPeriod(period: string, delta: number) {
+  const { year, month } = parsePeriod(period)
+  const date = new Date(Date.UTC(year, month - 1 + delta, 1))
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}`
+}
+
+function day(period: string, value: number, time = '12:00') {
+  return `${period}-${pad(value)}T${time}:00.000Z`
+}
+
+/* ── Scenario facts ──────────────────────────────────── */
+
+type PurchaseFact = {
+  id: string
+  title: string
+  payer: MemberId
+  amount: number
+  day: number
+  period: 'current' | 'previous'
+  /** Shares of each participant, payer included. */
+  shares: Record<MemberId, number>
+  resolved: boolean
+}
+
+type ScenarioFacts = {
+  today: number
+  purchases: PurchaseFact[]
+  /** Utility plan: bill → who pays how much. */
+  plan: { billId: string; member: MemberId; amount: number }[]
+  /** Utility amounts each member has already paid to providers this period. */
+  utilitiesPaid: Partial<Record<MemberId, number>>
+  rentPaid: Partial<Record<MemberId, number>>
+  /** Unpaid utilities from last month, per member. */
+  overdueUtilities?: Partial<Record<MemberId, number>>
+}
+
+const PARTY_GROCERIES: PurchaseFact = {
+  id: 'purchase-groceries',
+  title: 'Groceries for the barbecue',
+  payer: 'member-chorb',
+  amount: 12000,
+  day: 12,
+  period: 'current',
+  shares: { 'demo-member': 4000, 'member-chorb': 4000, 'member-el': 4000 },
+  resolved: false
+}
+
+const SPONGES: PurchaseFact = {
+  id: 'purchase-sponges',
+  title: 'Dish soap and sponges',
+  payer: 'demo-member',
+  amount: 4500,
+  day: 21,
+  period: 'current',
+  shares: { 'demo-member': 1500, 'member-chorb': 1500, 'member-el': 1500 },
+  resolved: false
+}
+
+const HEATER: PurchaseFact = {
+  id: 'purchase-heater',
+  title: 'Gas heater refill',
+  payer: 'member-chorb',
+  amount: 5400,
+  day: 27,
+  period: 'previous',
+  shares: { 'demo-member': 1800, 'member-chorb': 1800, 'member-el': 1800 },
+  resolved: false
+}
+
+const FILTERS: PurchaseFact = {
+  id: 'purchase-filters',
+  title: 'Water filter cartridges',
+  payer: 'demo-member',
+  amount: 9600,
+  day: 3,
+  period: 'current',
+  shares: { 'demo-member': 3800, 'member-chorb': 2400, 'member-el': 3400 },
+  resolved: false
+}
+
+const CLEANING: PurchaseFact = {
+  id: 'purchase-cleaning',
+  title: 'Bulk cleaning supplies',
+  payer: 'demo-member',
+  amount: 7200,
+  day: 18,
+  period: 'previous',
+  shares: { 'demo-member': 2400, 'member-chorb': 2400, 'member-el': 2400 },
+  resolved: true
+}
+
+/*
+ * Before utilities settle, the open buys are the heater (Chorbanaut) and the filters
+ * (Stas): Stas −40.00, Chorbanaut −12.00, El +52.00. Utility targets are the bill share
+ * plus that balance, so the plan below hands out exactly 286.00.
+ */
+const UTILITY_PLAN: ScenarioFacts['plan'] = [
+  { billId: 'bill-water', member: 'demo-member', amount: 4200 },
+  { billId: 'bill-internet', member: 'demo-member', amount: 1333 },
+  { billId: 'bill-internet', member: 'member-chorb', amount: 6667 },
+  { billId: 'bill-electricity', member: 'member-chorb', amount: 1666 },
+  { billId: 'bill-electricity', member: 'member-el', amount: 14734 }
+]
+
+const ALL_UTILITIES_PAID = { 'demo-member': 5533, 'member-chorb': 8333, 'member-el': 14734 }
+
+const scenarioFacts: Record<DemoScenarioId, ScenarioFacts> = {
+  'utilities-due': {
+    today: 6,
+    purchases: [CLEANING, HEATER, FILTERS],
+    plan: UTILITY_PLAN,
+    utilitiesPaid: { 'member-chorb': 8333 },
+    rentPaid: {}
+  },
+  'rent-due': {
+    today: 17,
+    purchases: [
+      CLEANING,
+      { ...HEATER, resolved: true },
+      { ...FILTERS, resolved: true },
+      PARTY_GROCERIES
+    ],
+    plan: UTILITY_PLAN,
+    utilitiesPaid: ALL_UTILITIES_PAID,
+    rentPaid: { 'member-el': RENT_SHARE }
+  },
+  'all-set': {
+    today: 23,
+    purchases: [
+      CLEANING,
+      { ...HEATER, resolved: true },
+      { ...FILTERS, resolved: true },
+      { ...PARTY_GROCERIES, resolved: true },
+      SPONGES
+    ],
+    plan: UTILITY_PLAN,
+    utilitiesPaid: ALL_UTILITIES_PAID,
+    rentPaid: { 'demo-member': RENT_SHARE, 'member-chorb': RENT_SHARE, 'member-el': RENT_SHARE }
+  },
+  overdue: {
+    today: 12,
+    purchases: [CLEANING, HEATER, FILTERS],
+    plan: UTILITY_PLAN,
+    utilitiesPaid: { 'member-chorb': 8333, 'member-el': 14734 },
+    rentPaid: {},
+    overdueUtilities: { 'demo-member': 6120 }
+  }
+}
+
+/* ── Derivations ─────────────────────────────────────── */
+
+function purchaseOffsets(purchases: readonly PurchaseFact[]): Record<MemberId, number> {
+  const offsets: Record<MemberId, number> = { 'demo-member': 0, 'member-chorb': 0, 'member-el': 0 }
+  for (const purchase of purchases) {
+    if (purchase.resolved) continue
+    for (const memberId of MEMBER_IDS) {
+      if (memberId === purchase.payer) continue
+      const share = purchase.shares[memberId]
+      offsets[memberId] += share
+      offsets[purchase.payer] -= share
+    }
+  }
+  return offsets
+}
+
+function buildLedger(period: string, facts: ScenarioFacts): Ledger {
+  const previous = shiftPeriod(period, -1)
+  const entries: Ledger = []
+
+  for (const purchase of facts.purchases) {
+    const origin = purchase.period === 'current' ? period : previous
+    entries.push({
+      id: purchase.id,
       kind: 'purchase',
-      title: 'Bulk cleaning supplies',
-      memberId: 'demo-member',
+      title: purchase.title,
+      memberId: purchase.payer,
       paymentKind: null,
-      amountMajor: '72.00',
+      amountMajor: money(purchase.amount),
       currency: 'GEL',
-      displayAmountMajor: '72.00',
+      displayAmountMajor: money(purchase.amount),
       displayCurrency: 'GEL',
       fxRateMicros: null,
       fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-01-28T18:30:00.000Z',
-      originPeriod: '2026-01',
-      isCurrentCyclePurchase: false,
-      resolutionStatus: 'resolved',
-      resolvedAt: '2026-02-04T09:10:00.000Z',
-      outstandingByMember: [],
-      payerMemberId: 'demo-member',
-      purchaseSplitMode: 'equal',
-      purchaseParticipants: [
-        { memberId: 'demo-member', included: true, shareAmountMajor: null },
-        { memberId: 'member-chorb', included: true, shareAmountMajor: null },
-        { memberId: 'member-el', included: true, shareAmountMajor: null }
-      ]
-    },
-    {
-      id: 'purchase-unresolved-1',
-      kind: 'purchase',
-      title: 'Gas heater refill',
-      memberId: 'member-chorb',
-      paymentKind: null,
-      amountMajor: '54.00',
-      currency: 'GEL',
-      displayAmountMajor: '54.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Chorbanaut',
-      occurredAt: '2026-02-17T20:15:00.000Z',
-      originPeriod: '2026-02',
-      isCurrentCyclePurchase: false,
-      resolutionStatus: 'unresolved',
-      resolvedAt: null,
-      outstandingByMember: [
-        { memberId: 'demo-member', amountMajor: '18.00' },
-        { memberId: 'member-el', amountMajor: '18.00' }
-      ],
-      payerMemberId: 'member-chorb',
-      purchaseSplitMode: 'equal',
-      purchaseParticipants: [
-        { memberId: 'demo-member', included: true, shareAmountMajor: null },
-        { memberId: 'member-chorb', included: true, shareAmountMajor: null },
-        { memberId: 'member-el', included: true, shareAmountMajor: null }
-      ]
-    },
-    {
-      id: 'purchase-unresolved-2',
-      kind: 'purchase',
-      title: 'Water filter cartridges',
-      memberId: 'demo-member',
-      paymentKind: null,
-      amountMajor: '96.00',
-      currency: 'GEL',
-      displayAmountMajor: '96.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-03-03T19:00:00.000Z',
-      originPeriod: '2026-03',
-      isCurrentCyclePurchase: true,
-      resolutionStatus: 'unresolved',
-      resolvedAt: null,
-      outstandingByMember: [
-        { memberId: 'member-chorb', amountMajor: '24.00' },
-        { memberId: 'member-el', amountMajor: '34.00' }
-      ],
-      payerMemberId: 'demo-member',
-      purchaseSplitMode: 'custom_amounts',
-      purchaseParticipants: [
-        { memberId: 'demo-member', included: true, shareAmountMajor: '38.00' },
-        { memberId: 'member-chorb', included: true, shareAmountMajor: '24.00' },
-        { memberId: 'member-el', included: true, shareAmountMajor: '34.00' }
-      ]
-    },
-    {
-      id: 'utility-1',
-      kind: 'utility',
-      title: 'Electricity',
-      memberId: null,
-      paymentKind: null,
-      amountMajor: '164.00',
-      currency: 'GEL',
-      displayAmountMajor: '164.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-03-02T09:15:00.000Z'
-    },
-    {
-      id: 'utility-2',
-      kind: 'utility',
-      title: 'Internet',
-      memberId: null,
-      paymentKind: null,
-      amountMajor: '80.00',
-      currency: 'GEL',
-      displayAmountMajor: '80.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-03-03T10:30:00.000Z'
-    },
-    {
-      id: 'utility-3',
-      kind: 'utility',
-      title: 'Water',
-      memberId: null,
-      paymentKind: null,
-      amountMajor: '42.00',
-      currency: 'GEL',
-      displayAmountMajor: '42.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Chorbanaut',
-      occurredAt: '2026-03-03T12:45:00.000Z'
-    },
-    {
-      id: 'payment-rent-demo',
-      kind: 'payment',
-      title: 'rent',
-      memberId: 'demo-member',
-      paymentKind: 'rent',
-      amountMajor: '603.75',
-      currency: 'GEL',
-      displayAmountMajor: '603.75',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-03-18T18:10:00.000Z'
-    },
-    {
-      id: 'payment-utilities-demo',
-      kind: 'payment',
-      title: 'utilities',
-      memberId: 'demo-member',
-      paymentKind: 'utilities',
-      amountMajor: '58.00',
-      currency: 'GEL',
-      displayAmountMajor: '58.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'Stas',
-      occurredAt: '2026-03-04T20:00:00.000Z'
-    },
-    {
-      id: 'payment-rent-el',
-      kind: 'payment',
-      title: 'rent',
-      memberId: 'member-el',
-      paymentKind: 'rent',
-      amountMajor: '377.00',
-      currency: 'GEL',
-      displayAmountMajor: '377.00',
-      displayCurrency: 'GEL',
-      fxRateMicros: null,
-      fxEffectiveDate: null,
-      actorDisplayName: 'El',
-      occurredAt: '2026-03-21T08:20:00.000Z'
-    }
-  ]
-}
-
-function parsePeriod(period: string): { year: number; month: number } | null {
-  const match = /^(\d{4})-(\d{2})$/.exec(period)
-  if (!match) return null
-
-  const year = Number.parseInt(match[1] ?? '', 10)
-  const month = Number.parseInt(match[2] ?? '', 10)
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    return null
-  }
-
-  return { year, month }
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate()
-}
-
-function remapDateIntoPeriod(value: string, period: string): string {
-  const parsed = parsePeriod(period)
-  if (!parsed) return value
-
-  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (dateMatch) {
-    const day = Math.min(
-      Number.parseInt(dateMatch[3] ?? '1', 10),
-      daysInMonth(parsed.year, parsed.month)
-    )
-    return `${period}-${String(day).padStart(2, '0')}`
-  }
-
-  const dateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})(T.*)$/.exec(value)
-  if (dateTimeMatch) {
-    const day = Math.min(
-      Number.parseInt(dateTimeMatch[3] ?? '1', 10),
-      daysInMonth(parsed.year, parsed.month)
-    )
-    return `${period}-${String(day).padStart(2, '0')}${dateTimeMatch[4]}`
-  }
-
-  return value
-}
-
-function dayInPeriod(period: string, day: number): string {
-  return `${period}-${String(day).padStart(2, '0')}`
-}
-
-function buildDemoUtilityPlan(state: {
-  members: MiniAppDashboard['members']
-  ledger: MiniAppDashboard['ledger']
-}): NonNullable<MiniAppDashboard['utilityBillingPlan']> | null {
-  const utilityEntries = state.ledger.filter((entry) => entry.kind === 'utility')
-  if (utilityEntries.length === 0) {
-    return null
-  }
-
-  const vendorPaidByMemberId = new Map<string, bigint>()
-  for (const entry of state.ledger) {
-    if (entry.kind !== 'payment' || entry.paymentKind !== 'utilities' || !entry.memberId) continue
-    vendorPaidByMemberId.set(
-      entry.memberId,
-      (vendorPaidByMemberId.get(entry.memberId) ?? 0n) +
-        BigInt(Math.round(Number(entry.amountMajor) * 100))
-    )
-  }
-
-  const participants = state.members.filter((member) => Number(member.utilityShareMajor) > 0)
-  const remainingTargetByMemberId = new Map<string, bigint>(
-    participants.map((member) => {
-      const fairShareMinor = BigInt(Math.round(Number(member.utilityShareMajor) * 100))
-      const vendorPaidMinor = vendorPaidByMemberId.get(member.memberId) ?? 0n
-      const remainingMinor = fairShareMinor - vendorPaidMinor
-      return [member.memberId, remainingMinor > 0n ? remainingMinor : 0n] as const
+      actorDisplayName: NAMES[purchase.payer],
+      occurredAt: day(origin, purchase.day, '18:30'),
+      originPeriod: origin,
+      isCurrentCyclePurchase: purchase.period === 'current',
+      resolutionStatus: purchase.resolved ? 'resolved' : 'unresolved',
+      resolvedAt: purchase.resolved ? day(period, Math.min(facts.today, 9)) : null,
+      outstandingByMember: purchase.resolved
+        ? []
+        : MEMBER_IDS.filter((id) => id !== purchase.payer).map((id) => ({
+            memberId: id,
+            amountMajor: money(purchase.shares[id])
+          })),
+      payerMemberId: purchase.payer,
+      createdByMemberId: purchase.payer,
+      hasRecordedAllocations: purchase.resolved,
+      purchaseSplitMode:
+        new Set(Object.values(purchase.shares)).size > 1 ? 'custom_amounts' : 'equal',
+      purchaseParticipants: MEMBER_IDS.map((id) => ({
+        memberId: id,
+        included: true,
+        shareAmountMajor: money(purchase.shares[id])
+      }))
     })
-  )
-
-  const categories: Array<
-    NonNullable<MiniAppDashboard['utilityBillingPlan']>['categories'][number]
-  > = []
-
-  for (const entry of utilityEntries) {
-    let remainingBillMinor = majorStringToMinor(entry.displayAmountMajor)
-    const assignments: Array<{ memberId: string; amountMinor: bigint }> = []
-
-    const orderedParticipants = [...participants].sort((left, right) => {
-      const leftRemaining = remainingTargetByMemberId.get(left.memberId) ?? 0n
-      const rightRemaining = remainingTargetByMemberId.get(right.memberId) ?? 0n
-      if (rightRemaining === leftRemaining) {
-        return left.displayName.localeCompare(right.displayName)
-      }
-      return rightRemaining > leftRemaining ? 1 : -1
-    })
-
-    for (const member of orderedParticipants) {
-      if (remainingBillMinor <= 0n) break
-      const remainingTargetMinor = remainingTargetByMemberId.get(member.memberId) ?? 0n
-      if (remainingTargetMinor <= 0n) continue
-
-      const assignedMinor =
-        remainingTargetMinor >= remainingBillMinor ? remainingBillMinor : remainingTargetMinor
-      if (assignedMinor <= 0n) continue
-
-      assignments.push({ memberId: member.memberId, amountMinor: assignedMinor })
-      remainingTargetByMemberId.set(member.memberId, remainingTargetMinor - assignedMinor)
-      remainingBillMinor -= assignedMinor
-    }
-
-    for (const assignment of assignments) {
-      const displayName =
-        state.members.find((member) => member.memberId === assignment.memberId)?.displayName ??
-        assignment.memberId
-      const billMinor = majorStringToMinor(entry.displayAmountMajor)
-      categories.push({
-        utilityBillId: entry.id,
-        billName: entry.title,
-        billTotalMajor: entry.displayAmountMajor,
-        assignedAmountMajor: minorToMajorString(assignment.amountMinor),
-        remainingAmountMajor: minorToMajorString(assignment.amountMinor),
-        assignedMemberId: assignment.memberId,
-        assignedDisplayName: displayName,
-        paidAmountMajor: '0.00',
-        isFullAssignment: assignments.length === 1 && assignment.amountMinor === billMinor,
-        splitGroupId: assignments.length > 1 ? entry.id : null
-      })
-    }
   }
 
-  return {
-    version: 1,
-    status: 'active',
-    dueDate: '2026-03-04',
-    updatedFromVersion: null,
-    reason: null,
-    categories,
-    memberSummaries: state.members.map((member) => {
-      const fairShareMinor = BigInt(Math.round(Number(member.utilityShareMajor) * 100))
-      const vendorPaidMinor = vendorPaidByMemberId.get(member.memberId) ?? 0n
-      const assignedMinor = categories
-        .filter((category) => category.assignedMemberId === member.memberId)
-        .reduce(
-          (sum, category) => sum + BigInt(Math.round(Number(category.assignedAmountMajor) * 100)),
-          0n
+  UTILITY_BILLS.forEach((bill, index) => {
+    entries.push({
+      id: `utility-${bill.id}`,
+      kind: 'utility',
+      title: bill.name,
+      memberId: null,
+      paymentKind: null,
+      amountMajor: money(bill.amount),
+      currency: 'GEL',
+      displayAmountMajor: money(bill.amount),
+      displayCurrency: 'GEL',
+      fxRateMicros: null,
+      fxEffectiveDate: null,
+      actorDisplayName: index === 2 ? NAMES['member-chorb'] : NAMES['demo-member'],
+      occurredAt: day(period, 1, `0${index + 7}:15`)
+    })
+  })
+
+  for (const memberId of MEMBER_IDS) {
+    const utilities = facts.utilitiesPaid[memberId]
+    if (utilities) {
+      entries.push(
+        paymentEntry(
+          memberId,
+          'utilities',
+          utilities,
+          day(period, memberId === 'member-chorb' ? 3 : 8, '20:00')
         )
+      )
+    }
+    const rent = facts.rentPaid[memberId]
+    if (rent) {
+      entries.push(
+        paymentEntry(
+          memberId,
+          'rent',
+          rent,
+          day(period, memberId === 'member-el' ? 15 : 19, '10:40')
+        )
+      )
+    }
+  }
 
-      return {
-        memberId: member.memberId,
-        displayName: member.displayName,
-        fairShareMajor: (Number(fairShareMinor) / 100).toFixed(2),
-        vendorPaidMajor: (Number(vendorPaidMinor) / 100).toFixed(2),
-        assignedThisCycleMajor: (Number(assignedMinor) / 100).toFixed(2),
-        projectedDeltaAfterPlanMajor: (
-          Number(vendorPaidMinor + assignedMinor - fairShareMinor) / 100
-        ).toFixed(2)
-      }
-    })
+  return entries.sort((left, right) =>
+    (right.occurredAt ?? '').localeCompare(left.occurredAt ?? '')
+  )
+}
+
+function paymentEntry(
+  memberId: MemberId,
+  kind: 'rent' | 'utilities',
+  amount: number,
+  occurredAt: string
+): Ledger[number] {
+  return {
+    id: `payment-${kind}-${memberId}`,
+    kind: 'payment',
+    title: kind,
+    memberId,
+    paymentKind: kind,
+    amountMajor: money(amount),
+    currency: 'GEL',
+    displayAmountMajor: money(amount),
+    displayCurrency: 'GEL',
+    fxRateMicros: null,
+    fxEffectiveDate: null,
+    actorDisplayName: NAMES[memberId],
+    occurredAt
   }
 }
 
-const cycleHistory: NonNullable<MiniAppDashboard['cycleHistory']> = [
-  {
-    period: '2026-02',
-    currency: 'GEL',
-    source: 'frozen',
-    totalDueMajor: '2488.00',
-    totalPaidMajor: '2488.00',
-    totalRemainingMajor: '0.00',
-    rentTotalMajor: '2310.00',
-    utilityTotalMajor: '178.00',
-    purchaseVolumeMajor: '326.40',
-    purchaseCount: 9,
-    members: [
-      {
-        memberId: 'demo-member',
-        displayName: 'Stas',
-        rentShareMajor: '577.50',
-        utilityShareMajor: '59.33',
-        purchaseOffsetMajor: '-24.80',
-        netDueMajor: '612.03',
-        paidMajor: '612.03',
-        remainingMajor: '0.00'
-      },
-      {
-        memberId: 'member-chorb',
-        displayName: 'Chorbanaut',
-        rentShareMajor: '577.50',
-        utilityShareMajor: '59.34',
-        purchaseOffsetMajor: '38.20',
-        netDueMajor: '675.04',
-        paidMajor: '675.04',
-        remainingMajor: '0.00'
-      },
-      {
-        memberId: 'member-el',
-        displayName: 'El',
-        rentShareMajor: '1155.00',
-        utilityShareMajor: '59.33',
-        purchaseOffsetMajor: '-13.40',
-        netDueMajor: '1200.93',
-        paidMajor: '1200.93',
-        remainingMajor: '0.00'
-      }
-    ],
-    purchaseContributors: [
-      {
-        memberId: 'demo-member',
-        displayName: 'Stas',
-        amountMajor: '167.20',
-        purchaseCount: 4
-      },
-      {
-        memberId: 'member-el',
-        displayName: 'El',
-        amountMajor: '104.20',
-        purchaseCount: 3
-      },
-      {
-        memberId: 'member-chorb',
-        displayName: 'Chorbanaut',
-        amountMajor: '55.00',
-        purchaseCount: 2
-      }
-    ]
-  },
-  {
-    period: '2026-01',
-    currency: 'GEL',
-    source: 'legacy',
-    totalDueMajor: '2436.00',
-    totalPaidMajor: '2396.00',
-    totalRemainingMajor: '40.00',
-    rentTotalMajor: '2280.00',
-    utilityTotalMajor: '156.00',
-    purchaseVolumeMajor: '218.75',
-    purchaseCount: 6,
-    members: [
-      {
-        memberId: 'demo-member',
-        displayName: 'Stas',
-        rentShareMajor: '570.00',
-        utilityShareMajor: '52.00',
-        purchaseOffsetMajor: '-18.75',
-        netDueMajor: '603.25',
-        paidMajor: '603.25',
-        remainingMajor: '0.00'
-      },
-      {
-        memberId: 'member-chorb',
-        displayName: 'Chorbanaut',
-        rentShareMajor: '570.00',
-        utilityShareMajor: '52.00',
-        purchaseOffsetMajor: '18.75',
-        netDueMajor: '640.75',
-        paidMajor: '600.75',
-        remainingMajor: '40.00'
-      },
-      {
-        memberId: 'member-el',
-        displayName: 'El',
-        rentShareMajor: '1140.00',
-        utilityShareMajor: '52.00',
-        purchaseOffsetMajor: '0.00',
-        netDueMajor: '1192.00',
-        paidMajor: '1192.00',
-        remainingMajor: '0.00'
-      }
-    ],
-    purchaseContributors: [
-      {
-        memberId: 'demo-member',
-        displayName: 'Stas',
-        amountMajor: '118.75',
-        purchaseCount: 3
-      },
-      {
-        memberId: 'member-chorb',
-        displayName: 'Chorbanaut',
-        amountMajor: '100.00',
-        purchaseCount: 3
-      }
-    ]
-  }
-]
+function buildDashboard(period: string, todayDay: number, facts: ScenarioFacts): MiniAppDashboard {
+  const previous = shiftPeriod(period, -1)
+  const ledger = buildLedger(period, facts)
 
-function createDashboard(state: {
-  totalDueMajor: string
-  totalPaidMajor: string
-  totalRemainingMajor: string
-  members: MiniAppDashboard['members']
-  ledger?: MiniAppDashboard['ledger']
-}): MiniAppDashboard {
-  const ledger = state.ledger ?? baseLedger()
-  const paymentPeriods: MiniAppDashboard['paymentPeriods'] = [
+  // Utilities are settled through the plan; before they are, the open buys feed into it.
+  const utilityTargets: Record<MemberId, number> = {
+    'demo-member': 0,
+    'member-chorb': 0,
+    'member-el': 0
+  }
+  for (const line of facts.plan) utilityTargets[line.member] += line.amount
+
+  const offsets = purchaseOffsets(facts.purchases)
+  const rentOpen = todayDay >= RENT_WARNING_DAY
+  const utilitiesLate = todayDay > UTILITIES_DUE_DAY
+  const rentLate = todayDay > RENT_DUE_DAY
+
+  const utilityRemaining = (id: MemberId) =>
+    Math.max(0, utilityTargets[id] - (facts.utilitiesPaid[id] ?? 0))
+  const rentRemaining = (id: MemberId) => Math.max(0, RENT_SHARE - (facts.rentPaid[id] ?? 0))
+
+  const members: MiniAppDashboard['members'] = MEMBER_IDS.map((id) => {
+    const overdue = facts.overdueUtilities?.[id] ?? 0
+    const paid = (facts.utilitiesPaid[id] ?? 0) + (facts.rentPaid[id] ?? 0)
+    const netDue = RENT_SHARE + UTILITY_SHARES[id] + offsets[id]
+    return {
+      memberId: id,
+      displayName: NAMES[id],
+      status: 'active',
+      daysPresent: 30,
+      predictedUtilityShareMajor: money(UTILITY_SHARES[id]),
+      rentShareMajor: money(RENT_SHARE),
+      utilityShareMajor: money(UTILITY_SHARES[id]),
+      purchaseOffsetMajor: money(offsets[id]),
+      netDueMajor: money(netDue),
+      paidMajor: money(paid),
+      remainingMajor: money(Math.max(0, netDue - paid)),
+      overduePayments: [
+        ...(overdue > 0
+          ? [{ kind: 'utilities' as const, amountMajor: money(overdue), periods: [previous] }]
+          : []),
+        ...(utilitiesLate && utilityRemaining(id) > 0
+          ? [
+              {
+                kind: 'utilities' as const,
+                amountMajor: money(utilityRemaining(id)),
+                periods: [period]
+              }
+            ]
+          : []),
+        ...(rentLate && rentRemaining(id) > 0
+          ? [{ kind: 'rent' as const, amountMajor: money(rentRemaining(id)), periods: [period] }]
+          : [])
+      ],
+      explanations: []
+    }
+  })
+
+  const unresolved = (kind: 'rent' | 'utilities') =>
+    MEMBER_IDS.map((id) => {
+      const due = kind === 'rent' ? RENT_SHARE : utilityTargets[id]
+      const paid = kind === 'rent' ? (facts.rentPaid[id] ?? 0) : (facts.utilitiesPaid[id] ?? 0)
+      const remaining = Math.max(0, due - paid)
+      return {
+        memberId: id,
+        displayName: NAMES[id],
+        suggestedAmountMajor: money(remaining),
+        baseDueMajor: money(due),
+        paidMajor: money(paid),
+        remainingMajor: money(remaining),
+        effectivelySettled: remaining === 0
+      }
+    }).filter((member) => !member.effectivelySettled)
+
+  const kindTotals = (kind: 'rent' | 'utilities') => {
+    const due = MEMBER_IDS.reduce(
+      (sum, id) => sum + (kind === 'rent' ? RENT_SHARE : utilityTargets[id]),
+      0
+    )
+    const paid = MEMBER_IDS.reduce(
+      (sum, id) =>
+        sum + (kind === 'rent' ? (facts.rentPaid[id] ?? 0) : (facts.utilitiesPaid[id] ?? 0)),
+      0
+    )
+    return {
+      totalDueMajor: money(due),
+      totalPaidMajor: money(paid),
+      totalRemainingMajor: money(due - paid)
+    }
+  }
+
+  const paymentPeriods: NonNullable<MiniAppDashboard['paymentPeriods']> = [
     {
-      period: '2026-03',
+      period,
       utilityTotalMajor: '286.00',
-      hasOverdueBalance: state.members.some((member) => member.overduePayments.length > 0),
+      hasOverdueBalance:
+        (utilitiesLate && MEMBER_IDS.some((id) => utilityRemaining(id) > 0)) ||
+        (rentLate && MEMBER_IDS.some((id) => rentRemaining(id) > 0)),
       isCurrentPeriod: true,
       kinds: [
         {
           kind: 'rent',
-          totalDueMajor: state.members
-            .reduce((sum, member) => sum + Number(member.rentShareMajor), 0)
-            .toFixed(2),
-          totalPaidMajor: '0.00',
-          totalRemainingMajor: state.members
-            .reduce((sum, member) => sum + Number(member.rentShareMajor), 0)
-            .toFixed(2),
-          unresolvedMembers: state.members
-            .filter((member) => Number(member.rentShareMajor) > 0)
-            .map((member) => ({
-              memberId: member.memberId,
-              displayName: member.displayName,
-              suggestedAmountMajor: member.rentShareMajor,
-              baseDueMajor: member.rentShareMajor,
-              paidMajor: '0.00',
-              remainingMajor: member.rentShareMajor,
-              effectivelySettled: false
-            }))
+          ...kindTotals('rent'),
+          unresolvedMembers: rentOpen ? unresolved('rent') : []
         },
         {
           kind: 'utilities',
-          totalDueMajor: state.members
-            .reduce((sum, member) => sum + Number(member.utilityShareMajor), 0)
-            .toFixed(2),
-          totalPaidMajor: '0.00',
-          totalRemainingMajor: state.members
-            .reduce((sum, member) => sum + Number(member.utilityShareMajor), 0)
-            .toFixed(2),
-          unresolvedMembers: state.members
-            .filter((member) => Number(member.utilityShareMajor) > 0)
-            .map((member) => ({
-              memberId: member.memberId,
-              displayName: member.displayName,
-              suggestedAmountMajor: member.utilityShareMajor,
-              baseDueMajor: member.utilityShareMajor,
-              paidMajor: '0.00',
-              remainingMajor: member.utilityShareMajor,
-              effectivelySettled: false
-            }))
+          ...kindTotals('utilities'),
+          unresolvedMembers: unresolved('utilities')
         }
       ]
     }
   ]
 
+  if (facts.overdueUtilities) {
+    const overdueMembers = MEMBER_IDS.flatMap((id) => {
+      const amount = facts.overdueUtilities?.[id] ?? 0
+      return amount > 0
+        ? [
+            {
+              memberId: id,
+              displayName: NAMES[id],
+              suggestedAmountMajor: money(amount),
+              baseDueMajor: money(amount),
+              paidMajor: '0.00',
+              remainingMajor: money(amount),
+              effectivelySettled: false
+            }
+          ]
+        : []
+    })
+    const total = MEMBER_IDS.reduce((sum, id) => sum + (facts.overdueUtilities?.[id] ?? 0), 0)
+    paymentPeriods.push({
+      period: previous,
+      utilityTotalMajor: '301.20',
+      hasOverdueBalance: true,
+      isCurrentPeriod: false,
+      kinds: [
+        {
+          kind: 'rent',
+          totalDueMajor: money(RENT_SHARE * 3),
+          totalPaidMajor: money(RENT_SHARE * 3),
+          totalRemainingMajor: '0.00',
+          unresolvedMembers: []
+        },
+        {
+          kind: 'utilities',
+          totalDueMajor: '301.20',
+          totalPaidMajor: money(30120 - total),
+          totalRemainingMajor: money(total),
+          unresolvedMembers: overdueMembers
+        }
+      ]
+    })
+  }
+
+  const planSettled = MEMBER_IDS.every((id) => utilityRemaining(id) === 0)
+  const vendorPayments: NonNullable<
+    NonNullable<MiniAppDashboard['utilityBillingPlan']>['vendorPayments']
+  >[number][] = []
+  const categories = facts.plan.map((line, index) => {
+    const bill = UTILITY_BILLS.find((entry) => entry.id === line.billId)!
+    const memberPaid = facts.utilitiesPaid[line.member] ?? 0
+    // A member pays their lines in plan order; whatever they have paid covers the earliest ones.
+    const before = facts.plan
+      .slice(0, index)
+      .filter((entry) => entry.member === line.member)
+      .reduce((sum, entry) => sum + entry.amount, 0)
+    const paid = Math.max(0, Math.min(line.amount, memberPaid - before))
+    if (paid > 0) {
+      vendorPayments.push({
+        id: `vendor-${line.billId}-${line.member}`,
+        utilityBillId: line.billId,
+        billName: bill.name,
+        payerMemberId: line.member,
+        payerDisplayName: NAMES[line.member],
+        amountMajor: money(paid),
+        matchedPlan: true,
+        recordedAt: day(period, line.member === 'member-chorb' ? 3 : 8, '20:00')
+      })
+    }
+    const isFull = line.amount === bill.amount
+    return {
+      utilityBillId: bill.id,
+      billName: bill.name,
+      billTotalMajor: money(bill.amount),
+      assignedAmountMajor: money(line.amount),
+      remainingAmountMajor: money(line.amount - paid),
+      assignedMemberId: line.member,
+      assignedDisplayName: NAMES[line.member],
+      paidAmountMajor: money(paid),
+      isFullAssignment: isFull,
+      splitGroupId: isFull ? null : bill.id
+    }
+  })
+
+  const cycleHistory: NonNullable<MiniAppDashboard['cycleHistory']> = [1, 2].map((back) => {
+    const historyPeriod = shiftPeriod(period, -back)
+    const overdue =
+      back === 1 ? MEMBER_IDS.reduce((sum, id) => sum + (facts.overdueUtilities?.[id] ?? 0), 0) : 0
+    const utilityTotal = back === 1 ? 30120 : 27450
+    const total = RENT_SHARE * 3 + utilityTotal
+    return {
+      period: historyPeriod,
+      currency: 'GEL',
+      source: 'frozen',
+      totalDueMajor: money(total),
+      totalPaidMajor: money(total - overdue),
+      totalRemainingMajor: money(overdue),
+      rentTotalMajor: money(RENT_SHARE * 3),
+      utilityTotalMajor: money(utilityTotal),
+      purchaseVolumeMajor: back === 1 ? '126.00' : '88.40',
+      purchaseCount: back === 1 ? 2 : 3,
+      members: MEMBER_IDS.map((id) => {
+        const utility = Math.round(utilityTotal / 3)
+        const left = back === 1 ? (facts.overdueUtilities?.[id] ?? 0) : 0
+        return {
+          memberId: id,
+          displayName: NAMES[id],
+          rentShareMajor: money(RENT_SHARE),
+          utilityShareMajor: money(utility),
+          purchaseOffsetMajor: '0.00',
+          netDueMajor: money(RENT_SHARE + utility),
+          paidMajor: money(RENT_SHARE + utility - left),
+          remainingMajor: money(left)
+        }
+      }),
+      purchaseContributors: [
+        {
+          memberId: 'demo-member',
+          displayName: 'Stas',
+          amountMajor: back === 1 ? '72.00' : '41.40',
+          purchaseCount: back === 1 ? 1 : 2
+        },
+        {
+          memberId: 'member-chorb',
+          displayName: 'Chorbanaut',
+          amountMajor: back === 1 ? '54.00' : '47.00',
+          purchaseCount: 1
+        }
+      ]
+    }
+  })
+
+  const totals = MEMBER_IDS.reduce(
+    (sum, id) => ({
+      due: sum.due + RENT_SHARE + UTILITY_SHARES[id] + offsets[id],
+      paid: sum.paid + (facts.utilitiesPaid[id] ?? 0) + (facts.rentPaid[id] ?? 0)
+    }),
+    { due: 0, paid: 0 }
+  )
+
   return {
-    period: '2026-03',
+    period,
     currency: 'GEL',
     timezone: 'Asia/Tbilisi',
-    rentWarningDay: 15,
-    rentDueDay: 20,
-    utilitiesReminderDay: 30,
-    utilitiesDueDay: 5,
+    rentWarningDay: RENT_WARNING_DAY,
+    rentDueDay: RENT_DUE_DAY,
+    utilitiesReminderDay: UTILITIES_REMINDER_DAY,
+    utilitiesDueDay: UTILITIES_DUE_DAY,
     paymentBalanceAdjustmentPolicy: 'utilities',
     rentPaymentDestinations,
-    totalDueMajor: state.totalDueMajor,
-    totalPaidMajor: state.totalPaidMajor,
-    totalRemainingMajor: state.totalRemainingMajor,
-    billingStage: 'rent',
+    totalDueMajor: money(totals.due),
+    totalPaidMajor: money(totals.paid),
+    totalRemainingMajor: money(totals.due - totals.paid),
+    billingStage:
+      rentOpen && MEMBER_IDS.some((id) => rentRemaining(id) > 0) && planSettled
+        ? 'rent'
+        : planSettled
+          ? 'idle'
+          : 'utilities',
     rentSourceAmountMajor: '875.00',
     rentSourceCurrency: 'USD',
-    rentDisplayAmountMajor: '2415.00',
+    rentDisplayAmountMajor: money(RENT_SHARE * 3),
     rentFxRateMicros: '2760000',
-    rentFxEffectiveDate: '2026-03-17',
-    utilityBillingPlan: null,
+    rentFxEffectiveDate: `${period}-${pad(RENT_WARNING_DAY)}`,
+    utilityBillingPlan: {
+      version: 1,
+      status: planSettled ? 'settled' : 'active',
+      dueDate: `${period}-${pad(UTILITIES_DUE_DAY)}`,
+      updatedFromVersion: null,
+      reason: null,
+      categories,
+      memberSummaries: MEMBER_IDS.map((id) => ({
+        memberId: id,
+        displayName: NAMES[id],
+        fairShareMajor: money(UTILITY_SHARES[id]),
+        vendorPaidMajor: money(facts.utilitiesPaid[id] ?? 0),
+        assignedThisCycleMajor: money(utilityRemaining(id)),
+        projectedDeltaAfterPlanMajor: '0.00'
+      })),
+      vendorPayments
+    },
     rentBillingState: {
-      dueDate: '2026-03-20',
+      dueDate: `${period}-${pad(RENT_DUE_DAY)}`,
       paymentDestinations: rentPaymentDestinations,
-      memberSummaries: state.members.map((member) => ({
-        memberId: member.memberId,
-        displayName: member.displayName,
-        dueMajor: member.rentShareMajor,
-        paidMajor: '0.00',
-        remainingMajor: member.rentShareMajor
+      memberSummaries: MEMBER_IDS.map((id) => ({
+        memberId: id,
+        displayName: NAMES[id],
+        dueMajor: money(RENT_SHARE),
+        paidMajor: money(facts.rentPaid[id] ?? 0),
+        remainingMajor: money(rentRemaining(id))
       }))
     },
-    members: state.members,
+    utilityCategories,
+    members,
     paymentPeriods,
     cycleHistory,
     ledger,
-    notifications: [
+    notifications: []
+  }
+}
+
+/* ── Admin payloads ──────────────────────────────────── */
+
+function buildAdminSettings(): MiniAppAdminSettingsPayload {
+  return {
+    householdName: 'Kojori House',
+    settings: {
+      householdId: 'demo-household',
+      settlementCurrency: 'GEL',
+      paymentBalanceAdjustmentPolicy: 'utilities',
+      rentAmountMinor: '87500',
+      rentCurrency: 'USD',
+      rentDueDay: RENT_DUE_DAY,
+      rentWarningDay: RENT_WARNING_DAY,
+      utilitiesDueDay: UTILITIES_DUE_DAY,
+      utilitiesReminderDay: UTILITIES_REMINDER_DAY,
+      preferredUtilityPayerMemberId: null,
+      timezone: 'Asia/Tbilisi',
+      rentPaymentDestinations
+    },
+    assistantConfig: {
+      householdId: 'demo-household',
+      assistantContext:
+        'A shared house in Kojori with a backyard and a long-running purchase ledger.',
+      assistantTone: 'Playful but concise'
+    },
+    notificationSettings: {
+      householdId: 'demo-household',
+      periodEvents: true,
+      planEvents: true,
+      purchaseEvents: true,
+      paymentEvents: true
+    },
+    topics: [
+      { role: 'purchase', telegramThreadId: '101', topicName: 'Purchases' },
+      { role: 'feedback', telegramThreadId: '102', topicName: 'Anonymous feedback' },
+      { role: 'reminders', telegramThreadId: '103', topicName: 'Reminders' },
+      { role: 'payments', telegramThreadId: '104', topicName: 'Payments' },
+      { role: 'notifications', telegramThreadId: '105', topicName: 'Notifications' }
+    ],
+    categories: utilityCategories.map((category, index) => ({
+      id: `cat-${category.slug}`,
+      householdId: 'demo-household',
+      sortOrder: index,
+      isActive: true,
+      ...category
+    })),
+    facts: [
       {
-        id: 'notification-breakfast',
-        summaryText: 'Stas, breakfast is waiting for your attention.',
-        scheduledFor: '2026-03-25T05:00:00.000Z',
-        status: 'scheduled',
-        deliveryMode: 'topic',
-        dmRecipientMemberIds: [],
-        dmRecipientDisplayNames: [],
-        creatorMemberId: 'demo-member',
-        creatorDisplayName: 'Stas',
-        assigneeMemberId: 'demo-member',
-        assigneeDisplayName: 'Stas',
-        canCancel: true,
-        canEdit: true
+        key: 'wifi',
+        title: 'Wi-Fi',
+        body: 'Network Kojori-5G, password hunter2hunter2',
+        updatedAt: '2026-07-01T10:00:00Z'
       },
       {
-        id: 'notification-call-georgiy',
-        summaryText: 'Dima, time to check whether Georgiy has called back.',
-        scheduledFor: '2026-03-25T16:00:00.000Z',
-        status: 'scheduled',
-        deliveryMode: 'dm_selected',
-        dmRecipientMemberIds: ['member-chorb', 'demo-member'],
-        dmRecipientDisplayNames: ['Dima', 'Stas'],
-        creatorMemberId: 'member-chorb',
-        creatorDisplayName: 'Chorbanaut',
-        assigneeMemberId: null,
-        assigneeDisplayName: null,
-        canCancel: true,
-        canEdit: true
+        key: 'trash-day',
+        title: 'Trash',
+        body: 'Collected Tuesday and Friday mornings; bins go out the night before.',
+        updatedAt: '2026-07-02T08:30:00Z'
       }
-    ]
+    ],
+    members: MEMBER_IDS.map((id) => ({
+      id,
+      displayName: NAMES[id],
+      status: 'active',
+      rentShareWeight: 1,
+      isAdmin: id === 'demo-member'
+    }))
   }
 }
 
-const demoScenarioCatalog: Record<DemoScenarioId, DemoScenarioState> = {
-  'current-cycle': {
-    dashboard: createDashboard({
-      totalDueMajor: '2571.00',
-      totalPaidMajor: '1288.75',
-      totalRemainingMajor: '1282.25',
-      members: [
-        {
-          memberId: 'demo-member',
-          displayName: 'Stas',
-          predictedUtilityShareMajor: '95.33',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '95.33',
-          purchaseOffsetMajor: '-37.33',
-          netDueMajor: '661.75',
-          paidMajor: '661.75',
-          remainingMajor: '0.00',
-          overduePayments: [],
-          explanations: [
-            'Weighted rent share',
-            'Utilities reflect three posted bills',
-            'Purchase credit from January supplies and March water filters'
-          ]
-        },
-        {
-          memberId: 'member-chorb',
-          displayName: 'Chorbanaut',
-          predictedUtilityShareMajor: '95.33',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '95.33',
-          purchaseOffsetMajor: '44.67',
-          netDueMajor: '743.75',
-          paidMajor: '250.00',
-          remainingMajor: '493.75',
-          overduePayments: [],
-          explanations: [
-            'Standard resident share',
-            'Still owes current-cycle utilities and purchases'
-          ]
-        },
-        {
-          memberId: 'member-el',
-          displayName: 'El',
-          predictedUtilityShareMajor: '0.00',
-          rentShareMajor: '1207.50',
-          utilityShareMajor: '0.00',
-          purchaseOffsetMajor: '-42.00',
-          netDueMajor: '1165.50',
-          paidMajor: '377.00',
-          remainingMajor: '788.50',
-          overduePayments: [],
-          explanations: ['Away policy applied to utilities', 'Purchase credit offsets part of rent']
-        }
-      ]
-    }),
-    pendingMembers,
-    adminSettings,
-    cycleState
-  },
-  'overdue-utilities': {
-    dashboard: createDashboard({
-      totalDueMajor: '2623.00',
-      totalPaidMajor: '783.75',
-      totalRemainingMajor: '1839.25',
-      members: [
-        {
-          memberId: 'demo-member',
-          displayName: 'Stas',
-          predictedUtilityShareMajor: '104.00',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '104.00',
-          purchaseOffsetMajor: '18.00',
-          netDueMajor: '725.75',
-          paidMajor: '603.75',
-          remainingMajor: '122.00',
-          overduePayments: [
-            {
-              kind: 'utilities',
-              amountMajor: '182.00',
-              periods: ['2026-01', '2026-02']
-            }
-          ],
-          explanations: [
-            'Current rent is paid',
-            'Utilities remain overdue from two prior periods',
-            'Purchase carry-over stays separate from overdue closure'
-          ]
-        },
-        {
-          memberId: 'member-chorb',
-          displayName: 'Chorbanaut',
-          predictedUtilityShareMajor: '104.00',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '104.00',
-          purchaseOffsetMajor: '12.00',
-          netDueMajor: '719.75',
-          paidMajor: '180.00',
-          remainingMajor: '539.75',
-          overduePayments: [
-            {
-              kind: 'utilities',
-              amountMajor: '91.00',
-              periods: ['2026-02']
-            }
-          ],
-          explanations: ['Partial utilities payment recorded this month']
-        },
-        {
-          memberId: 'member-el',
-          displayName: 'El',
-          predictedUtilityShareMajor: '0.00',
-          rentShareMajor: '1207.50',
-          utilityShareMajor: '0.00',
-          purchaseOffsetMajor: '-30.00',
-          netDueMajor: '1177.50',
-          paidMajor: '0.00',
-          remainingMajor: '1177.50',
-          overduePayments: [],
-          explanations: [
-            'Away policy applied to utilities',
-            'No overdue utility base because away policy removed the share'
-          ]
-        }
-      ],
-      ledger: [
-        ...baseLedger(),
-        {
-          id: 'payment-overdue-utilities-jan',
-          kind: 'payment',
-          title: 'utilities',
-          memberId: 'member-chorb',
-          paymentKind: 'utilities',
-          amountMajor: '52.00',
-          currency: 'GEL',
-          displayAmountMajor: '52.00',
-          displayCurrency: 'GEL',
-          fxRateMicros: null,
-          fxEffectiveDate: null,
-          actorDisplayName: 'Chorbanaut',
-          occurredAt: '2026-02-07T21:10:00.000Z'
-        }
-      ]
-    }),
-    pendingMembers,
-    adminSettings,
-    cycleState
-  },
-  'overdue-rent-and-utilities': {
-    dashboard: createDashboard({
-      totalDueMajor: '2629.00',
-      totalPaidMajor: '200.00',
-      totalRemainingMajor: '2429.00',
-      members: [
-        {
-          memberId: 'demo-member',
-          displayName: 'Stas',
-          predictedUtilityShareMajor: '88.00',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '88.00',
-          purchaseOffsetMajor: '14.00',
-          netDueMajor: '705.75',
-          paidMajor: '0.00',
-          remainingMajor: '705.75',
-          overduePayments: [
-            {
-              kind: 'rent',
-              amountMajor: '603.75',
-              periods: ['2026-02']
-            },
-            {
-              kind: 'utilities',
-              amountMajor: '166.00',
-              periods: ['2026-01', '2026-02']
-            }
-          ],
-          explanations: [
-            'Both rent and utilities are overdue',
-            'Current-cycle purchases remain visible but do not keep overdue open'
-          ]
-        },
-        {
-          memberId: 'member-chorb',
-          displayName: 'Chorbanaut',
-          predictedUtilityShareMajor: '88.00',
-          rentShareMajor: '603.75',
-          utilityShareMajor: '88.00',
-          purchaseOffsetMajor: '36.00',
-          netDueMajor: '727.75',
-          paidMajor: '0.00',
-          remainingMajor: '727.75',
-          overduePayments: [
-            {
-              kind: 'rent',
-              amountMajor: '603.75',
-              periods: ['2026-02']
-            },
-            {
-              kind: 'utilities',
-              amountMajor: '88.00',
-              periods: ['2026-02']
-            }
-          ],
-          explanations: ['No backfilled payments have been entered yet']
-        },
-        {
-          memberId: 'member-el',
-          displayName: 'El',
-          predictedUtilityShareMajor: '0.00',
-          rentShareMajor: '1207.50',
-          utilityShareMajor: '0.00',
-          purchaseOffsetMajor: '-12.00',
-          netDueMajor: '1195.50',
-          paidMajor: '200.00',
-          remainingMajor: '995.50',
-          overduePayments: [
-            {
-              kind: 'rent',
-              amountMajor: '1207.50',
-              periods: ['2026-02']
-            }
-          ],
-          explanations: [
-            'Away policy still charges rent',
-            'One partial rent payment was entered late'
-          ]
-        }
-      ],
-      ledger: [
-        ...baseLedger(),
-        {
-          id: 'payment-overdue-rent-el',
-          kind: 'payment',
-          title: 'rent',
-          memberId: 'member-el',
-          paymentKind: 'rent',
-          amountMajor: '200.00',
-          currency: 'GEL',
-          displayAmountMajor: '200.00',
-          displayCurrency: 'GEL',
-          fxRateMicros: null,
-          fxEffectiveDate: null,
-          actorDisplayName: 'El',
-          occurredAt: '2026-02-23T14:40:00.000Z'
-        }
-      ]
-    }),
-    pendingMembers,
-    adminSettings,
-    cycleState
+function buildCycleState(period: string): MiniAppAdminCycleState {
+  return {
+    cycle: { id: `cycle-demo-${period}`, period, currency: 'GEL' },
+    rentRule: null,
+    utilityBills: UTILITY_BILLS.map((bill) => ({
+      id: bill.id,
+      billName: bill.name,
+      amountMinor: String(bill.amount),
+      currency: 'GEL',
+      createdByMemberId: 'demo-member',
+      createdAt: day(period, 1, '09:15')
+    }))
   }
 }
 
-function applyOverridesToDemoState(
-  state: DemoScenarioState,
-  overrides: DemoStateOverrides = {}
-): DemoScenarioState {
-  const next = structuredClone(state)
-  const periodOverride = overrides.periodOverride?.trim() || null
-  if (!periodOverride) {
-    next.dashboard.utilityBillingPlan = buildDemoUtilityPlan({
-      members: next.dashboard.members,
-      ledger: next.dashboard.ledger
-    })
-    return next
-  }
+/* ── Public API ──────────────────────────────────────── */
 
-  next.dashboard.period = periodOverride
-  next.dashboard.rentBillingState.dueDate = dayInPeriod(periodOverride, next.dashboard.rentDueDay)
-  if (next.dashboard.utilityBillingPlan) {
-    next.dashboard.utilityBillingPlan.dueDate = dayInPeriod(
-      periodOverride,
-      next.dashboard.utilitiesDueDay
-    )
-  }
-  next.dashboard.paymentPeriods = (next.dashboard.paymentPeriods ?? []).map((entry) => ({
-    ...entry,
-    period: periodOverride,
-    isCurrentPeriod: true
-  }))
-  next.dashboard.ledger = next.dashboard.ledger.map((entry) => ({
-    ...entry,
-    occurredAt: entry.occurredAt ? remapDateIntoPeriod(entry.occurredAt, periodOverride) : null,
-    ...(entry.originPeriod ? { originPeriod: periodOverride, isCurrentCyclePurchase: true } : {})
-  }))
-  next.dashboard.notifications = next.dashboard.notifications.map((notification) => ({
-    ...notification,
-    scheduledFor: remapDateIntoPeriod(notification.scheduledFor, periodOverride)
-  }))
+function currentPeriod(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
+}
 
-  if (next.cycleState.cycle) {
-    next.cycleState.cycle = {
-      ...next.cycleState.cycle,
-      period: periodOverride
-    }
-  }
-  next.cycleState.utilityBills = next.cycleState.utilityBills.map((bill) => ({
-    ...bill,
-    createdAt: remapDateIntoPeriod(bill.createdAt, periodOverride)
-  }))
-  next.dashboard.utilityBillingPlan = buildDemoUtilityPlan({
-    members: next.dashboard.members,
-    ledger: next.dashboard.ledger
-  })
-
-  return next
+export function getDemoScenarioDefaultToday(
+  id: DemoScenarioId,
+  periodOverride?: string | null
+): string {
+  const period = periodOverride?.trim() || currentPeriod()
+  return `${period}-${pad(scenarioFacts[id].today)}`
 }
 
 export function getDemoScenarioState(
   id: DemoScenarioId,
   overrides: DemoStateOverrides = {}
 ): DemoScenarioState {
-  return applyOverridesToDemoState(demoScenarioCatalog[id], overrides)
-}
+  const today = overrides.todayOverride?.trim() || null
+  const period = overrides.periodOverride?.trim() || today?.slice(0, 7) || currentPeriod()
+  const todayDay = today ? Number.parseInt(today.slice(8, 10), 10) : scenarioFacts[id].today
 
-export function getDemoScenarioDefaultToday(
-  _id: DemoScenarioId,
-  periodOverride?: string | null
-): string {
-  if (periodOverride?.trim()) {
-    const today = new Date()
-    const parsed = parsePeriod(periodOverride.trim())
-    if (parsed) {
-      const day = Math.min(today.getDate(), daysInMonth(parsed.year, parsed.month))
-      return dayInPeriod(periodOverride.trim(), day)
-    }
+  return {
+    dashboard: buildDashboard(period, todayDay, scenarioFacts[id]),
+    pendingMembers,
+    adminSettings: buildAdminSettings(),
+    cycleState: buildCycleState(period)
   }
-
-  const today = new Date()
-  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 }
-
-const defaultScenarioState = getDemoScenarioState('current-cycle')
-
-export const demoDashboard = defaultScenarioState.dashboard
-export const demoPendingMembers = defaultScenarioState.pendingMembers
-export const demoAdminSettings = defaultScenarioState.adminSettings
-export const demoCycleState = defaultScenarioState.cycleState

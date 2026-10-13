@@ -4,15 +4,19 @@ import type { HTMLAttributes } from 'react'
 import { cn } from '@/lib/cn'
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4',
+  'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-4',
   {
     variants: {
       tone: {
-        neutral: 'bg-field text-muted-foreground',
-        primary: 'bg-primary-soft text-primary',
-        success: 'bg-status-credit/15 text-status-credit',
-        warning: 'bg-status-overdue/15 text-status-overdue',
-        danger: 'bg-destructive-soft text-destructive',
+        neutral: 'bg-elevated text-muted-foreground',
+        primary: 'bg-primary-soft text-foreground',
+        success: 'bg-buys-soft text-buys-ink',
+        warning: 'bg-util-soft text-util-ink',
+        danger: 'bg-danger-soft text-danger-ink',
+        util: 'bg-util-soft text-util-ink',
+        rent: 'bg-rent-soft text-rent-ink',
+        buys: 'bg-buys-soft text-buys-ink',
+        routine: 'bg-routine-soft text-routine-ink',
         outline: 'border border-border text-faint'
       }
     },

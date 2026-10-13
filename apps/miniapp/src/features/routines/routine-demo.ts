@@ -5,7 +5,7 @@ import {
   routineOccurrencesForDate,
   type RoutineDefinition
 } from '@household/domain'
-import type { RoutineView } from './types'
+import type { RoutineView, RoutinesResponse } from './types'
 
 export function createDemoDay(definition: RoutineDefinition): NonNullable<RoutineView['day']> {
   const date = routineDayDate(
@@ -108,4 +108,67 @@ export function refreshDemoActions(doc: RoutineView): void {
       actorName: last?.actorName ?? null
     }
   })
+}
+
+export function demoRoutinesResponse(): RoutinesResponse {
+  const date = new Date().toISOString().slice(0, 10)
+  const definition: RoutineDefinition = {
+    title: 'House care',
+    tasks: [
+      {
+        id: 'plants',
+        title: 'Water the plants',
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+        times: ['09:00'],
+        reminderEnabled: true,
+        claimEnabled: true
+      },
+      {
+        id: 'water',
+        title: 'Swap the drinking water',
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+        times: [],
+        reminderEnabled: false,
+        claimEnabled: false
+      }
+    ]
+  }
+  return {
+    routines: [
+      {
+        id: 'aabbccddeeff0011',
+        revision: 1,
+        definition,
+        effectiveDate: null,
+        publishTime: '08:00',
+        timezone: 'Asia/Tbilisi',
+        paused: false,
+        destination: { chatId: '-1001', threadId: 136, name: 'House chores' },
+        groupStatus: 'ready',
+        subscribed: false,
+        dmBlocked: false,
+        privateCardUnknown: false,
+        errors: [],
+        day: {
+          date,
+          title: definition.title,
+          rows: definition.tasks.map((task, i) => ({
+            ...task,
+            id: `${date.replaceAll('-', '')}${i}`,
+            taskId: task.id,
+            localTime: task.times[0] ?? null,
+            dueAt: null,
+            version: 0,
+            status: i === 0 ? 'completed' : 'pending',
+            actorId: i === 0 ? 'demo' : null,
+            actorName: i === 0 ? 'Chorbanaut' : null,
+            actedAt: null,
+            expiresAt: null
+          }))
+        }
+      }
+    ],
+    topics: [{ threadId: 136, name: 'House chores' }],
+    botUrl: ''
+  }
 }
