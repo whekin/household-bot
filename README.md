@@ -44,7 +44,7 @@ The repo uses a hexagonal structure:
 - `packages/ports`: external interfaces
 - `packages/adapters-*`: concrete persistence/integration adapters
 - `apps/bot`: grammY delivery layer and bot workflows
-- `apps/miniapp`: SolidJS front-end for richer household admin and finance views
+- `apps/miniapp`: React front-end for richer household admin and finance views
 
 Core invariants:
 
@@ -58,7 +58,7 @@ Core invariants:
 - Bun workspaces
 - TypeScript with strict settings and native `tsgo` typechecking
 - grammY for Telegram bot delivery
-- SolidJS + Vite for the mini app
+- React + Vite + Tailwind CSS for the mini app
 - Drizzle for schema and persistence layer
 - Terraform for GCP infrastructure
 - Oxlint + Oxfmt + Lefthook for local quality gates
@@ -68,7 +68,7 @@ Core invariants:
 ```text
 apps/
   bot/        Telegram bot delivery, commands, topic ingestion, mini app HTTP handlers
-  miniapp/    SolidJS web app for balances, ledger, and household admin
+  miniapp/    React web app for balances, ledger, and household admin
 
 packages/
   domain/         Money, billing periods, IDs, domain rules

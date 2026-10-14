@@ -20,7 +20,7 @@ Household Telegram bot + mini app monorepo for shared rent/utilities/purchase ac
 - Lint: Oxlint
 - Format: Oxfmt (no semicolons)
 - Bot: grammY
-- Mini app: SolidJS + Vite
+- Mini app: React + Vite + Tailwind CSS
 - Data platform: PostgreSQL 17 on Coolify (production)
 - Deploy: Coolify Docker Compose with bot, mini app, and scheduler (production)
 

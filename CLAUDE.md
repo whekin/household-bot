@@ -19,7 +19,7 @@ Household Telegram bot + mini app monorepo for shared rent/utilities/purchase ac
 - Lint: Oxlint
 - Format: Oxfmt (no semicolons)
 - Bot: grammY
-- Mini app: SolidJS + Vite
+- Mini app: React + Vite + Tailwind CSS
 - Data platform: Supabase (planned)
 - Deploy: Cloud Run + Cloud Scheduler (planned)
 
