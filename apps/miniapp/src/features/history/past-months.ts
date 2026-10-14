@@ -23,15 +23,3 @@ export function cycleHistoryStatus(
   if (remainingMinor === 0n) return 'settled'
   return remainingMinor > 0n ? 'outstanding' : 'credit'
 }
-
-export function cyclePaymentProgressPercent(
-  cycle: Pick<CycleHistoryEntry, 'totalDueMajor' | 'totalPaidMajor'>
-): number {
-  const dueMinor = majorStringToMinor(cycle.totalDueMajor)
-  const paidMinor = majorStringToMinor(cycle.totalPaidMajor)
-  if (dueMinor <= 0n) return 100
-
-  const basisPoints = (paidMinor * 10_000n) / dueMinor
-  const clamped = basisPoints < 0n ? 0n : basisPoints > 10_000n ? 10_000n : basisPoints
-  return Number(clamped) / 100
-}

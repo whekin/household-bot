@@ -18,7 +18,3 @@ export function minorToMajorString(value: bigint): string {
 
   return `${negative ? '-' : ''}${whole.toString()}.${fraction}`
 }
-
-export function sumMajorStrings(left: string, right: string): string {
-  return minorToMajorString(majorStringToMinor(left) + majorStringToMinor(right))
-}

@@ -21,7 +21,6 @@ export const en = {
   addPayment: 'Payment for a housemate',
   addPaymentHint: 'Record rent or utilities someone paid',
 
-  profileOpen: 'Your settings',
   youSuffix: 'you',
 
   kindUtilities: 'Utilities',
@@ -42,7 +41,6 @@ export const en = {
   homeLateOneDay: '1 day late',
   homeFromMonth: 'left from {month}',
   homePayAction: 'Pay',
-  homePayAllAction: 'Pay {amount}',
 
   paySheetTitle: 'What to pay',
   payBillsDirectly: 'Pay these bills directly',
@@ -83,7 +81,6 @@ export const en = {
   buysOpenTitle: 'Not paid back yet',
   buysYourShare: 'your share {amount}',
   buysYouBought: 'you bought',
-  buysRecordSent: 'I sent money',
 
   houseTileTitle: 'Housemates',
   houseTilePaid: 'paid up',
@@ -97,7 +94,6 @@ export const en = {
   routinesAnyTime: 'Any time',
   routinesFailed: "Couldn't update the task. Try again.",
 
-  ledgerFilterAll: 'All',
   recentTitle: 'Recent',
   recentSeeAll: 'See all',
   recentEmpty: 'Nothing recorded this month yet.',
@@ -125,7 +121,6 @@ export const ru: typeof en = {
   addPayment: 'Платёж за соседа',
   addPaymentHint: 'Отметить аренду или коммуналку',
 
-  profileOpen: 'Ваши настройки',
   youSuffix: 'вы',
 
   kindUtilities: 'Коммуналка',
@@ -146,7 +141,6 @@ export const ru: typeof en = {
   homeLateOneDay: 'просрочено на 1 день',
   homeFromMonth: 'долг за {month}',
   homePayAction: 'Оплатить',
-  homePayAllAction: 'Оплатить {amount}',
 
   paySheetTitle: 'Что оплатить',
   payBillsDirectly: 'Оплатите эти счета напрямую',
@@ -187,7 +181,6 @@ export const ru: typeof en = {
   buysOpenTitle: 'Ещё не возвращено',
   buysYourShare: 'ваша доля {amount}',
   buysYouBought: 'вы купили',
-  buysRecordSent: 'Отметить перевод',
 
   houseTileTitle: 'Соседи',
   houseTilePaid: 'рассчитались',
@@ -201,7 +194,6 @@ export const ru: typeof en = {
   routinesAnyTime: 'В любое время',
   routinesFailed: 'Не получилось обновить дело. Попробуйте ещё раз.',
 
-  ledgerFilterAll: 'Все',
   recentTitle: 'Недавнее',
   recentSeeAll: 'Все',
   recentEmpty: 'В этом месяце пока ничего не записано.',

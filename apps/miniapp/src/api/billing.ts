@@ -374,28 +374,6 @@ export async function closeMiniAppPaymentPeriod(
   }
 }
 
-export async function resolveMiniAppUtilityPlan(
-  initData: string,
-  input: {
-    memberId?: string
-    allMembers?: boolean
-    period?: string
-  } = {}
-): Promise<void> {
-  const { response, payload } = await postMiniApp<{
-    ok: boolean
-    authorized?: boolean
-    error?: string
-  }>('/api/miniapp/billing/utilities/resolve-planned', {
-    initData,
-    ...input
-  })
-
-  if (!response.ok || !payload.authorized) {
-    throw miniAppApiError(response, payload, 'Failed to resolve planned utility bills')
-  }
-}
-
 export async function deleteMiniAppUtilityVendorPayment(
   initData: string,
   vendorPaymentId: string

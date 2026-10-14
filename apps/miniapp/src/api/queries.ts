@@ -1,15 +1,6 @@
 import { miniAppQueryClient } from '../app/query-client'
-import { fetchMiniAppAdminSettings, fetchMiniAppPendingMembers } from './admin'
-import { fetchMiniAppBillingCycle } from './billing'
-import { fetchMiniAppDashboard } from './dashboard'
 import { fetchMiniAppSession } from './session'
-import type {
-  MiniAppAdminCycleState,
-  MiniAppAdminSettingsPayload,
-  MiniAppDashboard,
-  MiniAppPendingMember,
-  MiniAppSession
-} from './types'
+import type { MiniAppSession } from './types'
 
 export const miniAppQueryKeys = {
   session: (initData: string, joinToken?: string) =>
@@ -26,49 +17,6 @@ export function fetchSessionQuery(initData: string, joinToken?: string): Promise
   return miniAppQueryClient.fetchQuery({
     queryKey: miniAppQueryKeys.session(initData, joinToken),
     queryFn: () => fetchMiniAppSession(initData, joinToken)
-  })
-}
-
-export function fetchDashboardQuery(
-  initData: string,
-  options: {
-    periodOverride?: string | null
-    todayOverride?: string | null
-  } = {}
-): Promise<MiniAppDashboard> {
-  return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.dashboard(initData, options.periodOverride, options.todayOverride),
-    queryFn: () =>
-      fetchMiniAppDashboard(initData, {
-        ...(options.periodOverride === undefined ? {} : { periodOverride: options.periodOverride }),
-        ...(options.todayOverride === undefined ? {} : { todayOverride: options.todayOverride })
-      })
-  })
-}
-
-export function fetchPendingMembersQuery(
-  initData: string
-): Promise<readonly MiniAppPendingMember[]> {
-  return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.pendingMembers(initData),
-    queryFn: () => fetchMiniAppPendingMembers(initData)
-  })
-}
-
-export function fetchAdminSettingsQuery(initData: string): Promise<MiniAppAdminSettingsPayload> {
-  return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.adminSettings(initData),
-    queryFn: () => fetchMiniAppAdminSettings(initData)
-  })
-}
-
-export function fetchBillingCycleQuery(
-  initData: string,
-  period?: string
-): Promise<MiniAppAdminCycleState> {
-  return miniAppQueryClient.fetchQuery({
-    queryKey: miniAppQueryKeys.billingCycle(initData, period),
-    queryFn: () => fetchMiniAppBillingCycle(initData, period)
   })
 }
 

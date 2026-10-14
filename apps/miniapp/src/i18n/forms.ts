@@ -38,7 +38,6 @@ export const en = {
   formPaymentWho: 'Who paid',
   formPaymentWhat: 'For',
   formPaymentMonth: 'Month',
-  formPaymentPick: 'Choose a housemate',
   formSavePayment: 'Save payment',
   formDeletePayment: 'Delete this payment?',
 
@@ -90,7 +89,6 @@ export const ru: typeof en = {
   formPaymentWho: 'Кто заплатил',
   formPaymentWhat: 'За что',
   formPaymentMonth: 'Месяц',
-  formPaymentPick: 'Выберите соседа',
   formSavePayment: 'Сохранить платёж',
   formDeletePayment: 'Удалить этот платёж?',
 

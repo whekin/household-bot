@@ -1,7 +1,6 @@
 export const en = {
   loadingTitle: 'Opening your house',
   loadingBody: 'Checking it’s you…',
-  loadingBadge: 'Secure session',
   joinTitle: 'Welcome to your household',
   joinBody:
     'You are not a member of {household} yet. Send a join request and wait for admin approval.',
@@ -31,7 +30,6 @@ export const en = {
 export const ru: Record<keyof typeof en, string> = {
   loadingTitle: 'Открываем ваш дом',
   loadingBody: 'Проверяем, что это вы…',
-  loadingBadge: 'Защищённая сессия',
   joinTitle: 'Добро пожаловать домой',
   joinBody: 'Ты пока не в {household}. Отправь заявку и подожди, пока админ её одобрит.',
   pendingTitle: 'Заявка отправлена',

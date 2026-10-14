@@ -63,10 +63,6 @@ export function normalizePeriodOverride(value: string | null | undefined): strin
   return `${parsed.year}-${String(parsed.month).padStart(2, '0')}`
 }
 
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate()
-}
-
 export function parseCalendarDate(value: string): CalendarDateParts | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) return null
@@ -188,64 +184,4 @@ export function formatCyclePeriod(period: string, locale: Locale): string {
     month: 'long',
     ...(includeYear ? { year: 'numeric' } : {})
   }).format(date)
-}
-
-export function formatPeriodDay(period: string, day: number, locale: Locale): string {
-  const parsed = parsePeriod(period)
-  if (!parsed) {
-    return period
-  }
-
-  const safeDay = Math.max(1, Math.min(day, daysInMonth(parsed.year, parsed.month)))
-
-  return (
-    formatCalendarDate(parsed.year, parsed.month, safeDay, locale) ??
-    `${formatCyclePeriod(period, locale)} ${safeDay}`
-  )
-}
-
-export function compareTodayToPeriodDay(
-  period: string,
-  day: number,
-  timezone: string,
-  todayOverride?: CalendarDateParts | null
-): -1 | 0 | 1 | null {
-  const parsed = parsePeriod(period)
-  const today = todayOverride ?? formatTodayParts(timezone)
-  if (!parsed || !today) {
-    return null
-  }
-
-  const safeDay = Math.max(1, Math.min(day, daysInMonth(parsed.year, parsed.month)))
-  const dueValue = Date.UTC(parsed.year, parsed.month - 1, safeDay)
-  const todayValue = Date.UTC(today.year, today.month - 1, today.day)
-
-  if (todayValue < dueValue) {
-    return -1
-  }
-
-  if (todayValue > dueValue) {
-    return 1
-  }
-
-  return 0
-}
-
-export function daysUntilPeriodDay(
-  period: string,
-  day: number,
-  timezone: string,
-  todayOverride?: CalendarDateParts | null
-): number | null {
-  const parsed = parsePeriod(period)
-  const today = todayOverride ?? formatTodayParts(timezone)
-  if (!parsed || !today) {
-    return null
-  }
-
-  const safeDay = Math.max(1, Math.min(day, daysInMonth(parsed.year, parsed.month)))
-  const dueValue = Date.UTC(parsed.year, parsed.month - 1, safeDay)
-  const todayValue = Date.UTC(today.year, today.month - 1, today.day)
-
-  return Math.round((dueValue - todayValue) / 86_400_000)
 }

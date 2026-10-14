@@ -1,19 +1,12 @@
 /**
- * Pure helper functions extracted from App.tsx for ledger, member, and draft operations.
- * No side-effects, no framework imports — just data transformations.
+ * Pure helpers for ledger entries and purchase/payment drafts.
  */
 
 import { majorStringToMinor, minorToMajorString } from './money'
 import { calendarDateInputValue } from './dates'
-import type { MiniAppAdminCycleState, MiniAppDashboard } from '../api'
+import type { MiniAppDashboard } from '../api'
 
 /* ── Draft types ────────────────────────────────────── */
-
-export type UtilityBillDraft = {
-  billName: string
-  amountMajor: string
-  currency: 'USD' | 'GEL'
-}
 
 export type ParticipantShare = {
   memberId: string
@@ -45,10 +38,6 @@ export type PaymentDraft = {
 
 /* ── Pure helpers ───────────────────────────────────── */
 
-export function absoluteMinor(value: bigint): bigint {
-  return value < 0n ? -value : value
-}
-
 export function canEditLedgerEntry(input: {
   entry: MiniAppDashboard['ledger'][number]
   currentMemberId: string
@@ -63,178 +52,6 @@ export function canEditLedgerEntry(input: {
     input.entry.createdByMemberId === input.currentMemberId &&
     input.entry.isCurrentCyclePurchase === true &&
     input.entry.hasRecordedAllocations !== true
-  )
-}
-
-export function memberBaseDueMajor(member: MiniAppDashboard['members'][number]): string {
-  return minorToMajorString(
-    majorStringToMinor(member.rentShareMajor) + majorStringToMinor(member.utilityShareMajor)
-  )
-}
-
-export function memberEffectivePurchaseBalanceMajor(
-  member: MiniAppDashboard['members'][number]
-): string {
-  return member.purchaseOffsetMajor
-}
-
-export function memberRemainingClass(member: MiniAppDashboard['members'][number]): string {
-  const remainingMinor = majorStringToMinor(member.remainingMajor)
-
-  if (remainingMinor < 0n) {
-    return 'is-credit'
-  }
-
-  if (remainingMinor === 0n) {
-    return 'is-settled'
-  }
-
-  return 'is-due'
-}
-
-export function memberCreditClass(member: MiniAppDashboard['members'][number]): string {
-  const purchaseOffsetMinor = majorStringToMinor(memberEffectivePurchaseBalanceMajor(member))
-
-  if (purchaseOffsetMinor < 0n) {
-    return 'is-credit'
-  }
-
-  if (purchaseOffsetMinor === 0n) {
-    return 'is-settled'
-  }
-
-  return 'is-due'
-}
-
-export function ledgerPrimaryAmount(entry: MiniAppDashboard['ledger'][number]): string {
-  return formatSignedMoney(entry.displayAmountMajor, entry.displayCurrency)
-}
-
-export function ledgerSecondaryAmount(entry: MiniAppDashboard['ledger'][number]): string | null {
-  if (entry.currency === entry.displayCurrency && entry.amountMajor === entry.displayAmountMajor) {
-    return null
-  }
-
-  return formatSignedMoney(entry.amountMajor, entry.currency)
-}
-
-export function formatSignedMoney(
-  amountMajor: string,
-  currency: MiniAppDashboard['currency']
-): string {
-  if (currency === 'USD') {
-    return `$${amountMajor}`
-  }
-
-  if (currency === 'GEL') {
-    return `${amountMajor} ₾`
-  }
-
-  return `${amountMajor} ${currency}`
-}
-
-export function formatMoneyLabel(
-  amountMajor: string,
-  currency: MiniAppDashboard['currency'],
-  _locale: 'en' | 'ru'
-): string {
-  return formatSignedMoney(amountMajor, currency)
-}
-
-export type SemanticMoneyTone = 'is-credit' | 'is-debit' | 'is-neutral'
-
-export type SemanticMoneyLabels = {
-  credit: string
-  debit: string
-  neutral?: string
-}
-
-export function semanticMoneyTone(amountMajor: string): SemanticMoneyTone {
-  const amountMinor = majorStringToMinor(amountMajor)
-
-  if (amountMinor < 0n) {
-    return 'is-credit'
-  }
-
-  if (amountMinor > 0n) {
-    return 'is-debit'
-  }
-
-  return 'is-neutral'
-}
-
-export function formatAbsoluteMoneyLabel(
-  amountMajor: string,
-  currency: MiniAppDashboard['currency'],
-  locale: 'en' | 'ru'
-): string {
-  const amountMinor = majorStringToMinor(amountMajor)
-  const absoluteMajor = minorToMajorString(amountMinor < 0n ? -amountMinor : amountMinor)
-
-  return formatMoneyLabel(absoluteMajor, currency, locale)
-}
-
-export function formatSemanticMoneyLabel(
-  amountMajor: string,
-  currency: MiniAppDashboard['currency'],
-  locale: 'en' | 'ru',
-  labels?: Partial<SemanticMoneyLabels>
-): string | null {
-  const tone = semanticMoneyTone(amountMajor)
-  const resolvedLabels = {
-    credit: locale === 'ru' ? 'В плюсе' : 'In credit',
-    debit: locale === 'ru' ? 'К доплате' : 'To pay',
-    ...labels
-  }
-
-  if (tone === 'is-neutral') {
-    return resolvedLabels.neutral ?? null
-  }
-
-  const label = tone === 'is-credit' ? resolvedLabels.credit : resolvedLabels.debit
-  return `${label}: ${formatAbsoluteMoneyLabel(amountMajor, currency, locale)}`
-}
-
-export function cycleUtilityBillDrafts(
-  bills: MiniAppAdminCycleState['utilityBills']
-): Record<string, UtilityBillDraft> {
-  return Object.fromEntries(
-    bills.map((bill) => [
-      bill.id,
-      {
-        billName: bill.billName,
-        amountMajor: minorToMajorString(BigInt(bill.amountMinor)),
-        currency: bill.currency
-      }
-    ])
-  )
-}
-
-export function purchaseDrafts(
-  entries: readonly MiniAppDashboard['ledger'][number][]
-): Record<string, PurchaseDraft> {
-  return Object.fromEntries(
-    entries
-      .filter((entry) => entry.kind === 'purchase')
-      .map((entry) => [
-        entry.id,
-        {
-          description: entry.title,
-          amountMajor: entry.amountMajor,
-          currency: entry.currency,
-          occurredOn: calendarDateInputValue(entry.occurredAt),
-          ...(entry.payerMemberId !== undefined ? { payerMemberId: entry.payerMemberId } : {}),
-          splitMode: entry.purchaseSplitMode ?? 'equal',
-          splitInputMode: (entry.purchaseSplitMode ?? 'equal') === 'equal' ? 'equal' : 'exact',
-          participants:
-            entry.purchaseParticipants?.map((participant) => ({
-              memberId: participant.memberId,
-              included: participant.included ?? true,
-              shareAmountMajor: participant.shareAmountMajor ?? '',
-              sharePercentage: ''
-            })) ?? []
-        }
-      ])
   )
 }
 
@@ -255,25 +72,6 @@ export function purchaseDraftForEntry(entry: MiniAppDashboard['ledger'][number])
         sharePercentage: ''
       })) ?? []
   }
-}
-
-export function paymentDrafts(
-  entries: readonly MiniAppDashboard['ledger'][number][]
-): Record<string, PaymentDraft> {
-  return Object.fromEntries(
-    entries
-      .filter((entry) => entry.kind === 'payment')
-      .map((entry) => [
-        entry.id,
-        {
-          memberId: entry.memberId ?? '',
-          kind: entry.paymentKind ?? 'rent',
-          amountMajor: entry.amountMajor,
-          currency: entry.currency,
-          period: ''
-        }
-      ])
-  )
 }
 
 export function paymentDraftForEntry(entry: MiniAppDashboard['ledger'][number]): PaymentDraft {
@@ -528,10 +326,6 @@ export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValida
   }
 
   return { valid: true, remainingMinor: remaining }
-}
-
-export function defaultCyclePeriod(): string {
-  return new Date().toISOString().slice(0, 7)
 }
 
 /**

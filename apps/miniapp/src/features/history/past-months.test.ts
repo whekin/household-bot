@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { cycleHistoryStatus, cyclePaymentProgressPercent, formatHistoryPeriod } from './past-months'
+import { cycleHistoryStatus, formatHistoryPeriod } from './past-months'
 
 describe('cycle history helpers', () => {
   test('formats a canonical period in the active locale', () => {
@@ -13,15 +13,5 @@ describe('cycle history helpers', () => {
     expect(cycleHistoryStatus({ totalRemainingMajor: '0.00' })).toBe('settled')
     expect(cycleHistoryStatus({ totalRemainingMajor: '12.40' })).toBe('outstanding')
     expect(cycleHistoryStatus({ totalRemainingMajor: '-2.00' })).toBe('credit')
-  })
-
-  test('computes a clamped payment progress without floating-point money math', () => {
-    expect(cyclePaymentProgressPercent({ totalDueMajor: '100.00', totalPaidMajor: '63.25' })).toBe(
-      63.25
-    )
-    expect(cyclePaymentProgressPercent({ totalDueMajor: '100.00', totalPaidMajor: '120.00' })).toBe(
-      100
-    )
-    expect(cyclePaymentProgressPercent({ totalDueMajor: '0.00', totalPaidMajor: '0.00' })).toBe(100)
   })
 })

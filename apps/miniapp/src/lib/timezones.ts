@@ -61,10 +61,6 @@ export function canonicalizeTimezone(value: string): string | null {
   }
 }
 
-export function isValidTimezone(value: string): boolean {
-  return canonicalizeTimezone(value) !== null
-}
-
 export function searchTimezones(query: string, limit = 10): readonly string[] {
   const trimmed = query.trim()
 

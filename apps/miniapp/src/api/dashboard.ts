@@ -1,4 +1,4 @@
-import { miniAppApiError, postMiniApp, readMiniApp } from './client'
+import { miniAppApiError, readMiniApp } from './client'
 import type { MiniAppDashboard } from './types'
 
 export async function fetchMiniAppDashboard(
@@ -24,46 +24,4 @@ export async function fetchMiniAppDashboard(
   }
 
   return payload.dashboard
-}
-
-export async function updateMiniAppNotification(
-  initData: string,
-  input: {
-    notificationId: string
-    scheduledLocal?: string
-    timezone?: string
-    deliveryMode?: 'topic' | 'dm_all' | 'dm_selected'
-    dmRecipientMemberIds?: readonly string[]
-  }
-): Promise<void> {
-  const { response, payload } = await postMiniApp<{
-    ok: boolean
-    authorized?: boolean
-    error?: string
-  }>('/api/miniapp/notifications/update', {
-    initData,
-    ...input
-  })
-
-  if (!response.ok || !payload.authorized) {
-    throw miniAppApiError(response, payload, 'Failed to update notification')
-  }
-}
-
-export async function cancelMiniAppNotification(
-  initData: string,
-  notificationId: string
-): Promise<void> {
-  const { response, payload } = await postMiniApp<{
-    ok: boolean
-    authorized?: boolean
-    error?: string
-  }>('/api/miniapp/notifications/cancel', {
-    initData,
-    notificationId
-  })
-
-  if (!response.ok || !payload.authorized) {
-    throw miniAppApiError(response, payload, 'Failed to cancel notification')
-  }
 }
