@@ -48,8 +48,11 @@ export function MonthView() {
   const { showToast } = useToast()
 
   const [member, setMember] = useState<MemberTarget | null>(null)
-  const [bill, setBill] = useState<MonthBill | null>(null)
-  const [editingBill, setEditingBill] = useState<MonthBill | 'new' | null>(null)
+  // Only the id is kept, so an open bill sheet always shows the latest dashboard.
+  const [billId, setBillId] = useState<string | null>(null)
+  const [editingBill, setEditingBill] = useState<MonthBill | { newName: string | null } | null>(
+    null
+  )
   const [closeAll, setCloseAll] = useState<KindStatus | null>(null)
   const [closing, setClosing] = useState(false)
   const [redrawOpen, setRedrawOpen] = useState(false)
@@ -74,6 +77,7 @@ export function MonthView() {
 
   const currency = dashboard.currency
   const plan = dashboard.utilityBillingPlan
+  const openBill = billId ? (model.bills.find((entry) => entry.id === billId) ?? null) : null
 
   function openMember(kind: MoneyKind, status: KindStatus, row: MemberPayment) {
     setMember({
@@ -99,7 +103,10 @@ export function MonthView() {
         allMembers: true
       })
       if (!applyDashboard(result.dashboard)) await refresh()
-      showToast(copy.monthClosedAll, 'success')
+      showToast(
+        result.closeSummary.closedMembers.length > 0 ? copy.monthClosedAll : copy.payAlreadyDone,
+        'success'
+      )
       setCloseAll(null)
     } catch (error) {
       if (!handleMiniAppRequestError(error)) showToast(copy.monthActionFailed, 'error')
@@ -146,7 +153,7 @@ export function MonthView() {
                 <li key={entry.id}>
                   <button
                     type="button"
-                    onClick={() => setBill(entry)}
+                    onClick={() => setBillId(entry.id)}
                     className="flex min-h-12 w-full items-center gap-3 py-1.5 text-left"
                   >
                     <span className="min-w-0 flex-1">
@@ -191,7 +198,11 @@ export function MonthView() {
                     </span>
                     <span className="block text-xs text-util-ink">{copy.monthNotBilled}</span>
                   </span>
-                  <Button size="sm" variant="secondary" onClick={() => setEditingBill('new')}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setEditingBill({ newName: name })}
+                  >
                     <Plus className="size-3.5" />
                     {copy.monthAddBill}
                   </Button>
@@ -202,7 +213,7 @@ export function MonthView() {
           {model.missingBills.length === 0 ? (
             <button
               type="button"
-              onClick={() => setEditingBill('new')}
+              onClick={() => setEditingBill({ newName: null })}
               className="mt-1 flex h-10 items-center gap-1.5 text-[13px] font-semibold text-muted-foreground"
             >
               <Plus className="size-4" />
@@ -254,8 +265,8 @@ export function MonthView() {
                       memberId: debt.memberId,
                       displayName: debt.displayName,
                       isMe: debt.isMe,
-                      dueMajor: debt.amountMajor,
-                      paidMajor: '0.00',
+                      dueMajor: debt.dueMajor,
+                      paidMajor: debt.paidMajor,
                       remainingMajor: debt.amountMajor,
                       opensOn: null
                     })
@@ -331,22 +342,23 @@ export function MonthView() {
           }}
         />
       ) : null}
-      {bill ? (
+      {openBill ? (
         <BillSheet
-          bill={bill}
+          bill={openBill}
           planOpen={model.planOpen}
           editable={effectiveIsAdmin && plan?.status !== 'settled'}
-          onOpenChange={(open) => !open && setBill(null)}
+          onOpenChange={(open) => !open && setBillId(null)}
           onEdit={() => {
-            setEditingBill(bill)
-            setBill(null)
+            setEditingBill(openBill)
+            setBillId(null)
           }}
         />
       ) : null}
       {editingBill ? (
         <UtilityEditor
           open
-          entry={editingBill === 'new' ? null : editingBill.entry}
+          entry={'entry' in editingBill ? editingBill.entry : null}
+          initialName={'newName' in editingBill ? editingBill.newName : null}
           onOpenChange={(open) => !open && setEditingBill(null)}
         />
       ) : null}

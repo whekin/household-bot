@@ -15,7 +15,7 @@ import { CurrencyToggle } from '@/components/ui/segmented'
 import { useI18n } from '@/i18n/context'
 import { formatCyclePeriod } from '@/lib/dates'
 import { fxRateFromMicros, fxRateToMicros } from '@/lib/fx'
-import { majorStringToMinor, minorToMajorString } from '@/lib/money'
+import { minorToMajorString, parseMoneyInput } from '@/lib/money'
 
 type RentDraft = { amountMajor: string; currency: 'USD' | 'GEL'; fxRate: string }
 
@@ -53,12 +53,7 @@ export function RentEditor({
 
   if (!dashboard) return null
   const settings = adminSettings?.settings
-  let amountValid = false
-  try {
-    amountValid = majorStringToMinor(draft.amountMajor || '0') > 0n
-  } catch {
-    amountValid = false
-  }
+  const amountValid = parseMoneyInput(draft.amountMajor) > 0n
   const rateValid = draft.fxRate.trim() === '' || fxRateToMicros(draft.fxRate) !== null
 
   async function save() {

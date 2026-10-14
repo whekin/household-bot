@@ -59,6 +59,8 @@ export const en = {
   payMarkPaidHint: 'Tap once the money is sent. The house sees it right away.',
   payMarked: 'Marked as paid',
   payFailed: "Couldn't mark it as paid. Try again.",
+  payFailedPast: "This month can't be marked here. Ask an admin to record it in Month.",
+  payAlreadyDone: 'Already marked as paid',
   payRentFx: '{source} at {rate}',
 
   buysOwedTitle: 'Owed to you',
@@ -159,6 +161,8 @@ export const ru: typeof en = {
   payMarkPaidHint: 'Нажмите, когда деньги ушли. Соседи сразу увидят.',
   payMarked: 'Отмечено как оплачено',
   payFailed: 'Не получилось отметить оплату. Попробуйте ещё раз.',
+  payFailedPast: 'Этот месяц здесь отметить нельзя. Попросите админа записать платёж в «Месяце».',
+  payAlreadyDone: 'Уже отмечено как оплачено',
   payRentFx: '{source} по курсу {rate}',
 
   buysOwedTitle: 'Вам должны',

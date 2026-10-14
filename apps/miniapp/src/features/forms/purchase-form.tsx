@@ -28,7 +28,7 @@ import {
   validatePurchaseDraft,
   type PurchaseDraft
 } from '@/lib/ledger-helpers'
-import { majorStringToMinor, minorToMajorString } from '@/lib/money'
+import { minorToMajorString, parseMoneyInput, sanitizeMoneyInput } from '@/lib/money'
 import {
   buildEmptyPurchaseDraft,
   buildPurchaseSplitPayload,
@@ -38,14 +38,6 @@ import { confirmDialog, haptics } from '@/telegram/webapp'
 
 type LedgerEntry = MiniAppDashboard['ledger'][number]
 type SplitMode = PurchaseDraft['splitInputMode']
-
-function safeMinor(value: string): bigint {
-  try {
-    return majorStringToMinor(value || '0')
-  } catch {
-    return 0n
-  }
-}
 
 /**
  * Add or edit a shared purchase. The usual case — you paid, everyone splits it
@@ -100,7 +92,7 @@ export function PurchaseEditor({
   const update = (fn: (current: PurchaseDraft) => PurchaseDraft) =>
     setDraft((current) => (current ? fn(current) : current))
   const included = draft.participants.filter((participant) => participant.included)
-  const totalMinor = safeMinor(draft.amountMajor)
+  const totalMinor = parseMoneyInput(draft.amountMajor)
   const validation = validatePurchaseDraft(draft)
   const needsBalance = draft.splitInputMode !== 'equal' && !validation.valid
   const canSave =
@@ -161,7 +153,7 @@ export function PurchaseEditor({
       if (current.splitInputMode === 'percentage') {
         const basisPoints = percentageStringToBasisPoints(value)
         const shareMajor = minorToMajorString(
-          (safeMinor(current.amountMajor) * basisPoints) / 10000n
+          (parseMoneyInput(current.amountMajor) * basisPoints) / 10000n
         )
         const rebalanced = rebalancePurchaseSplit(current, memberId, shareMajor)
         return {
@@ -369,7 +361,9 @@ export function PurchaseEditor({
                         ? participant.sharePercentage
                         : participant.shareAmountMajor
                     }
-                    onChange={(event) => setShare(participant.memberId, event.target.value)}
+                    onChange={(event) =>
+                      setShare(participant.memberId, sanitizeMoneyInput(event.target.value))
+                    }
                     onBlur={(event) => commitShare(participant.memberId, event.target.value)}
                   />
                 </li>

@@ -77,10 +77,15 @@ export function MemberSheet({
         memberIds: [target.memberId]
       })
       if (!applyDashboard(result.dashboard)) await refresh()
-      showToast(copy.memberSheetMarked, 'success')
+      showToast(
+        result.closeSummary.closedMembers.length > 0 ? copy.memberSheetMarked : copy.payAlreadyDone,
+        'success'
+      )
       onOpenChange(false)
     } catch (error) {
-      if (!handleMiniAppRequestError(error)) showToast(copy.monthActionFailed, 'error')
+      if (!handleMiniAppRequestError(error)) {
+        showToast(isCurrent ? copy.monthActionFailed : copy.payFailedPast, 'error')
+      }
     } finally {
       setSaving(false)
     }

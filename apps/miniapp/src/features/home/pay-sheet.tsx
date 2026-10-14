@@ -125,10 +125,16 @@ function ObligationBlock({
         memberIds: [readySession.member.id]
       })
       if (!applyDashboard(result.dashboard)) await refresh()
-      showToast(copy.payMarked, 'success')
+      showToast(
+        result.closeSummary.closedMembers.length > 0 ? copy.payMarked : copy.payAlreadyDone,
+        'success'
+      )
       onDone()
     } catch (error) {
-      if (!handleMiniAppRequestError(error)) showToast(copy.payFailed, 'error')
+      // Older months without a utility plan can only be recorded by an admin.
+      if (!handleMiniAppRequestError(error)) {
+        showToast(obligation.isCurrentPeriod ? copy.payFailed : copy.payFailedPast, 'error')
+      }
     } finally {
       setSaving(false)
     }
@@ -166,7 +172,9 @@ function ObligationBlock({
         <WhyThisAmount breakdown={model.utilityBreakdown} currency={currency} />
       ) : null}
 
-      {obligation.kind === 'rent' ? <RentDetails dashboard={dashboard} /> : null}
+      {obligation.kind === 'rent' && obligation.isCurrentPeriod ? (
+        <RentDetails dashboard={dashboard} />
+      ) : null}
 
       {showRent ? (
         <div className="mt-4">

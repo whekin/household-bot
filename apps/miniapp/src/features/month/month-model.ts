@@ -69,6 +69,8 @@ export type EarlierDebt = {
   displayName: string
   isMe: boolean
   amountMajor: string
+  dueMajor: string
+  paidMajor: string
 }
 
 export type MonthModel = {
@@ -183,7 +185,9 @@ function kindStatus(input: {
   return {
     kind,
     window,
-    opened: today >= window.startDate,
+    // The server lists utilities as soon as bills exist, before the window starts; those
+    // rows are payable, so they count as open. Rent rows only appear once rent opens.
+    opened: today >= window.startDate || (kind === 'utilities' && rows.length > 0),
     late: today > window.endDate && totalRemaining > 0n,
     totalDueMajor: minorToMajorString(totalDue),
     totalPaidMajor: minorToMajorString(totalPaid),
@@ -249,7 +253,11 @@ export function buildMonthModel(input: {
             memberId: row.memberId,
             displayName: row.displayName,
             isMe: row.memberId === memberId,
-            amountMajor: row.remainingMajor
+            amountMajor: row.remainingMajor,
+            dueMajor: minorToMajorString(
+              majorStringToMinor(row.paidMajor) + majorStringToMinor(row.remainingMajor)
+            ),
+            paidMajor: row.paidMajor
           }))
       )
     )

@@ -25,7 +25,7 @@ import {
   paymentDraftForEntry,
   type PaymentDraft
 } from '@/lib/ledger-helpers'
-import { majorStringToMinor } from '@/lib/money'
+import { parseMoneyInput } from '@/lib/money'
 import { confirmDialog, haptics } from '@/telegram/webapp'
 
 type LedgerEntry = MiniAppDashboard['ledger'][number]
@@ -34,14 +34,6 @@ export type PaymentPrefill = {
   memberId: string
   kind: 'rent' | 'utilities'
   period: string
-}
-
-function positive(value: string): boolean {
-  try {
-    return majorStringToMinor(value || '0') > 0n
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -115,7 +107,7 @@ export function PaymentEditor({
       }
     })
 
-  const canSave = Boolean(draft.memberId) && positive(draft.amountMajor) && !saving
+  const canSave = Boolean(draft.memberId) && parseMoneyInput(draft.amountMajor) > 0n && !saving
 
   async function save() {
     if (!initData || !draft || !canSave) return

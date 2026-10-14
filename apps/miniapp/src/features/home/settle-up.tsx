@@ -15,18 +15,10 @@ import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
 import { formatFriendlyDate } from '@/lib/dates'
-import { majorStringToMinor, minorToMajorString } from '@/lib/money'
+import { majorStringToMinor, minorToMajorString, parseMoneyInput } from '@/lib/money'
 import { haptics } from '@/telegram/webapp'
 
 type Editor = { kind: 'transfer'; requestId?: string; to?: string } | { kind: 'request' }
-
-function safeMinor(value: string): bigint {
-  try {
-    return majorStringToMinor(value || '0')
-  } catch {
-    return 0n
-  }
-}
 
 /**
  * Paying a housemate back directly: record money you sent (it counts once they
@@ -326,7 +318,7 @@ function SettleEditor({
   const [date, setDate] = useState(today)
   // One id per distinct submission, reused on retry so the server can drop duplicates.
   const attempt = useRef<{ key: string; id: string } | null>(null)
-  const amountMinor = safeMinor(amount)
+  const amountMinor = parseMoneyInput(amount)
   const valid =
     amountMinor > 0n &&
     (editor.kind === 'request' ? amountMinor <= credit : Boolean(to) && date <= today)

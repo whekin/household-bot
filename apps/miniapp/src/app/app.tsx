@@ -5,6 +5,7 @@ import { AppHeader, TabBar } from '@/components/layout'
 import { BlockedScreen, LoadingScreen, OnboardingScreen } from '@/components/session-states'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Sheet } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToastProvider } from '@/components/toast'
 import { ViewErrorBoundary } from '@/components/view-error-boundary'
@@ -151,33 +152,67 @@ function ShellSheets({
           else setEditor(choice)
         }}
       />
-      {/* Editors load on first use; Home's first paint does not wait for them. */}
-      <Suspense fallback={null}>
-        {editor === 'purchase' ? (
-          <PurchaseEditor open entry={null} onOpenChange={(open) => !open && setEditor(null)} />
-        ) : null}
-        {editor === 'bill' ? (
-          <UtilityEditor open entry={null} onOpenChange={(open) => !open && setEditor(null)} />
-        ) : null}
-        {editor === 'payment' ? (
-          <PaymentEditor
-            open
-            entry={null}
-            prefill={null}
-            onOpenChange={(open) => !open && setEditor(null)}
-          />
-        ) : null}
-        {buys.open ? (
-          <BuysSheet
-            open
-            startWithTransfer={buys.transfer}
-            onOpenChange={(open) => {
-              if (!open) setBuys({ open: false, transfer: false })
+      {/* Editors load on first use; Home's first paint does not wait for them. A failed
+          chunk or a crash inside one closes into a small error sheet, not a blank app. */}
+      <ViewErrorBoundary
+        key={`${editor ?? ''}:${buys.open}`}
+        fallback={
+          <SheetError
+            onClose={() => {
+              setEditor(null)
+              setBuys({ open: false, transfer: false })
             }}
           />
-        ) : null}
-      </Suspense>
+        }
+      >
+        <Suspense fallback={null}>
+          {editor === 'purchase' ? (
+            <PurchaseEditor open entry={null} onOpenChange={(open) => !open && setEditor(null)} />
+          ) : null}
+          {editor === 'bill' ? (
+            <UtilityEditor open entry={null} onOpenChange={(open) => !open && setEditor(null)} />
+          ) : null}
+          {editor === 'payment' ? (
+            <PaymentEditor
+              open
+              entry={null}
+              prefill={null}
+              onOpenChange={(open) => !open && setEditor(null)}
+            />
+          ) : null}
+          {buys.open ? (
+            <BuysSheet
+              open
+              startWithTransfer={buys.transfer}
+              onOpenChange={(open) => {
+                if (!open) setBuys({ open: false, transfer: false })
+              }}
+            />
+          ) : null}
+        </Suspense>
+      </ViewErrorBoundary>
     </>
+  )
+}
+
+function SheetError({ onClose }: { onClose: () => void }) {
+  const { copy } = useI18n()
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={copy.viewLoadErrorTitle}
+      description={copy.dashboardLoadErrorBody}
+    >
+      <Button
+        variant="primary"
+        size="lg"
+        className="w-full"
+        onClick={() => window.location.reload()}
+      >
+        {copy.reload}
+      </Button>
+    </Sheet>
   )
 }
 

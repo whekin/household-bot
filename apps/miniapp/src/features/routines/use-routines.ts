@@ -123,6 +123,10 @@ export function useRoutinesToday() {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(key, data)
+    },
+    // A rejected tick usually means someone else changed the task; fetch the real state.
+    onSettled: (_data, error) => {
+      if (error) void queryClient.invalidateQueries({ queryKey: key })
     }
   })
 

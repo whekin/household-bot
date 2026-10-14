@@ -18,3 +18,23 @@ export function minorToMajorString(value: bigint): string {
 
   return `${negative ? '-' : ''}${whole.toString()}.${fraction}`
 }
+
+/**
+ * Typed amounts, kept to what a money field can hold: digits, one decimal point and
+ * at most two decimals. "12,5" becomes "12.5"; spaces, letters and signs are dropped.
+ */
+export function sanitizeMoneyInput(raw: string): string {
+  const cleaned = raw.replace(',', '.').replace(/[^\d.]/g, '')
+  const [whole = '', ...rest] = cleaned.split('.')
+  if (rest.length === 0) return whole
+  return `${whole}.${rest.join('').slice(0, 2)}`
+}
+
+/** Minor units of a user-typed amount; anything unparseable counts as zero. */
+export function parseMoneyInput(value: string): bigint {
+  try {
+    return majorStringToMinor(sanitizeMoneyInput(value) || '0')
+  } catch {
+    return 0n
+  }
+}

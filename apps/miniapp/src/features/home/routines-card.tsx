@@ -15,7 +15,7 @@ export function RoutinesCard() {
   const { copy } = useI18n()
   const { showToast } = useToast()
   const { openRoutines } = useAppNav()
-  const { routines, loading, toggle } = useRoutinesToday()
+  const { routines, loading, toggle, toggling } = useRoutinesToday()
 
   if (loading || routines.length === 0) return null
 
@@ -59,6 +59,7 @@ export function RoutinesCard() {
             <li key={row.id}>
               <button
                 type="button"
+                disabled={toggling}
                 onClick={() => {
                   haptics.impact(completed ? 'light' : 'medium')
                   toggle({ routine, row, action: completed ? 'reopen' : 'complete' }).catch(() =>

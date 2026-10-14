@@ -19,20 +19,12 @@ import { Sheet } from '@/components/ui/dialog'
 import { CurrencyToggle } from '@/components/ui/segmented'
 import { useI18n } from '@/i18n/context'
 import { cn } from '@/lib/cn'
-import { majorStringToMinor } from '@/lib/money'
+import { parseMoneyInput } from '@/lib/money'
 import { confirmDialog, haptics } from '@/telegram/webapp'
 
 type LedgerEntry = MiniAppDashboard['ledger'][number]
 
 type BillDraft = { billName: string; amountMajor: string; currency: 'USD' | 'GEL' }
-
-function positive(value: string): boolean {
-  try {
-    return majorStringToMinor(value || '0') > 0n
-  } catch {
-    return false
-  }
-}
 
 /**
  * Add or correct a utility bill: pick which bill, type the total. Anyone can add
@@ -41,10 +33,13 @@ function positive(value: string): boolean {
 export function UtilityEditor({
   open,
   entry,
+  initialName = null,
   onOpenChange
 }: {
   open: boolean
   entry: LedgerEntry | null
+  /** For a new bill: which bill type to start on, e.g. the row the reader tapped. */
+  initialName?: string | null
   onOpenChange: (open: boolean) => void
 }) {
   const { initData, handleMiniAppRequestError } = useSession()
@@ -71,7 +66,7 @@ export function UtilityEditor({
       entry
         ? { billName: entry.title, amountMajor: entry.amountMajor, currency: entry.currency }
         : {
-            billName: firstMissing?.name ?? '',
+            billName: initialName ?? firstMissing?.name ?? '',
             amountMajor: '',
             currency: dashboard?.currency ?? 'GEL'
           }
@@ -92,7 +87,8 @@ export function UtilityEditor({
     return list
   }, [dashboard, entry])
 
-  const canSave = draft.billName.trim().length > 0 && positive(draft.amountMajor) && !saving
+  const canSave =
+    draft.billName.trim().length > 0 && parseMoneyInput(draft.amountMajor) > 0n && !saving
 
   async function save() {
     if (!initData || !canSave) return

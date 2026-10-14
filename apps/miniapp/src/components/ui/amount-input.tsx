@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react'
 
 import { cn } from '@/lib/cn'
+import { sanitizeMoneyInput } from '@/lib/money'
 
 /**
  * The amount is the first thing every money form asks for, so it gets the room:
@@ -41,7 +42,7 @@ export function AmountInput({
           data-autofocus={autoFocus ? '' : undefined}
           disabled={disabled}
           value={value}
-          onChange={(event) => onChange(event.target.value.replace(',', '.'))}
+          onChange={(event) => onChange(sanitizeMoneyInput(event.target.value))}
           // Sized to its text (WebKit has no field-sizing yet) so the symbol hugs the digits.
           style={{ width: `${value ? Math.min(10, value.length) + 0.5 : 4.5}ch` }}
           className={cn(

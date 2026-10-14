@@ -2,7 +2,7 @@
  * Pure helpers for ledger entries and purchase/payment drafts.
  */
 
-import { majorStringToMinor, minorToMajorString } from './money'
+import { majorStringToMinor, minorToMajorString, parseMoneyInput } from './money'
 import { calendarDateInputValue } from './dates'
 import type { MiniAppDashboard } from '../api'
 
@@ -97,7 +97,7 @@ export function rebalancePurchaseSplit(
   changedMemberId: string | null,
   newAmountMajor: string | null
 ): PurchaseDraft {
-  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const totalMinor = parseMoneyInput(draft.amountMajor)
   let participants = draft.participants.map((p) => ({ ...p }))
 
   // 1. Update the changed participant if any
@@ -121,7 +121,7 @@ export function rebalancePurchaseSplit(
   // 3. Calculate current allocation and delta
   const currentAllocated = participants
     .filter((p) => p.included)
-    .reduce((sum, p) => sum + majorStringToMinor(p.shareAmountMajor || '0'), 0n)
+    .reduce((sum, p) => sum + parseMoneyInput(p.shareAmountMajor || '0'), 0n)
 
   let delta = currentAllocated - totalMinor
 
@@ -140,7 +140,7 @@ export function rebalancePurchaseSplit(
 
     for (const p of sorted) {
       if (delta === 0n) break
-      const currentMinor = majorStringToMinor(participants[p.idx]!.shareAmountMajor || '0')
+      const currentMinor = parseMoneyInput(participants[p.idx]!.shareAmountMajor || '0')
       let newValue = currentMinor - delta
 
       if (newValue < 0n) {
@@ -205,14 +205,14 @@ export function rebalancePurchaseSplit(
 }
 
 function recalculatePercentages(draft: PurchaseDraft): PurchaseDraft {
-  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const totalMinor = parseMoneyInput(draft.amountMajor)
   if (totalMinor <= 0n) return draft
 
   const participants = draft.participants.map((p) => {
     if (!p.included) {
       return { ...p, sharePercentage: '' }
     }
-    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    const shareMinor = parseMoneyInput(p.shareAmountMajor || '0')
     const percentage = Number((shareMinor * 10000n) / totalMinor) / 100
     return {
       ...p,
@@ -236,7 +236,7 @@ function excludeZeroShareCustomParticipants(
       return participant
     }
 
-    const shareMinor = majorStringToMinor(participant.shareAmountMajor || '0')
+    const shareMinor = parseMoneyInput(participant.shareAmountMajor || '0')
     if (shareMinor > 0n) {
       return participant
     }
@@ -252,10 +252,10 @@ function excludeZeroShareCustomParticipants(
 }
 
 export function calculateRemainingToAllocate(draft: PurchaseDraft): bigint {
-  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const totalMinor = parseMoneyInput(draft.amountMajor)
   const allocated = draft.participants
     .filter((p) => p.included)
-    .reduce((sum, p) => sum + majorStringToMinor(p.shareAmountMajor || '0'), 0n)
+    .reduce((sum, p) => sum + parseMoneyInput(p.shareAmountMajor || '0'), 0n)
   return totalMinor - allocated
 }
 
@@ -286,12 +286,12 @@ export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValida
     return { valid: true, remainingMinor: 0n }
   }
 
-  const totalMinor = majorStringToMinor(draft.amountMajor)
+  const totalMinor = parseMoneyInput(draft.amountMajor)
   const remaining = calculateRemainingToAllocate(draft)
 
   const hasNonPositiveShare = draft.participants.some((p) => {
     if (!p.included) return false
-    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    const shareMinor = parseMoneyInput(p.shareAmountMajor || '0')
     return shareMinor <= 0n
   })
 
@@ -305,7 +305,7 @@ export function validatePurchaseDraft(draft: PurchaseDraft): PurchaseDraftValida
 
   const hasInvalidShare = draft.participants.some((p) => {
     if (!p.included) return false
-    const shareMinor = majorStringToMinor(p.shareAmountMajor || '0')
+    const shareMinor = parseMoneyInput(p.shareAmountMajor || '0')
     return shareMinor > totalMinor
   })
 
