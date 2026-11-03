@@ -22,7 +22,7 @@ const miniAppAllowedOrigins = config.getObject<string[]>('miniAppAllowedOrigins'
 ]
 const miniAppUrl = config.get('miniAppUrl') ?? `https://${publicMiniappHostname}`
 const logLevel = config.get('logLevel') ?? 'info'
-const assistantModel = config.get('assistantModel') ?? 'gpt-5.6-terra'
+const assistantModel = config.get('assistantModel') ?? 'gpt-6.1-terra'
 const scheduledDispatchGroupName =
   config.get('scheduledDispatchGroupName') ?? 'scheduled-dispatches'
 const lambdaFunctionName = `${appName}-${environment}-bot`

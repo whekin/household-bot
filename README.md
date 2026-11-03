@@ -11,7 +11,7 @@ This is not a toy Telegram bot repo with a thin webhook and some string parsing.
 - deterministic money-safe settlement logic with integer minor-unit math
 - a hexagonal TypeScript monorepo with explicit domain / application / ports / adapter boundaries
 - real operational concerns: idempotency, onboarding flows, localized UX, bot topic setup, reminder scheduling, Terraform-managed infrastructure
-- a tool-calling household agent (`gpt-5.6-terra`) with a wake gate and confirmation-backed writes
+- a tool-calling household agent (`gpt-6.1-terra`) with a wake gate and confirmation-backed writes
 - a product that mixes structured command flows with LLM-assisted parsing while keeping writes deterministic
 
 ## Current Product Scope

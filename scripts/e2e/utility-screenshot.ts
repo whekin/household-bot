@@ -8,7 +8,7 @@ if (!paths.length || !process.env.OPENAI_API_KEY)
   throw new Error('Usage: OPENAI_API_KEY=... bun run scripts/e2e/utility-screenshot.ts IMAGE...')
 const recognize = createOpenAiUtilityImageRecognizer({
   apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.ASSISTANT_MODEL?.trim() || 'gpt-5.6-terra',
+  model: process.env.ASSISTANT_MODEL?.trim() || 'gpt-6.1-terra',
   timeoutMs: 60000
 })
 const categories = [
