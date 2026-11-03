@@ -1,11 +1,11 @@
-export function formatUserFacingMoney(amount: string, currency: string): string {
-  if (currency === 'USD') {
-    return `$${amount}`
-  }
+import { formatMajorMoneyDisplay } from '@household/domain'
 
-  if (currency === 'GEL') {
-    return `${amount} ₾`
-  }
+import type { BotLocale } from './types'
 
-  return `${amount} ${currency}`
+export function formatUserFacingMoney(
+  amount: string,
+  currency: string,
+  locale: BotLocale = 'ru'
+): string {
+  return formatMajorMoneyDisplay(amount, currency, locale)
 }

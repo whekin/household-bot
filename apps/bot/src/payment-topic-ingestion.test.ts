@@ -70,6 +70,7 @@ function createHouseholdRepository() {
       telegramThreadId: '888',
       topicName: 'Быт'
     }),
+    getHouseholdMember: async () => null,
     getHouseholdBillingSettings: async () => ({
       householdId: 'household-1',
       settlementCurrency: 'GEL' as const,
@@ -519,7 +520,7 @@ describe('buildPaymentAcknowledgement', () => {
         amountMajor: '472.50',
         currency: 'GEL'
       })
-    ).toBe('✅ <b>Оплата аренды записана</b>\n💰 <b>472.50 ₾</b>')
+    ).toBe('✅ Аренда записана · 472.50 ₾')
   })
 
   test('returns review acknowledgement', () => {
@@ -816,9 +817,15 @@ describe('publishAgentPaymentProposal', () => {
       'member-2'
     ])
     expect(resolvedMemberIds.sort()).toEqual(['member-1', 'member-2'])
-    expect(calls.findIndex((call) => call.method === 'auditNotification')).toBeLessThan(
-      calls.findLastIndex((call) => call.method === 'sendMessage')
-    )
+    expect(calls.some((call) => call.method === 'auditNotification')).toBe(true)
+    // The month's milestone belongs to the notifications feed, not this topic.
+    expect(
+      calls.some(
+        (call) =>
+          call.method === 'sendMessage' &&
+          String((call.payload as { text?: string }).text).includes('🎉')
+      )
+    ).toBe(false)
   })
 
   test('multi-confirm still records and edits when the callback answer is stale', async () => {
@@ -880,12 +887,15 @@ describe('publishAgentPaymentProposal', () => {
     expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
     const edit = calls.findLast((call) => call.method === 'editMessageText')
     expect((edit?.payload as { text?: string } | undefined)?.text).toBe(
-      '✅ <b>Оплата коммуналки записана</b>\n👥 Stas, Dima'
+      '✅ <b>Коммуналка за май записана</b>: Stas, Dima'
     )
-    const closure = calls.findLast((call) => call.method === 'sendMessage')
-    expect((closure?.payload as { text?: string } | undefined)?.text).toBe(
-      '🎉 <b>Коммуналка за май 2026 г. полностью закрыта.</b>'
-    )
+    expect(
+      calls.some(
+        (call) =>
+          call.method === 'sendMessage' &&
+          String((call.payload as { text?: string }).text).includes('🎉')
+      )
+    ).toBe(false)
   })
 
   test('posts a third-person card that the reported payer can confirm', async () => {
@@ -974,7 +984,7 @@ describe('publishAgentPaymentProposal', () => {
 
     const reply = calls.find((call) => call.method === 'sendMessage')
     expect((reply!.payload as { text: string }).text).toBe(
-      'Аренда за 2026-06 уже оплачена. За какой период этот новый платёж?'
+      'Аренда за июнь уже оплачена. За какой месяц эта оплата?'
     )
   })
 })
@@ -1033,7 +1043,9 @@ test('a saved receipt retries pending balances without a second payment or unava
     text: string
     reply_markup: { inline_keyboard: unknown[][] }
   }
-  expect(first.text).toContain('Платёж сохранён')
+  expect(first.text).toBe(
+    '✅ Аренда за май записана · Dima · 469 ₾\n\n⚠️ Оплата сохранена, но баланс ещё не пересчитан. Нажмите «Повторить» — второй раз оплата не запишется.'
+  )
   expect(first.reply_markup.inline_keyboard).toHaveLength(1)
   expect(
     await prompts.getPendingAction('-10012345', '20002', 'payment_topic_confirmation')
@@ -1043,7 +1055,7 @@ test('a saved receipt retries pending balances without a second payment or unava
     text: string
     reply_markup: { inline_keyboard: unknown[][] }
   }
-  expect(second.text).toContain('Оплата аренды записана')
+  expect(second.text).toBe('✅ Аренда за май записана · Dima · 469 ₾')
   expect(second.reply_markup.inline_keyboard).toEqual([])
   expect(
     await prompts.getPendingAction('-10012345', '20002', 'payment_topic_confirmation')

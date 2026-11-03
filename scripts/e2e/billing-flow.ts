@@ -12,13 +12,10 @@ import {
 import { createDbClient, schema } from '@household/db'
 import type { ExchangeRateProvider } from '@household/ports'
 
-import { createTelegramBot } from '../../apps/bot/src/bot'
-import { createFinanceCommandsService } from '../../apps/bot/src/finance-commands'
 import { createPurchaseMessageRepository } from '../../apps/bot/src/adapters/purchase-message-repository'
 
 const chatId = '-100123456'
 const purchaseTopicId = 77
-const commandChatIdNumber = -100123456
 const exchangeRateProvider: ExchangeRateProvider = {
   async getRate(input) {
     if (input.baseCurrency === input.quoteCurrency) {
@@ -43,41 +40,6 @@ const exchangeRateProvider: ExchangeRateProvider = {
 
 function unixSeconds(year: number, month: number, day: number): number {
   return Math.floor(Date.UTC(year, month - 1, day, 12, 0, 0) / 1000)
-}
-
-function commandUpdate(params: {
-  updateId: number
-  fromUserId: string
-  fromName: string
-  text: string
-  unixTime: number
-}) {
-  const commandToken = params.text.split(' ')[0] ?? params.text
-
-  return {
-    update_id: params.updateId,
-    message: {
-      message_id: params.updateId,
-      date: params.unixTime,
-      chat: {
-        id: commandChatIdNumber,
-        type: 'supergroup'
-      },
-      from: {
-        id: Number(params.fromUserId),
-        is_bot: false,
-        first_name: params.fromName
-      },
-      text: params.text,
-      entities: [
-        {
-          offset: 0,
-          length: commandToken.length,
-          type: 'bot_command'
-        }
-      ]
-    }
-  }
 }
 
 function parseStatement(text: string): Map<string, string> {
@@ -131,46 +93,6 @@ async function run(): Promise<void> {
     | ReturnType<typeof createDbHouseholdConfigurationRepository>
     | undefined
 
-  const bot = createTelegramBot('000000:test-token')
-  const replies: string[] = []
-
-  bot.botInfo = {
-    id: 999000,
-    is_bot: true,
-    first_name: 'Household Test Bot',
-    username: 'household_test_bot',
-    can_join_groups: true,
-    can_read_all_group_messages: false,
-    supports_inline_queries: false,
-    can_connect_to_business: false,
-    has_main_web_app: false,
-    has_topics_enabled: true,
-    allows_users_to_create_topics: false
-  }
-
-  bot.api.config.use(async (_prev, method, payload) => {
-    if (method === 'sendMessage') {
-      const p = payload as any
-      const messageText = typeof p?.text === 'string' ? p.text : ''
-      replies.push(messageText)
-
-      return {
-        ok: true,
-        result: {
-          message_id: replies.length,
-          date: Math.floor(Date.now() / 1000),
-          chat: {
-            id: commandChatIdNumber,
-            type: 'supergroup'
-          },
-          text: messageText
-        }
-      } as any
-    }
-
-    return { ok: true, result: true } as any
-  })
-
   try {
     coreClient = createDbClient(databaseUrl, {
       max: 2,
@@ -186,13 +108,6 @@ async function run(): Promise<void> {
       householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
       exchangeRateProvider
     })
-    const financeCommands = createFinanceCommandsService({
-      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
-      financeServiceForHousehold: () => financeService
-    })
-
-    financeCommands.register(bot)
-
     await coreClient.db.insert(schema.households).values({
       id: ids.household,
       name: 'E2E Smoke Household'
@@ -231,25 +146,9 @@ async function run(): Promise<void> {
     let updateId = 1000
     const march12 = unixSeconds(2026, 3, 12)
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/cycle_open 2026-03 USD',
-        unixTime: march12
-      }) as never
-    )
+    await financeService.openCycle('2026-03', 'USD')
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/rent_set 700 USD 2026-03',
-        unixTime: march12
-      }) as never
-    )
+    await financeService.setRent('700', 'USD', '2026-03')
 
     const purchaseSaveResult = await ingestionClient.repository.saveWithInterpretation(
       {
@@ -285,56 +184,20 @@ async function run(): Promise<void> {
     )
     assert.equal(purchaseConfirmResult.status, 'confirmed')
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/utility_add electricity 120 USD',
-        unixTime: march12
-      }) as never
-    )
+    await financeService.addUtilityBill('electricity', '120', ids.admin, 'USD')
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/statement 2026-03',
-        unixTime: march12
-      }) as never
-    )
-
-    const firstStatement = replies.find((entry) => entry.startsWith('Statement for 2026-03'))
-    assert.ok(firstStatement, 'First statement message was not emitted')
+    const firstStatement = await financeService.generateStatement('2026-03')
+    assert.ok(firstStatement, 'First statement was not generated')
 
     const firstTotals = parseStatement(firstStatement)
     assert.equal(firstTotals.get('Alice'), '283.34')
     assert.equal(firstTotals.get('Bob'), '253.33')
     assert.equal(firstTotals.get('Carol'), '283.33')
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/utility_add water 30 USD',
-        unixTime: march12
-      }) as never
-    )
+    await financeService.addUtilityBill('water', '30', ids.admin, 'USD')
 
-    await bot.handleUpdate(
-      commandUpdate({
-        updateId: ++updateId,
-        fromUserId: telegram.admin,
-        fromName: 'Alice',
-        text: '/statement 2026-03',
-        unixTime: march12
-      }) as never
-    )
-
-    const secondStatement = replies.at(-1)
-    assert.ok(secondStatement?.startsWith('Statement for 2026-03'), 'Second statement missing')
+    const secondStatement = await financeService.generateStatement('2026-03')
+    assert.ok(secondStatement, 'Second statement was not generated')
 
     const secondTotals = parseStatement(secondStatement ?? '')
     assert.equal(secondTotals.get('Alice'), '293.34')

@@ -1237,13 +1237,19 @@ describe('createMiniAppAddPurchaseHandler', () => {
         actorDisplayName: 'Stan',
         category: 'purchase_events',
         eventType: 'purchase.added',
-        summaryText: 'Stan added purchase: Pizza 30.00 ₾',
+        summaryText: 'Stan added purchase: Pizza 30 ₾',
         metadata: {
           purchaseId: 'new-purchase-1',
           description: 'Pizza',
           amountMinor: '3000',
           currency: 'GEL',
-          payerMemberId: 'member-123456'
+          payerMemberId: 'member-123456',
+          payerDisplayName: 'Stan',
+          splitMode: 'equal',
+          participants: [
+            { memberId: 'member-123456', included: true, shareAmountMajor: null },
+            { memberId: 'member-999', included: true, shareAmountMajor: null }
+          ]
         }
       }
     ])
@@ -1901,8 +1907,11 @@ describe('utility billing action handlers', () => {
         actorDisplayName: 'Stan',
         category: 'plan_events',
         eventType: 'utility_plan.resolved',
-        summaryText: 'Stan marked planned utilities paid: Stan · Electricity 120.00 ₾ (2026-03)',
+        // Fallback only: the Notifications line is rendered from the metadata below.
+        summaryText: 'Stan marked planned utilities paid (2026-03)',
         metadata: {
+          period: '2026-03',
+          memberId: 'member-123456',
           resolvedAssignments: [
             {
               memberId: 'member-123456',

@@ -17,10 +17,15 @@ import type {
   RoutineRow
 } from '@household/ports'
 
+/**
+ * `message` is what the mini app shows as is; `code` is a stable key for surfaces that
+ * localize the error themselves, such as Telegram toasts.
+ */
 export class RoutineError extends Error {
   constructor(
     message: string,
-    readonly status = 400
+    readonly status = 400,
+    readonly code: string | null = null
   ) {
     super(message)
   }
@@ -194,7 +199,7 @@ export function createRoutineService(
 ) {
   function authorize(actor: RoutineActor, admin = false) {
     if (actor.status !== 'active' || (admin && !actor.isAdmin))
-      throw new RoutineError('Недостаточно прав', 403)
+      throw new RoutineError('Недостаточно прав', 403, 'forbidden')
   }
   return {
     repository,
@@ -236,7 +241,7 @@ export function createRoutineService(
         const existing = await repository.get(input.id)
         if (existing) {
           if (existing.householdId !== actor.householdId)
-            throw new RoutineError('Список недоступен', 404)
+            throw new RoutineError('Список недоступен', 404, 'not_found')
           return existing
         }
         const doc: RoutineDocument = {
@@ -263,7 +268,11 @@ export function createRoutineService(
       }
       return repository.change(input.id, actor.householdId, (doc) => {
         if (doc.revision !== input.expectedRevision)
-          throw new RoutineError('Список уже изменён. Обновите данные; ваш черновик сохранён.', 409)
+          throw new RoutineError(
+            'Список уже изменён. Обновите данные; ваш черновик сохранён.',
+            409,
+            'stale_revision'
+          )
         materializeRoutineDay(doc, now)
         doc.nextDefinition = {
           effectiveDate: Temporal.PlainDate.from(
@@ -286,7 +295,7 @@ export function createRoutineService(
       authorize(actor, true)
       return repository.change(id, actor.householdId, (doc) => {
         if (doc.revision !== expectedRevision)
-          throw new RoutineError('Список уже изменён. Обновите данные.', 409)
+          throw new RoutineError('Список уже изменён. Обновите данные.', 409, 'stale_revision')
         doc.paused = paused
         doc.resumedAt = clock()
         doc.revision += 1
@@ -326,7 +335,7 @@ export function createRoutineService(
         !input.requestId ||
         input.requestId.length > 160
       )
-        throw new RoutineError('Некорректное действие')
+        throw new RoutineError('Некорректное действие', 400, 'invalid_action')
       return repository.change(input.id, actor.householdId, (doc) => {
         const requestKey = `${actor.id}:${input.requestId}`
         if (doc.actionIds.includes(requestKey)) return
@@ -334,17 +343,26 @@ export function createRoutineService(
         materializeRoutineDay(doc, now)
         const day = doc.days.find((d) => d.date === routineDate(doc, now))!
         const row = day.rows.find((r) => r.id === input.rowId)
-        if (!row) throw new RoutineError('Эта карточка устарела. Откройте дела на сегодня.', 409)
-        if (doc.paused) throw new RoutineError('Список на паузе', 409)
+        if (!row)
+          throw new RoutineError(
+            'Эта карточка устарела. Откройте дела на сегодня.',
+            409,
+            'stale_card'
+          )
+        if (doc.paused) throw new RoutineError('Список на паузе', 409, 'paused')
         if (input.activityId) {
           if (
             input.action !== 'complete' ||
             !day.quickActions?.some((action) => action.id === input.activityId)
           )
-            throw new RoutineError('Быстрое действие недоступно', 409)
+            throw new RoutineError('Быстрое действие недоступно', 409, 'quick_unavailable')
           const target = pickRoutineQuickTarget(day.rows, input.activityId, now)
           if (target?.id !== row.id)
-            throw new RoutineError('Подходящее дело изменилось. Обновите карточку.', 409)
+            throw new RoutineError(
+              'Подходящее дело изменилось. Обновите карточку.',
+              409,
+              'quick_changed'
+            )
         }
         const result = applyRoutineAction({
           state: { version: row.version, progress: progress(row) },
@@ -355,11 +373,15 @@ export function createRoutineService(
           now: Temporal.Instant.from(now)
         })
         if (result.status === 'conflict')
-          throw new RoutineError('Уже отмечено другим участником. Карточка обновляется.', 409)
+          throw new RoutineError(
+            'Уже отмечено другим участником. Карточка обновляется.',
+            409,
+            'conflict'
+          )
         if (result.status === 'claimed_by_other')
-          throw new RoutineError('Этим уже занимается другой участник', 409)
+          throw new RoutineError('Этим уже занимается другой участник', 409, 'claimed_by_other')
         if (result.status === 'claim_disabled')
-          throw new RoutineError('Для этого дела взятие выключено')
+          throw new RoutineError('Для этого дела взятие выключено', 400, 'claim_disabled')
         if (result.status === 'changed') {
           if (input.action === 'reopen' && row.dueAt && Date.parse(row.dueAt) <= Date.parse(now))
             row.reminderSuppressed = true

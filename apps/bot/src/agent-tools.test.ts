@@ -548,7 +548,8 @@ describe('executeAgentTool propose_payment', () => {
     expect((result.result as { status: string }).status).toBe('card_posted')
     expect(requested).toEqual(['2026-07'])
     expect(pending[0]?.payload.period).toBe('2026-07')
-    expect(replies[0]?.text).toContain('2026-07')
+    expect(replies[0]?.text).toContain('за июль')
+    expect(replies[0]?.text).not.toContain('2026')
   })
   test('expands "за всех" to every other member even when the model omits covered_member_ids', async () => {
     const replies: Array<{ text: string; payload: unknown }> = []
@@ -568,10 +569,11 @@ describe('executeAgentTool propose_payment', () => {
     })
 
     expect((result.result as { status?: string }).status).toBe('card_posted')
-    expect(replies[0]?.text).toContain('✅ <s>Дима</s> · уже оплачено')
-    expect(replies[0]?.text).toContain('☑️ <b>Алиса</b> · не оплачено')
-    expect(replies[0]?.text).toContain('☑️ <b>Ион</b> · не оплачено')
-    expect(replies[0]?.text).toContain('☑️ <b>Стас</b> · не оплачено')
+    const cardLines = replies[0]?.text.split('\n') ?? []
+    expect(cardLines).toContain('✅ <s>Дима</s> · уже оплачено')
+    expect(cardLines).toContain('☑️ <b>Алиса</b>')
+    expect(cardLines).toContain('☑️ <b>Ион</b>')
+    expect(cardLines).toContain('☑️ <b>Стас</b>')
     const payload = pending[0]?.payload as
       | {
           members?: Array<{ memberId: string; paymentStatus: string; selected: boolean }>
@@ -628,7 +630,7 @@ describe('admin rent agent tool', () => {
 
     expect(result.cardPosted).toBe(true)
     expect((result.result as { nothingChangedYet?: boolean }).nothingChangedYet).toBe(true)
-    expect(cards[0]).toContain('$800.00')
+    expect(cards[0]).toBe('🤖 Поставить аренду $800 на июль и август?')
     expect(pending[0]?.action).toBe('agent_action')
     expect(pending[0]?.payload).toMatchObject({
       actionType: 'set_period_rent',
@@ -944,7 +946,7 @@ describe('household fact agent tools', () => {
 
     expect(result.cardPosted).toBe(true)
     expect(facts).toHaveLength(0)
-    expect(cards[0]).toContain('запомнить «Wi-Fi»')
+    expect(cards[0]).toContain('Запомнить «Wi-Fi»')
 
     const payload = pending[0]?.payload as AgentActionPayload | undefined
     expect(payload?.actionType).toBe('set_household_fact')
@@ -1026,7 +1028,7 @@ describe('household fact agent tools', () => {
 
     expect(result.cardPosted).toBe(true)
     expect(facts).toHaveLength(1)
-    expect(cards[0]).toContain('забыть «Wi-Fi»')
+    expect(cards[0]).toContain('Забыть «Wi-Fi»')
     expect((pending[0]?.payload as AgentActionPayload | undefined)?.params).toEqual({ key: 'wifi' })
   })
 })

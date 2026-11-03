@@ -3,55 +3,16 @@ export type BotLocale = 'en' | 'ru'
 export type TelegramCommandName =
   | 'start'
   | 'help'
-  | 'settings'
   | 'home'
   | 'bill'
-  | 'bill_full'
-  | 'my_bill'
-  | 'my_bill_full'
-  | 'bill_json'
-  | 'household_status'
-  | 'balance'
-  | 'utilities'
+  | 'app'
   | 'anon'
   | 'cancel'
   | 'setup'
-  | 'unsetup'
   | 'bind'
-  | 'join_link'
-  | 'payment_add'
-  | 'pending_members'
-  | 'approve_member'
-  | 'app'
-  | 'dashboard'
-  | 'keyboard'
+  | 'invite'
 
-export interface BotCommandDescriptions {
-  start: string
-  help: string
-  settings: string
-  home: string
-  bill: string
-  bill_full: string
-  my_bill: string
-  my_bill_full: string
-  bill_json: string
-  household_status: string
-  balance: string
-  utilities: string
-  anon: string
-  cancel: string
-  setup: string
-  unsetup: string
-  bind: string
-  join_link: string
-  payment_add: string
-  pending_members: string
-  approve_member: string
-  app: string
-  dashboard: string
-  keyboard: string
-}
+export type BotCommandDescriptions = Record<TelegramCommandName, string>
 
 export interface PendingMemberSummary {
   telegramUserId: string
@@ -64,20 +25,12 @@ export interface BotTranslationCatalog {
   commands: BotCommandDescriptions
   help: {
     intro: string
-    introWithoutHome: string
-    tasksHeading: string
-    checkMyBill: string
-    checkHouseholdStatus: string
-    checkBalances: string
-    recordPurchase: string
-    recordPayment: string
-    openDashboard: string
-    setupHousehold: string
-    manageMembers: string
-    advancedHeading: string
-    privateChatHeading: string
-    groupHeading: string
-    groupAdminsHeading: string
+    purchases: string
+    payments: string
+    bill: string
+    app: string
+    setup: string
+    commandsHeading: string
   }
   home: {
     title: string
@@ -87,6 +40,7 @@ export interface BotTranslationCatalog {
     householdStatusButton: string
     balancesButton: string
     fullBillButton: string
+    routinesButton: string
     menuButton: string
     miniAppButton: string
     setupButton: string
@@ -97,10 +51,6 @@ export interface BotTranslationCatalog {
     feedbackMenuTitle: string
     feedbackMenuBody: string
   }
-  common: {
-    unableToIdentifySender: string
-    useHelp: string
-  }
   setup: {
     onlyTelegramAdmins: string
     useSetupInGroup: string
@@ -109,10 +59,10 @@ export interface BotTranslationCatalog {
     useCommandInTopic: string
     onlyHouseholdAdmins: string
     pendingNotFound: string
-    pendingMembersHeading: (householdName: string) => string
-    pendingMembersHint: string
-    pendingMembersEmpty: (householdName: string) => string
-    pendingMemberLine: (member: PendingMemberSummary, index: number) => string
+    inviteHeading: (householdName: string) => string
+    pendingMembersHeading: string
+    pendingMembersEmpty: string
+    pendingMemberLine: (member: PendingMemberSummary) => string
     openMiniAppButton: string
     openMiniAppFromPrivateChat: string
     openMiniAppUnavailable: string
@@ -128,44 +78,25 @@ export interface BotTranslationCatalog {
     setupTopicBound: (role: string) => string
     setupTopicMissing: (role: string) => string
     setupTopicCreateButton: (role: string) => string
-    setupTopicBindButton: (role: string) => string
     setupTopicCreateFailed: string
     setupTopicCreateForbidden: string
     setupTopicCreated: (role: string, topicName: string) => string
-    setupTopicBindPending: string
-    setupTopicBindCancelled: string
-    setupTopicBindNotAvailable: string
     setupTopicBindRoleName: (
       role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments' | 'notifications'
     ) => string
     setupTopicSuggestedName: (
       role: 'chat' | 'purchase' | 'feedback' | 'reminders' | 'payments' | 'notifications'
     ) => string
-    onlyTelegramAdminsUnsetup: string
-    useUnsetupInGroup: string
-    unsetupComplete: (householdName: string) => string
-    unsetupNoop: string
-    useBindInTopic: string
-    topicAlreadyBound: (role: string) => string
     bindSelectRole: string
     topicBoundSuccess: (role: string, householdName: string) => string
     allRolesConfigured: string
-    usePendingMembersInGroup: string
-    useApproveMemberInGroup: string
-    approveMemberUsage: string
     onlyInviteAdmins: string
     approvedMember: (displayName: string, householdName: string) => string
     useButtonInGroup: string
     unableToIdentifySelectedMember: string
     approvedMemberToast: (displayName: string) => string
-    useJoinLinkInGroup: string
     joinLinkUnavailable: string
-    joinLinkReady: (link: string, householdName: string) => string
-  }
-  keyboard: {
-    dashboardButton: string
-    enabled: string
-    disabled: string
+    useInviteInGroup: string
   }
   anonymousFeedback: {
     title: string
@@ -207,73 +138,28 @@ export interface BotTranslationCatalog {
     retryIn: (parts: string) => string
     hour: (count: number) => string
     minute: (count: number) => string
-    paymentProposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
   }
   finance: {
     useInGroup: string
     householdNotConfigured: string
     unableToIdentifySender: string
     notMember: string
-    adminOnly: string
-    cycleOpenUsage: string
-    cycleOpened: (period: string, currency: string) => string
-    cycleOpenFailed: (message: string) => string
-    noCycleToClose: string
-    cycleClosed: (period: string) => string
-    cycleCloseFailed: (message: string) => string
-    rentSetUsage: string
-    rentNoPeriod: string
-    rentSaved: (amount: string, currency: string, period: string) => string
-    rentSaveFailed: (message: string) => string
-    utilityAddUsage: string
-    utilityNoOpenCycle: string
-    utilityAdded: (name: string, amount: string, currency: string, period: string) => string
-    utilityAddFailed: (message: string) => string
-    paymentAddUsage: string
-    paymentNoCycle: string
-    paymentNoBalance: string
-    paymentAdded: (
-      kind: 'rent' | 'utilities',
-      amount: string,
-      currency: string,
-      period: string
-    ) => string
-    paymentAddFailed: (message: string) => string
-    noStatementCycle: string
-    statementTitle: (period: string) => string
-    statementLine: (displayName: string, amount: string, currency: string) => string
-    statementTotal: (amount: string, currency: string) => string
-    statementFailed: (message: string) => string
-    utilitiesTopicRequired: string
-    utilitiesNotLinked: string
-    chooseHouseholdForBalances: string
   }
   reminders: {
     utilities: (period: string) => string
     rentWarning: (period: string) => string
     rentDue: (period: string) => string
-    guidedEntryButton: string
-    copyTemplateButton: string
     openDashboardButton: string
-    dashboardDetailsHint: string
-    noActiveCategories: string
-    startToast: string
-    templateToast: string
-    promptAmount: (categoryName: string, currency: string, remainingCount: number) => string
     invalidAmount: (categoryName: string, currency: string) => string
     templateIntro: (currency: string) => string
-    templateInstruction: string
     templateInvalid: string
-    summaryTitle: (period: string) => string
     summaryLine: (categoryName: string, amount: string, currency: string) => string
-    confirmPrompt: string
     confirmButton: string
     cancelButton: string
     cancelled: string
     saved: (count: number, period: string) => string
     paymentInstructionSent: string
     proposalUnavailable: string
-    onlyOriginalSender: string
     paidButton: string
     paidUtilitiesButton: string
     fullyPaid: (kind: 'rent' | 'utilities', month: string) => string
@@ -303,17 +189,15 @@ export interface BotTranslationCatalog {
     clarificationLowConfidence: string
     summary: (description: string, amount: string) => string
     savedCardHeadline: (summary: string) => string
-    participantsHeading: string
-    participantIncluded: (displayName: string) => string
     participantBalanceChange: (displayName: string, change: string) => string
     participantPayerWithoutShare: (displayName: string, change: string) => string
     participantExcluded: (displayName: string) => string
     participantToggleIncluded: (displayName: string) => string
     participantToggleExcluded: (displayName: string) => string
-    splitEqualLine: (perHead: string | null) => string
+    splitEqualLine: (participantCount: number, perHead: string | null) => string
     splitCustomLine: string
     payerLine: (displayName: string) => string
-    payerQuestion: string
+    payerSplitLine: (displayName: string, split: string) => string
     payerFallbackQuestion: string
     payerButton: (displayName: string) => string
     payerSelectedToast: (displayName: string) => string
@@ -333,6 +217,7 @@ export interface BotTranslationCatalog {
     alreadyCancelled: string
     atLeastOneParticipant: string
     notYourProposal: string
+    participantChangeForbidden: string
     proposalUnavailable: string
     parseFailed: string
   }
@@ -363,30 +248,37 @@ export interface BotTranslationCatalog {
     summarizeDeletePurchase: (description: string, amount: string, currency: string) => string
     summarizeSetPurchaseParticipants: (description: string, names: string) => string
     summarizeSetPeriodRent: (amount: string, currency: string, periods: readonly string[]) => string
-    summarizeSetHouseholdFact: (title: string, body: string, previousBody: string | null) => string
+    summarizeSetHouseholdFact: (
+      title: string,
+      body: string | null,
+      previousBody: string | null
+    ) => string
     summarizeDeleteHouseholdFact: (title: string) => string
   }
   payments: {
-    topicMissing: string
-    balanceReply: (kind: 'rent' | 'utilities') => string
-    recorded: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
+    recorded: (
+      kind: 'rent' | 'utilities',
+      amount: string,
+      currency: string,
+      period: string | null
+    ) => string
     recordedReported: (
       displayName: string,
       kind: 'rent' | 'utilities',
       amount: string,
-      currency: string
+      currency: string,
+      period: string | null
     ) => string
-    proposal: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
-    proposalReported: (
-      displayName: string,
-      kind: 'rent' | 'utilities',
-      amount: string,
+    proposal: (input: {
+      kind: 'rent' | 'utilities'
+      amount: string
       currency: string
-    ) => string
-    confirmHint: string
+      period: string | null
+      displayName: string | null
+      billName: string | null
+    }) => string
     clarification: string
     unsupportedCurrency: string
-    noBalance: string
     alreadySettled: (kind: 'rent' | 'utilities', displayName?: string | null) => string
     settledPeriod: (
       kind: 'rent' | 'utilities',
@@ -394,7 +286,6 @@ export interface BotTranslationCatalog {
       askPeriod: boolean,
       displayName?: string | null
     ) => string
-    purchaseRedirect: string
     breakdownHeading: string
     breakdownBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
     breakdownPlannedBase: (kind: 'rent' | 'utilities', amount: string, currency: string) => string
@@ -421,20 +312,15 @@ export interface BotTranslationCatalog {
       paymentStatus: 'paid' | 'unpaid',
       selected: boolean
     ) => string
-    multiRecorded: (kind: 'rent' | 'utilities', names: string) => string
-    multiAlreadyPaid: (kind: 'rent' | 'utilities', names: string) => string
-    multiPartiallyRecorded: (
-      kind: 'rent' | 'utilities',
-      recordedNames: string,
-      failedNames: string
-    ) => string
-    fullyPaid: (kind: 'rent' | 'utilities', period: string) => string
+    multiMemberButton: (displayName: string, selected: boolean) => string
+    multiRecorded: (kind: 'rent' | 'utilities', period: string, names: string) => string
+    multiAlreadyPaid: (names: string) => string
+    multiPartiallyRecorded: (recordedNames: string | null, failedNames: string | null) => string
     noMembersSelected: string
     cancelled: string
     proposalUnavailable: string
     notYourProposal: string
     multiNotYourProposal: string
-    savedForReview: string
     duplicate: string
   }
 }

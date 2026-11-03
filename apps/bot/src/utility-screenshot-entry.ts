@@ -8,7 +8,7 @@ import {
   type UtilityBillImportPreview,
   type UtilityBillImportService
 } from '@household/application'
-import { BillingPeriod, Money, nowInstant } from '@household/domain'
+import { BillingPeriod, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -22,10 +22,9 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { resolveReplyLocale } from './bot-locale'
 import { escapeHtml } from './html'
-import { formatUserFacingMoney } from './i18n/money'
 import type { BotLocale } from './i18n'
+import { utilityEntryCopy } from './i18n/utility-entry'
 import type { LivePaymentCardService } from './live-payment-cards'
-import { formatBillingMonth } from './payment-reminder-content'
 import { downloadTelegramUtilityImage, utilityImageFile } from './telegram-utility-image'
 import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
 import { buildBotStartDeepLink } from './telegram-deep-links'
@@ -94,22 +93,21 @@ function addressed(ctx: Context): boolean {
 }
 
 function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): InlineKeyboardMarkup {
-  const ru = locale === 'ru'
+  const copy = utilityEntryCopy[locale]
   const button = (action: string, text: string) => ({
     text,
     callback_data: `${prefix}${action}:${draft.proposalId}`
   })
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
   if (draft.stage === 'payer' || draft.stage === 'payment-confirm') {
-    if (draft.stage === 'payer')
-      draft.payers?.forEach((payer, index) =>
-        rows.push([button(`payer_${index}`, payer.displayName)])
+    if (draft.stage === 'payer') {
+      const payers = draft.payers?.map((payer, index) =>
+        button(`payer_${index}`, payer.displayName)
       )
-    else
-      rows.push([
-        button('record', ru ? 'Подтвердить дополнительную оплату' : 'Confirm additional payment')
-      ])
-    rows.push([button('back', ru ? 'Назад к счетам' : 'Back to bills')])
+      for (let index = 0; index < (payers?.length ?? 0); index += 2)
+        rows.push(payers!.slice(index, index + 2))
+    } else rows.push([button('record', copy.confirmButton)])
+    rows.push([button('back', copy.backButton)])
     return { inline_keyboard: rows }
   }
   if (
@@ -118,7 +116,7 @@ function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): Inline
     !draft.preview.blocked &&
     (draft.preview.changes.length || draft.preview.automaticPayments.length)
   ) {
-    rows.push([button('save', ru ? 'Сохранить и распределить' : 'Save and distribute')])
+    rows.push([button('save', copy.saveButton)])
   }
   if (!draft.issues.length && draft.preview && !draft.preview.blocked)
     draft.preview.balanceDifferences.forEach((difference, index) => {
@@ -128,114 +126,64 @@ function keyboard(draft: Draft, locale: BotLocale, botUsername?: string): Inline
         amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR &&
         (amount > UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR || draft.preview!.automaticBudgetExceeded)
       )
-        rows.push([
-          button(
-            `round_${index}`,
-            ru
-              ? `Учесть разницу · ${difference.billName}`
-              : `Account for difference · ${difference.billName}`
-          )
-        ])
+        rows.push([button(`round_${index}`, copy.extraPaymentButton(difference.billName))])
     })
-  rows.push([
-    button('edit', ru ? 'Исправить' : 'Edit'),
-    button('month', ru ? 'Другой месяц' : 'Change month')
-  ])
-  rows.push([button('cancel', ru ? 'Отмена' : 'Cancel')])
+  rows.push([button('edit', copy.editButton), button('month', copy.monthButton)])
   const dashboard = buildBotStartDeepLink(botUsername, 'dashboard')
-  if ((draft.preview?.blocked || draft.preview?.balanceDifferences.length) && dashboard)
-    rows.push([{ text: ru ? 'Открыть дашборд' : 'Open dashboard', url: dashboard }])
+  rows.push([
+    button('cancel', copy.cancelButton),
+    ...((draft.preview?.blocked || draft.preview?.balanceDifferences.length) && dashboard
+      ? [{ text: copy.appButton, url: dashboard }]
+      : [])
+  ])
   return { inline_keyboard: rows }
 }
 
+function issueLine(issue: string, locale: BotLocale): string {
+  const copy = utilityEntryCopy[locale]
+  const separator = issue.lastIndexOf(': ')
+  const provider = separator > 0 ? issue.slice(0, separator) : issue
+  const reason = separator > 0 ? issue.slice(separator + 2) : ''
+  const explanation = Object.hasOwn(copy.issueReason, reason)
+    ? copy.issueReason[reason as keyof typeof copy.issueReason]
+    : null
+  return `• ${escapeHtml(provider)}${explanation ? ` — ${explanation}` : ''}`
+}
+
 function previewText(draft: Draft, locale: BotLocale): string {
-  const ru = locale === 'ru'
-  const lines = [
-    `💡 <b>${ru ? 'Счета со скриншота' : 'Screenshot bills'}</b>`,
-    `${ru ? 'Период' : 'Period'}: ${escapeHtml(formatBillingMonth(locale, draft.period))}`,
-    ''
-  ]
+  const copy = utilityEntryCopy[locale]
+  const lines = [`💡 <b>${escapeHtml(copy.title(draft.period))}</b>`, copy.previewLead, '']
   for (const entry of draft.entries) {
     const previous = draft.preview?.previousAmounts[entry.billName]
     const suffix =
       previous === entry.amountMajor
-        ? ru
-          ? ' · уже сохранено'
-          : ' · already saved'
+        ? copy.entryAlreadySaved
         : previous
-          ? ` · ${ru ? 'было' : 'was'} ${previous} ₾`
+          ? copy.entryWas(previous)
           : ''
-    lines.push(
-      `${escapeHtml(entry.billName)}: <b>${escapeHtml(entry.amountMajor)} ₾</b>${escapeHtml(suffix)}`
-    )
+    lines.push(`${copy.entryLine(entry.billName, entry.amountMajor)}${suffix}`)
     if (entry.provider)
-      lines.push(
-        escapeHtml(
-          [
-            entry.provider,
-            ...(entry.customerNumber
-              ? [`${ru ? 'лицевой счёт' : 'account'} …${entry.customerNumber.slice(-4)}`]
-              : [])
-          ].join(' · ')
-        )
-      )
+      lines.push(copy.providerLine(entry.provider, entry.customerNumber?.slice(-4) ?? null))
   }
-  if (draft.preview)
-    lines.push(
-      '',
-      `<b>${ru ? 'Всего на скриншоте' : 'Screenshot total'}: ${draft.preview.totalMajor} ₾</b>`
-    )
+  if (draft.preview) lines.push('', copy.total(draft.preview.totalMajor))
   if (draft.issues.length)
-    lines.push(
-      '',
-      ru
-        ? 'Не все строки удалось сопоставить или прочитать. Исправьте список перед сохранением:'
-        : 'Some rows could not be matched or read. Edit the list before saving:',
-      ...draft.issues.map((issue) => `• ${escapeHtml(issue.split(':')[0]!)}`)
-    )
-  if (draft.preview?.blocked)
-    lines.push(
-      '',
-      ru
-        ? draft.preview.blocked === 'closed'
-          ? 'Этот месяц закрыт. Выберите другой месяц или откройте дашборд.'
-          : draft.preview.blocked === 'category'
-            ? 'Настройки категорий или лицевые счета изменились. Проверьте счета и исправьте список.'
-            : 'В учёте несколько счетов одной категории или другая валюта. Проверьте их в дашборде.'
-        : 'This period is closed or contains ambiguous bills. Review it in the dashboard.'
-    )
+    lines.push('', copy.issuesIntro, ...draft.issues.map((issue) => issueLine(issue, locale)))
+  if (draft.preview?.blocked) lines.push('', copy.blocked[draft.preview.blocked])
   else if (
     draft.preview &&
     !draft.preview.changes.length &&
     !draft.preview.balanceDifferences.length &&
     !draft.issues.length
   )
-    lines.push(
-      '',
-      ru
-        ? 'Эти суммы уже сохранены. Повторных начислений не будет.'
-        : 'These amounts are already saved. No duplicate charges.'
-    )
+    lines.push('', copy.alreadySaved)
   if (draft.preview?.existingPayments && draft.preview.changes.length && !draft.preview.blocked)
-    lines.push(
-      '',
-      ru
-        ? 'Уже записанные оплаты сохранятся. Добавим новые счета и пересчитаем оставшиеся суммы к оплате.'
-        : 'Recorded payments will be preserved. New bills will update the remaining amounts due.'
-    )
+    lines.push('', copy.keepsPayments)
   if (draft.preview?.preservedBills.length)
-    lines.push(
-      '',
-      ru
-        ? `Сохраняем исходные начисления: ${escapeHtml(draft.preview.preservedBills.join(', '))}.`
-        : `Original charges are preserved: ${escapeHtml(draft.preview.preservedBills.join(', '))}.`
-    )
+    lines.push('', copy.preservedBills(draft.preview.preservedBills))
   for (const difference of draft.preview?.balanceDifferences ?? []) {
     lines.push(
       '',
-      ru
-        ? `${escapeHtml(difference.billName)}: остаток в учёте ${difference.expectedMajor} ₾, на скриншоте ${difference.observedMajor} ₾.`
-        : `${escapeHtml(difference.billName)}: recorded remainder ${difference.expectedMajor} GEL, screenshot ${difference.observedMajor} GEL.`
+      copy.difference(difference.billName, difference.expectedMajor, difference.observedMajor)
     )
     const amount = BigInt(difference.additionalPaidMinor)
     const automatic =
@@ -243,46 +191,24 @@ function previewText(draft: Draft, locale: BotLocale): string {
         (payment) => payment.utilityBillId === difference.utilityBillId
       ) ?? []
     lines.push(
-      ru
-        ? automatic.length
-          ? `При сохранении автоматически учтём округление: ${automatic.map((payment) => `${escapeHtml(payment.displayName)} +${Money.fromMinor(BigInt(payment.amountMinor), 'GEL').toMajorString()} ₾`).join(', ')}.`
-          : !draft.preview?.automaticBudgetExceeded &&
-              amount >= -UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
-              amount <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
-            ? 'Мелкая погрешность не требует отдельного подтверждения. Записанные оплаты сохраняются.'
-            : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
-              ? 'Можно отдельно учесть разницу после подтверждения плательщика. Исходный счёт и оплаты не изменены.'
-              : 'Нужно сверить фактические оплаты или новые начисления в дашборде. Это не мешает сохранить новые счета.'
-        : automatic.length
-          ? `Saving automatically accounts for rounding: ${automatic.map((payment) => `${escapeHtml(payment.displayName)} +${Money.fromMinor(BigInt(payment.amountMinor), 'GEL').toMajorString()} GEL`).join(', ')}.`
-          : !draft.preview?.automaticBudgetExceeded &&
-              amount >= -UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
-              amount <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
-            ? 'No separate confirmation is needed for this small discrepancy. Recorded payments are preserved.'
-            : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
-              ? 'You can account for the difference after confirming the payer. Original bills and payments are unchanged.'
-              : 'Reconcile actual payments or new charges in the dashboard. New bills can still be saved.'
+      automatic.length
+        ? copy.autoRounding(automatic)
+        : !draft.preview?.automaticBudgetExceeded &&
+            amount >= -UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR &&
+            amount <= UTILITY_ROUNDING_AUTOMATIC_MAX_MINOR
+          ? copy.smallDifference
+          : amount > 0n && amount <= UTILITY_ROUNDING_SHORTCUT_MAX_MINOR
+            ? copy.extraPaymentHint
+            : copy.reconcileInApp
     )
   }
-  if (draft.rounding) {
-    const amount = Money.fromMinor(BigInt(draft.rounding.amountMinor), 'GEL').toMajorString()
+  if (draft.rounding)
     lines.push(
       '',
       draft.stage === 'payer'
-        ? ru
-          ? `Кто действительно внёс дополнительные ${amount} ₾? Сам скриншот этого не подтверждает.`
-          : `Who actually paid the additional ${amount} GEL? The screenshot alone does not confirm the payer.`
-        : ru
-          ? `Подтвердите: ${escapeHtml(draft.rounding.payerName ?? '')} действительно внёс дополнительно ${amount} ₾. Эта сумма будет учтена в его балансе.`
-          : `Confirm: ${escapeHtml(draft.rounding.payerName ?? '')} actually paid an additional ${amount} GEL. This amount will count toward their balance.`
+        ? copy.askPayer(draft.rounding.amountMinor)
+        : copy.confirmPayer(draft.rounding.payerName ?? '', draft.rounding.amountMinor)
     )
-  }
-  lines.push(
-    '',
-    ru
-      ? 'Проверьте месяц и суммы. На этих экранах показана текущая задолженность поставщикам.'
-      : 'Check the month and amounts. These screens show current supplier balances.'
-  )
   return lines.join('\n')
 }
 
@@ -426,13 +352,16 @@ export function registerUtilityScreenshotEntry(options: {
       draft.memberId !== target.member.id ||
       draft.threadId !== threadId(ctx)
     ) {
+      const locale =
+        target?.locale ??
+        (await resolveReplyLocale({ ctx, repository: options.householdConfigurationRepository }))
       await ack(ctx, {
-        text: 'Предложение недоступно / Proposal unavailable',
+        text: utilityEntryCopy[locale].unavailable,
         show_alert: true
       })
       return
     }
-    const ru = target.locale === 'ru'
+    const copy = utilityEntryCopy[target.locale]
     const action = match[1]!
     if (action === 'back') {
       await ack(ctx)
@@ -508,7 +437,7 @@ export function registerUtilityScreenshotEntry(options: {
         (!target.member.isAdmin && draft.rounding.payerMemberId !== target.member.id)
       ) {
         await ack(ctx, {
-          text: ru ? 'Сначала подтвердите плательщика.' : 'Confirm the payer first.',
+          text: copy.pickPayerFirst,
           show_alert: true
         })
         return
@@ -534,32 +463,18 @@ export function registerUtilityScreenshotEntry(options: {
           )
       } catch {
         await review(ctx, draft, target.locale, true)
-        await reply(
-          ctx,
-          ru
-            ? 'Не удалось учесть оплату. Проверьте данные и права плательщика.'
-            : 'Could not record payment. Check the data and payer permissions.'
-        )
+        await reply(ctx, copy.extraPaymentFailed)
         return
       }
       if (result !== 'applied') {
         await review(ctx, draft, target.locale, true)
-        await reply(
-          ctx,
-          ru
-            ? 'Данные изменились. Проверьте обновлённый остаток; повторная оплата не добавлена.'
-            : 'Data changed. Review the updated remainder; no duplicate payment was added.'
-        )
+        await reply(ctx, copy.extraPaymentStale)
         return
       }
-      const amount = Money.fromMinor(BigInt(draft.rounding.amountMinor), 'GEL').toMajorString()
-      const payerName = draft.rounding.payerName
       try {
         await reply(
           ctx,
-          ru
-            ? `Дополнительные ${amount} ₾ учтены за ${escapeHtml(payerName ?? '')}. Новые счета пока не сохранены — подтвердите их отдельно.`
-            : `Additional ${amount} GEL credited to ${escapeHtml(payerName ?? '')}. Confirm the new bills separately to save them.`
+          copy.extraPaymentRecorded(draft.rounding.payerName ?? '', draft.rounding.amountMinor)
         )
       } catch {
         options.logger?.warn(
@@ -593,12 +508,7 @@ export function registerUtilityScreenshotEntry(options: {
       try {
         await review(ctx, draft, target.locale, true)
       } catch {
-        await reply(
-          ctx,
-          ru
-            ? 'Оплата сохранена. Не удалось обновить предложение по счетам — отправьте скриншот ещё раз или откройте дашборд.'
-            : 'Payment saved. Could not refresh the bill proposal; resend the screenshot or open the dashboard.'
-        )
+        await reply(ctx, copy.extraPaymentRefreshFailed)
       }
       return
     }
@@ -608,7 +518,7 @@ export function registerUtilityScreenshotEntry(options: {
         (draft.stage !== 'review' || !draft.preview || draft.issues.length || draft.preview.blocked)
       ) {
         await ack(ctx, {
-          text: ru ? 'Сначала исправьте счета.' : 'Edit the bills first.',
+          text: copy.fixListFirst,
           show_alert: true
         })
         return
@@ -621,18 +531,12 @@ export function registerUtilityScreenshotEntry(options: {
         draft.proposalId
       )
       if (!consumed) {
-        await ack(ctx, {
-          text: ru
-            ? 'Предложение уже обработано или устарело.'
-            : 'Proposal expired or already handled.'
-        })
+        await ack(ctx, { text: copy.unavailable })
         return
       }
       await ack(ctx)
       if (action === 'cancel') {
-        await ctx.editMessageText(ru ? 'Ввод счетов отменён.' : 'Bill entry cancelled.', {
-          reply_markup: { inline_keyboard: [] }
-        })
+        await ctx.editMessageText(copy.cancelled, { reply_markup: { inline_keyboard: [] } })
         return
       }
       let result: Awaited<ReturnType<UtilityBillImportService['confirm']>>
@@ -646,30 +550,20 @@ export function registerUtilityScreenshotEntry(options: {
           'Utility screenshot save failed'
         )
         await review(ctx, draft, target.locale, true)
-        await reply(
-          ctx,
-          ru
-            ? 'Не удалось сохранить счета. Проверьте обновлённое предложение и повторите.'
-            : 'Could not save bills. Review the updated proposal and retry.'
-        )
+        await reply(ctx, copy.saveFailed)
         return
       }
       if (result !== 'applied' && result !== 'unchanged') {
         await review(ctx, draft, target.locale, true)
-        await reply(
-          ctx,
-          ru
-            ? 'Данные за месяц изменились. Проверьте обновлённое предложение.'
-            : 'Period data changed. Review the updated proposal.'
-        )
+        await reply(ctx, copy.saveStale)
         return
       }
       let acknowledgementFailed = false
       const acknowledgement = ctx
         .editMessageText(
-          ru
-            ? `${result === 'applied' ? 'Счета сохранены' : 'Эти счета уже сохранены'} за ${formatBillingMonth(target.locale, draft.period)}.`
-            : `${result === 'applied' ? 'Bills saved' : 'Bills already saved'} for ${formatBillingMonth(target.locale, draft.period)}.`,
+          result === 'applied'
+            ? copy.billsSaved(draft.period)
+            : copy.billsAlreadySaved(draft.period),
           { reply_markup: { inline_keyboard: [] } }
         )
         .catch(() => {
@@ -683,15 +577,16 @@ export function registerUtilityScreenshotEntry(options: {
             await reply(
               ctx,
               [
-                ru ? '<b>Обновлённые суммы к оплате</b>' : '<b>Updated amounts due</b>',
-                ...dashboard.utilityBillingPlan.memberSummaries.map(
-                  (member) =>
-                    `${escapeHtml(member.displayName)} — ${escapeHtml(formatUserFacingMoney(member.assignedThisCycle.toMajorString(), dashboard!.currency))}`
+                copy.planTitle(draft.period),
+                ...dashboard.utilityBillingPlan.memberSummaries.map((member) =>
+                  copy.planLine(
+                    member.displayName,
+                    member.assignedThisCycle.toMajorString(),
+                    dashboard!.currency
+                  )
                 ),
                 '',
-                ru
-                  ? 'Ранее записанные оплаты учтены.'
-                  : 'Previously recorded payments are included.'
+                copy.planFootnote
               ].join('\n')
             )
         } catch {
@@ -699,12 +594,7 @@ export function registerUtilityScreenshotEntry(options: {
             { event: 'utility_screenshot.plan_refresh_failed' },
             'Bills saved; plan refresh needs retry'
           )
-          await reply(
-            ctx,
-            ru
-              ? 'Счета сохранены. Не удалось показать обновлённую раскладку — проверьте дашборд перед оплатой.'
-              : 'Bills saved. Could not show the updated split; check the dashboard before paying.'
-          )
+          await reply(ctx, copy.planFailed)
         }
         const outcomes = await Promise.allSettled([
           acknowledgement,
@@ -725,12 +615,7 @@ export function registerUtilityScreenshotEntry(options: {
             { event: 'utility_screenshot.delivery_failed' },
             'Bills saved; card delivery needs retry'
           )
-          await reply(
-            ctx,
-            ru
-              ? 'Счета сохранены, но не удалось обновить все сообщения. Актуальные суммы доступны в дашборде.'
-              : 'Bills saved, but some messages could not be updated. Current amounts are in the dashboard.'
-          )
+          await reply(ctx, copy.deliveryFailed)
         }
       } else await acknowledgement
       return
@@ -750,11 +635,7 @@ export function registerUtilityScreenshotEntry(options: {
       .join('\n')
     const prompt = await reply(
       ctx,
-      action === 'edit'
-        ? `${ru ? 'Ответьте на это сообщение исправленным списком. Пустая строка категории оставит её без изменений; 0 задаёт нулевую сумму.' : 'Reply with corrected bills. Blank categories stay unchanged; 0 sets an explicit zero.'}\n\n<pre>${escapeHtml(template)}</pre>`
-        : ru
-          ? 'Ответьте на это сообщение месяцем в формате ГГГГ-ММ, например 2026-10.'
-          : 'Reply with a month as YYYY-MM, for example 2026-10.',
+      action === 'edit' ? copy.editPrompt(template) : copy.monthPrompt(draft.period),
       undefined,
       true
     )
@@ -799,9 +680,7 @@ export function registerUtilityScreenshotEntry(options: {
         } catch {
           const prompt = await reply(
             ctx,
-            target.locale === 'ru'
-              ? 'Нужен месяц в формате ГГГГ-ММ, например 2026-10.'
-              : 'Use YYYY-MM, for example 2026-10.',
+            utilityEntryCopy[target.locale].monthInvalid(draft.period),
             undefined,
             true
           )
@@ -818,9 +697,7 @@ export function registerUtilityScreenshotEntry(options: {
         if (!entries) {
           const prompt = await reply(
             ctx,
-            target.locale === 'ru'
-              ? 'Не удалось прочитать весь список. Каждая сумма должна быть на строке «Категория: 12.34», без отдельных чисел и неизвестных строк.'
-              : 'Use one Category: 12.34 line per bill, without detached numbers or unknown lines.',
+            utilityEntryCopy[target.locale].listInvalid,
             undefined,
             true
           )
@@ -846,7 +723,7 @@ export function registerUtilityScreenshotEntry(options: {
       )
     const savedPaymentReply =
       replyIsBot &&
-      /(?:оплата (?:аренды|коммуналки) записана|(?:rent|utilities) payment recorded)/iu.test(
+      /(?:(?:аренда|коммуналка)(?: за \S+)? записана|(?:rent|utilities)(?: for \S+)? recorded)/iu.test(
         ctx.message.reply_to_message?.text ?? ''
       )
     if (paymentProposalReply || savedPaymentReply) {
@@ -876,38 +753,24 @@ export function registerUtilityScreenshotEntry(options: {
     }
     const target = await actor(ctx)
     if (!target) {
-      await reply(
+      const locale = await resolveReplyLocale({
         ctx,
-        'Не удалось определить ваш дом и участника. / Could not identify your household membership.'
-      )
+        repository: options.householdConfigurationRepository
+      })
+      await reply(ctx, utilityEntryCopy[locale].notMember)
       return
     }
-    const ru = target.locale === 'ru'
+    const copy = utilityEntryCopy[target.locale]
     if (!period && !utilityIntent) {
-      await reply(
-        ctx,
-        ru
-          ? 'Чтобы внести коммуналку, отправьте скриншот в ответ на напоминание или обратитесь ко мне с подписью «коммуналка». Изображение не сохранено как счёт.'
-          : 'To enter utility bills, reply to a utility reminder with the screenshot, or address me with a utilities caption. No bill was saved.'
-      )
+      await reply(ctx, copy.howToSend)
       return
     }
     if (!file) {
-      await reply(
-        ctx,
-        ru
-          ? 'Пришлите скриншот как фото или файл PNG/JPEG.'
-          : 'Send the screenshot as a photo or PNG/JPEG file.'
-      )
+      await reply(ctx, copy.sendAsImage)
       return
     }
     if (!options.recognize) {
-      await reply(
-        ctx,
-        ru
-          ? 'Распознавание скриншотов сейчас недоступно. Введите счета через шаблон или дашборд.'
-          : 'Screenshot recognition is unavailable. Use the template or dashboard.'
-      )
+      await reply(ctx, copy.recognitionOff)
       return
     }
     if (!period) {
@@ -929,11 +792,7 @@ export function registerUtilityScreenshotEntry(options: {
       if (recognition.kind !== 'utility_balances' || !recognition.bills.length) {
         await reply(
           ctx,
-          ru
-            ? recognition.kind === 'payment_receipt'
-              ? 'Это подтверждение банковской операции. Для ввода коммуналки нужен экран со списком счетов к оплате. Оплата не записана.'
-              : 'Не нашёл читаемых коммунальных счетов на изображении. Пришлите список счетов из Credo/TBC или заполните шаблон. Ничего не сохранено.'
-            : 'No utility balances found. Send a Credo/TBC bill list or use the template. Nothing was saved.'
+          recognition.kind === 'payment_receipt' ? copy.receiptNotBills : copy.noBillsFound
         )
         return
       }
@@ -962,12 +821,7 @@ export function registerUtilityScreenshotEntry(options: {
         { event: 'utility_screenshot.recognition_failed' },
         'Utility screenshot recognition failed'
       )
-      await reply(
-        ctx,
-        ru
-          ? 'Не удалось обработать скриншот. Ничего не сохранено. Попробуйте ещё раз или введите суммы через шаблон.'
-          : 'Could not process screenshot. Nothing was saved. Retry or use the template.'
-      )
+      await reply(ctx, copy.recognitionFailed)
     }
   })
 }

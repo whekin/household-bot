@@ -41,7 +41,8 @@ async function fixture() {
     listHouseholdMembers: async () => [
       routineActor,
       { ...routineActor, id: 'sam', telegramUserId: '200', displayName: 'Сэм' }
-    ]
+    ],
+    getHouseholdChatByHouseholdId: async () => ({ defaultLocale: 'ru' })
   } as unknown as HouseholdConfigurationRepository
   const delivery = createRoutineDelivery({ repository, households, transport, clock: () => now })
   return {
@@ -80,7 +81,9 @@ test('idle ticks do not reload the aggregate for historical or unchanged message
         threadId: 136,
         messageId: 1000 + i,
         status: i % 2 ? 'removed' : 'sent',
-        fingerprint: JSON.stringify(renderRoutineCard(doc, day, '2026-09-10T04:00:00Z')),
+        fingerprint: JSON.stringify(
+          renderRoutineCard(doc, day, '2026-09-10T04:00:00Z', { locale: 'ru' })
+        ),
         error: null,
         retryAt: null
       })
@@ -215,7 +218,7 @@ describe('routine Telegram delivery', () => {
     await f.delivery.tick()
     expect(f.calls.filter((c) => c.method === 'send')).toHaveLength(2)
     const doc = (await f.repository.get(f.doc.id))!
-    const old = renderRoutineCard(doc, doc.days[0]!, '2026-09-11T04:00:00Z')
+    const old = renderRoutineCard(doc, doc.days[0]!, '2026-09-11T04:00:00Z', { locale: 'ru' })
     expect(old.reply_markup.inline_keyboard).toEqual([])
   })
   test('rebind retires old cards and publishes a new destination without deleting the topic', async () => {
@@ -231,7 +234,7 @@ describe('routine Telegram delivery', () => {
       name: 'Two'
     })
     expect(f.calls.filter((c) => c.method === 'send')).toHaveLength(2)
-    expect(f.calls.some((c) => c.method === 'edit' && c.text.includes('перенесён'))).toBe(true)
+    expect(f.calls.some((c) => c.method === 'edit' && c.text.includes('переехал'))).toBe(true)
   })
   test('a blocked DM does not prevent group delivery', async () => {
     const f = await fixture()
@@ -257,7 +260,9 @@ describe('routine Telegram delivery', () => {
   })
   test('callbacks stay under 64 bytes and expose explicit actions', async () => {
     const f = await fixture()
-    const content = renderRoutineCard(f.doc, f.doc.days[0]!, '2026-09-10T04:00:00Z')
+    const content = renderRoutineCard(f.doc, f.doc.days[0]!, '2026-09-10T04:00:00Z', {
+      locale: 'ru'
+    })
     for (const row of content.reply_markup.inline_keyboard)
       for (const button of row)
         if ('callback_data' in button)
@@ -282,24 +287,29 @@ describe('routine Telegram delivery', () => {
         ]
       }
     })
-    const upcoming = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T04:00:00Z')
+    const upcoming = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T04:00:00Z', {
+      locale: 'ru'
+    })
     expect(upcoming.text).toContain('Дальше: 09:00')
     expect(upcoming.reply_markup.inline_keyboard).toHaveLength(2)
     expect(upcoming.reply_markup.inline_keyboard[0]![0]).toMatchObject({
-      text: '☐ 09:00 · Вода',
+      text: '⬜ 09:00 · Вода',
       callback_data: `rt:${doc.id}:${doc.days[0]!.rows[0]!.id}:0:d`
     })
     expect(upcoming.reply_markup.inline_keyboard[1]![0]).toMatchObject({
-      text: '⋯ Все дела · 0 из 3',
+      text: 'Все дела · 0 из 3',
       callback_data: `rtx:${doc.id}`
     })
-    const due = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T09:30:00Z')
+    const due = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T09:30:00Z', { locale: 'ru' })
     expect(due.text).toContain('Пора: 13:00')
-    expect(due.reply_markup.inline_keyboard[0]![0]).toMatchObject({ text: '⏰ 13:00 · Вода' })
-    const expanded = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T09:30:00Z', undefined, true)
+    expect(due.reply_markup.inline_keyboard[0]![0]).toMatchObject({ text: '⬜ 13:00 · Вода' })
+    const expanded = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T09:30:00Z', {
+      locale: 'ru',
+      expanded: true
+    })
     expect(expanded.reply_markup.inline_keyboard).toHaveLength(4)
     expect(expanded.reply_markup.inline_keyboard[3]![0]).toMatchObject({
-      text: '⌃ Свернуть',
+      text: 'Свернуть',
       callback_data: `rtx:${doc.id}`
     })
     for (const content of [upcoming, due, expanded])
@@ -318,9 +328,10 @@ describe('routine Telegram delivery', () => {
       requestId: 'done'
     })
     const doc = (await f.repository.get(f.doc.id))!
-    const content = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T05:10:00Z')
-    expect(content.text).toContain('Последнее: 08:00, Саша')
-    expect(content.text).toContain('Все дела на сегодня выполнены')
+    const content = renderRoutineCard(doc, doc.days[0]!, '2026-09-10T05:10:00Z', { locale: 'ru' })
+    expect(content.text).toContain('Последнее: 08:00 · Саша')
+    expect(content.text).toContain('На сегодня всё — можно отдыхать')
+    expect(content.text).toContain('✅ 09:00 · Вода — Саша, 08:00')
     expect(content.reply_markup.inline_keyboard[0]![0]).toMatchObject({
       callback_data: expect.stringMatching(/:1:u$/)
     })
@@ -454,8 +465,8 @@ test('a night window keeps yesterday card actionable and sends only one reminder
   const live = (await f.repository.get(doc.id))!
   expect(live.days.map((day) => day.date)).toEqual(['2026-09-10'])
   expect(
-    renderRoutineCard(live, live.days[0]!, '2026-09-10T20:30:00Z').reply_markup.inline_keyboard
-      .length
+    renderRoutineCard(live, live.days[0]!, '2026-09-10T20:30:00Z', { locale: 'ru' }).reply_markup
+      .inline_keyboard.length
   ).toBeGreaterThan(0)
   expect(f.calls.filter((call) => call.method === 'send')).toHaveLength(2)
   f.setNow('2026-09-10T21:00:00Z')
@@ -502,7 +513,7 @@ test('recurring chores stay actionable across days and delivery shows the next d
     requestId: 'done'
   })
   await f.delivery.reconcile(doc.id)
-  expect(f.calls.at(-1)!.text).toContain('Следующий раз: 2026-09-29')
+  expect(f.calls.at(-1)!.text).toContain('Следующий раз: 29 сентября')
   const before = f.calls.length
   await f.delivery.tick()
   expect(f.calls).toHaveLength(before)

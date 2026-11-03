@@ -1,18 +1,22 @@
 import { routineDate } from '@household/application'
-import { pickRoutineQuickTarget, pickRoutineFocus, Temporal } from '@household/domain'
+import {
+  formatDayDisplay,
+  pickRoutineQuickTarget,
+  pickRoutineFocus,
+  Temporal
+} from '@household/domain'
 import type { RoutineDay, RoutineDocument, RoutineRow } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
-const labels = {
-  complete: 'Готово',
-  reopen: 'Отменить',
-  claim: 'Возьму на себя',
-  release: 'Освободить'
-}
+import type { BotLocale } from './i18n'
+import { routineCopy } from './i18n/routines'
+
+type RoutineCallbackAction = 'complete' | 'reopen' | 'claim' | 'release'
+
 export function routineCallback(
   doc: RoutineDocument,
   row: RoutineRow,
-  action: keyof typeof labels
+  action: RoutineCallbackAction
 ): string {
   return `rt:${doc.id}:${row.id}:${row.version.toString(36)}:${{ complete: 'd', reopen: 'u', claim: 'c', release: 'r' }[action]}`
 }
@@ -45,16 +49,25 @@ function lastCompletion(doc: RoutineDocument, date: string, activityId?: string)
     .sort((a, b) => Date.parse(a.actedAt!) - Date.parse(b.actedAt!))
     .at(-1)
 }
+// One state marker for the card text and its toggle buttons: done, taken, open.
+function rowMarker(row: RoutineRow, now: string): string {
+  return row.status === 'completed' ? '✅' : routineRowClaimed(row, now) ? '⏳' : '⬜'
+}
+function actorLabel(name: string | null, fallback: string): string {
+  return (name ?? fallback).slice(0, 40).replace(/[\r\n]/g, ' ')
+}
 export function renderRoutineCard(
   doc: RoutineDocument,
   day: RoutineDay,
   now: string,
-  reminderRow?: RoutineRow,
-  expanded = false
+  options: { locale: BotLocale; reminderRow?: RoutineRow; expanded?: boolean }
 ) {
+  const copy = routineCopy[options.locale]
+  const reminderRow = options.reminderRow
+  const dayLabel = (date: string) => formatDayDisplay(date, options.locale)
   const active = !doc.paused && day.date === routineDate(doc, now)
   const rowLabel = (row: RoutineRow) =>
-    `${row.localTime ? `${row.localTime.replace('-', '–')} · ` : ''}${row.title}${row.recurrenceDueDate ? ` · с ${row.recurrenceDueDate.slice(8)}.${row.recurrenceDueDate.slice(5, 7)}` : ''}`
+    `${row.localTime ? `${row.localTime.replace('-', '–')} · ` : ''}${row.title}${row.recurrenceDueDate ? ` · ${copy.dueSince(dayLabel(row.recurrenceDueDate))}` : ''}`
   const rows = reminderRow ? [reminderRow] : day.rows
   const open = day.rows.filter((row) => row.status !== 'completed')
   const focus = active && !reminderRow ? pickRoutineFocus(day.rows, now) : null
@@ -62,7 +75,7 @@ export function renderRoutineCard(
   const quickActions = day.quickActions ?? []
   const lastLine = (activityId: string, label: string) => {
     const last = lastCompletion(doc, day.date, activityId)
-    if (!last) return `${label}: пока нет отметок`
+    if (!last) return copy.quickNever(label)
     const date = Temporal.Instant.from(last.actedAt!)
       .toZonedDateTimeISO(doc.timezone)
       .toPlainDate()
@@ -71,44 +84,58 @@ export function renderRoutineCard(
       .toZonedDateTimeISO(doc.timezone)
       .toPlainDate()
       .toString()
-    return `${label}: ${date !== currentDate ? `${date.slice(8)}.${date.slice(5, 7)} ` : ''}${localTime(last.actedAt!, doc.timezone)}, ${(last.actorName ?? 'участник').slice(0, 40).replace(/[\r\n]/g, ' ')}`
+    const time = localTime(last.actedAt!, doc.timezone)
+    return copy.quickLast(
+      label,
+      date !== currentDate ? copy.dayAndTime(dayLabel(date), time) : time,
+      actorLabel(last.actorName, copy.someone)
+    )
   }
   // Absolute times only: a relative "N minutes ago" would rewrite the card every minute.
   const nextLine = () => {
     if (!active || !day.rows.length) return null
-    if (!focus) return 'Все дела на сегодня выполнены'
-    if (focus.state === 'untimed') return `Осталось дел: ${open.length}`
-    return `${focus.state === 'upcoming' ? 'Дальше' : 'Пора'}: ${focus.row.localTime} · ${focus.row.title}`
+    if (!focus) return copy.allDone
+    if (focus.state === 'untimed') return copy.left(open.length)
+    return (focus.state === 'upcoming' ? copy.upcoming : copy.dueNow)(
+      focus.row.localTime ?? '',
+      focus.row.title
+    )
   }
   const summary = reminderRow
     ? []
     : [
         ...quickActions.map((action) => lastLine(action.id, action.summaryLabel)),
         previous && !quickActions.length
-          ? `Последнее: ${localTime(previous.actedAt!, doc.timezone)}, ${(previous.actorName ?? 'участник').slice(0, 40).replace(/[\r\n]/g, ' ')}`
+          ? copy.lastDone(
+              localTime(previous.actedAt!, doc.timezone),
+              actorLabel(previous.actorName, copy.someone)
+            )
           : null,
         nextLine()
       ].filter((line): line is string => line !== null)
   const text = [
-    `${reminderRow ? '🔔' : '☑️'} ${day.title} · ${day.date.slice(8)}.${day.date.slice(5, 7)}`,
-    ...(doc.paused ? ['На паузе'] : []),
+    (reminderRow ? copy.reminderCard : copy.dayCard)(day.title, dayLabel(day.date)),
+    ...(doc.paused ? [copy.paused] : []),
     ...summary,
     '',
     ...rows.map((row) => {
       const claimed = routineRowClaimed(row, now)
-      const actor = (row.actorName ?? '').slice(0, 40).replace(/[\r\n]/g, ' ')
+      const actor = actorLabel(row.actorName, '')
       const time = row.actedAt ? localTime(row.actedAt, doc.timezone) : ''
-      return `${row.status === 'completed' ? '✓' : claimed ? '◷' : '☐'} ${rowLabel(row)}${row.status === 'completed' ? ` — ${actor}, ${time}` : claimed ? ` — ${actor} занимается` : ''}${row.nextDueDate ? `\n  ↳ Следующий раз: ${row.nextDueDate}` : ''}${!reminderRow && row.note ? `\n  ↳ ${row.note.slice(0, 40)}${row.note.length > 40 ? '…' : ''}` : ''}`
+      // The reminder card is about one task, so its note is shown in full.
+      const note = reminderRow
+        ? row.note
+        : row.note && `${row.note.slice(0, 40)}${row.note.length > 40 ? '…' : ''}`
+      return `${rowMarker(row, now)} ${rowLabel(row)}${row.status === 'completed' ? copy.doneBy(actor, time) : claimed ? copy.takenBy(actor) : ''}${row.nextDueDate ? `\n  ↳ ${copy.nextTime(dayLabel(row.nextDueDate))}` : ''}${note ? `\n  ↳ ${note}` : ''}`
     }),
-    ...(reminderRow?.note ? [`Условие: ${reminderRow.note}`] : []),
-    ...(!rows.length ? ['На сегодня дел нет'] : [])
+    ...(!rows.length ? [copy.nothingToday] : [])
   ].join('\n')
   const rowButton = (row: RoutineRow) => ({
-    text: `${row.status === 'completed' ? '✓' : routineRowClaimed(row, now) ? '◷' : '☐'} ${rowLabel(row)}`,
+    text: `${rowMarker(row, now)} ${rowLabel(row)}`,
     callback_data: routineCallback(doc, row, row.status === 'completed' ? 'reopen' : 'complete')
   })
   // A single slot needs no second layer: the plain checklist is already one button.
-  const compact = !expanded && day.rows.length > 1
+  const compact = !options.expanded && day.rows.length > 1
   const keyboard: InlineKeyboardMarkup = {
     inline_keyboard: !active
       ? []
@@ -118,7 +145,9 @@ export function renderRoutineCard(
               ...(reminderRow.claimEnabled
                 ? [
                     {
-                      text: routineRowClaimed(reminderRow, now) ? labels.release : labels.claim,
+                      text: routineRowClaimed(reminderRow, now)
+                        ? copy.releaseButton
+                        : copy.claimButton,
                       callback_data: routineCallback(
                         doc,
                         reminderRow,
@@ -128,26 +157,17 @@ export function renderRoutineCard(
                   ]
                 : []),
               {
-                text: labels.complete,
+                text: copy.completeButton,
                 callback_data: routineCallback(doc, reminderRow, 'complete')
               }
             ]
           ]
         : compact
           ? [
-              ...(focus
-                ? [
-                    [
-                      {
-                        ...rowButton(focus.row),
-                        text: `${focus.state === 'overdue' || focus.state === 'due' ? '⏰' : '☐'} ${rowLabel(focus.row)}`
-                      }
-                    ]
-                  ]
-                : []),
+              ...(focus ? [[rowButton(focus.row)]] : []),
               [
                 {
-                  text: `⋯ Все дела · ${day.rows.length - open.length} из ${day.rows.length}`,
+                  text: copy.showAllButton(day.rows.length - open.length, day.rows.length),
                   callback_data: routineExpandCallback(doc)
                 }
               ]
@@ -155,7 +175,7 @@ export function renderRoutineCard(
           : [
               ...rows.map((row) => [rowButton(row)]),
               ...(day.rows.length > 1
-                ? [[{ text: '⌃ Свернуть', callback_data: routineExpandCallback(doc) }]]
+                ? [[{ text: copy.collapseButton, callback_data: routineExpandCallback(doc) }]]
                 : [])
             ]
   }

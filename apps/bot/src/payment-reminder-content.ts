@@ -1,11 +1,11 @@
 import type { FinanceDashboard, FinanceDashboardPaymentKindSummary } from '@household/application'
-import { Money } from '@household/domain'
+import { formatDayDisplay, formatMoneyDisplay, formatMonthDisplay, Money } from '@household/domain'
 import type { FinancePaymentKind } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
 import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
-import { formatUserFacingMoney } from './i18n/money'
+import { paymentCardCopy } from './i18n/payment-cards'
 import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
 import { buildBotStartDeepLink } from './telegram-deep-links'
 
@@ -42,60 +42,16 @@ type PaymentReminderRenderInput = PaymentReminderContentInput & {
   surface: PaymentReminderRenderSurface
 }
 
-function moneyText(amount: Money): string {
-  return formatUserFacingMoney(amount.toMajorString(), amount.currency)
+function moneyText(amount: Money, locale: BotLocale): string {
+  return formatMoneyDisplay(amount.amountMinor, amount.currency, locale)
 }
 
 export function formatBillingMonth(locale: BotLocale, period: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period)
-  if (!match) {
-    return period
-  }
-
-  const year = Number(match[1])
-  const monthIndex = Number(match[2]) - 1
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(monthIndex) ||
-    monthIndex < 0 ||
-    monthIndex > 11
-  ) {
-    return period
-  }
-
-  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC'
-  }).format(new Date(Date.UTC(year, monthIndex, 1)))
+  return formatMonthDisplay(period, locale)
 }
 
 function formatDueDate(locale: BotLocale, dueDate: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate)
-  if (!match) {
-    return dueDate
-  }
-
-  const year = Number(match[1])
-  const monthIndex = Number(match[2]) - 1
-  const day = Number(match[3])
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(monthIndex) ||
-    !Number.isInteger(day) ||
-    monthIndex < 0 ||
-    monthIndex > 11 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return dueDate
-  }
-
-  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'UTC'
-  }).format(new Date(Date.UTC(year, monthIndex, day)))
+  return formatDayDisplay(dueDate, locale)
 }
 
 function paymentKindSummary(
@@ -111,25 +67,23 @@ function paymentKindSummary(
 }
 
 function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): string[] {
+  const copy = paymentCardCopy[locale]
   const destinations =
     dashboard.rentBillingState.paymentDestinations ?? dashboard.rentPaymentDestinations ?? []
   if (destinations.length === 0) {
-    return [`• ${escapeHtml(getBotTranslations(locale).reminders.noRentDestinations)}`]
+    return [escapeHtml(getBotTranslations(locale).reminders.noRentDestinations)]
   }
 
-  return destinations.flatMap((destination) => {
+  return destinations.flatMap((destination, index) => {
     const title = [destination.bankName, destination.label]
       .filter((value): value is string => Boolean(value))
       .join(' · ')
 
     return [
-      `🏦 <b>${escapeHtml(title)}</b>`,
-      ...(destination.recipientName
-        ? [
-            `${escapeHtml(locale === 'ru' ? 'Получатель' : 'Recipient')}: ${escapeHtml(destination.recipientName)}`
-          ]
-        : []),
-      `${escapeHtml(locale === 'ru' ? 'Счёт' : 'Account')}: <code>${escapeHtml(destination.account)}</code>`,
+      ...(index > 0 ? [''] : []),
+      `🏦 ${escapeHtml(title)}`,
+      ...(destination.recipientName ? [escapeHtml(copy.recipient(destination.recipientName))] : []),
+      `<code>${escapeHtml(destination.account)}</code>`,
       ...(destination.note ? [escapeHtml(destination.note)] : []),
       ...(destination.link ? [escapeHtml(destination.link)] : [])
     ]
@@ -137,13 +91,11 @@ function rentDestinationLines(dashboard: FinanceDashboard, locale: BotLocale): s
 }
 
 function rentMemberAmountLines(dashboard: FinanceDashboard, locale: BotLocale): string[] {
-  return dashboard.rentBillingState.memberSummaries.map((member) => {
-    return member.remaining.amountMinor > 0n
-      ? `👤 <b>${escapeHtml(member.displayName)}</b> — ${escapeHtml(moneyText(member.remaining))}`
-      : `✅ <b>${escapeHtml(member.displayName)}</b> — ${escapeHtml(
-          locale === 'ru' ? 'оплачено' : 'paid'
-        )}`
-  })
+  return dashboard.rentBillingState.memberSummaries.map((member) =>
+    member.remaining.amountMinor > 0n
+      ? `⏳ <b>${escapeHtml(member.displayName)}</b> · ${escapeHtml(moneyText(member.remaining, locale))}`
+      : `✅ <s>${escapeHtml(member.displayName)}</s>`
+  )
 }
 
 // Group utility obligations by member so everyone finds their own block once,
@@ -154,6 +106,7 @@ function utilitiesByMemberLines(input: {
   period: string
 }): string[] {
   const t = getBotTranslations(input.locale).reminders
+  const copy = paymentCardCopy[input.locale]
   const summary = paymentKindSummary(input.dashboard, input.period, 'utilities')
   const plan = input.dashboard.utilityBillingPlan
   const categories = plan?.categories ?? []
@@ -236,26 +189,30 @@ function utilitiesByMemberLines(input: {
       lines.push('')
     }
     lines.push(
-      `<b>${escapeHtml(displayName)}</b> — ${escapeHtml(
-        settledEverythingAssigned
-          ? input.locale === 'ru'
-            ? 'оплачено'
-            : 'paid'
-          : total.amountMinor <= 0n
-            ? input.locale === 'ru'
-              ? 'сейчас платить не нужно'
-              : 'nothing to pay now'
-            : moneyText(total)
-      )}`
+      settledEverythingAssigned
+        ? `✅ <s>${escapeHtml(displayName)}</s>`
+        : `${total.amountMinor <= 0n ? '✅' : '⏳'} <b>${escapeHtml(displayName)}</b> · ${escapeHtml(
+            total.amountMinor <= 0n ? copy.nothingToPayNow : moneyText(total, input.locale)
+          )}`
     )
     for (const category of memberCategories) {
       const paidMinor = category.assignedAmount.amountMinor - category.remainingAmount.amountMinor
+      const paidByMember = isPaidByThisMember(category)
       const partial =
-        !isPaidByThisMember(category) && paidMinor > 0n
-          ? ` · ${escapeHtml(moneyText(Money.fromMinor(paidMinor, category.assignedAmount.currency)))} ${input.locale === 'ru' ? 'уже оплачено' : 'already paid'}`
+        !paidByMember && paidMinor > 0n
+          ? ` · ${escapeHtml(
+              copy.alreadyPaid(
+                moneyText(
+                  Money.fromMinor(paidMinor, category.assignedAmount.currency),
+                  input.locale
+                )
+              )
+            )}`
           : ''
       lines.push(
-        `${isPaidByThisMember(category) ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(moneyText(isPaidByThisMember(category) ? category.assignedAmount : category.remainingAmount))}${partial ? (input.locale === 'ru' ? ' осталось' : ' remaining') + partial : ''}`
+        `${paidByMember ? '   ✅' : '   •'} ${escapeHtml(category.billName)} · ${escapeHtml(
+          moneyText(paidByMember ? category.assignedAmount : category.remainingAmount, input.locale)
+        )}${partial ? ` ${copy.left}${partial}` : ''}`
       )
     }
     // Nothing left to pay on the plan does not mean nothing is owed: shared
@@ -272,42 +229,28 @@ function utilitiesByMemberLines(input: {
       // the first to close. Wording stays in the third person: these lines are
       // printed for every member, not only for whoever is reading.
       const owes = purchaseBalance.amountMinor > 0n
-      const amount = Money.fromMinor(
-        owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
-        input.dashboard.currency
+      const amount = moneyText(
+        Money.fromMinor(
+          owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
+          input.dashboard.currency
+        ),
+        input.locale
       )
       // Nobody transfers this to anybody. It is settled through the next cycle's
       // utility share, and without saying so the line reads as a debt to a
       // housemate that someone should go and pay off right now.
       const throughUtilities = input.dashboard.paymentBalanceAdjustmentPolicy === 'utilities'
-      const settlesVia = !throughUtilities
-        ? ''
-        : owes
-          ? input.locale === 'ru'
-            ? ' — войдёт в следующую коммуналку'
-            : ' — goes into the next utilities bill'
-          : input.locale === 'ru'
-            ? ' — вернётся следующими коммуналками'
-            : ' — comes back through the next utilities bills'
       lines.push(
-        `   ↩ ${escapeHtml(moneyText(amount))} ${escapeHtml(
-          (owes
-            ? input.locale === 'ru'
-              ? 'долг по покупкам'
-              : 'owed on shared purchases'
-            : input.locale === 'ru'
-              ? 'в плюсе по покупкам'
-              : 'in credit on shared purchases') + settlesVia
+        `   ${escapeHtml(
+          owes
+            ? copy.owesOnPurchases(amount, throughUtilities)
+            : copy.creditOnPurchases(amount, throughUtilities)
         )}`
       )
     }
   }
 
   return lines
-}
-
-function totalRemainingText(summary: FinanceDashboardPaymentKindSummary | null): string {
-  return summary ? moneyText(summary.totalRemaining) : '0.00'
 }
 
 /**
@@ -335,14 +278,27 @@ function unroutableThisCycle(input: { dashboard: FinanceDashboard; period: strin
   return overflowMinor > 0n ? Money.fromMinor(overflowMinor, input.dashboard.currency) : null
 }
 
+function isKindFullyPaid(summary: FinanceDashboardPaymentKindSummary | null): boolean {
+  return !summary || summary.totalRemaining.amountMinor <= 0n
+}
+
 function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup {
   const t = getBotTranslations(input.locale).reminders
-  const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
-  const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
+  const copy = paymentCardCopy[input.locale]
+  const fullyPaid = isKindFullyPaid(paymentKindSummary(input.dashboard, input.period, input.kind))
   const dashboardUrl = buildBotStartDeepLink(input.botUsername, 'dashboard')
   const rows: InlineKeyboardMarkup['inline_keyboard'] = []
+  // Short actions share rows two at a time; the paid button leads.
+  const actions: InlineKeyboardMarkup['inline_keyboard'][number] = []
 
-  if (input.kind === 'rent') {
+  if (!fullyPaid) {
+    actions.push({
+      text: input.kind === 'utilities' ? t.paidUtilitiesButton : t.paidButton,
+      callback_data: `${PAYMENT_REMINDER_PAID_CALLBACK_PREFIX}${input.kind}:${input.period}`
+    })
+  }
+
+  if (input.kind === 'rent' && !fullyPaid) {
     const destinations =
       input.dashboard.rentBillingState.paymentDestinations ??
       input.dashboard.rentPaymentDestinations ??
@@ -351,25 +307,15 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
       if (destination.account.length === 0 || destination.account.length > 256) {
         continue
       }
-      rows.push([
-        {
-          text:
-            input.locale === 'ru'
-              ? `📋 Скопировать счёт · ${(destination.bankName ?? destination.label).slice(0, 40)}`
-              : `📋 Copy account · ${(destination.bankName ?? destination.label).slice(0, 40)}`,
-          copy_text: { text: destination.account }
-        }
-      ])
+      actions.push({
+        text: copy.copyAccount((destination.bankName ?? destination.label).slice(0, 40)),
+        copy_text: { text: destination.account }
+      })
     }
   }
 
-  if (!fullyPaid) {
-    rows.push([
-      {
-        text: input.kind === 'utilities' ? t.paidUtilitiesButton : t.paidButton,
-        callback_data: `${PAYMENT_REMINDER_PAID_CALLBACK_PREFIX}${input.kind}:${input.period}`
-      }
-    ])
+  for (let index = 0; index < actions.length; index += 2) {
+    rows.push(actions.slice(index, index + 2))
   }
 
   if (input.kind === 'utilities' && input.surface === 'billing-reminder-prompt') {
@@ -392,92 +338,79 @@ function buildKeyboard(input: PaymentReminderRenderInput): InlineKeyboardMarkup 
 export function buildPaymentReminderMessageContentForSurface(
   input: PaymentReminderRenderInput
 ): PaymentReminderMessageContent {
-  const t = getBotTranslations(input.locale).reminders
-  const month = formatBillingMonth(input.locale, input.period)
+  const copy = paymentCardCopy[input.locale]
   const summary = paymentKindSummary(input.dashboard, input.period, input.kind)
-  const fullyPaid = !summary || summary.totalRemaining.amountMinor <= 0n
-  const title =
-    input.kind === 'rent'
-      ? `🏠 <b>${escapeHtml(input.locale === 'ru' ? 'Аренда' : 'Rent')} · ${escapeHtml(month)}</b>`
-      : `💡 <b>${escapeHtml(input.locale === 'ru' ? 'Коммуналка к оплате' : 'Utilities due')}</b>`
-  const dueDate =
-    input.kind === 'rent'
-      ? formatDueDate(input.locale, input.dashboard.rentBillingState.dueDate)
-      : input.dashboard.utilityBillingPlan
-        ? formatDueDate(input.locale, input.dashboard.utilityBillingPlan.dueDate)
-        : month
-  const lines =
-    input.kind === 'rent'
-      ? [
-          title,
-          `📅 ${escapeHtml(input.locale === 'ru' ? 'Оплатить до' : 'Pay by')} ${escapeHtml(dueDate)}`
-        ]
-      : [
-          title,
-          `📅 ${escapeHtml(month)} · ${escapeHtml(input.locale === 'ru' ? 'срок' : 'due')} ${escapeHtml(dueDate)}`
-        ]
+  const fullyPaid = isKindFullyPaid(summary)
+  const lines: string[] = []
 
-  if (input.dashboard.balanceUpdatePending)
+  if (input.kind === 'rent') {
+    const members = input.dashboard.rentBillingState.memberSummaries.filter(
+      (member) => member.due.amountMinor > 0n
+    )
+    const paidCount = members.filter((member) => member.remaining.amountMinor <= 0n).length
+    if (fullyPaid) {
+      lines.push(
+        copy.rentPaidTitle(input.period),
+        escapeHtml(
+          // «Все 1 оплатили» reads wrong; one member is just «Все оплатили».
+          copy.everyonePaid(
+            members.length > 1 ? members.length : null,
+            summary ? moneyText(summary.totalDue, input.locale) : ''
+          )
+        )
+      )
+    } else {
+      lines.push(
+        copy.rentTitle(
+          input.period,
+          escapeHtml(formatDueDate(input.locale, input.dashboard.rentBillingState.dueDate))
+        ),
+        escapeHtml(
+          copy.rentProgress(
+            paidCount,
+            members.length,
+            moneyText(summary!.totalRemaining, input.locale)
+          )
+        ),
+        '',
+        ...rentMemberAmountLines(input.dashboard, input.locale),
+        '',
+        ...rentDestinationLines(input.dashboard, input.locale)
+      )
+    }
+  } else {
+    const dueDate = input.dashboard.utilityBillingPlan
+      ? escapeHtml(formatDueDate(input.locale, input.dashboard.utilityBillingPlan.dueDate))
+      : null
+    if (fullyPaid) {
+      lines.push(copy.utilitiesPaidTitle(input.period))
+    } else {
+      lines.push(
+        copy.utilitiesTitle(input.period, dueDate),
+        escapeHtml(copy.remaining(moneyText(summary!.totalRemaining, input.locale)))
+      )
+      const unroutable = unroutableThisCycle({ dashboard: input.dashboard, period: input.period })
+      if (unroutable) {
+        lines.push(escapeHtml(copy.unroutable(moneyText(unroutable, input.locale))))
+      }
+      lines.push(
+        '',
+        ...utilitiesByMemberLines({
+          dashboard: input.dashboard,
+          locale: input.locale,
+          period: input.period
+        })
+      )
+      if (input.surface === 'scheduled-reminder') {
+        lines.push('', escapeHtml(copy.screenshotHint))
+      }
+    }
+  }
+
+  if (input.dashboard.balanceUpdatePending) {
     lines.push(
       '',
       escapeHtml(getBotTranslations(input.locale).payments.balanceUpdatePendingReminder)
-    )
-
-  if (fullyPaid) {
-    lines.push('', `✅ <b>${escapeHtml(t.fullyPaid(input.kind, month))}</b>`)
-  } else if (input.kind === 'utilities') {
-    lines.push(
-      '',
-      `💰 <b>${escapeHtml(input.locale === 'ru' ? 'Осталось' : 'Remaining')}:</b> ${escapeHtml(totalRemainingText(summary))}`
-    )
-
-    const unroutable = unroutableThisCycle({ dashboard: input.dashboard, period: input.period })
-    if (unroutable) {
-      lines.push(
-        `📦 ${escapeHtml(
-          input.locale === 'ru'
-            ? `Покупок сверх счетов: ${moneyText(unroutable)} — в этом месяце не закрыть, перейдёт дальше`
-            : `Purchases beyond the bills: ${moneyText(unroutable)} — no bill left to cover it this month`
-        )}`
-      )
-    }
-
-    // One block per member: name + total, then their bills underneath.
-    lines.push(
-      '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Кто сколько платит' : 'Who pays what')}</b>`,
-      '',
-      ...utilitiesByMemberLines({
-        dashboard: input.dashboard,
-        locale: input.locale,
-        period: input.period
-      })
-    )
-  }
-
-  if (input.kind === 'rent') {
-    lines.push(
-      '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'К оплате' : 'Amount due')}</b>`,
-      ...rentMemberAmountLines(input.dashboard, input.locale),
-      '',
-      `<b>${escapeHtml(input.locale === 'ru' ? 'Куда переводить' : 'Where to pay')}</b>`,
-      ...rentDestinationLines(input.dashboard, input.locale)
-    )
-  }
-
-  if (buildBotStartDeepLink(input.botUsername, 'dashboard')) {
-    lines.push('', `ℹ️ ${escapeHtml(t.dashboardDetailsHint)}`)
-  }
-
-  if (input.kind === 'utilities' && input.surface === 'scheduled-reminder') {
-    lines.push(
-      '',
-      escapeHtml(
-        input.locale === 'ru'
-          ? 'Чтобы внести счета, ответьте на это сообщение скриншотом из Credo или TBC.'
-          : 'To enter bills, reply to this message with a Credo or TBC screenshot.'
-      )
     )
   }
 

@@ -14,13 +14,14 @@ import type {
 import {
   buildAuditNotificationViewReplyMarkup,
   createHouseholdAuditNotificationService,
-  formatAuditNotificationSummary,
   getAuditNotificationDetails,
   renderAuditNotification
 } from './household-audit-notification-service'
+import type { HouseholdPaymentProgress } from './payment-progress'
 
 class AuditNotificationRepositoryStub implements HouseholdAuditNotificationRepository {
   events = new Map<string, HouseholdAuditEventRecord>()
+  dedupeKeys = new Set<string>()
   settings: HouseholdNotificationSettingsRecord = {
     householdId: 'household-1',
     periodEvents: true,
@@ -33,7 +34,13 @@ class AuditNotificationRepositoryStub implements HouseholdAuditNotificationRepos
 
   async createAuditEvent(
     input: CreateHouseholdAuditEventInput
-  ): Promise<HouseholdAuditEventRecord> {
+  ): Promise<HouseholdAuditEventRecord | null> {
+    if (input.dedupeKey) {
+      if (this.dedupeKeys.has(input.dedupeKey)) {
+        return null
+      }
+      this.dedupeKeys.add(input.dedupeKey)
+    }
     const record: HouseholdAuditEventRecord = {
       id: `event-${this.events.size + 1}`,
       householdId: input.householdId,
@@ -151,51 +158,40 @@ function householdRepository(input?: {
   }
 }
 
-describe('formatAuditNotificationSummary', () => {
-  test('keeps messages short and actor-first', () => {
-    expect(
-      formatAuditNotificationSummary({
-        actorDisplayName: ' Alex ',
-        actionText: 'added purchase:',
-        objectText: 'groceries',
-        amountText: '42 GEL'
-      })
-    ).toBe('Alex added purchase: groceries 42 GEL')
-  })
-})
+const october = {
+  kind: 'rent',
+  period: '2026-10',
+  paidMembers: 3,
+  totalMembers: 4,
+  totalDueMinor: 182000n,
+  currency: 'GEL',
+  fullyPaid: false
+} as const
 
 describe('renderAuditNotification', () => {
-  test('renders compact purchase actions in English and Russian', () => {
+  test('names the payer and the purchase, nothing else', () => {
+    const metadata = { description: 'Mr. Proper', amountMinor: '1200', currency: 'GEL' }
     expect(
       renderAuditNotification({
         locale: 'en',
         actorDisplayName: 'Stas',
         eventType: 'purchase.added',
         fallbackSummaryText: 'fallback',
-        metadata: {
-          description: 'Mr. Proper',
-          amountMinor: '1200',
-          currency: 'GEL'
-        }
+        metadata
       }).compactText
-    ).toBe('🛒 Stas added purchase: Mr. Proper 12.00 ₾')
-
+    ).toBe('🛒 Stas: Mr. Proper · 12 ₾')
     expect(
       renderAuditNotification({
         locale: 'ru',
         actorDisplayName: 'Стас',
-        eventType: 'purchase.added',
+        eventType: 'purchase.confirmed',
         fallbackSummaryText: 'fallback',
-        metadata: {
-          description: 'Mr. Proper',
-          amountMinor: '1200',
-          currency: 'GEL'
-        }
+        metadata
       }).compactText
-    ).toBe('🛒 Стас: добавление покупки Mr. Proper 12.00 ₾')
+    ).toBe('🛒 Стас: Mr. Proper · 12 ₾')
   })
 
-  test('renders expanded purchase details with participants', () => {
+  test('expands purchase shares only when there is something to add', () => {
     const rendered = renderAuditNotification({
       locale: 'ru',
       actorDisplayName: 'Стас',
@@ -208,112 +204,88 @@ describe('renderAuditNotification', () => {
         payerDisplayName: 'Стас',
         splitMode: 'custom_amounts',
         participants: [
-          {
-            memberId: 'member-1',
-            displayName: 'Стас',
-            included: true,
-            shareAmountText: '20.00 ₾'
-          },
-          {
-            memberId: 'member-2',
-            displayName: 'Дима',
-            included: false
-          }
+          { memberId: 'member-1', displayName: 'Стас', included: true, shareAmountText: '20 ₾' },
+          { memberId: 'member-2', displayName: 'Дима', included: false }
         ]
       }
     })
 
-    expect(rendered.details?.expandedText).toContain('Плательщик: Стас')
-    expect(rendered.details?.expandedText).toContain('Разделение: индивидуальные суммы')
-    expect(rendered.details?.expandedText).toContain('Участники: Стас 20.00 ₾')
-    expect(rendered.details?.expandedText).toContain('Исключены: Дима')
+    expect(rendered.compactText).toBe('🛒 Стас: Pizza · 30 ₾')
+    expect(rendered.details?.expandedText).toBe(
+      [
+        '🛒 Стас: Pizza · 30 ₾',
+        '',
+        'Суммы указаны вручную',
+        'Доли: Стас 20 ₾',
+        'Не участвуют: Дима'
+      ].join('\n')
+    )
   })
 
-  test('localizes closed payment periods with month labels and member details', () => {
+  test('says whose rent is paid, with progress and no repeated name', () => {
     const rendered = renderAuditNotification({
       locale: 'ru',
-      actorDisplayName: 'Стас',
-      eventType: 'payment_period.closed',
-      fallbackSummaryText: 'Stas closed rent for 2026-05',
-      metadata: {
-        period: '2026-05',
-        kind: 'rent',
-        closedMembers: [
-          {
-            memberId: 'member-1',
-            displayName: 'Стас',
-            amountMinor: '46900',
-            currency: 'GEL'
-          },
-          {
-            memberId: 'member-2',
-            displayName: 'Дима',
-            amountMinor: '46900',
-            currency: 'GEL'
-          }
-        ]
-      }
-    })
-
-    expect(rendered.compactText).toBe(
-      '✅ Стас: отметка оплаты аренды за май 2026 г. — Стас 469.00 ₾, Дима 469.00 ₾'
-    )
-    expect(rendered.compactText).not.toContain('2026-05')
-    expect(rendered.details?.expandedText).toContain('Период: май 2026 г.')
-    expect(rendered.details?.expandedText).toContain(
-      'Оплата отмечена для: Стас 469.00 ₾, Дима 469.00 ₾'
-    )
-  })
-
-  test('renders recorded payment target member details', () => {
-    const rendered = renderAuditNotification({
-      locale: 'en',
-      actorDisplayName: 'Stas',
+      actorDisplayName: 'Ион',
       eventType: 'payment.recorded',
       fallbackSummaryText: 'fallback',
       metadata: {
         kind: 'rent',
-        memberDisplayName: 'Dima',
-        amountMinor: '46900',
+        memberDisplayName: 'Ион',
+        amountMinor: '45500',
         currency: 'GEL',
-        period: '2026-05'
-      }
+        period: '2026-10'
+      },
+      progress: october
     })
 
-    expect(rendered.compactText).toBe('✅ Stas recorded payment: rent for May 2026 — Dima 469.00 ₾')
-    expect(rendered.details?.expandedText).toContain('Member: Dima')
-    expect(rendered.details?.expandedText).toContain('Period: May 2026')
+    expect(rendered.compactText).toBe('🏠 Ион: аренда за октябрь оплачена · 455 ₾ · 3 из 4')
+    expect(rendered.details).toBeNull()
   })
 
-  test('renders multi-member recorded payment names and amounts', () => {
+  test('credits whoever marked someone else as paid', () => {
+    const rendered = renderAuditNotification({
+      locale: 'en',
+      actorDisplayName: 'Stas',
+      eventType: 'payment_period.closed',
+      fallbackSummaryText: 'fallback',
+      metadata: {
+        kind: 'rent',
+        period: '2026-10',
+        closedMembers: [
+          { memberId: 'dima', displayName: 'Dima', amountMinor: '45500', currency: 'GEL' }
+        ]
+      },
+      progress: october
+    })
+
+    expect(rendered.compactText).toBe('🏠 Dima: rent for October paid · 455 ₾ · 3 of 4 · ✍️ Stas')
+  })
+
+  test('lists several members at once and explains who was skipped', () => {
     const rendered = renderAuditNotification({
       locale: 'ru',
-      actorDisplayName: 'Stas',
+      actorDisplayName: 'Стас',
       eventType: 'payment.recorded',
       fallbackSummaryText: 'fallback',
       metadata: {
         kind: 'utilities',
         period: '2026-07',
-        description: 'Stas, Alisa, Ion',
         closedMembers: [
-          { memberId: 'stas', displayName: 'Stas', amountMinor: '2000', currency: 'GEL' },
-          { memberId: 'alisa', displayName: 'Alisa', amountMinor: '2000', currency: 'GEL' },
-          { memberId: 'ion', displayName: 'Ion', amountMinor: '2000', currency: 'GEL' }
+          { memberId: 'stas', displayName: 'Стас', amountMinor: '2000', currency: 'GEL' },
+          { memberId: 'alisa', displayName: 'Алиса', amountMinor: '2000', currency: 'GEL' }
         ],
-        skippedMembers: [{ memberId: 'dima', displayName: 'Dima', reason: 'already_settled' }]
+        skippedMembers: [{ memberId: 'dima', displayName: 'Дима', reason: 'already_settled' }]
       }
     })
 
     expect(rendered.compactText).toBe(
-      '✅ Stas: запись платежа коммуналки за июль 2026 г. — Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
+      '💡 Коммуналка за июль оплачена: Стас, Алиса · 40 ₾ · ✍️ Стас'
     )
-    expect(rendered.details?.expandedText).toContain(
-      'Оплата отмечена для: Stas 20.00 ₾, Alisa 20.00 ₾, Ion 20.00 ₾'
-    )
-    expect(rendered.details?.expandedText).toContain('Пропущены: Dima (already_settled)')
+    expect(rendered.details?.expandedText).toContain('Уже было оплачено: Дима')
+    expect(rendered.details?.expandedText).not.toContain('already_settled')
   })
 
-  test('renders planned utility payment target and bills', () => {
+  test('lists the bills a member paid on the utility plan', () => {
     const rendered = renderAuditNotification({
       locale: 'ru',
       actorDisplayName: 'Стас',
@@ -326,8 +298,7 @@ describe('renderAuditNotification', () => {
           {
             memberId: 'ion',
             displayName: 'Ион',
-            utilityBillId: 'gas',
-            billName: 'Gas (Water)',
+            billName: 'Газ',
             amountMinor: '9306',
             currency: 'GEL'
           }
@@ -335,64 +306,85 @@ describe('renderAuditNotification', () => {
       }
     })
 
-    expect(rendered.compactText).toBe(
-      '✅ Стас: отметил коммуналку по плану: Ион · Gas (Water) 93.06 ₾ июнь 2026 г.'
-    )
-    expect(rendered.details?.expandedText).toContain('Счета: Ион · Gas (Water) 93.06 ₾')
+    expect(rendered.compactText).toBe('💡 Ион: коммуналка за июнь оплачена · Газ 93.06 ₾ · ✍️ Стас')
+    expect(rendered.details).toBeNull()
   })
 
-  test('omits the details block when amount, period and kind add nothing over the compact line', () => {
-    const utilityBill = renderAuditNotification({
-      locale: 'en',
-      actorDisplayName: 'Stas',
-      eventType: 'utility_bill.added',
-      fallbackSummaryText: 'fallback',
-      metadata: {
-        billName: 'Electricity',
-        amountMinor: '3584',
-        currency: 'GEL',
-        period: '2026-07'
-      }
-    })
-    expect(utilityBill.compactText).toBe(
-      '💡 Stas added utility bill: Electricity 35.84 ₾ (July 2026)'
-    )
-    expect(utilityBill.details).toBeNull()
+  test('keeps edits and settings to one plain line', () => {
+    expect(
+      renderAuditNotification({
+        locale: 'en',
+        actorDisplayName: 'Stas',
+        eventType: 'utility_bill.added',
+        fallbackSummaryText: 'fallback',
+        metadata: {
+          billName: 'Electricity',
+          amountMinor: '3584',
+          currency: 'GEL',
+          period: '2026-07'
+        }
+      }).compactText
+    ).toBe('💡 Stas: new bill · Electricity · 35.84 ₾')
 
-    const rent = renderAuditNotification({
-      locale: 'ru',
-      actorDisplayName: 'Стас',
-      eventType: 'rent.updated',
-      fallbackSummaryText: 'fallback',
-      metadata: {
-        amountMinor: '241500',
-        currency: 'GEL',
-        period: '2026-07'
-      }
-    })
-    expect(rent.compactText).toBe('🏠 Стас: аренда обновлена: 2415.00 ₾ (июль 2026 г.)')
-    expect(rent.details).toBeNull()
+    expect(
+      renderAuditNotification({
+        locale: 'ru',
+        actorDisplayName: 'Стас',
+        eventType: 'rent.updated',
+        fallbackSummaryText: 'fallback',
+        metadata: { amountMinor: '241500', currency: 'GEL', period: '2026-07' }
+      }).compactText
+    ).toBe('🏠 Стас: аренда теперь 2\u202f415 ₾ с июля')
+
+    expect(
+      renderAuditNotification({
+        locale: 'ru',
+        actorDisplayName: 'Стас',
+        eventType: 'purchase.deleted',
+        fallbackSummaryText: 'fallback',
+        metadata: { purchaseId: 'p-1' }
+      }).compactText
+    ).toBe('🗑 Стас: покупка удалена')
   })
 
-  test('renders an actor-less celebratory milestone when utilities are fully paid', () => {
-    const ru = renderAuditNotification({
-      locale: 'ru',
-      actorDisplayName: 'Стас',
-      eventType: 'utility_plan.fully_paid',
-      fallbackSummaryText: 'fallback',
-      metadata: { period: '2026-07' }
-    })
-    expect(ru.compactText).toBe('🎉 Коммуналка за июль 2026 г. закрыта — все платежи внесены!')
-    expect(ru.details).toBeNull()
+  test('celebrates a fully paid month', () => {
+    const metadata = {
+      kind: 'rent',
+      period: '2026-10',
+      amountMinor: '182000',
+      currency: 'GEL',
+      totalMembers: 4
+    }
+    expect(
+      renderAuditNotification({
+        locale: 'ru',
+        actorDisplayName: 'System',
+        eventType: 'payment.fully_paid',
+        fallbackSummaryText: 'fallback',
+        metadata
+      }).compactText
+    ).toBe('🎉 Аренда за октябрь закрыта! Все 4 оплатили, 1\u202f820 ₾ — можно выдыхать до ноября')
+    expect(
+      renderAuditNotification({
+        locale: 'en',
+        actorDisplayName: 'System',
+        eventType: 'payment.fully_paid',
+        fallbackSummaryText: 'fallback',
+        metadata: { ...metadata, kind: 'utilities' }
+      }).compactText
+    ).toBe('🎉 October utilities are done! Lights on, water running — everyone paid')
+  })
 
-    const en = renderAuditNotification({
-      locale: 'en',
-      actorDisplayName: 'Stas',
-      eventType: 'utility_plan.fully_paid',
-      fallbackSummaryText: 'fallback',
-      metadata: { period: '2026-07' }
-    })
-    expect(en.compactText).toBe('🎉 Utilities for July 2026 are fully settled — everyone has paid!')
+  test('falls back to the caller summary for unknown events', () => {
+    expect(
+      renderAuditNotification({
+        locale: 'ru',
+        actorDisplayName: 'Маша',
+        eventType: 'plan.settled',
+        fallbackSummaryText: 'Masha settled the plan',
+        metadata: {}
+      }).compactText
+    ).toBe('Masha settled the plan')
   })
 })
 
@@ -430,15 +422,15 @@ describe('createHouseholdAuditNotificationService', () => {
       metadata: { purchaseId: 'purchase-1' }
     })
 
-    expect(event.deliveryStatus).toBe('pending')
+    expect(event!.deliveryStatus).toBe('pending')
     expect(sentMessages).toEqual([
       {
         chatId: '-100123',
         threadId: '501',
-        text: 'Alex added purchase: groceries 42 GEL'
+        text: '🛒 Alex: shared purchase'
       }
     ])
-    expect(repository.events.get(event.id)).toMatchObject({
+    expect(repository.events.get(event!.id)).toMatchObject({
       deliveryStatus: 'sent',
       deliveredTelegramThreadId: '501',
       deliveredTelegramMessageId: '9001'
@@ -487,7 +479,7 @@ describe('createHouseholdAuditNotificationService', () => {
           {
             memberId: 'member-2',
             displayName: 'Дима',
-            included: true
+            included: false
           }
         ]
       }
@@ -495,18 +487,18 @@ describe('createHouseholdAuditNotificationService', () => {
 
     expect(sentMessages).toEqual([
       {
-        text: '🛒 Стас: добавление покупки Pizza 30.00 ₾',
+        text: '🛒 Стас: Pizza · 30 ₾',
         replyMarkup: buildAuditNotificationViewReplyMarkup({
-          eventId: event.id,
+          eventId: event!.id,
           locale: 'ru',
           viewMode: 'compact'
         })
       }
     ])
-    const stored = repository.events.get(event.id)
-    expect(stored?.summaryText).toBe('🛒 Стас: добавление покупки Pizza 30.00 ₾')
+    const stored = repository.events.get(event!.id)
+    expect(stored?.summaryText).toBe('🛒 Стас: Pizza · 30 ₾')
     expect(stored ? getAuditNotificationDetails(stored)?.expandedText : null).toContain(
-      'Участники: Стас, Дима'
+      'Не участвуют: Дима'
     )
   })
 
@@ -593,8 +585,8 @@ describe('createHouseholdAuditNotificationService', () => {
         replyMarkup
       }
     ])
-    expect(repository.events.get(event.id)?.summaryText).toBe(richText)
-    expect(repository.events.get(event.id)?.summaryText).toContain('\n\n')
+    expect(repository.events.get(event!.id)?.summaryText).toBe(richText)
+    expect(repository.events.get(event!.id)?.summaryText).toContain('\n\n')
   })
 
   test('sends rich reminder HTML to the household chat when reminders topic is absent', async () => {
@@ -638,7 +630,7 @@ describe('createHouseholdAuditNotificationService', () => {
         parseMode: 'HTML'
       }
     ])
-    expect(repository.events.get(event.id)).toMatchObject({
+    expect(repository.events.get(event!.id)).toMatchObject({
       deliveryStatus: 'sent',
       deliveredTelegramThreadId: null,
       deliveredTelegramMessageId: '9002'
@@ -668,7 +660,7 @@ describe('createHouseholdAuditNotificationService', () => {
       summaryText: 'Alex deleted purchase: groceries'
     })
 
-    expect(repository.events.get(event.id)).toMatchObject({
+    expect(repository.events.get(event!.id)).toMatchObject({
       deliveryStatus: 'skipped',
       deliveryError: 'category_disabled'
     })
@@ -697,7 +689,7 @@ describe('createHouseholdAuditNotificationService', () => {
       summaryText: 'Masha recorded payment: rent 500 GEL'
     })
 
-    expect(repository.events.get(event.id)).toMatchObject({
+    expect(repository.events.get(event!.id)).toMatchObject({
       deliveryStatus: 'failed',
       deliveryError: 'Telegram is unavailable'
     })
@@ -705,28 +697,95 @@ describe('createHouseholdAuditNotificationService', () => {
   })
 })
 
-test.each(['ru', 'en'] as const)(
-  'member payment completion names the affected member without claiming household closure: %s',
-  (locale) => {
-    const rendered = renderAuditNotification({
-      locale,
-      actorDisplayName: 'Стас',
-      eventType: 'payment_period.closed',
-      fallbackSummaryText: 'closed utilities',
-      metadata: {
-        kind: 'utilities',
-        period: '2026-10',
-        closedMembers: [
-          { memberId: 'alice', displayName: 'Алиса', amountMinor: '1234', currency: 'GEL' }
-        ],
-        skippedMembers: []
-      }
+describe('fully paid milestone', () => {
+  function milestoneService(progress: () => Promise<HouseholdPaymentProgress | null>) {
+    const repository = new AuditNotificationRepositoryStub()
+    const sent: string[] = []
+    const service = createHouseholdAuditNotificationService({
+      repository,
+      householdConfigurationRepository: householdRepository({
+        notificationThreadId: '501',
+        defaultLocale: 'ru'
+      }),
+      sendTopicMessage: async (message) => {
+        sent.push(message.text)
+        return { telegramMessageId: String(sent.length) }
+      },
+      paymentProgress: progress
     })
-    expect(rendered.compactText).toContain('Алиса')
-    expect(rendered.compactText).toContain('12.34')
-    expect(rendered.compactText).not.toContain('закрытие')
-    expect(rendered.compactText).not.toContain('fully settled')
-    expect(rendered.compactText).not.toContain('everyone has paid')
-    expect(rendered.compactText).toStartWith('✅')
+    return { repository, sent, service }
   }
-)
+
+  const payment = (memberDisplayName: string) => ({
+    householdId: 'household-1',
+    actorDisplayName: memberDisplayName,
+    eventType: 'payment_period.closed',
+    category: 'payment_events' as const,
+    summaryText: 'closed rent',
+    metadata: {
+      kind: 'rent',
+      period: '2026-10',
+      closedMembers: [
+        {
+          memberId: memberDisplayName,
+          displayName: memberDisplayName,
+          amountMinor: '45500',
+          currency: 'GEL'
+        }
+      ]
+    }
+  })
+
+  test('follows the payment that completes the month, exactly once', async () => {
+    const { sent, service } = milestoneService(async () => ({
+      kind: 'rent',
+      period: '2026-10',
+      paidMembers: 4,
+      totalMembers: 4,
+      totalDueMinor: 182000n,
+      currency: 'GEL',
+      fullyPaid: true
+    }))
+
+    await service.recordEvent(payment('Алиса'))
+    await service.recordEvent(payment('Алиса'))
+
+    expect(sent).toEqual([
+      '🏠 Алиса: аренда за октябрь оплачена · 455 ₾ · 4 из 4',
+      '🎉 Аренда за октябрь закрыта! Все 4 оплатили, 1\u202f820 ₾ — можно выдыхать до ноября',
+      '🏠 Алиса: аренда за октябрь оплачена · 455 ₾ · 4 из 4'
+    ])
+  })
+
+  test('stays quiet while someone still owes', async () => {
+    const { sent, service } = milestoneService(async () => ({
+      kind: 'rent',
+      period: '2026-10',
+      paidMembers: 3,
+      totalMembers: 4,
+      totalDueMinor: 182000n,
+      currency: 'GEL',
+      fullyPaid: false
+    }))
+
+    await service.recordEvent(payment('Дима'))
+
+    expect(sent).toEqual(['🏠 Дима: аренда за октябрь оплачена · 455 ₾ · 3 из 4'])
+  })
+
+  test('does not ask for progress on edits and deletions', async () => {
+    let calls = 0
+    const { service } = milestoneService(async () => {
+      calls += 1
+      return null
+    })
+
+    await service.recordEvent({
+      ...payment('Стас'),
+      eventType: 'payment.deleted',
+      metadata: { kind: 'rent', period: '2026-10' }
+    })
+
+    expect(calls).toBe(0)
+  })
+})

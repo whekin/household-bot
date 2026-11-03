@@ -8,7 +8,7 @@ import type { HouseholdConfigurationRepository } from '@household/ports'
 import type { Bot, Context } from 'grammy'
 
 import { resolveReminderTopicActorContext } from './reminder-topic-context'
-import { getBotTranslations } from './i18n'
+import { botLocaleFromContext, getBotTranslations } from './i18n'
 import {
   buildScheduledPaymentReminderContent,
   formatBillingMonth,
@@ -101,7 +101,10 @@ export function registerPaymentReminderActions(options: {
     if (!actorContext) {
       await safeAnswerCallback(
         ctx,
-        { text: 'Reminder unavailable.', show_alert: true },
+        {
+          text: getBotTranslations(botLocaleFromContext(ctx)).reminders.reminderUnavailable,
+          show_alert: true
+        },
         options.logger
       )
       return null

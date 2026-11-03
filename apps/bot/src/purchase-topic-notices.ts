@@ -2,6 +2,7 @@ import type { Bot, Context } from 'grammy'
 
 import type { FinanceCommandService } from '@household/application'
 import {
+  formatMoneyDisplay,
   Money,
   splitEvenlyByMember,
   type CurrencyCode,
@@ -17,7 +18,6 @@ import type {
 
 import { escapeHtml } from './html'
 import { getBotTranslations, type BotLocale } from './i18n'
-import { formatUserFacingMoney } from './i18n/money'
 
 const PURCHASE_NOTICE_PARTICIPANT_CALLBACK_PREFIX = 'purchase_saved:part:'
 
@@ -48,8 +48,8 @@ function asBotLocale(locale: SupportedLocale): BotLocale {
   return locale === 'ru' ? 'ru' : 'en'
 }
 
-function moneyText(amountMinor: bigint, currency: CurrencyCode): string {
-  return formatUserFacingMoney(Money.fromMinor(amountMinor, currency).toMajorString(), currency)
+function moneyText(locale: BotLocale, amountMinor: bigint, currency: CurrencyCode): string {
+  return formatMoneyDisplay(amountMinor, currency, locale)
 }
 
 function memberName(
@@ -77,10 +77,13 @@ function splitLine(locale: BotLocale, purchase: FinanceParsedPurchaseRecord): st
   if (purchase.splitMode === 'custom_amounts') {
     return t.splitCustomLine
   }
-  return t.splitEqualLine(perHeadShareText(purchase))
+  const includedCount = (purchase.participants ?? []).filter(
+    (participant) => participant.included !== false
+  ).length
+  return t.splitEqualLine(Math.max(includedCount, 1), perHeadShareText(locale, purchase))
 }
 
-function perHeadShareText(purchase: FinanceParsedPurchaseRecord): string | null {
+function perHeadShareText(locale: BotLocale, purchase: FinanceParsedPurchaseRecord): string | null {
   const includedCount = (purchase.participants ?? []).filter(
     (participant) => participant.included !== false
   ).length
@@ -96,7 +99,7 @@ function perHeadShareText(purchase: FinanceParsedPurchaseRecord): string | null 
 
   // Uneven splits have no single per-head figure; the participant lines carry the exact cents.
   return shares.every((share) => share.equals(first))
-    ? formatUserFacingMoney(first.toMajorString(), purchase.currency)
+    ? moneyText(locale, first.amountMinor, purchase.currency)
     : null
 }
 
@@ -125,9 +128,9 @@ function participantShareMinors(
 }
 
 /** Positive means the member is owed more, matching the "in credit" wording elsewhere. */
-function balanceChangeText(changeMinor: bigint, currency: CurrencyCode): string {
+function balanceChangeText(locale: BotLocale, changeMinor: bigint, currency: CurrencyCode): string {
   const sign = changeMinor > 0n ? '+' : changeMinor < 0n ? '−' : ''
-  return `${sign}${moneyText(changeMinor < 0n ? -changeMinor : changeMinor, currency)}`
+  return `${sign}${moneyText(locale, changeMinor < 0n ? -changeMinor : changeMinor, currency)}`
 }
 
 function renderParticipantLines(input: {
@@ -147,6 +150,7 @@ function renderParticipantLines(input: {
     escapeHtml(memberName(input.members, memberId) ?? memberId)
   const changeOf = (memberId: string) =>
     balanceChangeText(
+      input.locale,
       (memberId === payerMemberId ? amountMinor : 0n) - (shares.get(memberId) ?? 0n),
       currency
     )
@@ -166,13 +170,21 @@ function renderParticipantLines(input: {
     )
   }
 
-  return `${t.participantsHeading}\n${lines.join('\n')}`
+  // Two people per line keeps a four-person split to two short rows.
+  const rows: string[] = []
+  for (let index = 0; index < lines.length; index += 2) {
+    rows.push(lines.slice(index, index + 2).join(' · '))
+  }
+  return rows.join('\n')
 }
 
 function purchaseSummary(locale: BotLocale, purchase: FinanceParsedPurchaseRecord): string {
   const t = getBotTranslations(locale).purchase
   const description = purchase.description?.trim() || t.sharedPurchaseFallback
-  return t.summary(escapeHtml(description), moneyText(purchase.amountMinor, purchase.currency))
+  return t.summary(
+    escapeHtml(description),
+    moneyText(locale, purchase.amountMinor, purchase.currency)
+  )
 }
 
 export function renderPurchaseTopicNotice(input: {
@@ -186,13 +198,14 @@ export function renderPurchaseTopicNotice(input: {
   const participants = renderParticipantLines(input)
   const lines = [
     t.savedCardHeadline(purchaseSummary(input.locale, input.purchase)),
-    payer ? t.payerLine(escapeHtml(payer)) : null,
-    splitLine(input.locale, input.purchase),
+    payer
+      ? t.payerSplitLine(escapeHtml(payer), splitLine(input.locale, input.purchase))
+      : splitLine(input.locale, input.purchase),
     participants ? '' : null,
     participants
   ]
 
-  const participantButtons =
+  const toggles =
     input.purchase.splitMode !== 'custom_amounts'
       ? (input.purchase.participants ?? [])
           .filter(
@@ -204,21 +217,19 @@ export function renderPurchaseTopicNotice(input: {
           .map((participant) => {
             const displayName =
               memberName(input.members, participant.memberId) ?? participant.memberId
-            return [
-              {
-                text:
-                  participant.included === false
-                    ? getBotTranslations(input.locale).purchase.participantToggleExcluded(
-                        displayName
-                      )
-                    : getBotTranslations(input.locale).purchase.participantToggleIncluded(
-                        displayName
-                      ),
-                callback_data: `${PURCHASE_NOTICE_PARTICIPANT_CALLBACK_PREFIX}${participant.id}`
-              }
-            ]
+            return {
+              text:
+                participant.included === false
+                  ? t.participantToggleExcluded(displayName)
+                  : t.participantToggleIncluded(displayName),
+              callback_data: `${PURCHASE_NOTICE_PARTICIPANT_CALLBACK_PREFIX}${participant.id}`
+            }
           })
       : []
+  const participantButtons: (typeof toggles)[] = []
+  for (let index = 0; index < toggles.length; index += 2) {
+    participantButtons.push(toggles.slice(index, index + 2))
+  }
 
   return {
     text: lines.filter((line): line is string => line !== null).join('\n'),
@@ -540,7 +551,7 @@ export function createPurchaseTopicNoticeService(input: {
         : null
 
       if (!result || result.status === 'forbidden') {
-        await ctx.answerCallbackQuery({ text: t.notYourProposal, show_alert: true })
+        await ctx.answerCallbackQuery({ text: t.participantChangeForbidden, show_alert: true })
         return
       }
       if (result.status !== 'updated') {

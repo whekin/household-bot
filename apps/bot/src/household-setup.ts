@@ -74,19 +74,6 @@ function setupRejectionMessage(
   }
 }
 
-function unsetupRejectionMessage(
-  locale: BotLocale,
-  reason: 'not_admin' | 'invalid_chat_type'
-): string {
-  const t = getBotTranslations(locale).setup
-  switch (reason) {
-    case 'not_admin':
-      return t.onlyTelegramAdminsUnsetup
-    case 'invalid_chat_type':
-      return t.useUnsetupInGroup
-  }
-}
-
 function adminRejectionMessage(
   locale: BotLocale,
   reason: 'not_admin' | 'household_not_found' | 'pending_not_found'
@@ -119,44 +106,48 @@ function buildPendingMemberLabel(displayName: string): string {
   return `${normalized.slice(0, 29)}...`
 }
 
-function pendingMembersReply(
-  locale: BotLocale,
-  result: {
-    householdName: string
-    members: readonly {
-      telegramUserId: string
-      displayName: string
-      username?: string | null
-    }[]
+function inviteReply(input: {
+  locale: BotLocale
+  householdName: string
+  joinDeepLink: string
+  pendingMembers: readonly {
+    telegramUserId: string
+    displayName: string
+    username?: string | null
+  }[]
+}) {
+  const t = getBotTranslations(input.locale).setup
+  const approveButtons = input.pendingMembers.map((member) => ({
+    text: t.approveMemberButton(buildPendingMemberLabel(member.displayName)),
+    callback_data: `${APPROVE_MEMBER_CALLBACK_PREFIX}${member.telegramUserId}`
+  }))
+  const approveRows: (typeof approveButtons)[] = []
+  for (let index = 0; index < approveButtons.length; index += 2) {
+    approveRows.push(approveButtons.slice(index, index + 2))
   }
-) {
-  const t = getBotTranslations(locale).setup
+
   return {
     text: [
-      t.pendingMembersHeading(escapeHtml(result.householdName)),
+      t.inviteHeading(escapeHtml(input.householdName)),
+      `<code>${escapeHtml(input.joinDeepLink)}</code>`,
       '',
-      ...result.members.map((member, index) =>
-        t.pendingMemberLine(
-          {
-            ...member,
-            displayName: escapeHtml(member.displayName),
-            ...(member.username ? { username: escapeHtml(member.username) } : {})
-          },
-          index
-        )
-      ),
-      '',
-      t.pendingMembersHint
+      input.pendingMembers.length > 0
+        ? [
+            t.pendingMembersHeading,
+            ...input.pendingMembers.map((member) =>
+              t.pendingMemberLine({
+                ...member,
+                displayName: escapeHtml(member.displayName),
+                ...(member.username ? { username: escapeHtml(member.username) } : {})
+              })
+            )
+          ].join('\n')
+        : t.pendingMembersEmpty
     ].join('\n'),
     reply_markup: {
-      inline_keyboard: result.members.map((member) => [
-        {
-          text: t.approveMemberButton(buildPendingMemberLabel(member.displayName)),
-          callback_data: `${APPROVE_MEMBER_CALLBACK_PREFIX}${member.telegramUserId}`
-        }
-      ])
+      inline_keyboard: [[{ text: t.joinHouseholdButton, url: input.joinDeepLink }], ...approveRows]
     }
-  } as const
+  }
 }
 
 function setupTopicRoleLabel(locale: BotLocale, role: HouseholdTopicRole): string {
@@ -176,7 +167,7 @@ function setupKeyboard(input: {
   isPrivate: boolean
 }) {
   const t = getBotTranslations(input.locale).setup
-  const kt = getBotTranslations(input.locale).keyboard
+  const home = getBotTranslations(input.locale).home
   const configuredRoles = new Set(input.bindings.map((binding) => binding.role))
   const rows: Array<
     Array<
@@ -227,7 +218,7 @@ function setupKeyboard(input: {
     if (input.isPrivate) {
       rows.push([
         {
-          text: kt.dashboardButton,
+          text: home.miniAppButton,
           web_app: {
             url: webAppUrl
           }
@@ -236,7 +227,7 @@ function setupKeyboard(input: {
     } else if (input.botUsername) {
       rows.push([
         {
-          text: kt.dashboardButton,
+          text: home.miniAppButton,
           url: `https://t.me/${input.botUsername}/app`
         }
       ])
@@ -454,87 +445,46 @@ function telegramHomeReply(input: {
   botUsername: string | undefined
 }) {
   const t = getBotTranslations(input.locale).home
-  const rows: Array<
-    Array<
-      | { text: string; callback_data: string }
-      | { text: string; web_app: { url: string } }
-      | { text: string; url: string }
-    >
-  > = [
+  type HomeButton =
+    | { text: string; callback_data: string }
+    | { text: string; web_app: { url: string } }
+    | { text: string; url: string }
+  const rows: HomeButton[][] = [
     [
-      {
-        text: t.myBillButton,
-        callback_data: TELEGRAM_HOME_MY_BILL_CALLBACK
-      },
-      {
-        text: t.householdStatusButton,
-        callback_data: TELEGRAM_HOME_STATUS_CALLBACK
-      }
+      { text: t.myBillButton, callback_data: TELEGRAM_HOME_MY_BILL_CALLBACK },
+      { text: t.householdStatusButton, callback_data: TELEGRAM_HOME_STATUS_CALLBACK }
     ],
     [
-      {
-        text: t.balancesButton,
-        callback_data: TELEGRAM_HOME_BALANCES_CALLBACK
-      },
-      {
-        text: t.fullBillButton,
-        callback_data: TELEGRAM_HOME_MY_BILL_FULL_CALLBACK
-      }
+      { text: t.balancesButton, callback_data: TELEGRAM_HOME_BALANCES_CALLBACK },
+      { text: t.fullBillButton, callback_data: TELEGRAM_HOME_MY_BILL_FULL_CALLBACK }
     ]
   ]
-  if (input.isPrivate)
-    rows.push([
-      { text: input.locale === 'ru' ? '☑️ Дела' : '☑️ Routines', callback_data: 'home:routines' }
-    ])
+
   const webAppUrl = input.isPrivate
     ? buildOpenMiniAppUrl(input.miniAppUrl, input.botUsername)
     : null
-
-  if (webAppUrl) {
-    rows.push([
-      {
-        text: t.miniAppButton,
-        web_app: {
-          url: webAppUrl
-        }
-      }
-    ])
-  } else if (!input.isPrivate && input.miniAppUrl && input.botUsername) {
-    rows.push([
-      {
-        text: t.miniAppButton,
-        url: `https://t.me/${input.botUsername}/app`
-      }
-    ])
+  const appButton: HomeButton | null = webAppUrl
+    ? { text: t.miniAppButton, web_app: { url: webAppUrl } }
+    : !input.isPrivate && input.miniAppUrl && input.botUsername
+      ? { text: t.miniAppButton, url: `https://t.me/${input.botUsername}/app` }
+      : null
+  const secondary: HomeButton[] = [
+    ...(input.isPrivate ? [{ text: t.routinesButton, callback_data: 'home:routines' }] : []),
+    ...(appButton ? [appButton] : []),
+    ...(input.anonymousFeedbackAvailable && input.isPrivate
+      ? [{ text: t.feedbackButton, callback_data: TELEGRAM_HOME_FEEDBACK_CALLBACK }]
+      : []),
+    ...(input.showSetupMenu
+      ? [{ text: t.setupButton, callback_data: TELEGRAM_HOME_SETUP_CALLBACK }]
+      : []),
+    { text: t.helpButton, callback_data: TELEGRAM_HOME_HELP_CALLBACK }
+  ]
+  for (let index = 0; index < secondary.length; index += 2) {
+    rows.push(secondary.slice(index, index + 2))
   }
-
-  if (input.anonymousFeedbackAvailable && input.isPrivate) {
-    rows.push([
-      {
-        text: t.feedbackButton,
-        callback_data: TELEGRAM_HOME_FEEDBACK_CALLBACK
-      }
-    ])
-  }
-
-  if (input.showSetupMenu) {
-    rows.push([
-      {
-        text: t.setupButton,
-        callback_data: TELEGRAM_HOME_SETUP_CALLBACK
-      }
-    ])
-  }
-
-  rows.push([
-    {
-      text: t.helpButton,
-      callback_data: TELEGRAM_HOME_HELP_CALLBACK
-    }
-  ])
 
   return {
-    text: [t.title, input.isPrivate ? t.introPrivate : t.introGroup].join('\n\n'),
+    text: [t.title, input.isPrivate ? t.introPrivate : t.introGroup].join('\n'),
     reply_markup: {
       inline_keyboard: rows
     }
@@ -617,6 +567,39 @@ export function registerHouseholdSetupCommands(options: {
     )
 
     return member?.isAdmin === true
+  }
+
+  async function renderInvite(input: {
+    ctx: Context
+    locale: BotLocale
+    actorTelegramUserId: string
+    householdId: string
+    householdName: string
+  }) {
+    const [joinToken, pending] = await Promise.all([
+      options.householdOnboardingService.ensureHouseholdJoinToken({
+        householdId: input.householdId,
+        actorTelegramUserId: input.actorTelegramUserId
+      }),
+      input.ctx.chat
+        ? options.householdAdminService.listPendingMembers({
+            actorTelegramUserId: input.actorTelegramUserId,
+            telegramChatId: input.ctx.chat.id.toString()
+          })
+        : null
+    ])
+    const joinDeepLink = input.ctx.me.username
+      ? `https://t.me/${input.ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
+      : null
+
+    return joinDeepLink
+      ? inviteReply({
+          locale: input.locale,
+          householdName: input.householdName,
+          joinDeepLink,
+          pendingMembers: pending?.status === 'ok' ? pending.members : []
+        })
+      : null
   }
 
   async function buildSetupReplyForHousehold(input: {
@@ -836,7 +819,7 @@ export function registerHouseholdSetupCommands(options: {
     }
   })
 
-  options.bot.command('unsetup', async (ctx) => {
+  options.bot.command('invite', async (ctx) => {
     const locale = await resolveReplyLocale({
       ctx,
       repository: options.householdConfigurationRepository
@@ -844,146 +827,7 @@ export function registerHouseholdSetupCommands(options: {
     const t = getBotTranslations(locale)
 
     if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useUnsetupInGroup)
-      return
-    }
-
-    const telegramChatId = ctx.chat.id.toString()
-    const result = await options.householdSetupService.unsetupGroupChat({
-      actorIsAdmin: await isGroupAdmin(ctx),
-      telegramChatId,
-      telegramChatType: ctx.chat.type
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(unsetupRejectionMessage(locale, result.reason))
-      return
-    }
-
-    if (result.status === 'noop') {
-      await options.promptRepository?.clearPendingActionsForChat(
-        telegramChatId,
-        'setup_topic_binding'
-      )
-      await ctx.reply(t.setup.unsetupNoop)
-      return
-    }
-
-    await options.promptRepository?.clearPendingActionsForChat(
-      telegramChatId,
-      'setup_topic_binding'
-    )
-
-    options.logger?.info(
-      {
-        event: 'household_setup.chat_reset',
-        telegramChatId,
-        householdId: result.household.householdId,
-        actorTelegramUserId: ctx.from?.id?.toString()
-      },
-      'Household setup state reset'
-    )
-
-    await ctx.reply(t.setup.unsetupComplete(escapeHtml(result.household.householdName)), {
-      parse_mode: 'HTML'
-    })
-  })
-
-  options.bot.command('pending_members', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.usePendingMembersInGroup)
-      return
-    }
-
-    const actorTelegramUserId = ctx.from?.id?.toString()
-    if (!actorTelegramUserId) {
-      await ctx.reply(t.common.unableToIdentifySender)
-      return
-    }
-
-    const result = await options.householdAdminService.listPendingMembers({
-      actorTelegramUserId,
-      telegramChatId: ctx.chat.id.toString()
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(adminRejectionMessage(locale, result.reason))
-      return
-    }
-
-    if (result.members.length === 0) {
-      await ctx.reply(t.setup.pendingMembersEmpty(escapeHtml(result.householdName)), {
-        parse_mode: 'HTML'
-      })
-      return
-    }
-
-    const reply = pendingMembersReply(locale, result)
-    await ctx.reply(reply.text, {
-      parse_mode: 'HTML',
-      reply_markup: reply.reply_markup
-    })
-  })
-
-  options.bot.command('approve_member', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useApproveMemberInGroup)
-      return
-    }
-
-    const actorTelegramUserId = ctx.from?.id?.toString()
-    if (!actorTelegramUserId) {
-      await ctx.reply(t.common.unableToIdentifySender)
-      return
-    }
-
-    const pendingTelegramUserId = commandArgText(ctx)
-    if (!pendingTelegramUserId) {
-      await ctx.reply(t.setup.approveMemberUsage)
-      return
-    }
-
-    const result = await options.householdAdminService.approvePendingMember({
-      actorTelegramUserId,
-      telegramChatId: ctx.chat.id.toString(),
-      pendingTelegramUserId
-    })
-
-    if (result.status === 'rejected') {
-      await ctx.reply(adminRejectionMessage(locale, result.reason))
-      return
-    }
-
-    await ctx.reply(
-      t.setup.approvedMember(
-        escapeHtml(result.member.displayName),
-        escapeHtml(result.householdName)
-      ),
-      { parse_mode: 'HTML' }
-    )
-  })
-
-  options.bot.command('join_link', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!isGroupChat(ctx)) {
-      await ctx.reply(t.setup.useJoinLinkInGroup)
+      await ctx.reply(t.setup.useInviteInGroup)
       return
     }
 
@@ -1000,45 +844,28 @@ export function registerHouseholdSetupCommands(options: {
       return
     }
 
-    if (!(await isInviteAuthorized(ctx, household.householdId))) {
+    const actorTelegramUserId = ctx.from?.id?.toString()
+    if (!actorTelegramUserId || !(await isInviteAuthorized(ctx, household.householdId))) {
       await ctx.reply(t.setup.onlyInviteAdmins)
       return
     }
 
-    const joinToken = await options.householdOnboardingService.ensureHouseholdJoinToken({
+    const reply = await renderInvite({
+      ctx,
+      locale,
+      actorTelegramUserId,
       householdId: household.householdId,
-      ...(ctx.from?.id
-        ? {
-            actorTelegramUserId: ctx.from.id.toString()
-          }
-        : {})
+      householdName: household.householdName
     })
-
-    const joinDeepLink = ctx.me.username
-      ? `https://t.me/${ctx.me.username}?start=join_${encodeURIComponent(joinToken.token)}`
-      : null
-
-    if (!joinDeepLink) {
+    if (!reply) {
       await ctx.reply(t.setup.joinLinkUnavailable)
       return
     }
 
-    await ctx.reply(
-      t.setup.joinLinkReady(escapeHtml(joinDeepLink), escapeHtml(household.householdName)),
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: t.setup.joinHouseholdButton,
-                url: joinDeepLink
-              }
-            ]
-          ]
-        }
-      }
-    )
+    await ctx.reply(reply.text, {
+      parse_mode: 'HTML',
+      reply_markup: reply.reply_markup
+    })
   })
 
   options.bot.command('bind', async (ctx) => {
@@ -1157,28 +984,17 @@ export function registerHouseholdSetupCommands(options: {
       }
 
       if (ctx.msg) {
-        const refreshed = await options.householdAdminService.listPendingMembers({
+        const reply = await renderInvite({
+          ctx,
+          locale,
           actorTelegramUserId,
-          telegramChatId: ctx.chat.id.toString()
+          householdId: result.member.householdId,
+          householdName: result.householdName
         })
-
-        if (refreshed.status === 'ok') {
-          try {
-            if (refreshed.members.length === 0) {
-              await ctx.editMessageText(
-                t.setup.pendingMembersEmpty(escapeHtml(refreshed.householdName)),
-                { parse_mode: 'HTML' }
-              )
-            } else {
-              const reply = pendingMembersReply(locale, refreshed)
-              await ctx.editMessageText(reply.text, {
-                parse_mode: 'HTML',
-                reply_markup: reply.reply_markup
-              })
-            }
-          } catch {
-            // Ignore message edit errors
-          }
+        if (reply) {
+          await ctx
+            .editMessageText(reply.text, { parse_mode: 'HTML', reply_markup: reply.reply_markup })
+            .catch(() => {})
         }
       }
 
@@ -1422,7 +1238,7 @@ export function registerHouseholdSetupCommands(options: {
       }
     )
   }
-  options.bot.command(['app', 'dashboard'], async (ctx) => {
+  options.bot.command('app', async (ctx) => {
     const locale = await resolveReplyLocale({
       ctx,
       repository: options.householdConfigurationRepository
@@ -1445,7 +1261,7 @@ export function registerHouseholdSetupCommands(options: {
     )
   })
 
-  options.bot.command(['home', 'settings'], async (ctx) => {
+  options.bot.command('home', async (ctx) => {
     const locale = await resolveReplyLocale({
       ctx,
       repository: options.householdConfigurationRepository
@@ -1511,33 +1327,6 @@ export function registerHouseholdSetupCommands(options: {
       await ctx.reply(text, replyMarkup)
     }
     await ctx.answerCallbackQuery()
-  })
-
-  options.bot.command('keyboard', async (ctx) => {
-    const locale = await resolveReplyLocale({
-      ctx,
-      repository: options.householdConfigurationRepository
-    })
-    const t = getBotTranslations(locale)
-
-    if (!options.miniAppUrl) {
-      await ctx.reply(t.setup.openMiniAppUnavailable)
-      return
-    }
-
-    const webAppUrl = buildOpenMiniAppUrl(options.miniAppUrl, ctx.me.username)
-    if (!webAppUrl) {
-      await ctx.reply(t.setup.openMiniAppUnavailable)
-      return
-    }
-
-    await ctx.reply(t.keyboard.enabled, {
-      reply_markup: {
-        keyboard: [[{ text: t.keyboard.dashboardButton, web_app: { url: webAppUrl } }]],
-        resize_keyboard: true,
-        is_persistent: true
-      }
-    })
   })
 }
 

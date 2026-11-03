@@ -507,7 +507,7 @@ describe('createScheduledDispatchHandler', () => {
         }
       }
     ])
-    expect(audit.events[0]?.summaryText).toContain('Utilities')
+    expect(audit.events[0]?.summaryText).toBe('💡 Time to enter utilities for March')
     expect(markedDispatches).toEqual(['dispatch-utilities'])
     expect(reconciledHouseholds).toEqual(['household-1'])
   })

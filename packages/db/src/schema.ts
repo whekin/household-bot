@@ -1015,9 +1015,15 @@ export const householdAuditEvents = pgTable(
     deliveredTelegramThreadId: text('delivered_telegram_thread_id'),
     deliveredTelegramMessageId: text('delivered_telegram_message_id'),
     deliveryError: text('delivery_error'),
+    // Set only for events that must be announced once, such as a month becoming fully paid.
+    dedupeKey: text('dedupe_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => ({
+    householdDedupeUnique: uniqueIndex('household_audit_events_household_dedupe_unique').on(
+      table.householdId,
+      table.dedupeKey
+    ),
     householdCreatedIdx: index('household_audit_events_household_created_idx').on(
       table.householdId,
       table.createdAt

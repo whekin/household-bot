@@ -15,8 +15,12 @@ import type {
   RoutineDocument,
   RoutineRepository
 } from '@household/ports'
-import type { Bot } from 'grammy'
+import type { Bot, Context } from 'grammy'
 import type { InlineKeyboardButton } from 'grammy/types'
+
+import { resolveReplyLocale } from './bot-locale'
+import { resolveBotLocale, type BotLocale } from './i18n'
+import { isRoutineErrorKey, routineCopy, type RoutineErrorKey } from './i18n/routines'
 import {
   allowedMiniAppOrigin,
   createMiniAppSessionService,
@@ -204,22 +208,45 @@ export function createRoutineRuntime(options: {
       options.report('routine.refresh_failed', error)
     }
   }
+  // Errors keep their Russian message for the mini app; Telegram toasts are localized by code.
+  async function callbackLocale(ctx: Context, householdId?: string): Promise<BotLocale> {
+    try {
+      return await resolveReplyLocale({
+        ctx,
+        repository: households,
+        ...(householdId ? { householdId } : {})
+      })
+    } catch {
+      return resolveBotLocale(ctx.from?.language_code)
+    }
+  }
+  function errorToast(error: unknown, locale: BotLocale, fallback: RoutineErrorKey): string {
+    const errors = routineCopy[locale].errors
+    return error instanceof RoutineError && isRoutineErrorKey(error.code)
+      ? errors[error.code]
+      : errors[fallback]
+  }
   async function actorFor(householdId: string, telegramUserId: string): Promise<RoutineActor> {
     const actor = await households.getHouseholdMember(householdId, telegramUserId)
     if (!actor || actor.status !== 'active')
-      throw new RoutineError('Доступ только участникам дома', 403)
+      throw new RoutineError('Доступ только участникам дома', 403, 'members_only')
     return actor
   }
   async function groupAdmin(actor: RoutineActor) {
-    if (!actor.isAdmin) throw new RoutineError('Настройки доступны администратору дома', 403)
+    if (!actor.isAdmin)
+      throw new RoutineError('Настройки доступны администратору дома', 403, 'admin_only')
     const chat = await households.getHouseholdChatByHouseholdId(actor.householdId)
-    if (!chat) throw new RoutineError('Группа дома не подключена')
+    if (!chat) throw new RoutineError('Группа дома не подключена', 400, 'group_missing')
     const member = await bot.api.getChatMember(chat.telegramChatId, Number(actor.telegramUserId))
     if (!['creator', 'administrator'].includes(member.status))
-      throw new RoutineError('Подключить топик может администратор Telegram-группы', 403)
+      throw new RoutineError(
+        'Подключить топик может администратор Telegram-группы',
+        403,
+        'telegram_admin_only'
+      )
     const info = await bot.api.getChat(chat.telegramChatId)
     if (info.type !== 'supergroup' || !info.is_forum)
-      throw new RoutineError('Для топиков нужна группа с включёнными темами')
+      throw new RoutineError('Для топиков нужна группа с включёнными темами', 400, 'forum_required')
     return chat
   }
   async function bind(
@@ -329,70 +356,75 @@ export function createRoutineRuntime(options: {
     )
   }
   async function showLists(
-    telegramUserId: string,
+    ctx: Context,
     reply: (text: string, rows: InlineKeyboardButton[][]) => Promise<unknown>
   ) {
-    const members = (await households.listHouseholdMembersByTelegramUserId(telegramUserId)).filter(
-      (m) => m.status === 'active'
-    )
+    const copy = routineCopy[await callbackLocale(ctx)]
+    const members = (
+      await households.listHouseholdMembersByTelegramUserId(String(ctx.from!.id))
+    ).filter((m) => m.status === 'active')
     const rows: InlineKeyboardButton[][] = []
     for (const member of members) {
       const chat = await households.getHouseholdChatByHouseholdId(member.householdId)
       for (const doc of await service.list(member))
         rows.push([
           {
-            text: `${members.length > 1 ? `${chat?.householdName ?? 'Дом'} · ` : ''}${doc.definition.title}`,
+            text: `${members.length > 1 ? `${chat?.householdName ?? copy.householdFallback} · ` : ''}${doc.definition.title}`,
             callback_data: `rto:${doc.id}`
           }
         ])
     }
-    await reply(
-      rows.length
-        ? 'Дела на сегодня — выберите список'
-        : 'Списков пока нет. Создайте первый в мини-приложении: Настройки → Регулярные дела.',
-      rows
-    )
+    await reply(rows.length ? copy.listsTitle : copy.listsEmpty, rows)
   }
   bot.callbackQuery('home:routines', async (ctx) => {
     await ctx.answerCallbackQuery()
     if (ctx.chat?.type !== 'private') return
-    await showLists(String(ctx.from.id), (text, rows) =>
+    await showLists(ctx, (text, rows) =>
       ctx.reply(text, { reply_markup: { inline_keyboard: rows } })
     )
   })
   bot.command('routines', async (ctx) => {
     if (ctx.chat.type !== 'private') {
-      await ctx.reply('Откройте дела в личке бота', {
+      const copy = routineCopy[await callbackLocale(ctx)]
+      await ctx.reply(copy.privateOnly, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Дела в личке', url: `https://t.me/${bot.botInfo.username}?start=routines` }]
+            [
+              {
+                text: copy.privateOnlyButton,
+                url: `https://t.me/${bot.botInfo.username}?start=routines`
+              }
+            ]
           ]
         }
       })
       return
     }
-    await showLists(String(ctx.from!.id), (text, rows) =>
+    await showLists(ctx, (text, rows) =>
       ctx.reply(text, { reply_markup: { inline_keyboard: rows } })
     )
   })
   bot.command('start', async (ctx, next) => {
     if (ctx.match !== 'routines' || ctx.chat.type !== 'private') return next()
-    await showLists(String(ctx.from!.id), (text, rows) =>
+    await showLists(ctx, (text, rows) =>
       ctx.reply(text, { reply_markup: { inline_keyboard: rows } })
     )
   })
   bot.callbackQuery(/^rto:([a-f0-9]{16})$/, async (ctx) => {
+    let householdId: string | undefined
     try {
-      if (ctx.chat?.type !== 'private') throw new RoutineError('Откройте личку бота')
+      if (ctx.chat?.type !== 'private')
+        throw new RoutineError('Откройте личку бота', 400, 'open_private')
       const doc = await repository.get(ctx.match[1]!)
-      if (!doc) throw new RoutineError('Список не найден')
+      if (!doc) throw new RoutineError('Список не найден', 404, 'not_found')
+      householdId = doc.householdId
       await actorFor(doc.householdId, String(ctx.from!.id))
       await ctx.answerCallbackQuery()
       await delivery.requestCard(doc.id, doc.householdId, String(ctx.from!.id))
     } catch (error) {
       await ctx
         .answerCallbackQuery({
-          text: error instanceof RoutineError ? error.message : 'Не удалось открыть дела',
+          text: errorToast(error, await callbackLocale(ctx, householdId), 'open_failed'),
           show_alert: true
         })
         .catch(() => {})
@@ -402,9 +434,11 @@ export function createRoutineRuntime(options: {
     /^rtq?:([a-f0-9]{16}):(\d{8}[a-z0-9]+):([a-z0-9]+):([A-Za-z0-9_-]{1,12})$/,
     async (ctx) => {
       const id = ctx.match[1]!
+      let householdId: string | undefined
       try {
         const doc = await repository.get(id)
-        if (!doc) throw new RoutineError('Список не найден')
+        if (!doc) throw new RoutineError('Список не найден', 404, 'not_found')
+        householdId = doc.householdId
         const actor = await actorFor(doc.householdId, String(ctx.from!.id))
         const source = doc.messages.find(
           (m) =>
@@ -418,35 +452,40 @@ export function createRoutineRuntime(options: {
             (doc.destination?.chatId !== source.chatId ||
               doc.destination.threadId !== source.threadId))
         )
-          throw new RoutineError('Эта карточка больше не активна', 409)
+          throw new RoutineError('Эта карточка больше не активна', 409, 'card_inactive')
+        const quick = ctx.callbackQuery.data.startsWith('rtq:')
+        const action = quick
+          ? 'complete'
+          : ({ d: 'complete', u: 'reopen', c: 'claim', r: 'release' } as const)[
+              ctx.match[4] as 'd' | 'u' | 'c' | 'r'
+            ]
         await service.act(actor, {
           id,
           rowId: ctx.match[2]!,
           version: parseInt(ctx.match[3]!, 36),
-          ...(ctx.callbackQuery.data.startsWith('rtq:') ? { activityId: ctx.match[4]! } : {}),
-          action: ctx.callbackQuery.data.startsWith('rtq:')
-            ? 'complete'
-            : ({ d: 'complete', u: 'reopen', c: 'claim', r: 'release' } as const)[
-                ctx.match[4] as 'd' | 'u' | 'c' | 'r'
-              ],
+          ...(quick ? { activityId: ctx.match[4]! } : {}),
+          action,
           requestId: ctx.callbackQuery.id
         })
+        const copy = routineCopy[await callbackLocale(ctx, doc.householdId)]
         await ctx.answerCallbackQuery({
           text:
-            ctx.callbackQuery.data.startsWith('rtq:') &&
+            quick &&
             doc.days
               .flatMap((day) => day.rows)
               .some((row) => row.id === ctx.match[2] && row.status === 'completed')
-              ? 'Уже отмечено — повтор не добавлен'
-              : 'Сохранено'
+              ? copy.toastAlreadyDone
+              : {
+                  complete: copy.toastComplete,
+                  reopen: copy.toastReopen,
+                  claim: copy.toastClaim,
+                  release: copy.toastRelease
+                }[action]
         })
       } catch (error) {
         await ctx
           .answerCallbackQuery({
-            text:
-              error instanceof RoutineError
-                ? error.message
-                : 'Не удалось сохранить. Попробуйте ещё раз.',
+            text: errorToast(error, await callbackLocale(ctx, householdId), 'save_failed'),
             show_alert: true
           })
           .catch(() => {})
@@ -456,11 +495,12 @@ export function createRoutineRuntime(options: {
   )
   bot.callbackQuery(/^rtx:([a-f0-9]{16})$/, async (ctx) => {
     const id = ctx.match[1]!
+    let householdId: string | undefined
     try {
       const doc = await repository.get(id)
-      if (!doc) throw new RoutineError('Список не найден')
+      if (!doc) throw new RoutineError('Список не найден', 404, 'not_found')
+      householdId = doc.householdId
       await actorFor(doc.householdId, String(ctx.from!.id))
-      let expanded = false
       await repository.change(id, doc.householdId, (d) => {
         const message = d.messages.find(
           (m) =>
@@ -475,15 +515,15 @@ export function createRoutineRuntime(options: {
             (d.destination?.chatId !== message.chatId ||
               d.destination.threadId !== message.threadId))
         )
-          throw new RoutineError('Эта карточка больше не активна', 409)
+          throw new RoutineError('Эта карточка больше не активна', 409, 'card_inactive')
         message.expanded = !message.expanded
-        expanded = message.expanded
       })
-      await ctx.answerCallbackQuery({ text: expanded ? 'Все дела' : 'Свёрнуто' })
+      // The card itself shows the change; a toast would only repeat it.
+      await ctx.answerCallbackQuery()
     } catch (error) {
       await ctx
         .answerCallbackQuery({
-          text: error instanceof RoutineError ? error.message : 'Не удалось открыть список',
+          text: errorToast(error, await callbackLocale(ctx, householdId), 'open_failed'),
           show_alert: true
         })
         .catch(() => {})
@@ -491,25 +531,29 @@ export function createRoutineRuntime(options: {
     await refresh(id)
   })
   bot.callbackQuery(/^rtb:([a-f0-9]{16}):(\d+):(\d+)$/, async (ctx) => {
+    let householdId: string | undefined
     try {
       const doc = await repository.get(ctx.match[1]!)
-      if (!doc) throw new RoutineError('Список не найден')
+      if (!doc) throw new RoutineError('Список не найден', 404, 'not_found')
+      householdId = doc.householdId
       const actor = await actorFor(doc.householdId, String(ctx.from!.id))
       const chat = await groupAdmin(actor)
       const threadId = Number(ctx.match[2])
       if (String(ctx.chat?.id) !== chat.telegramChatId || ctx.msg?.message_thread_id !== threadId)
-        throw new RoutineError('Нажмите кнопку внутри нужного топика')
+        throw new RoutineError('Нажмите кнопку внутри нужного топика', 400, 'wrong_topic')
       await delivery.bind(
         doc.id,
         actor.householdId,
         { chatId: chat.telegramChatId, threadId, name: 'Подключённый топик' },
         Number(ctx.match[3])
       )
-      await ctx.answerCallbackQuery({ text: 'Топик подключён' })
+      await ctx.answerCallbackQuery({
+        text: routineCopy[await callbackLocale(ctx, doc.householdId)].toastTopicBound
+      })
     } catch (error) {
       await ctx
         .answerCallbackQuery({
-          text: error instanceof Error ? error.message : 'Ошибка подключения',
+          text: errorToast(error, await callbackLocale(ctx, householdId), 'bind_failed'),
           show_alert: true
         })
         .catch(() => {})
@@ -523,9 +567,14 @@ export function createRoutineRuntime(options: {
     service,
     delivery,
     async bindButtons(householdId: string, threadId: number): Promise<InlineKeyboardButton[][]> {
-      return (await repository.list(householdId)).map((doc) => [
+      const [docs, chat] = await Promise.all([
+        repository.list(householdId),
+        households.getHouseholdChatByHouseholdId(householdId)
+      ])
+      const copy = routineCopy[chat?.defaultLocale ?? 'ru']
+      return docs.map((doc) => [
         {
-          text: `☑️ ${doc.definition.title}`,
+          text: copy.bindButton(doc.definition.title),
           callback_data: `rtb:${doc.id}:${threadId}:${doc.revision}`
         }
       ])

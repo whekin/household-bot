@@ -1,5 +1,5 @@
 import type { FinanceCommandService } from '@household/application'
-import { BillingPeriod, nowInstant } from '@household/domain'
+import { BillingPeriod, nowInstant, parseMajorToMinor } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   HouseholdConfigurationRepository,
@@ -8,8 +8,10 @@ import type {
 import type { Bot, Context } from 'grammy'
 import type { InlineKeyboardMarkup } from 'grammy/types'
 
-import { getBotTranslations, type BotLocale } from './i18n'
 import { resolveReplyLocale } from './bot-locale'
+import { escapeHtml } from './html'
+import type { BotLocale } from './i18n'
+import { utilityEntryCopy } from './i18n/utility-entry'
 import { buildBotStartDeepLink } from './telegram-deep-links'
 import { resolveReminderTopicActorContext } from './reminder-topic-context'
 import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
@@ -174,43 +176,27 @@ function parseTemplateEntries(
   return entries.length > 0 ? entries : null
 }
 
-function escapeHtml(raw: string): string {
-  return raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
 export function buildTemplateText(
   locale: BotLocale,
   currency: 'GEL' | 'USD',
-  categories: readonly string[]
+  categories: readonly string[],
+  period?: string
 ): {
   text: string
   parseMode: 'HTML'
 } {
+  const copy = utilityEntryCopy[locale]
   const templateLines = categories.map((category) => `${category}: `).join('\n')
 
   return {
     text: [
-      `💡 <b>${escapeHtml(locale === 'ru' ? 'Коммуналка' : 'Utilities')}</b>`,
+      `💡 <b>${escapeHtml(copy.title(period))}</b>`,
       '',
-      escapeHtml(
-        locale === 'ru'
-          ? `Заполните суммы в ${currency} и отправьте обратно:`
-          : `Fill in amounts in ${currency} and send back:`
-      ),
-      '',
+      escapeHtml(copy.templateIntro(currency)),
       `<pre>${escapeHtml(templateLines)}</pre>`,
+      escapeHtml(copy.templateSkip),
       '',
-      escapeHtml(
-        locale === 'ru'
-          ? 'Оставьте пустым или укажите 0 для пропуска.'
-          : 'Leave blank or use 0 to skip.'
-      ),
-      '',
-      escapeHtml(
-        locale === 'ru'
-          ? 'Также можно ответить на коммунальное напоминание скриншотом из Credo или TBC.'
-          : 'You can also reply to a utility reminder with a Credo or TBC screenshot.'
-      )
+      escapeHtml(copy.templateScreenshotHint)
     ].join('\n'),
     parseMode: 'HTML'
   }
@@ -222,29 +208,32 @@ function reminderUtilitySummaryText(
   currency: 'GEL' | 'USD',
   entries: readonly UtilityDraftEntry[]
 ): string {
-  const t = getBotTranslations(locale).reminders
+  const copy = utilityEntryCopy[locale]
+  const totalMinor = entries.reduce(
+    (sum, entry) => sum + (parseMajorToMinor(entry.amountMajor) ?? 0n),
+    0n
+  )
 
   return [
-    t.summaryTitle(period),
+    `💡 ${copy.title(period)}`,
     '',
-    ...entries.map((entry) => t.summaryLine(entry.billName, entry.amountMajor, currency)),
-    '',
-    t.confirmPrompt
+    ...entries.map((entry) => copy.summaryLine(entry.billName, entry.amountMajor, currency)),
+    ...(entries.length > 1 ? ['', copy.summaryTotal(totalMinor, currency)] : [])
   ].join('\n')
 }
 
 function reminderUtilityReplyMarkup(locale: BotLocale) {
-  const t = getBotTranslations(locale).reminders
+  const copy = utilityEntryCopy[locale]
 
   return (proposalId: string): InlineKeyboardMarkup => ({
     inline_keyboard: [
       [
         {
-          text: t.confirmButton,
+          text: copy.saveButton,
           callback_data: `${REMINDER_UTILITY_CONFIRM_CALLBACK_PREFIX}${proposalId}`
         },
         {
-          text: t.cancelButton,
+          text: copy.cancelButton,
           callback_data: `${REMINDER_UTILITY_CANCEL_CALLBACK_PREFIX}${proposalId}`
         }
       ]
@@ -373,7 +362,7 @@ export function buildUtilitiesReminderReplyMarkup(
     period?: string
   }
 ): InlineKeyboardMarkup {
-  const t = getBotTranslations(locale).reminders
+  const copy = utilityEntryCopy[locale]
   const dashboardUrl = buildBotStartDeepLink(options?.botUsername, 'dashboard')
   const periodSuffix = options?.period
     ? `:${BillingPeriod.fromString(options.period).toString()}`
@@ -383,11 +372,11 @@ export function buildUtilitiesReminderReplyMarkup(
     inline_keyboard: [
       [
         {
-          text: t.guidedEntryButton,
+          text: copy.stepsButton,
           callback_data: `${REMINDER_UTILITY_GUIDED_CALLBACK}${periodSuffix}`
         },
         {
-          text: t.copyTemplateButton,
+          text: copy.templateButton,
           callback_data: `${REMINDER_UTILITY_TEMPLATE_CALLBACK}${periodSuffix}`
         }
       ],
@@ -395,7 +384,7 @@ export function buildUtilitiesReminderReplyMarkup(
         ? [
             [
               {
-                text: t.openDashboardButton,
+                text: copy.appButton,
                 url: dashboardUrl
               }
             ]
@@ -435,7 +424,7 @@ export function registerReminderTopicUtilities(options: {
       return
     }
 
-    const t = getBotTranslations(reminderContext.locale).reminders
+    const copy = utilityEntryCopy[reminderContext.locale]
     const actorTelegramUserId = ctx.from?.id?.toString()
     if (!actorTelegramUserId) {
       return
@@ -443,7 +432,7 @@ export function registerReminderTopicUtilities(options: {
 
     if (reminderContext.categories.length === 0) {
       await ctx.answerCallbackQuery({
-        text: t.noActiveCategories,
+        text: copy.noBills,
         show_alert: true
       })
       return
@@ -469,14 +458,15 @@ export function registerReminderTopicUtilities(options: {
       })
 
       await ctx.answerCallbackQuery({
-        text: t.startToast
+        text: copy.stepsStarted
       })
       await replyInTopic(
         ctx,
-        t.promptAmount(
+        copy.askAmount(
           reminderContext.categories[0]!,
-          reminderContext.currency,
-          reminderContext.categories.length - 1
+          1,
+          reminderContext.categories.length,
+          reminderContext.currency
         )
       )
       return
@@ -499,12 +489,13 @@ export function registerReminderTopicUtilities(options: {
     })
 
     await ctx.answerCallbackQuery({
-      text: t.templateToast
+      text: copy.templateSent
     })
     const template = buildTemplateText(
       reminderContext.locale,
       reminderContext.currency,
-      reminderContext.categories
+      reminderContext.categories,
+      reminderContext.period
     )
     await replyInTopic(ctx, template.text, undefined, {
       parseMode: template.parseMode
@@ -537,7 +528,7 @@ export function registerReminderTopicUtilities(options: {
       ctx,
       repository: options.householdConfigurationRepository
     })
-    const t = getBotTranslations(locale).reminders
+    const copy = utilityEntryCopy[locale]
     if (!options.promptRepository.consumePendingActionByPayloadValue) {
       options.logger?.error(
         {
@@ -548,7 +539,7 @@ export function registerReminderTopicUtilities(options: {
         'Reminder utility confirmation requires an atomic pending-action claim'
       )
       await ctx.answerCallbackQuery({
-        text: t.proposalUnavailable,
+        text: copy.unavailable,
         show_alert: true
       })
       return
@@ -573,7 +564,7 @@ export function registerReminderTopicUtilities(options: {
       payload.proposalId !== proposalId
     ) {
       await ctx.answerCallbackQuery({
-        text: t.proposalUnavailable,
+        text: copy.unavailable,
         show_alert: true
       })
       return
@@ -609,14 +600,16 @@ export function registerReminderTopicUtilities(options: {
         return { status: 'failed' }
       })
 
-    const savedText = t.saved(payload.entries.length, payload.period!)
+    const savedText = copy.saved(payload.entries.length, payload.period!)
     await ctx.answerCallbackQuery({
       text: savedText
     })
 
     if (ctx.msg) {
       await ctx.editMessageText(
-        publishResult?.status === 'sent' ? `${savedText}\n${t.paymentInstructionSent}` : savedText,
+        publishResult?.status === 'sent'
+          ? `${savedText}\n${copy.paymentInstructionSent}`
+          : savedText,
         {
           reply_markup: {
             inline_keyboard: []
@@ -644,7 +637,7 @@ export function registerReminderTopicUtilities(options: {
       ctx,
       repository: options.householdConfigurationRepository
     })
-    const t = getBotTranslations(locale).reminders
+    const copy = utilityEntryCopy[locale]
     const pending = options.promptRepository.consumePendingActionByPayloadValue
       ? await options.promptRepository.consumePendingActionByPayloadValue(
           messageChat.id.toString(),
@@ -665,7 +658,7 @@ export function registerReminderTopicUtilities(options: {
 
     if (!payload || payload.stage !== 'confirm' || payload.proposalId !== proposalId) {
       await ctx.answerCallbackQuery({
-        text: t.proposalUnavailable,
+        text: copy.unavailable,
         show_alert: true
       })
       return
@@ -679,11 +672,11 @@ export function registerReminderTopicUtilities(options: {
       )
     }
     await ctx.answerCallbackQuery({
-      text: t.cancelled
+      text: copy.cancelled
     })
 
     if (ctx.msg) {
-      await ctx.editMessageText(t.cancelled, {
+      await ctx.editMessageText(copy.cancelled, {
         reply_markup: {
           inline_keyboard: []
         }
@@ -750,7 +743,7 @@ export function registerReminderTopicUtilities(options: {
           repository: options.householdConfigurationRepository
         }
     const locale = await resolveReplyLocale(localeOptions)
-    const t = getBotTranslations(locale).reminders
+    const copy = utilityEntryCopy[locale]
 
     try {
       if (payload.stage === 'guided' && Array.isArray(payload.categories)) {
@@ -791,7 +784,7 @@ export function registerReminderTopicUtilities(options: {
                 candidate.senderTelegramUserId,
                 REMINDER_UTILITY_ACTION
               )
-              await replyInTopic(ctx, t.cancelled)
+              await replyInTopic(ctx, copy.allSkipped)
               return
             }
 
@@ -818,10 +811,11 @@ export function registerReminderTopicUtilities(options: {
 
           await replyInTopic(
             ctx,
-            t.promptAmount(
+            copy.askAmount(
               nextCategory,
-              payload.currency!,
-              payload.categories.length - nextIndex - 1
+              nextIndex + 1,
+              payload.categories.length,
+              payload.currency!
             )
           )
           return
@@ -833,10 +827,7 @@ export function registerReminderTopicUtilities(options: {
         if (!amountMajor || !currentCategory) {
           await replyInTopic(
             ctx,
-            t.invalidAmount(
-              currentCategory ?? payload.categories[0] ?? 'utility',
-              payload.currency ?? 'GEL'
-            )
+            copy.invalidAmount(currentCategory ?? payload.categories[0] ?? copy.title())
           )
           return
         }
@@ -890,7 +881,7 @@ export function registerReminderTopicUtilities(options: {
 
         await replyInTopic(
           ctx,
-          t.promptAmount(nextCategory, payload.currency!, payload.categories.length - nextIndex - 1)
+          copy.askAmount(nextCategory, nextIndex + 1, payload.categories.length, payload.currency!)
         )
         return
       }
@@ -902,13 +893,13 @@ export function registerReminderTopicUtilities(options: {
             candidate.senderTelegramUserId,
             REMINDER_UTILITY_ACTION
           )
-          await replyInTopic(ctx, t.cancelled)
+          await replyInTopic(ctx, copy.cancelled)
           return
         }
 
         const entries = parseTemplateEntries(candidate.rawText, payload.categories)
         if (!entries) {
-          await replyInTopic(ctx, t.templateInvalid)
+          await replyInTopic(ctx, copy.templateInvalid)
           return
         }
 

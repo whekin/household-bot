@@ -120,12 +120,19 @@ export function createDbAuditNotificationRepository(databaseUrl: string): {
           summaryText: input.summaryText,
           metadata: input.metadata ?? {},
           deliveryStatus: input.deliveryStatus ?? 'pending',
+          dedupeKey: input.dedupeKey ?? null,
           createdAt: instantToDate(input.createdAt)
+        })
+        .onConflictDoNothing({
+          target: [schema.householdAuditEvents.householdId, schema.householdAuditEvents.dedupeKey]
         })
         .returning(eventSelect())
 
       const row = rows[0]
       if (!row) {
+        if (input.dedupeKey) {
+          return null
+        }
         throw new Error('Audit event insert did not return a row')
       }
 

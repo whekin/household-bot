@@ -7,6 +7,14 @@ import type { HouseholdAuditEventRecord } from '@household/ports'
 import { registerAuditNotificationCallbacks } from './audit-notifications'
 import { createTelegramBot } from './bot'
 
+const COMPACT_TEXT = '🛒 Стас: Pizza · 30 ₾'
+const EXPANDED_TEXT = [
+  COMPACT_TEXT,
+  '',
+  'Суммы указаны вручную',
+  'Доли: Стас 20 ₾, Дима 10 ₾'
+].join('\n')
+
 function auditEvent(input: Partial<HouseholdAuditEventRecord> = {}): HouseholdAuditEventRecord {
   return {
     id: input.id ?? 'audit-1',
@@ -15,13 +23,12 @@ function auditEvent(input: Partial<HouseholdAuditEventRecord> = {}): HouseholdAu
     actorDisplayName: input.actorDisplayName ?? 'Стас',
     eventType: input.eventType ?? 'purchase.added',
     category: input.category ?? 'purchase_events',
-    summaryText: input.summaryText ?? 'Стас: добавление покупки Pizza 30.00 ₾',
+    summaryText: input.summaryText ?? COMPACT_TEXT,
     metadata: input.metadata ?? {
       notificationDetails: {
         locale: 'ru',
-        compactText: 'Стас: добавление покупки Pizza 30.00 ₾',
-        expandedText:
-          'Стас: добавление покупки Pizza 30.00 ₾\nПлательщик: Стас\nУчастники: Стас, Дима'
+        compactText: COMPACT_TEXT,
+        expandedText: EXPANDED_TEXT
       }
     },
     deliveryStatus: input.deliveryStatus ?? 'sent',
@@ -118,17 +125,35 @@ describe('registerAuditNotificationCallbacks', () => {
     expect(calls[0]).toMatchObject({
       method: 'editMessageText',
       payload: {
-        text: expect.stringContaining('Плательщик: Стас')
+        text: EXPANDED_TEXT,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Свернуть',
+                callback_data: `${AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX}${event.id}:compact`
+              }
+            ]
+          ]
+        }
       }
     })
-    expect(JSON.stringify(calls[0]?.payload)).toContain('Скрыть')
     expect(calls[2]).toMatchObject({
       method: 'editMessageText',
       payload: {
-        text: 'Стас: добавление покупки Pizza 30.00 ₾'
+        text: COMPACT_TEXT,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Подробнее',
+                callback_data: `${AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX}${event.id}:expanded`
+              }
+            ]
+          ]
+        }
       }
     })
-    expect(JSON.stringify(calls[2]?.payload)).toContain('Детали')
   })
 
   test('rejects callbacks for a different delivered message', async () => {

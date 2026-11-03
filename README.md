@@ -18,7 +18,9 @@ This is not a toy Telegram bot repo with a thin webhook and some string parsing.
 
 Implemented today:
 
-- Telegram group onboarding with `/setup`, topic binding, and `/unsetup`
+- Telegram group onboarding with `/setup`, topic binding with `/bind`, and invites with `/invite`
+- a short command menu (`/home`, `/bill`, `/app`, `/help`) with everything else reachable from `/home` and the mini app
+- a "fully paid" milestone in the notifications topic, once per month for rent and for utilities
 - topic-based ingestion for purchases, payments, reminders, and anonymous feedback
 - DM assistant with household-aware context, payment confirmation flow, and tagged replies in group topics
 - deterministic household accounting for rent, utilities, purchases, payments, lifecycle status, and days-present handling

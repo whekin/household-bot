@@ -190,29 +190,10 @@ export function buildPaymentAcknowledgement(
     case 'already_settled':
       return t.alreadySettled(result.kind)
     case 'recorded':
-      return t.recorded(result.kind, result.amountMajor, result.currency)
+      return t.recorded(result.kind, result.amountMajor, result.currency, null)
     case 'needs_review':
       return null
   }
-}
-
-function formatPeriodLabel(locale: BotLocale, period: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(period)
-  if (!match) {
-    return period
-  }
-
-  const year = Number(match[1])
-  const month = Number(match[2])
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    return period
-  }
-
-  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC'
-  }).format(new Date(Date.UTC(year, month - 1, 1)))
 }
 
 function parsePaymentTopicConfirmationPayload(
@@ -423,9 +404,10 @@ function formatRecordedPaymentText(
         escapeHtml(payload.reportedDisplayName),
         payload.kind,
         amount.toMajorString(),
-        amount.currency
+        amount.currency,
+        payload.period ?? null
       )
-    : t.recorded(payload.kind, amount.toMajorString(), amount.currency)
+    : t.recorded(payload.kind, amount.toMajorString(), amount.currency, payload.period ?? null)
 }
 
 function formatMultiPaymentProposalText(
@@ -434,13 +416,11 @@ function formatMultiPaymentProposalText(
 ): string {
   const t = getBotTranslations(locale).payments
   const lines = [
-    t.multiProposal(payload.kind, escapeHtml(formatPeriodLabel(locale, payload.period))),
+    t.multiProposal(payload.kind, payload.period),
     '',
     ...payload.members.map((member) =>
       t.multiMemberLine(escapeHtml(member.displayName), member.paymentStatus, member.selected)
-    ),
-    '',
-    t.confirmHint
+    )
   ]
 
   return lines.join('\n')
@@ -465,14 +445,13 @@ function formatMultiRecordedText(
           .join(', ')
       : ''
   const lines = [
-    recordedNames ? t.multiRecorded(payload.kind, recordedNames) : null,
-    alreadyPaidNames ? t.multiAlreadyPaid(payload.kind, alreadyPaidNames) : null
+    recordedNames ? t.multiRecorded(payload.kind, payload.period, recordedNames) : null,
+    alreadyPaidNames ? t.multiAlreadyPaid(alreadyPaidNames) : null
   ].filter((line): line is string => Boolean(line))
 
   return lines.length > 0
     ? lines.join('\n')
     : t.multiAlreadyPaid(
-        payload.kind,
         payload.members
           .filter((member) => member.selected || member.paymentStatus === 'paid')
           .map((member) => escapeHtml(member.displayName))
@@ -505,8 +484,8 @@ function formatMultiPartialRecordedText(
     .join(', ')
 
   const lines = [
-    t.multiPartiallyRecorded(payload.kind, recordedNames || 'none', failedNames || 'none'),
-    alreadyPaidNames ? t.multiAlreadyPaid(payload.kind, alreadyPaidNames) : null
+    t.multiPartiallyRecorded(recordedNames || null, failedNames || null),
+    alreadyPaidNames ? t.multiAlreadyPaid(alreadyPaidNames) : null
   ].filter((line): line is string => Boolean(line))
 
   return lines.join('\n')
@@ -578,6 +557,14 @@ function paymentProposalReplyMarkup(locale: BotLocale, proposalId: string) {
   }
 }
 
+function pairs<T>(items: readonly T[]): T[][] {
+  const rows: T[][] = []
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2))
+  }
+  return rows
+}
+
 function multiPaymentProposalReplyMarkup(
   locale: BotLocale,
   payload: PaymentTopicMultiConfirmationPayload
@@ -586,14 +573,14 @@ function multiPaymentProposalReplyMarkup(
 
   return {
     inline_keyboard: [
-      ...payload.members
-        .filter((member) => member.paymentStatus === 'unpaid')
-        .map((member) => [
-          {
-            text: member.selected ? `✅ ${member.displayName}` : `⬜ ${member.displayName}`,
+      ...pairs(
+        payload.members
+          .filter((member) => member.paymentStatus === 'unpaid')
+          .map((member) => ({
+            text: t.multiMemberButton(member.displayName, member.selected),
             callback_data: `${PAYMENT_TOPIC_MULTI_TOGGLE_CALLBACK_PREFIX}${payload.proposalId}:${member.memberId}`
-          }
-        ]),
+          }))
+      ),
       [
         {
           text: t.confirmSelectedButton,
@@ -637,17 +624,6 @@ async function getMultiPaymentPendingAction(input: {
   return proposalPending?.action === PAYMENT_TOPIC_CONFIRMATION_ACTION
     ? parsePaymentTopicMultiConfirmationPayload(proposalPending.payload)
     : null
-}
-
-async function isPaymentKindFullyPaid(input: {
-  financeService: FinanceCommandService
-  kind: 'rent' | 'utilities'
-  period: string
-}): Promise<boolean> {
-  const dashboard = await input.financeService.generateDashboard(input.period)
-  const period = dashboard?.paymentPeriods?.find((candidate) => candidate.period === input.period)
-  const kindSummary = period?.kinds.find((candidate) => candidate.kind === input.kind)
-  return Boolean(kindSummary && kindSummary.totalRemaining.amountMinor <= 0n)
 }
 
 async function resolveCurrentPayableMultiMemberAmounts(input: {
@@ -894,10 +870,7 @@ async function resolvePlannedUtilitiesForRecordedPayments(input: {
   memberIds: Iterable<string>
   actorTelegramUserId: string
   logger?: Logger | undefined
-}): Promise<{ settledJustNow: boolean; period: string | null }> {
-  let settledJustNow = false
-  let period: string | null = null
-
+}): Promise<void> {
   const actorMemberId = await input.financeService
     .getMemberByTelegramUserId(input.actorTelegramUserId)
     .then((member) => member?.id)
@@ -907,7 +880,7 @@ async function resolvePlannedUtilitiesForRecordedPayments(input: {
   // the member's planned bills as covered, so only settled members qualify.
   const dashboard = await input.financeService.generateDashboard(input.period)
   if (!dashboard) {
-    return { settledJustNow, period }
+    return
   }
   const unresolvedMemberIds = new Set(
     dashboard.paymentPeriods
@@ -921,15 +894,11 @@ async function resolvePlannedUtilitiesForRecordedPayments(input: {
       continue
     }
     try {
-      const result = await input.financeService.resolveUtilityBillAsPlanned({
+      await input.financeService.resolveUtilityBillAsPlanned({
         memberId,
         ...(input.period ? { periodArg: input.period } : {}),
         ...(actorMemberId ? { actorMemberId } : {})
       })
-      if (result) {
-        period = result.period
-        settledJustNow = settledJustNow || result.settledJustNow
-      }
     } catch (error) {
       input.logger?.warn(
         { memberId, error: String(error) },
@@ -937,8 +906,6 @@ async function resolvePlannedUtilitiesForRecordedPayments(input: {
       )
     }
   }
-
-  return { settledJustNow, period }
 }
 
 export function registerPaymentTopicCallbacks(
@@ -1245,16 +1212,15 @@ export function registerPaymentTopicCallbacks(
         }
       }
 
-      const planResolution =
-        payload.kind === 'utilities' && handledMemberIds.size > 0
-          ? await resolvePlannedUtilitiesForRecordedPayments({
-              financeService,
-              period: payload.period,
-              memberIds: handledMemberIds,
-              actorTelegramUserId,
-              logger: options.logger
-            })
-          : null
+      if (payload.kind === 'utilities' && handledMemberIds.size > 0) {
+        await resolvePlannedUtilitiesForRecordedPayments({
+          financeService,
+          period: payload.period,
+          memberIds: handledMemberIds,
+          actorTelegramUserId,
+          logger: options.logger
+        })
+      }
 
       await promptRepository.clearPendingAction(
         payload.telegramChatId,
@@ -1263,13 +1229,6 @@ export function registerPaymentTopicCallbacks(
       )
       const fullyHandled =
         handledMemberIds.size + alreadyPaidSelectedMemberIds.size === selectedMembers.length
-      const fullyPaid = fullyHandled
-        ? await isPaymentKindFullyPaid({
-            financeService,
-            kind: payload.kind,
-            period: payload.period
-          })
-        : false
       const recordedText = fullyHandled
         ? formatMultiRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
         : formatMultiPartialRecordedText(locale, payload, handledMemberIds, alreadyPaidMemberIds)
@@ -1286,14 +1245,17 @@ export function registerPaymentTopicCallbacks(
       )
 
       if (options.auditNotificationService && handledMemberIds.size > 0) {
-        const actorDisplayName = ctx.from?.first_name ?? 'Someone'
+        const actor = await householdConfigurationRepository
+          .getHouseholdMember(payload.householdId, actorTelegramUserId)
+          .catch(() => null)
+        const actorDisplayName = actor?.displayName ?? ctx.from?.first_name ?? 'Someone'
         const recordedMembers = payload.members.filter((member) =>
           handledMemberIds.has(member.memberId)
         )
         const recordedNames = recordedMembers.map((member) => member.displayName).join(', ')
         await options.auditNotificationService.recordEvent({
           householdId: payload.householdId,
-          actorMemberId: null,
+          actorMemberId: actor?.id ?? null,
           actorDisplayName,
           eventType: 'payment.recorded',
           category: 'payment_events',
@@ -1327,37 +1289,12 @@ export function registerPaymentTopicCallbacks(
         })
       }
 
-      if (options.auditNotificationService && planResolution?.settledJustNow) {
-        const settledPeriod = planResolution.period ?? payload.period
-        await options.auditNotificationService.recordEvent({
-          householdId: payload.householdId,
-          actorMemberId: null,
-          actorDisplayName: ctx.from?.first_name ?? 'Someone',
-          eventType: 'utility_plan.fully_paid',
-          category: 'plan_events',
-          summaryText: `Utilities for ${settledPeriod} are fully settled`,
-          metadata: { period: settledPeriod }
-        })
-      }
-
       if (fullyHandled && options.livePaymentCardService) {
         await options.livePaymentCardService.refresh({
           householdId: payload.householdId,
           kind: payload.kind,
           period: payload.period
         })
-      }
-
-      if (fullyPaid) {
-        await ctx.reply(
-          `🎉 <b>${escapeHtml(
-            getBotTranslations(locale).payments.fullyPaid(
-              payload.kind,
-              formatPeriodLabel(locale, payload.period)
-            )
-          )}</b>`,
-          { parse_mode: 'HTML' }
-        )
       }
     }
   )
@@ -1573,25 +1510,16 @@ export function registerPaymentTopicCallbacks(
         return
       }
 
-      const planResolution =
-        result.kind === 'utilities'
-          ? await resolvePlannedUtilitiesForRecordedPayments({
-              financeService: financeServiceForHousehold(payload.householdId),
-              period: payload.period,
-              memberIds: [payload.memberId],
-              actorTelegramUserId,
-              logger: options.logger
-            })
-          : null
+      if (result.kind === 'utilities') {
+        await resolvePlannedUtilitiesForRecordedPayments({
+          financeService: financeServiceForHousehold(payload.householdId),
+          period: payload.period,
+          memberIds: [payload.memberId],
+          actorTelegramUserId,
+          logger: options.logger
+        })
+      }
 
-      const fullyPaid =
-        payload.period === undefined
-          ? false
-          : await isPaymentKindFullyPaid({
-              financeService: financeServiceForHousehold(payload.householdId),
-              kind: payload.kind,
-              period: payload.period
-            })
       const recordedText = formatRecordedPaymentText(locale, payload, result.amount)
       await safeEditPaymentCallbackMessage(
         ctx,
@@ -1605,11 +1533,18 @@ export function registerPaymentTopicCallbacks(
       )
 
       if (result.status === 'recorded' && options.auditNotificationService) {
-        const memberDisplayName = payload.reportedDisplayName ?? ctx.from?.first_name ?? 'Someone'
+        const actor = await householdConfigurationRepository
+          .getHouseholdMember(payload.householdId, actorTelegramUserId)
+          .catch(() => null)
+        const actorDisplayName = actor?.displayName ?? ctx.from?.first_name ?? 'Someone'
+        const memberDisplayName =
+          payload.reportedDisplayName ??
+          (actor?.id === payload.memberId ? actorDisplayName : null) ??
+          actorDisplayName
         await options.auditNotificationService.recordEvent({
           householdId: payload.householdId,
-          actorMemberId: payload.memberId,
-          actorDisplayName: memberDisplayName,
+          actorMemberId: actor?.id ?? null,
+          actorDisplayName,
           eventType: 'payment.recorded',
           category: 'payment_events',
           summaryText: `${memberDisplayName} recorded ${result.kind} payment: ${result.amount.toMajorString()} ${result.amount.currency}`,
@@ -1622,19 +1557,6 @@ export function registerPaymentTopicCallbacks(
             ...(payload.period ? { period: payload.period } : {})
           }
         })
-
-        if (planResolution?.settledJustNow) {
-          const settledPeriod = planResolution.period ?? payload.period ?? null
-          await options.auditNotificationService.recordEvent({
-            householdId: payload.householdId,
-            actorMemberId: payload.memberId,
-            actorDisplayName: memberDisplayName,
-            eventType: 'utility_plan.fully_paid',
-            category: 'plan_events',
-            summaryText: `Utilities${settledPeriod ? ` for ${settledPeriod}` : ''} are fully settled`,
-            metadata: settledPeriod ? { period: settledPeriod } : {}
-          })
-        }
       }
 
       if (payload.period && options.livePaymentCardService) {
@@ -1643,18 +1565,6 @@ export function registerPaymentTopicCallbacks(
           kind: payload.kind,
           period: payload.period
         })
-      }
-
-      if (fullyPaid) {
-        await ctx.reply(
-          `🎉 <b>${escapeHtml(
-            getBotTranslations(locale).payments.fullyPaid(
-              payload.kind,
-              formatPeriodLabel(locale, payload.period!)
-            )
-          )}</b>`,
-          { parse_mode: 'HTML' }
-        )
       }
     }
   )

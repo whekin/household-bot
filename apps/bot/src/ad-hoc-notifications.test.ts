@@ -444,7 +444,7 @@ describe('formatReminderWhen', () => {
         timezone: 'Asia/Tbilisi',
         now: Temporal.Instant.from('2026-03-23T21:00:00Z')
       })
-    ).toBe('завтра в 9 утра')
+    ).toBe('завтра в 9:00')
   })
 
   test('keeps actual next-day reminders as tomorrow before 5am', () => {
@@ -455,7 +455,7 @@ describe('formatReminderWhen', () => {
         timezone: 'Asia/Tbilisi',
         now: Temporal.Instant.from('2026-03-24T00:14:00Z')
       })
-    ).toBe('завтра в 9 утра')
+    ).toBe('завтра в 9:00')
   })
 })
 

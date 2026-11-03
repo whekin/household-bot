@@ -7,6 +7,7 @@ import type {
 } from '@household/application'
 import { BillingPeriod } from '@household/domain'
 import type { Logger } from '@household/observability'
+import { serializeUtilityResolutionAssignments } from './audit-metadata'
 import type { LivePaymentCardService } from './live-payment-cards'
 import type {
   FinanceParsedPurchaseRecord,
@@ -83,67 +84,6 @@ async function recordMiniAppAuditEvent(input: {
       'Failed to record mini app audit event'
     )
   }
-}
-
-function formatUtilityResolutionSummaryText(input: {
-  actorDisplayName: string
-  period: string
-  status: 'active' | 'diverged' | 'superseded' | 'settled' | null | undefined
-  assignments: readonly {
-    displayName: string
-    billName: string
-    amount: {
-      toMajorString(): string
-      currency: 'USD' | 'GEL'
-    }
-  }[]
-}): string {
-  const action =
-    input.status === 'settled' ? 'settled planned utilities' : 'marked planned utilities paid'
-  const memberNames = [...new Set(input.assignments.map((assignment) => assignment.displayName))]
-  const objectText =
-    memberNames.length === 1
-      ? [
-          memberNames[0],
-          input.assignments
-            .map(
-              (assignment) =>
-                `${assignment.billName} ${formatUserFacingMoney(
-                  assignment.amount.toMajorString(),
-                  assignment.amount.currency
-                )}`
-            )
-            .join('; ')
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : memberNames.length > 1
-        ? `${memberNames.length} members`
-        : null
-
-  return `${input.actorDisplayName} ${action}${objectText ? `: ${objectText}` : ''} (${input.period})`
-}
-
-function serializeUtilityResolutionAssignments(
-  assignments: readonly {
-    memberId: string
-    displayName: string
-    utilityBillId: string
-    billName: string
-    amount: {
-      amountMinor: bigint
-      currency: 'USD' | 'GEL'
-    }
-  }[]
-): Record<string, unknown>[] {
-  return assignments.map((assignment) => ({
-    memberId: assignment.memberId,
-    displayName: assignment.displayName,
-    utilityBillId: assignment.utilityBillId,
-    billName: assignment.billName,
-    amountMinor: assignment.amount.amountMinor.toString(),
-    currency: assignment.amount.currency
-  }))
 }
 
 async function recordMiniAppPurchaseTopicNotice(input: {
@@ -1404,183 +1344,6 @@ export function createMiniAppSubmitUtilityBillHandler(options: {
   }
 }
 
-export function createMiniAppSubmitPaymentHandler(options: {
-  allowedOrigins: readonly string[]
-  botToken: string
-  financeServiceForHousehold: (householdId: string) => FinanceCommandService
-  onboardingService: HouseholdOnboardingService
-  householdConfigurationRepository: HouseholdConfigurationRepository
-  auditNotificationService?: HouseholdAuditNotificationService
-  logger?: Logger
-}): {
-  handler: (request: Request) => Promise<Response>
-} {
-  const sessionService = createMiniAppSessionService({
-    botToken: options.botToken,
-    onboardingService: options.onboardingService
-  })
-
-  async function notifyPaymentRecorded(input: {
-    householdId: string
-    memberName: string
-    kind: 'rent' | 'utilities'
-    amountMajor: string
-    currency: string
-    period: string
-  }) {
-    const [chat, topic] = await Promise.all([
-      options.householdConfigurationRepository.getHouseholdChatByHouseholdId(input.householdId),
-      options.householdConfigurationRepository.getHouseholdTopicBinding(
-        input.householdId,
-        'reminders'
-      )
-    ])
-
-    if (!chat || !topic) {
-      return
-    }
-
-    const threadId = Number.parseInt(topic.telegramThreadId, 10)
-    if (!Number.isFinite(threadId)) {
-      return
-    }
-
-    const response = await fetch(`https://api.telegram.org/bot${options.botToken}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        chat_id: chat.telegramChatId,
-        message_thread_id: threadId,
-        text: `${input.memberName} recorded a ${input.kind} payment: ${formatUserFacingMoney(input.amountMajor, input.currency)} (${input.period})`
-      })
-    })
-
-    if (!response.ok && options.logger) {
-      options.logger.warn(
-        {
-          event: 'miniapp.payment_notification_failed',
-          householdId: input.householdId,
-          status: response.status
-        },
-        'Failed to notify payment topic'
-      )
-    }
-  }
-
-  return {
-    handler: async (request) => {
-      const origin = allowedMiniAppOrigin(request, options.allowedOrigins)
-
-      if (request.method === 'OPTIONS') {
-        return miniAppJsonResponse({ ok: true }, 204, origin)
-      }
-
-      if (request.method !== 'POST') {
-        return miniAppJsonResponse({ ok: false, error: 'Method Not Allowed' }, 405, origin)
-      }
-
-      try {
-        const auth = await authenticateMemberSession(
-          request.clone() as Request,
-          sessionService,
-          origin
-        )
-        if (auth instanceof Response) {
-          return auth
-        }
-
-        const payload = await readPaymentMutationPayload(request)
-        if (!payload.kind || !payload.amountMajor) {
-          return miniAppJsonResponse({ ok: false, error: 'Missing payment fields' }, 400, origin)
-        }
-
-        const service = options.financeServiceForHousehold(auth.member.householdId)
-        options.logger?.info(
-          {
-            event: 'miniapp.payment.record_requested',
-            householdId: auth.member.householdId,
-            actorMemberId: auth.member.id,
-            memberId: auth.member.id,
-            kind: payload.kind,
-            amountMajor: payload.amountMajor,
-            currency: payload.currency ?? null,
-            period: payload.period ?? null,
-            route: 'member'
-          },
-          'Mini app payment record requested'
-        )
-        const payment = await service.addPayment(
-          auth.member.id,
-          payload.kind,
-          payload.amountMajor,
-          payload.currency,
-          payload.period
-        )
-
-        if (!payment) {
-          return miniAppJsonResponse({ ok: false, error: 'Failed to record payment' }, 500, origin)
-        }
-
-        if (options.auditNotificationService) {
-          await recordMiniAppAuditEvent({
-            service: options.auditNotificationService,
-            logger: options.logger,
-            authMember: auth.member,
-            category: 'payment_events',
-            eventType: 'payment.recorded',
-            summaryText: `${auth.member.displayName} recorded ${payload.kind} payment: ${formatUserFacingMoney(payment.amount.toMajorString(), payment.currency)} (${payment.period})`,
-            metadata: {
-              paymentId: payment.paymentId,
-              memberId: auth.member.id,
-              memberDisplayName: auth.member.displayName,
-              kind: payload.kind,
-              amountMinor: payment.amount.amountMinor.toString(),
-              currency: payment.currency,
-              period: payment.period
-            }
-          })
-        } else {
-          await notifyPaymentRecorded({
-            householdId: auth.member.householdId,
-            memberName: auth.member.displayName,
-            kind: payload.kind,
-            amountMajor: payment.amount.toMajorString(),
-            currency: payment.currency,
-            period: payment.period
-          })
-        }
-        options.logger?.info(
-          {
-            event: 'miniapp.payment.record_completed',
-            householdId: auth.member.householdId,
-            actorMemberId: auth.member.id,
-            memberId: auth.member.id,
-            kind: payload.kind,
-            amountMinor: payment.amount.amountMinor.toString(),
-            currency: payment.currency,
-            period: payment.period,
-            route: 'member'
-          },
-          'Mini app payment record completed'
-        )
-
-        return miniAppJsonResponse(
-          {
-            ok: true,
-            authorized: true
-          },
-          200,
-          origin
-        )
-      } catch (error) {
-        return miniAppErrorResponse(error, origin, options.logger)
-      }
-    }
-  }
-}
-
 export function createMiniAppUpdateUtilityBillHandler(options: {
   allowedOrigins: readonly string[]
   botToken: string
@@ -2808,12 +2571,7 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           category: 'plan_events',
           eventType:
             result.plan?.status === 'settled' ? 'utility_plan.settled' : 'utility_plan.resolved',
-          summaryText: formatUtilityResolutionSummaryText({
-            actorDisplayName: auth.member.displayName,
-            period: result.period,
-            status: result.plan?.status,
-            assignments: result.resolvedAssignments
-          }),
+          summaryText: `${auth.member.displayName} marked planned utilities paid (${result.period})`,
           metadata: {
             period: result.period,
             memberId: memberId ?? null,
@@ -2825,17 +2583,6 @@ export function createMiniAppResolveUtilityPlanHandler(options: {
           }
         })
 
-        if (result.settledJustNow) {
-          await recordMiniAppAuditEvent({
-            service: options.auditNotificationService,
-            logger: options.logger,
-            authMember: auth.member,
-            category: 'plan_events',
-            eventType: 'utility_plan.fully_paid',
-            summaryText: `Utilities for ${result.period} are fully settled`,
-            metadata: { period: result.period }
-          })
-        }
         await cardRefresh
         options.logger?.info(
           {
@@ -2999,17 +2746,6 @@ export function createMiniAppRecordUtilityVendorPaymentHandler(options: {
             }
           })
 
-          if (result.settledJustNow) {
-            await recordMiniAppAuditEvent({
-              service: options.auditNotificationService,
-              logger: options.logger,
-              authMember: auth.member,
-              category: 'plan_events',
-              eventType: 'utility_plan.fully_paid',
-              summaryText: `Utilities for ${result.period} are fully settled`,
-              metadata: { period: result.period }
-            })
-          }
           await cardRefresh
         }
         return miniAppJsonResponse({ ok: true, authorized: true }, 200, origin)

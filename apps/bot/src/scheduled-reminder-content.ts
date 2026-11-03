@@ -9,6 +9,7 @@ import {
   type PaymentReminderDispatchKind
 } from './payment-reminder-content'
 import { buildUtilitiesReminderReplyMarkup } from './reminder-topic-utilities'
+import { buildBotStartDeepLink } from './telegram-deep-links'
 
 export interface ScheduledReminderMessageContent {
   text: string
@@ -68,16 +69,10 @@ export function buildScheduledReminderMessageContent(input: {
   }
 
   const t = getBotTranslations(input.locale).reminders
-  const dashboardReplyMarkup = input.botUsername
+  const dashboardUrl = buildBotStartDeepLink(input.botUsername, 'dashboard')
+  const dashboardReplyMarkup = dashboardUrl
     ? ({
-        inline_keyboard: [
-          [
-            {
-              text: t.openDashboardButton,
-              url: `https://t.me/${input.botUsername}?start=dashboard`
-            }
-          ]
-        ]
+        inline_keyboard: [[{ text: t.openDashboardButton, url: dashboardUrl }]]
       } satisfies InlineKeyboardMarkup)
     : null
 

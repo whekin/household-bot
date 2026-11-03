@@ -16,22 +16,19 @@ describe('telegram command catalog', () => {
       isAdmin: false
     }).map((entry) => entry.command)
 
-    expect(commands).toContain('my_bill_full')
-    expect(commands).toContain('home')
-    expect(commands).toContain('app')
-    expect(commands).not.toContain('setup')
-    expect(commands).not.toContain('bill_json')
+    expect(commands).toEqual(['start', 'home', 'bill', 'app', 'anon', 'cancel', 'help'])
   })
 
-  test('filters private admin commands with admin read commands', () => {
+  test('filters private admin commands without group-only setup entries', () => {
     const commands = filterTelegramCommandCatalog({
       chatType: 'private',
       isMember: true,
       isAdmin: true
     }).map((entry) => entry.command)
 
-    expect(commands).toContain('bill_json')
+    expect(commands).toEqual(['start', 'home', 'bill', 'app', 'anon', 'cancel', 'help'])
     expect(commands).not.toContain('setup')
+    expect(commands).not.toContain('invite')
   })
 
   test('filters group member and group admin commands by permission', () => {
@@ -46,10 +43,8 @@ describe('telegram command catalog', () => {
       isAdmin: true
     }).map((entry) => entry.command)
 
-    expect(memberCommands).toContain('payment_add')
-    expect(memberCommands).not.toContain('setup')
-    expect(adminCommands).toContain('setup')
-    expect(adminCommands).toContain('pending_members')
+    expect(memberCommands).toEqual(['home', 'bill', 'help'])
+    expect(adminCommands).toEqual(['home', 'bill', 'help', 'setup', 'bind', 'invite'])
   })
 
   test('filters non-member commands to public entries only', () => {
@@ -59,7 +54,7 @@ describe('telegram command catalog', () => {
       isAdmin: false
     }).map((entry) => entry.command)
 
-    expect(commands).toEqual(['start', 'help', 'settings', 'home', 'cancel'])
+    expect(commands).toEqual(['start', 'home', 'cancel', 'help'])
   })
 
   test('includes home in default private and group command scopes', () => {
@@ -85,37 +80,29 @@ describe('telegram command catalog', () => {
       .find((scope) => scope.scope === 'all_chat_administrators')!
       .commands.map((command) => command.command)
 
-    expect(defaultCommands).toEqual(['help', 'settings', 'home'])
-    expect(privateCommands).toEqual([
-      'start',
-      'help',
-      'settings',
-      'home',
-      'anon',
-      'cancel',
-      'app',
-      'keyboard'
-    ])
-    expect(groupCommands).toEqual(['help', 'settings', 'home', 'payment_add', 'utilities'])
-    expect(adminCommands).toEqual([
-      'help',
-      'settings',
-      'home',
-      'payment_add',
-      'utilities',
-      'setup',
-      'unsetup',
-      'bind',
-      'join_link',
-      'pending_members'
-    ])
+    expect(defaultCommands).toEqual(['home', 'help'])
+    expect(privateCommands).toEqual(['home', 'bill', 'app', 'anon', 'cancel', 'help'])
+    expect(groupCommands).toEqual(['home', 'bill', 'help'])
+    expect(adminCommands).toEqual(['home', 'bill', 'help', 'setup', 'bind', 'invite'])
 
     for (const commands of [defaultCommands, privateCommands, groupCommands, adminCommands]) {
-      expect(commands).not.toContain('my_bill')
-      expect(commands).not.toContain('household_status')
-      expect(commands).not.toContain('balance')
-      expect(commands).not.toContain('approve_member')
+      expect(commands).not.toContain('start')
     }
+  })
+
+  test('publishes command descriptions from the locale catalog', () => {
+    const adminScope = getTelegramCommandScopes('ru').find(
+      (scope) => scope.scope === 'all_chat_administrators'
+    )!
+
+    expect(adminScope.commands).toEqual([
+      { command: 'home', description: 'Меню дома' },
+      { command: 'bill', description: 'Сколько платить в этом месяце' },
+      { command: 'help', description: 'Что умеет бот' },
+      { command: 'setup', description: 'Подключить группу' },
+      { command: 'bind', description: 'Привязать топик' },
+      { command: 'invite', description: 'Пригласить в дом' }
+    ])
   })
 
   test('publishes feature-aware command scopes for reduced runtimes', () => {
@@ -134,10 +121,15 @@ describe('telegram command catalog', () => {
       scopes
         .find((scope) => scope.scope === 'all_private_chats')!
         .commands.map((command) => command.command)
-    ).toEqual(['help', 'cancel'])
+    ).toEqual(['cancel', 'help'])
     expect(
       scopes
         .find((scope) => scope.scope === 'all_group_chats')!
+        .commands.map((command) => command.command)
+    ).toEqual(['help'])
+    expect(
+      scopes
+        .find((scope) => scope.scope === 'all_chat_administrators')!
         .commands.map((command) => command.command)
     ).toEqual(['help'])
   })
@@ -152,13 +144,18 @@ describe('telegram command catalog', () => {
     })
     const text = formatAssistantCommandCatalog('en', entries)
 
-    expect(text).toContain('/my_bill_full')
-    expect(text).toContain('/household_status')
-    expect(text).not.toContain('/payment_add')
+    expect(text.split('\n').map((line) => line.split(' - ')[0])).toEqual([
+      '/home',
+      '/bill',
+      '/help'
+    ])
+    expect(text).toContain(
+      '/bill - What to pay this month (member, read) aliases=bill, what do i owe, my bill'
+    )
     expect(text).not.toContain('/setup')
   })
 
-  test('assistant catalog includes hidden read-only fallbacks by explicit allowlist', () => {
+  test('assistant catalog in private chat skips write-only and non-executable commands', () => {
     const entries = filterTelegramCommandCatalog({
       chatType: 'private',
       isMember: true,
@@ -169,14 +166,16 @@ describe('telegram command catalog', () => {
     })
     const text = formatAssistantCommandCatalog('en', entries)
 
-    expect(text).toContain('/my_bill')
-    expect(text).toContain('/my_bill - Show your personal finance summary')
-    expect(text).toContain('/my_bill_full')
-    expect(text).toContain('/my_bill_full - Show your detailed personal bill')
-    expect(text).toContain('/household_status')
-    expect(text).toContain('/balance')
+    expect(text.split('\n').map((line) => line.split(' - ')[0])).toEqual([
+      '/home',
+      '/bill',
+      '/app',
+      '/help'
+    ])
+    expect(text).toContain('/app - Open the app (member, read) aliases=open app, mini app')
     expect(text).not.toContain('/anon')
-    expect(text).not.toContain('/keyboard')
+    expect(text).not.toContain('/cancel')
+    expect(text).not.toContain('/start')
   })
 
   test('normal help hides fallback commands and respects capabilities', () => {
@@ -189,17 +188,13 @@ describe('telegram command catalog', () => {
       financeCommandsAvailable: false
     })
 
-    expect(disabledText.split('\n').slice(0, 3).join('\n')).toContain('/home opens the main menu')
-    expect(disabledText).toContain('/home - Open the household control center')
-    expect(disabledText).toContain('/help - Show task-based guidance')
-    expect(disabledText).toContain('Common tasks:')
-    expect(disabledText).not.toContain('Check what you owe')
-    expect(disabledText).not.toContain('See household status')
-    expect(disabledText).not.toContain('Review purchase balances')
-    expect(disabledText).not.toContain('Open the dashboard')
-    expect(disabledText).not.toContain('/my_bill')
+    expect(disabledText.startsWith('🏠 What the bot can do\n')).toBe(true)
+    expect(disabledText).toContain('Commands:\n/home — Household menu\n/help — What the bot can do')
+    expect(disabledText).not.toContain('🛒 Purchase')
+    expect(disabledText).not.toContain('/bill')
     expect(disabledText).not.toContain('/anon')
     expect(disabledText).not.toContain('/app')
+    expect(disabledText).not.toContain('/setup')
 
     const enabledText = formatTelegramHelpText('en', {
       includePrivateCommands: true,
@@ -210,11 +205,23 @@ describe('telegram command catalog', () => {
       financeCommandsAvailable: true
     })
 
-    expect(enabledText).toContain('/anon - Send anonymous household feedback')
-    expect(enabledText).toContain('/app - Open the Kojori mini app')
-    expect(enabledText).toContain('Check what you owe')
-    expect(enabledText).toContain('Open the dashboard')
-    expect(enabledText).not.toContain('/my_bill')
+    expect(enabledText).toBe(
+      [
+        '🏠 What the bot can do',
+        '',
+        '🛒 Purchase — write in the purchases topic what you bought and for how much.',
+        '✅ Payment — write in the payments topic, for example "rent paid".',
+        '💸 What to pay — /bill',
+        '📱 Everything in detail — in the app: /app',
+        '',
+        'Commands:',
+        '/home — Household menu',
+        '/bill — What to pay this month',
+        '/app — Open the app',
+        '/anon — Anonymous message',
+        '/help — What the bot can do'
+      ].join('\n')
+    )
   })
 
   test('every command has explicit independent visibility metadata', () => {
@@ -226,5 +233,20 @@ describe('telegram command catalog', () => {
       expect(typeof entry.assistantExecutable).toBe('boolean')
       expect(['primary', 'advanced', 'hidden']).toContain(entry.helpVisibility)
     }
+  })
+
+  test('catalog only carries the kept commands', () => {
+    expect(TELEGRAM_COMMAND_CATALOG.map((entry) => entry.command)).toEqual([
+      'start',
+      'home',
+      'bill',
+      'app',
+      'anon',
+      'cancel',
+      'help',
+      'setup',
+      'bind',
+      'invite'
+    ])
   })
 })

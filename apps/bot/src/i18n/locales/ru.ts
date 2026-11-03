@@ -1,137 +1,116 @@
+import { formatMonthDisplay, pluralRu } from '@household/domain'
+
 import type { BotTranslationCatalog } from '../types'
 import { formatUserFacingMoney } from '../money'
+
+const money = (amount: string, currency: string) => formatUserFacingMoney(amount, currency, 'ru')
+const month = (period: string) => formatMonthDisplay(period, 'ru')
+const months = (periods: readonly string[]) =>
+  new Intl.ListFormat('ru', { type: 'conjunction' }).format(periods.map(month))
+const kindNoun = (kind: 'rent' | 'utilities') => (kind === 'rent' ? 'аренда' : 'коммуналка')
+const kindTitle = (kind: 'rent' | 'utilities') => (kind === 'rent' ? 'Аренда' : 'Коммуналка')
+const kindAccusative = (kind: 'rent' | 'utilities') => (kind === 'rent' ? 'аренду' : 'коммуналку')
+const kindGenitive = (kind: 'rent' | 'utilities') => (kind === 'rent' ? 'аренды' : 'коммуналки')
+const kindEmoji = (kind: 'rent' | 'utilities') => (kind === 'rent' ? '🏠' : '💡')
+const forMonth = (period: string | null) => (period ? ` за ${month(period)}` : '')
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 export const ruBotTranslations: BotTranslationCatalog = {
   localeName: 'Русский',
   commands: {
-    start: 'Открыть стартовое меню дома',
-    help: 'Показать подсказки по задачам',
-    settings: 'Открыть настройки и быстрые действия дома',
-    home: 'Открыть центр управления домом',
-    bill: 'Показать общий счёт по дому',
-    bill_full: 'Показать общий счёт со всеми покупками',
-    my_bill: 'Показать вашу финансовую сводку',
-    my_bill_full: 'Показать ваш счёт подробно',
-    bill_json: 'Выгрузить расчёты по платежам в JSON',
-    household_status: 'Показать текущий статус дома',
-    balance: 'Показать балансы по покупкам для всех участников',
-    utilities: 'Показать шаблон для ввода коммуналки в этом топике',
-    anon: 'Отправить анонимное сообщение по дому',
-    cancel: 'Отменить текущий ввод',
-    setup: 'Подключить эту группу как дом',
-    unsetup: 'Сбросить настройку топиков для этой группы',
-    bind: 'Привязать текущий топик к конкретной роли',
-    join_link: 'Получить ссылку для приглашения новых участников',
-    payment_add: 'Подтвердить оплату аренды или коммуналки',
-    pending_members: 'Показать ожидающие заявки на вступление',
-    approve_member: 'Подтвердить участника дома',
-    app: 'Открыть мини-приложение Kojori',
-    dashboard: 'Открыть дашборд дома',
-    keyboard: 'Показать постоянную кнопку дашборда'
+    start: 'Начать',
+    help: 'Что умеет бот',
+    home: 'Меню дома',
+    bill: 'Сколько платить в этом месяце',
+    app: 'Открыть приложение',
+    anon: 'Анонимное сообщение',
+    cancel: 'Отменить ввод',
+    setup: 'Подключить группу',
+    bind: 'Привязать топик',
+    invite: 'Пригласить в дом'
   },
   help: {
-    intro:
-      '🏡 /home открывает главное меню. Начинайте с него; список команд ниже — только быстрый доступ.',
-    introWithoutHome:
-      '🏡 Я помогу с финансовыми задачами дома. Ниже — команды, доступные прямо сейчас.',
-    tasksHeading: 'Частые задачи:',
-    checkMyBill: '• 💸 Проверить, сколько вы должны: /home → Мой счёт',
-    checkHouseholdStatus: '• 🏠 Посмотреть статус дома: /home → Статус',
-    checkBalances: '• 🛒 Проверить балансы по покупкам: /home → Балансы',
-    recordPurchase: '• 🧾 Записать общую покупку: отправьте текст чека в топик покупок',
-    recordPayment: '• ✅ Подтвердить оплату: отправьте сообщение об оплате в топик оплат',
-    openDashboard: '• 📱 Открыть дашборд: /home → Мини-приложение',
-    setupHousehold: '• 🧰 Настроить или обслуживать дом: /home → Настройка/админ',
-    manageMembers: '• 👥 Пригласить и подтвердить участников: /home → Настройка/админ',
-    advancedHeading: 'Быстрые команды:',
-    privateChatHeading: 'Личный чат:',
-    groupHeading: 'Группа дома:',
-    groupAdminsHeading: 'Админы группы:'
+    intro: '🏠 Что умеет бот',
+    purchases: '🛒 Покупка — напишите в топик покупок, что купили и за сколько.',
+    payments: '✅ Оплата — напишите в топик оплат, например «аренда оплачена».',
+    bill: '💸 Сколько платить — /bill',
+    app: '📱 Всё подробно — в приложении: /app',
+    setup: '⚙️ Настройка дома — /setup, /bind, /invite',
+    commandsHeading: 'Команды:'
   },
   home: {
-    title: '🏡 <b>Центр управления домом</b>',
-    introPrivate: 'Выберите задачу. Список команд не будет мешать.',
-    introGroup: 'Управляйте финансами дома прямо в Telegram.',
+    title: '🏠 <b>Меню дома</b>',
+    introPrivate: 'Что посмотрим?',
+    introGroup: 'Счета, оплаты и покупки — всё под рукой.',
     myBillButton: '💸 Мой счёт',
-    householdStatusButton: '🏠 Статус',
-    balancesButton: '🛒 Балансы',
-    fullBillButton: '🔎 Весь счёт',
-    menuButton: '🏡 Меню',
-    miniAppButton: '📱 Мини-приложение',
-    setupButton: '🧰 Настройка/админ',
+    householdStatusButton: '🏠 Весь дом',
+    balancesButton: '🛒 Покупки',
+    fullBillButton: '🔎 Подробно',
+    routinesButton: '🧹 Дела',
+    menuButton: '‹ Меню',
+    miniAppButton: '📱 Приложение',
+    setupButton: '⚙️ Настройка',
     feedbackButton: '🕶 Анонимно',
     helpButton: '❔ Помощь',
-    setupMenuTitle: '🧰 <b>Настройка/админ</b>',
-    setupMenuBody:
-      'Используйте /setup в группе дома, чтобы подключить её, /bind внутри топика, чтобы привязать его, /join_link для приглашения участников и /pending_members для подтверждения заявок.',
+    setupMenuTitle: '⚙️ <b>Настройка дома</b>',
+    setupMenuBody: [
+      'В группе дома:',
+      '/setup — подключить группу и создать топики',
+      '/bind — привязать текущий топик',
+      '/invite — ссылка-приглашение и заявки'
+    ].join('\n'),
     feedbackMenuTitle: '🕶 <b>Анонимное сообщение</b>',
-    feedbackMenuBody:
-      'Используйте /anon в этом личном чате, чтобы отправить сообщение по дому анонимно.'
-  },
-  common: {
-    unableToIdentifySender: '⚠️ Не удалось определить отправителя для этой команды.',
-    useHelp: 'ℹ️ Отправьте /help, чтобы увидеть доступные команды.'
+    feedbackMenuBody: 'Отправьте /anon здесь, в личке, — сообщение уйдёт в общий топик без имени.'
   },
   setup: {
-    onlyTelegramAdmins: '🔒 Только админы Telegram-группы могут запускать /setup.',
-    useSetupInGroup: 'ℹ️ Используйте /setup внутри группы дома.',
-    onlyTelegramAdminsBindTopics: '🔒 Только админы Telegram-группы могут привязывать топики дома.',
-    householdNotConfigured: '⚠️ Для этого чата дом ещё не настроен. Сначала выполните /setup.',
-    useCommandInTopic: 'ℹ️ Запустите эту команду внутри нужного топика.',
-    onlyHouseholdAdmins: '🔒 Только админы дома могут управлять ожидающими участниками.',
-    pendingNotFound:
-      '🤷 Ожидающий участник не найден. Используйте /pending_members, чтобы посмотреть очередь.',
-    pendingMembersHeading: (householdName) => `👥 <b>Заявки на вступление · ${householdName}</b>`,
-    pendingMembersHint:
-      '<i>Нажмите кнопку ниже, чтобы подтвердить участника, или используйте /approve_member &lt;telegram_user_id&gt;.</i>',
-    pendingMembersEmpty: (householdName) =>
-      `🤷 Для <b>${householdName}</b> нет ожидающих участников.`,
-    pendingMemberLine: (member, index) =>
-      `${index + 1}. <b>${member.displayName}</b> · <code>${member.telegramUserId}</code>${member.username ? ` · @${member.username}` : ''}`,
-    openMiniAppButton: '📱 Открыть мини-приложение',
-    openMiniAppFromPrivateChat: '📱 Откройте мини-приложение по кнопке ниже.',
-    openMiniAppUnavailable: '⚠️ Мини-приложение сейчас не настроено.',
-    joinHouseholdButton: '🤝 Вступить в дом',
+    onlyTelegramAdmins: '🔒 /setup доступен только админам группы.',
+    useSetupInGroup: 'Эта команда работает в группе дома.',
+    onlyTelegramAdminsBindTopics: '🔒 Привязывать топики могут только админы группы.',
+    householdNotConfigured: '⚠️ Эта группа ещё не подключена. Начните с /setup.',
+    useCommandInTopic: 'Запустите команду внутри нужного топика.',
+    onlyHouseholdAdmins: '🔒 Это могут только админы дома.',
+    pendingNotFound: 'Заявка не найдена — возможно, её уже приняли.',
+    inviteHeading: (householdName) => `🔗 <b>Приглашение в ${householdName}</b>`,
+    pendingMembersHeading: 'Ждут подтверждения:',
+    pendingMembersEmpty: 'Новых заявок нет.',
+    pendingMemberLine: (member) =>
+      `• <b>${member.displayName}</b>${member.username ? ` · @${member.username}` : ''}`,
+    openMiniAppButton: '📱 Открыть приложение',
+    openMiniAppFromPrivateChat: '📱 Приложение — по кнопке ниже.',
+    openMiniAppUnavailable: '⚠️ Приложение пока не подключено.',
+    joinHouseholdButton: 'Вступить в дом',
     approveMemberButton: (displayName) => `✅ ${displayName}`,
-    telegramIdentityRequired: '⚠️ Чтобы вступить в дом, нужна Telegram-учётка пользователя.',
-    invalidJoinLink: '🚫 Некорректная ссылка-приглашение в дом.',
-    joinLinkInvalidOrExpired: '⌛ Эта ссылка-приглашение в дом недействительна или устарела.',
+    telegramIdentityRequired: '⚠️ Не получилось определить ваш Telegram-аккаунт.',
+    invalidJoinLink: '⚠️ Ссылка-приглашение не работает.',
+    joinLinkInvalidOrExpired: '⚠️ Ссылка устарела — попросите у админа новую.',
     alreadyActiveMember: (displayName) =>
-      `✅ Вы уже в составе дома. Откройте мини-приложение, чтобы увидеть профиль <b>${displayName}</b>.`,
+      `✅ Вы уже в доме как <b>${displayName}</b>. Всё остальное — в приложении.`,
     joinRequestSent: (householdName) =>
-      `📨 Заявка на вступление в <b>${householdName}</b> отправлена. Дождитесь подтверждения от админа дома.`,
+      `⏳ Заявка в <b>${householdName}</b> отправлена — осталось дождаться админа.`,
     setupSummary: ({ householdName, created }) =>
-      `🏡 <b>${created ? 'Новый дом' : 'Дом активен'}: ${householdName}</b>\n\n` +
-      `Базовая настройка выполнена. Теперь давайте распределим общение, привязав топики к конкретным ролям.`,
+      `${created ? `🎉 <b>${householdName}</b> — новый дом готов!` : `🏠 <b>${householdName}</b> уже подключён.`}\n\n` +
+      'Осталось разложить разговоры по топикам.',
     setupTopicsHeading: (configured, total) =>
-      `🧩 <b>Прогресс настройки: ${configured}/${total}</b>\n\n` +
-      `Нажмите кнопки ниже, чтобы создать топики автоматически, или перейдите в любой существующий топик и используйте /bind, чтобы привязать его вручную.`,
+      `<b>Топики: ${configured} из ${total}</b>\n` +
+      'Создайте недостающие кнопками ниже или привяжите свои: /bind внутри топика.',
     setupTopicBound: (role) => `✅ ${role}`,
-    setupTopicMissing: (role) => `⚪ ${role}`,
-    setupTopicCreateButton: (role) => `➕ ${role}`,
-    setupTopicBindButton: (role) => `🔗 ${role}`,
-    useBindInTopic: 'ℹ️ Используйте /bind внутри топика, чтобы привязать его к роли.',
-    topicAlreadyBound: (role) => `ℹ️ Этот топик уже привязан к роли «${role}».`,
-    bindSelectRole: '🔗 Привязать этот топик к:',
-    topicBoundSuccess: (role, householdName) =>
-      `✅ Топик привязан как «${role}» для ${householdName}.`,
-    allRolesConfigured: '✅ Все роли топиков уже настроены.',
+    setupTopicMissing: (role) => `⬜ ${role}`,
+    setupTopicCreateButton: (role) => `+ ${role}`,
+    bindSelectRole: 'Для чего этот топик?',
+    topicBoundSuccess: (role) => `✅ Топик привязан: «${role}».`,
+    allRolesConfigured: '✅ Все топики уже на месте.',
     setupTopicCreateFailed:
-      '⚠️ Не удалось создать этот топик. Проверьте права бота и включённые форум-топики в группе.',
-    setupTopicCreateForbidden:
-      '🔒 Мне нужны права на управление топиками в этой группе, чтобы создать его автоматически.',
-    setupTopicCreated: (role, topicName) => `✅ Топик ${role} создан и привязан: ${topicName}.`,
-    setupTopicBindPending: '',
-    setupTopicBindCancelled: 'Режим привязки топика очищен.',
-    setupTopicBindNotAvailable: 'Это действие привязки топика уже недоступно.',
+      '⚠️ Не получилось создать топик. Проверьте права бота и что в группе включены топики.',
+    setupTopicCreateForbidden: '🔒 Чтобы создать топик, боту нужны права на управление топиками.',
+    setupTopicCreated: (role, topicName) => `✅ Топик «${topicName}» создан: ${role}.`,
     setupTopicBindRoleName: (role) => {
       switch (role) {
         case 'chat':
-          return 'Общение'
+          return 'Разговоры'
         case 'purchase':
           return 'Покупки'
         case 'feedback':
-          return 'Фидбек'
+          return 'Анонимно'
         case 'reminders':
           return 'Напоминания'
         case 'payments':
@@ -147,7 +126,7 @@ export const ruBotTranslations: BotTranslationCatalog = {
         case 'purchase':
           return 'Общие покупки'
         case 'feedback':
-          return 'Анонимная обратная связь'
+          return 'Анонимно'
         case 'reminders':
           return 'Напоминания'
         case 'payments':
@@ -156,348 +135,253 @@ export const ruBotTranslations: BotTranslationCatalog = {
           return 'Уведомления'
       }
     },
-    onlyTelegramAdminsUnsetup: '🔒 Только админы Telegram-группы могут запускать /unsetup.',
-    useUnsetupInGroup: 'ℹ️ Используйте /unsetup внутри группы дома.',
-    unsetupComplete: (householdName) =>
-      `🧹 Состояние настройки для <b>${householdName}</b> сброшено. Запустите /setup ещё раз, чтобы заново настроить топики.`,
-    unsetupNoop:
-      'ℹ️ Для этой группы пока нечего сбрасывать. Когда будете готовы, запустите /setup.',
-    usePendingMembersInGroup: 'ℹ️ Используйте /pending_members внутри группы дома.',
-    useApproveMemberInGroup: 'ℹ️ Используйте /approve_member внутри группы дома.',
-    approveMemberUsage: 'ℹ️ Использование: /approve_member <telegram_user_id>',
-    onlyInviteAdmins:
-      '🔒 Приглашать участников могут только админы Telegram-группы или админы дома.',
+    onlyInviteAdmins: '🔒 Приглашать могут только админы.',
+    useInviteInGroup: 'Отправьте /invite в группе дома.',
     approvedMember: (displayName, householdName) =>
-      `✅ Для <b>${displayName}</b> открыт доступ к дому <b>${householdName}</b>.`,
-    useButtonInGroup: 'ℹ️ Используйте эту кнопку в группе дома.',
-    unableToIdentifySelectedMember: '⚠️ Не удалось определить выбранного участника.',
-    approvedMemberToast: (displayName) => `✅ Доступ открыт: ${displayName}.`,
-    useJoinLinkInGroup: 'ℹ️ Используйте /join_link внутри группы дома.',
-    joinLinkUnavailable: '⚠️ Не удалось сгенерировать ссылку для вступления.',
-    joinLinkReady: (link, householdName) =>
-      `🔗 <b>Ссылка-приглашение · ${householdName}</b>\n\n<code>${link}</code>\n\n<i>Любой, у кого есть эта ссылка, может подать заявку на вступление.</i>`
-  },
-  keyboard: {
-    dashboardButton: '🏡 Дашборд',
-    enabled: 'Кнопка дашборда включена.',
-    disabled: 'Кнопка дашборда выключена.'
+      `🎉 <b>${displayName}</b> теперь в доме <b>${householdName}</b>!`,
+    useButtonInGroup: 'Эта кнопка работает в группе дома.',
+    unableToIdentifySelectedMember: 'Не получилось найти этого участника.',
+    approvedMemberToast: (displayName) => `✅ ${displayName} в доме`,
+    joinLinkUnavailable: '⚠️ Не получилось сделать ссылку-приглашение.'
   },
   anonymousFeedback: {
-    title: '🕶 <b>Анонимное сообщение по дому</b>',
-    cancelButton: '🚫 Отменить',
-    unableToStart: '⚠️ Сейчас не удалось начать анонимное сообщение.',
-    prompt: '🕶 Отправьте анонимное сообщение следующим сообщением или нажмите «Отменить».',
-    unableToIdentifyMessage: '⚠️ Не удалось определить это сообщение для анонимной отправки.',
-    notMember: '🔒 Вы не являетесь участником этого дома.',
-    multipleHouseholds:
-      'ℹ️ Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока выбор дома ещё не добавлен.',
+    title: '🕶 <b>Анонимное сообщение</b>',
+    cancelButton: 'Отмена',
+    unableToStart: '⚠️ Сейчас не получается начать. Попробуйте чуть позже.',
+    prompt: '🕶 Напишите сообщение — оно уйдёт в общий топик без имени.',
+    unableToIdentifyMessage: '⚠️ Не получилось прочитать это сообщение.',
+    notMember: '🔒 Вы не участник этого дома.',
+    multipleHouseholds: 'Вы состоите в нескольких домах. Начните из группы нужного дома.',
     feedbackTopicMissing:
-      '⚠️ Для вашего дома ещё не настроен анонимный топик. Попросите админа выполнить /setup и создать топик для обратной связи.',
-    duplicate: '♻️ Это анонимное сообщение уже было обработано.',
-    delivered: '✅ Анонимное сообщение отправлено.',
-    savedButPostFailed:
-      '⚠️ Анонимное сообщение сохранено, но публикация не удалась. Попробуйте позже.',
-    nothingToCancel: 'ℹ️ Сейчас нечего отменять.',
-    cancelled: '🚫 Отменено.',
-    cancelledMessage: '🚫 Анонимное сообщение отменено.',
-    useInPrivateChat: 'ℹ️ Используйте /anon в личном чате с ботом.',
-    useThisInPrivateChat: 'ℹ️ Используйте это в личном чате с ботом.',
-    tooShort: '✂️ Анонимное сообщение слишком короткое. Добавьте немного деталей.',
-    tooLong: '✂️ Анонимное сообщение слишком длинное. Ограничьтесь 500 символами.',
-    cooldown: (retryDelay) =>
-      `⏳ Сейчас действует пауза на анонимные сообщения. Следующее сообщение можно отправить ${retryDelay}.`,
-    dailyCap: (retryDelay) =>
-      `⏳ Достигнут дневной лимит анонимных сообщений. Следующее сообщение можно отправить ${retryDelay}.`,
-    blocklisted: '🚫 Сообщение отклонено модерацией. Перепишите его спокойнее и без агрессии.',
-    submitFailed: '⚠️ Не удалось отправить анонимное сообщение.',
-    keepPromptSuffix: 'Отправьте исправленный текст или нажмите «Отменить».',
+      '⚠️ Анонимный топик ещё не настроен — админ может создать его через /setup.',
+    duplicate: 'Это сообщение уже отправлено.',
+    delivered: '✅ Отправлено анонимно.',
+    savedButPostFailed: '⚠️ Сообщение сохранено, но опубликовать не вышло. Попробуйте позже.',
+    nothingToCancel: 'Отменять нечего.',
+    cancelled: 'Отменено',
+    cancelledMessage: 'Анонимное сообщение отменено.',
+    useInPrivateChat: '/anon работает в личке с ботом.',
+    useThisInPrivateChat: 'Это работает в личке с ботом.',
+    tooShort: 'Слишком коротко — добавьте пару деталей.',
+    tooLong: 'Слишком длинно — уложитесь в 500 символов.',
+    cooldown: (retryDelay) => `⏳ Небольшая пауза. Следующее сообщение — ${retryDelay}.`,
+    dailyCap: (retryDelay) => `⏳ На сегодня лимит исчерпан. Следующее — ${retryDelay}.`,
+    blocklisted: '⚠️ Сообщение не прошло модерацию. Попробуйте сформулировать спокойнее.',
+    submitFailed: '⚠️ Не получилось отправить.',
+    keepPromptSuffix: 'Пришлите исправленный текст или нажмите «Отмена».',
     retryNow: 'сейчас',
     retryInLessThanMinute: 'меньше чем через минуту',
     retryIn: (parts) => `через ${parts}`,
-    day: (count) => `${count} ${count === 1 ? 'день' : count < 5 ? 'дня' : 'дней'}`,
-    hour: (count) => `${count} ${count === 1 ? 'час' : count < 5 ? 'часа' : 'часов'}`,
-    minute: (count) => `${count} ${count === 1 ? 'минуту' : count < 5 ? 'минуты' : 'минут'}`
+    day: (count) => `${count} ${pluralRu(count, ['день', 'дня', 'дней'])}`,
+    hour: (count) => `${count} ${pluralRu(count, ['час', 'часа', 'часов'])}`,
+    minute: (count) => `${count} ${pluralRu(count, ['минуту', 'минуты', 'минут'])}`
   },
   assistant: {
-    noHousehold:
-      'ℹ️ Я смогу помочь после того, как ваш Telegram-профиль будет привязан к дому. Сначала откройте группу дома и завершите вступление.',
-    multipleHouseholds:
-      'ℹ️ Вы состоите в нескольких домах. Откройте нужный дом из его группы, пока прямой выбор дома ещё не добавлен.',
-    temporarilyUnavailable: '⚠️ Сейчас не могу ответить. Попробуйте ещё раз через минуту.',
-    rateLimited: (retryDelay) =>
-      `⏳ Лимит сообщений ассистенту исчерпан. Попробуйте ${retryDelay}.`,
+    noHousehold: 'Помогу, как только вы вступите в дом — начните из группы дома.',
+    multipleHouseholds: 'Вы состоите в нескольких домах. Начните из группы нужного дома.',
+    temporarilyUnavailable: '⚠️ Не могу ответить прямо сейчас. Попробуйте через минуту.',
+    rateLimited: (retryDelay) => `⏳ Слишком много вопросов подряд. Продолжим ${retryDelay}.`,
     retryInLessThanMinute: 'меньше чем через минуту',
     retryIn: (parts) => `через ${parts}`,
-    hour: (count) => `${count} ${count === 1 ? 'час' : count < 5 ? 'часа' : 'часов'}`,
-    minute: (count) => `${count} ${count === 1 ? 'минуту' : count < 5 ? 'минуты' : 'минут'}`,
-    paymentProposal: (kind, amount, currency) =>
-      `Я могу записать эту оплату ${kind === 'rent' ? 'аренды' : 'коммуналки'}: ${formatUserFacingMoney(amount, currency)}. Подтвердите или отмените ниже.`
+    hour: (count) => `${count} ${pluralRu(count, ['час', 'часа', 'часов'])}`,
+    minute: (count) => `${count} ${pluralRu(count, ['минуту', 'минуты', 'минут'])}`
   },
   finance: {
     useInGroup: 'ℹ️ Используйте эту команду внутри группы дома.',
     householdNotConfigured: '⚠️ Для этого чата дом ещё не настроен. Сначала выполните /setup.',
     unableToIdentifySender: '⚠️ Не удалось определить отправителя для этой команды.',
-    notMember: 'Вы не являетесь участником этого дома.',
-    adminOnly: '🔒 Эту команду могут использовать только админы дома.',
-    cycleOpenUsage: 'ℹ️ Использование: /cycle_open <YYYY-MM> [USD|GEL]',
-    cycleOpened: (period, currency) => `✅ Период открыт: ${period} (${currency})`,
-    cycleOpenFailed: (message) => `⚠️ Не удалось открыть период: ${message}`,
-    noCycleToClose: '🤷 Не найден период для закрытия.',
-    cycleClosed: (period) => `✅ Период закрыт: ${period}`,
-    cycleCloseFailed: (message) => `⚠️ Не удалось закрыть период: ${message}`,
-    rentSetUsage: 'ℹ️ Использование: /rent_set <amount> [USD|GEL] [YYYY-MM]',
-    rentNoPeriod: '🤷 Период не указан и открытый цикл не найден.',
-    rentSaved: (amount, currency, period) =>
-      `✅ Правило аренды сохранено: ${formatUserFacingMoney(amount, currency)}, начиная с ${period}`,
-    rentSaveFailed: (message) => `⚠️ Не удалось сохранить правило аренды: ${message}`,
-    utilityAddUsage: 'ℹ️ Использование: /utility_add <name> <amount> [USD|GEL]',
-    utilityNoOpenCycle: '🤷 Открытый период не найден. Сначала выполните /cycle_open.',
-    utilityAdded: (name, amount, currency, period) =>
-      `✅ Коммунальный счёт добавлен: ${name} ${formatUserFacingMoney(amount, currency)} за ${period}`,
-    utilityAddFailed: (message) => `⚠️ Не удалось добавить коммунальный счёт: ${message}`,
-    paymentAddUsage: 'ℹ️ Использование: /payment_add <rent|utilities> [amount] [USD|GEL]',
-    paymentNoCycle: '🤷 Биллинг-цикл пока не готов.',
-    paymentNoBalance: 'ℹ️ Сейчас для этого типа оплаты нет суммы к подтверждению.',
-    paymentAdded: (kind, amount, currency, period) =>
-      `✅ Оплата сохранена: ${kind === 'rent' ? 'аренда' : 'коммуналка'} ${formatUserFacingMoney(amount, currency)} за ${period}`,
-    paymentAddFailed: (message) => `⚠️ Не удалось сохранить оплату: ${message}`,
-    noStatementCycle: '🤷 Для выписки период не найден.',
-    statementTitle: (period) => `🧾 <b>Выписка · ${period}</b>`,
-    statementLine: (displayName, amount, currency) =>
-      `👤 ${displayName} — <b>${formatUserFacingMoney(amount, currency)}</b>`,
-    statementTotal: (amount, currency) =>
-      `💰 <b>Итого: ${formatUserFacingMoney(amount, currency)}</b>`,
-    statementFailed: (message) => `⚠️ Не удалось построить выписку: ${message}`,
-    utilitiesTopicRequired: 'ℹ️ Эта команда должна использоваться внутри топика.',
-    utilitiesNotLinked: '⚠️ Этот топик не привязан к домохозяйству.',
-    chooseHouseholdForBalances: '🏠 Выберите дом для балансов:'
+    notMember: 'Вы не являетесь участником этого дома.'
   },
   reminders: {
-    utilities: (period) => `Напоминание по коммунальным платежам за ${period}`,
-    rentWarning: (period) => `Напоминание по аренде за ${period}: срок оплаты скоро наступит.`,
-    rentDue: (period) => `Напоминание по аренде за ${period}: пожалуйста, оплатите сегодня.`,
-    guidedEntryButton: 'Ввести по шагам',
-    copyTemplateButton: 'Шаблон',
-    openDashboardButton: 'Открыть дашборд',
-    dashboardDetailsHint: 'Подробности и история платежей — в дашборде.',
-    noActiveCategories:
-      'Для этого дома пока нет активных категорий коммуналки. Сначала добавьте их в дашборде.',
-    startToast: 'Пошаговый ввод коммуналки запущен.',
-    templateToast: 'Шаблон коммуналки отправлен.',
-    promptAmount: (categoryName, currency, remainingCount) =>
-      `Ответьте суммой для «${categoryName}» в ${currency}. Отправьте 0 или «пропуск», если эту категорию не нужно добавлять.${remainingCount > 0 ? ` После этого останется ещё ${remainingCount}.` : ''}`,
+    utilities: (period) => `💡 Пора внести коммуналку за ${month(period)}`,
+    rentWarning: (period) => `🏠 Скоро платить аренду за ${month(period)}`,
+    rentDue: (period) => `🏠 Сегодня день аренды за ${month(period)}`,
+    openDashboardButton: '📱 Приложение',
     invalidAmount: (categoryName, currency) =>
-      `Не удалось распознать сумму для «${categoryName}». Отправьте число в ${currency} или 0 / «пропуск».`,
-    templateIntro: (currency) =>
-      `Заполните суммы по коммуналке ниже в ${currency}, затем отправьте заполненное сообщение обратно в этот топик.`,
-    templateInstruction:
-      'Для любой категории, которую не нужно добавлять, оставьте поле пустым, удалите строку целиком или укажите 0 / «пропуск».',
-    templateInvalid:
-      'Не удалось распознать ни одной суммы в этом шаблоне. Отправьте заполненный шаблон хотя бы с одной суммой.',
-    summaryTitle: (period) => `Коммунальные начисления за ${period}`,
+      `Не получилось разобрать сумму за «${categoryName}». Пришлите число в ${currency} или 0 / «пропуск».`,
+    templateIntro: (currency) => `Впишите суммы в ${currency} и отправьте сообщение обратно сюда.`,
+    templateInvalid: 'В шаблоне не нашлось ни одной суммы. Впишите хотя бы одну.',
     summaryLine: (categoryName, amount, currency) =>
-      `- ${categoryName}: ${formatUserFacingMoney(amount, currency)}`,
-    confirmPrompt: 'Подтвердите или отмените ниже.',
-    confirmButton: 'Сохранить коммуналку',
-    cancelButton: 'Отменить',
-    cancelled: 'Ввод коммуналки отменён.',
+      `• ${categoryName}: ${money(amount, currency)}`,
+    confirmButton: '✅ Сохранить',
+    cancelButton: 'Отмена',
+    cancelled: 'Отменено.',
     saved: (count, period) =>
-      `Сохранено ${count} ${count === 1 ? 'начисление коммуналки' : 'начислений коммуналки'} за ${period}.`,
-    paymentInstructionSent: 'Инструкция по оплате отправлена в топик оплат.',
-    proposalUnavailable: 'Это предложение по коммуналке уже недоступно.',
-    onlyOriginalSender: 'Подтвердить это добавление коммуналки может только тот, кто его начал.',
-    paidButton: 'Отметить оплату',
-    paidUtilitiesButton: 'Я оплатил свои счета',
-    fullyPaid: (kind, month) =>
-      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${month} полностью оплачена.`,
-    alreadyPaid: 'Уже отмечено как оплачено.',
-    notMember: 'Не удалось сопоставить вас с участником дома.',
-    paymentRecordedToast: 'Оплата отмечена.',
-    reminderUnavailable: 'Это напоминание уже недоступно.',
-    noRentDestinations: 'Реквизиты для аренды пока не настроены.',
-    everyonePaid: 'Все оплаты закрыты',
-    noUtilityPlan: 'План коммуналки пока не готов.'
+      `✅ ${count} ${pluralRu(count, ['счёт', 'счёта', 'счетов'])} за ${month(period)} сохранено.`,
+    paymentInstructionSent: 'Реквизиты отправлены в топик оплат.',
+    proposalUnavailable: 'Это уже неактуально',
+    paidButton: '✅ Отметить оплату',
+    paidUtilitiesButton: '✅ Отметить оплату',
+    fullyPaid: (kind, monthLabel) => `${kindTitle(kind)} за ${monthLabel} оплачена`,
+    alreadyPaid: 'Уже оплачено',
+    notMember: 'Не получилось найти вас среди участников дома',
+    paymentRecordedToast: 'Оплата отмечена',
+    reminderUnavailable: 'Это напоминание уже неактуально',
+    noRentDestinations: 'Реквизиты для аренды пока не добавлены.',
+    everyonePaid: 'Все оплатили',
+    noUtilityPlan: 'План коммуналки ещё не готов.'
   },
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
-    clarificationPhotoOnly:
-      'Фото вижу, но мне всё ещё нужны предмет и итоговая сумма. Что именно купили и на сколько?',
-    proposal: (
-      summary: string,
-      payer: string | null,
-      calculationNote: string | null,
-      participants: string | null
-    ) =>
+    clarificationPhotoOnly: 'Фото есть, но нужны детали: что купили и за сколько?',
+    proposal: (summary, payer, calculationNote, participants) =>
       [
-        '🛒 <b>Похоже, это общая покупка</b>',
-        '',
-        `🧾 ${summary}`,
+        `🛒 ${summary}`,
         ...(payer ? [payer] : []),
-        ...(calculationNote ? ['', `🤔 ${calculationNote}`] : []),
-        ...(participants ? ['', participants] : []),
-        '',
-        '<i>Подтвердите или отмените ниже 👇</i>'
+        ...(calculationNote ? ['', calculationNote] : []),
+        ...(participants ? ['', participants] : [])
       ].join('\n'),
-    calculatedAmountNote: (explanation: string | null) =>
+    calculatedAmountNote: (explanation) =>
       explanation
-        ? `Я посчитал итог как ${explanation}. Всё верно?`
-        : 'Я посчитал итоговую сумму для этой покупки. Всё верно?',
+        ? `Итог посчитан так: ${explanation}. Верно?`
+        : 'Итог посчитан автоматически. Верно?',
     clarification: (question) => question,
-    clarificationMissingAmountAndCurrency:
-      'Какую сумму и валюту нужно записать для этой общей покупки?',
-    clarificationMissingAmount: 'Какую сумму нужно записать для этой общей покупки?',
-    clarificationMissingCurrency: 'В какой валюте была эта покупка?',
-    clarificationMissingItem: 'Что именно было куплено?',
-    clarificationLowConfidence:
-      'Я не уверен, что правильно понял сообщение. Переформулируйте покупку с предметом, суммой и валютой.',
-    summary: (description, amount) => `<b>${description}</b> — <b>${amount}</b>`,
-    savedCardHeadline: (summary) => `🧾 ${summary}`,
-    participantsHeading: '👥 <b>Участники</b>',
-    participantIncluded: (displayName) => `• ${displayName}`,
-    participantBalanceChange: (displayName, change) => `• ${displayName} · ${change}`,
-    participantPayerWithoutShare: (displayName, change) =>
-      `• ${displayName} · ${change} · без доли`,
-    participantExcluded: (displayName) => `• <s>${displayName}</s> · не участвует`,
+    clarificationMissingAmountAndCurrency: 'Сколько стоило и в какой валюте?',
+    clarificationMissingAmount: 'Сколько стоило?',
+    clarificationMissingCurrency: 'В какой валюте?',
+    clarificationMissingItem: 'Что купили?',
+    clarificationLowConfidence: 'Не получилось разобрать. Напишите, что купили, сумму и валюту.',
+    summary: (description, amount) => `<b>${description} · ${amount}</b>`,
+    savedCardHeadline: (summary) => `🛒 ${summary}`,
+    participantBalanceChange: (displayName, change) => `${displayName} ${change}`,
+    participantPayerWithoutShare: (displayName, change) => `${displayName} ${change} (без доли)`,
+    participantExcluded: (displayName) => `<s>${displayName}</s>`,
     participantToggleIncluded: (displayName) => `✅ ${displayName}`,
     participantToggleExcluded: (displayName) => `⬜ ${displayName}`,
-    splitEqualLine: (perHead) => (perHead ? `➗ Поровну · по ${perHead}` : '➗ Поровну'),
-    splitCustomLine: '🧮 Индивидуальные суммы',
-    payerLine: (displayName) => `💳 Плательщик: <b>${displayName}</b>`,
-    payerQuestion: 'Кто именно это купил?',
-    payerFallbackQuestion: 'Не понял, кто именно это купил. Выберите человека ниже.',
-    payerButton: (displayName) => `Плательщик: ${displayName}`,
-    payerSelectedToast: (displayName) => `Плательщик: ${displayName}.`,
-    confirmButton: 'Подтвердить',
-    calculatedConfirmButton: 'Верно',
+    splitEqualLine: (participantCount, perHead) =>
+      participantCount === 1
+        ? 'на одного'
+        : `поровну на ${participantCount}${perHead ? `, по ${perHead}` : ''}`,
+    splitCustomLine: 'свои суммы',
+    payerLine: (displayName) => `💳 ${displayName}`,
+    payerSplitLine: (displayName, split) => `💳 ${displayName} · ${split}`,
+    payerFallbackQuestion: 'Не ясно, кто платил. Выберите ниже.',
+    payerButton: (displayName) => displayName,
+    payerSelectedToast: (displayName) => `Платит ${displayName}`,
+    confirmButton: '✅ Записать',
+    calculatedConfirmButton: '✅ Верно',
     calculatedFixAmountButton: 'Исправить сумму',
-    cancelButton: 'Отменить',
-    calculatedFixAmountPrompt:
-      '✏️ Ответьте в этот топик исправленной итоговой суммой и валютой, и я заново проверю покупку.',
-    calculatedFixAmountRequestedToast: 'Ответьте исправленной суммой.',
-    calculatedFixAmountAlreadyRequested: 'Жду исправленную сумму.',
-    confirmed: (summary) => `✅ <b>Покупка записана</b>\n\n🧾 ${summary}`,
-    cancelled: (summary) => `🚫 <b>Предложение отменено</b>\n\n🧾 ${summary}`,
-    removed: '🗑 <b>Покупка удалена</b>',
-    confirmedToast: 'Покупка подтверждена.',
-    cancelledToast: 'Покупка отменена.',
-    alreadyConfirmed: 'Эта покупка уже подтверждена.',
-    alreadyCancelled: 'Это предложение покупки уже отменено.',
-    atLeastOneParticipant: 'В распределении покупки должен остаться хотя бы один участник.',
-    notYourProposal:
-      'Подтвердить или отменить эту покупку может только отправитель сообщения или указанный покупатель.',
-    proposalUnavailable: 'Это предложение покупки уже недоступно.',
-    parseFailed:
-      'Пока не удалось распознать это как общую покупку. Напишите предмет, сумму и валюту явно.'
+    cancelButton: 'Отмена',
+    calculatedFixAmountPrompt: '✏️ Напишите в ответ правильную сумму с валютой — пересчитаю.',
+    calculatedFixAmountRequestedToast: 'Жду сумму',
+    calculatedFixAmountAlreadyRequested: 'Уже жду сумму',
+    confirmed: (summary) => `✅ ${summary}`,
+    cancelled: (summary) => `Отменено: ${summary}`,
+    removed: '🗑 Покупка удалена',
+    confirmedToast: 'Записано',
+    cancelledToast: 'Отменено',
+    alreadyConfirmed: 'Уже записано',
+    alreadyCancelled: 'Уже отменено',
+    atLeastOneParticipant: 'Кто-то должен остаться в доле',
+    notYourProposal: 'Подтвердить может только автор сообщения или тот, кто платил',
+    participantChangeForbidden: 'Менять это могут только участники дома',
+    proposalUnavailable: 'Это предложение уже неактуально',
+    parseFailed: 'Не получилось понять покупку. Напишите, что купили, сумму и валюту.'
   },
   agent: {
     confirmButton: '✅ Подтвердить',
-    cancelButton: '🚫 Отмена',
-    actionPrompt: (summary) => `🤖 ${summary}\n\nПодтвердите или отмените ниже 👇`,
+    cancelButton: 'Отмена',
+    actionPrompt: (summary) => `🤖 ${capitalize(summary)}?`,
     actionConfirmed: (summary) => `✅ Готово: ${summary}`,
-    actionCancelled: '🚫 Действие отменено.',
-    actionUnavailable: '⏳ Это действие уже недоступно.',
-    notYourAction: '🔒 Подтвердить или отменить может только автор запроса или админ.',
-    actionFailed: '⚠️ Не удалось выполнить действие. Ничего не изменено.',
-    pendingProposalCancelled: '🚫 Ожидающее предложение оплаты отменено.',
-    nothingToCancel: 'ℹ️ Сейчас нечего отменять.',
+    actionCancelled: 'Отменено',
+    actionUnavailable: 'Это действие уже неактуально',
+    notYourAction: '🔒 Подтвердить может только автор запроса или админ',
+    actionFailed: '⚠️ Не получилось — ничего не изменилось.',
+    pendingProposalCancelled: 'Предложение оплаты отменено.',
+    nothingToCancel: 'Отменять нечего.',
     summarizeUpdatePayment: (displayName, kind, amount, currency) =>
-      `изменить оплату (${kind === 'rent' ? 'аренда' : 'коммуналка'}) участника ${displayName} на ${formatUserFacingMoney(amount, currency)}`,
+      `изменить оплату ${kindGenitive(kind)} (${displayName}) на ${money(amount, currency)}`,
     summarizeDeletePayment: (displayName, kind, amount, currency) =>
-      `удалить оплату (${kind === 'rent' ? 'аренда' : 'коммуналка'}) участника ${displayName} на ${formatUserFacingMoney(amount, currency)}`,
+      `удалить оплату ${kindGenitive(kind)} (${displayName}, ${money(amount, currency)})`,
     summarizeUpdatePurchase: (description, amount, currency) =>
-      `изменить покупку «${description}» на ${formatUserFacingMoney(amount, currency)}`,
+      `изменить покупку «${description}» на ${money(amount, currency)}`,
     summarizeDeletePurchase: (description, amount, currency) =>
-      `удалить покупку «${description}» (${formatUserFacingMoney(amount, currency)})`,
+      `удалить покупку «${description}» (${money(amount, currency)})`,
     summarizeSetPurchaseParticipants: (description, names) =>
-      `изменить участников покупки «${description}»: ${names}`,
+      `поменять участников «${description}»: ${names}`,
     summarizeSetPeriodRent: (amount, currency, periods) =>
-      `установить аренду ${formatUserFacingMoney(amount, currency)} для ${periods.join(', ')}`,
+      `поставить аренду ${money(amount, currency)} на ${months(periods)}`,
     summarizeSetHouseholdFact: (title, body, previousBody) =>
-      previousBody === null
-        ? `запомнить «${title}»: ${body}`
-        : `заменить «${title}» (было: ${previousBody}) на: ${body}`,
+      body === null
+        ? `запомнить «${title}»`
+        : previousBody === null
+          ? `запомнить «${title}»: ${body}`
+          : `обновить «${title}»: ${body} (было: ${previousBody})`,
     summarizeDeleteHouseholdFact: (title) => `забыть «${title}»`
   },
   payments: {
-    topicMissing:
-      '⚠️ Для этого дома ещё не настроен топик оплат. Попросите админа выполнить /setup и создать топик для оплат.',
-    balanceReply: (kind) =>
-      kind === 'rent' ? '📊 <b>Сводка по аренде</b>' : '📊 <b>Сводка по коммуналке</b>',
-    proposal: (kind, amount, currency) =>
-      `${kind === 'rent' ? '🏠' : '💡'} <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'}</b>\n💰 Сумма: <b>${formatUserFacingMoney(amount, currency)}</b>`,
-    proposalReported: (displayName, kind, amount, currency) =>
-      `${kind === 'rent' ? '🏠' : '💡'} <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'}</b>\n👤 Плательщик: <b>${displayName}</b>\n💰 Сумма: <b>${formatUserFacingMoney(amount, currency)}</b>`,
-    confirmHint: '<i>Подтвердите или отмените ниже 👇</i>',
-    clarification:
-      '❓ Пока не могу подтвердить эту оплату. Уточните, это аренда или коммуналка, и при необходимости напишите сумму и валюту.',
-    unsupportedCurrency:
-      '🚫 Сейчас я могу записывать оплаты в этом топике только в валюте расчётов по дому.',
-    noBalance: 'ℹ️ Сейчас для этого типа оплаты нет суммы к подтверждению.',
+    recorded: (kind, amount, currency, period) =>
+      `✅ ${kindTitle(kind)}${forMonth(period)} записана · ${money(amount, currency)}`,
+    recordedReported: (displayName, kind, amount, currency, period) =>
+      `✅ ${kindTitle(kind)}${forMonth(period)} записана · ${displayName} · ${money(amount, currency)}`,
+    proposal: ({ kind, amount, currency, period, displayName, billName }) =>
+      `${kindEmoji(kind)} Записать ${kindAccusative(kind)}${forMonth(period)}?\n<b>${[
+        displayName,
+        billName,
+        money(amount, currency)
+      ]
+        .filter(Boolean)
+        .join(' · ')}</b>`,
+    clarification: 'Это аренда или коммуналка? Если можно, добавьте сумму.',
+    unsupportedCurrency: '⚠️ Оплаты здесь записываются только в валюте дома.',
     alreadySettled: (kind, displayName) =>
       displayName
-        ? `✅ ${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта для ${displayName}.`
-        : `✅ ${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже закрыта.`,
+        ? `✅ ${displayName}: ${kindNoun(kind)} уже оплачена`
+        : `✅ ${kindTitle(kind)} уже оплачена`,
     settledPeriod: (kind, period, askPeriod, displayName) =>
-      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${period}${displayName ? ` у ${displayName}` : ''} уже оплачена.${askPeriod ? ' За какой период этот новый платёж?' : ''}`,
-    purchaseRedirect:
-      '🛒 Похоже на общую покупку, но этот топик у меня про оплаты. Закиньте это в топик покупок, и я там всё красиво подтвержу.',
-    breakdownHeading: '📊 <b>Как посчитано</b>',
+      `${kindTitle(kind)} за ${month(period)}${displayName ? ` (${displayName})` : ''} уже оплачена.${askPeriod ? ' За какой месяц эта оплата?' : ''}`,
+    breakdownHeading: '<b>Как посчитано</b>',
     breakdownBase: (kind, amount, currency) =>
-      `${kind === 'rent' ? '🏠 Аренда к оплате' : '💡 Коммуналка к оплате'}: <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• ${kindTitle(kind)}: <b>${money(amount, currency)}</b>`,
     breakdownPlannedBase: (kind, amount, currency) =>
-      `${kind === 'rent' ? '🏠 Аренда к оплате' : '💡 Сумма по плану коммуналки'}: <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• ${kind === 'rent' ? 'Аренда' : 'По плану коммуналки'}: <b>${money(amount, currency)}</b>`,
     breakdownPurchaseBalance: (amount, currency) =>
-      `🛒 Баланс по общим покупкам: <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• Баланс по покупкам: <b>${money(amount, currency)}</b>`,
     breakdownSuggestedTotal: (amount, currency, policy) =>
-      `🧮 Рекомендуемая сумма (${policy}): <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• Предлагаю записать (${policy}): <b>${money(amount, currency)}</b>`,
     breakdownRecordingAmount: (amount, currency) =>
-      `✍️ Сумма из вашего сообщения: <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• В сообщении: <b>${money(amount, currency)}</b>`,
     breakdownRemaining: (amount, currency) =>
-      `📉 Общий остаток: <b>${formatUserFacingMoney(amount, currency)}</b>`,
+      `• Осталось у всех: <b>${money(amount, currency)}</b>`,
     adjustmentPolicy: (policy) =>
       policy === 'utilities'
         ? 'зачёт через коммуналку'
         : policy === 'rent'
           ? 'зачёт через аренду'
-          : 'отдельный расчёт по покупкам',
+          : 'покупки отдельно',
     timingBeforeWindow: (kind, reminderDate, dueDate) =>
-      `⏳ ${kind === 'rent' ? 'Аренду' : 'Коммуналку'} пока рано оплачивать. Следующее напоминание: ${reminderDate}. Срок оплаты: ${dueDate}.`,
+      `⏳ За ${kindAccusative(kind)} пока рано: напомню ${reminderDate}, оплатить до ${dueDate}.`,
     timingDueNow: (kind, dueDate) =>
-      `⚠️ ${kind === 'rent' ? 'Аренду' : 'Коммуналку'} уже пора оплачивать. Срок оплаты: ${dueDate}.`,
-    confirmButton: '✅ Подтвердить оплату',
+      `⏰ ${capitalize(kindAccusative(kind))} пора оплатить — до ${dueDate}.`,
+    confirmButton: '✅ Записать',
     balanceUpdatePendingReminder:
-      '⚠️ Баланс после сохранённого платежа ещё обновляется. Откройте дашборд и обновите его перед следующей оплатой.',
+      '⚠️ Баланс ещё пересчитывается — проверьте приложение перед следующей оплатой.',
     balanceUpdatePending:
-      '⚠️ Платёж сохранён. Обновление баланса ещё не завершено. Повторите ниже — платёж не запишется второй раз.',
-    retryBalanceButton: '🔄 Повторить обновление баланса',
-    confirmSelectedButton: '✅ Подтвердить выбранных',
-    cancelButton: '🚫 Отменить',
+      '⚠️ Оплата сохранена, но баланс ещё не пересчитан. Нажмите «Повторить» — второй раз оплата не запишется.',
+    retryBalanceButton: 'Повторить',
+    confirmSelectedButton: '✅ Записать',
+    cancelButton: 'Отмена',
     multiProposal: (kind, period) =>
-      `${kind === 'rent' ? '🏠' : '💡'} <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} · ${period}</b>`,
+      `${kindEmoji(kind)} <b>${kindTitle(kind)} за ${month(period)}</b> — за кого?`,
     multiMemberLine: (displayName, paymentStatus, selected) =>
       paymentStatus === 'paid'
         ? `✅ <s>${displayName}</s> · уже оплачено`
-        : `${selected ? '☑️' : '⬜'} <b>${displayName}</b> · не оплачено`,
-    multiRecorded: (kind, names) =>
-      `✅ <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} записана</b>\n👥 ${names}`,
-    multiAlreadyPaid: (kind, names) =>
-      `☑️ ${kind === 'rent' ? 'Аренда' : 'Коммуналка'} уже оплачена: ${names}`,
-    multiPartiallyRecorded: (kind, recordedNames, failedNames) =>
-      `⚠️ <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} записана частично</b>\n✅ Записал: ${recordedNames}\n❌ Не удалось: ${failedNames}`,
-    fullyPaid: (kind, period) =>
-      `${kind === 'rent' ? 'Аренда' : 'Коммуналка'} за ${period} полностью закрыта.`,
-    noMembersSelected: '⚠️ Сначала выберите хотя бы одного человека.',
-    recorded: (kind, amount, currency) =>
-      `✅ <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} записана</b>\n💰 <b>${formatUserFacingMoney(amount, currency)}</b>`,
-    recordedReported: (displayName, kind, amount, currency) =>
-      `✅ <b>Оплата ${kind === 'rent' ? 'аренды' : 'коммуналки'} записана</b>\n👤 <b>${displayName}</b> · <b>${formatUserFacingMoney(amount, currency)}</b>`,
-    cancelled: '🚫 Предложение оплаты отменено.',
-    proposalUnavailable: '⏳ Это предложение оплаты уже недоступно.',
-    notYourProposal:
-      '🔒 Подтвердить или отменить эту оплату может только отправитель сообщения или указанный плательщик.',
-    multiNotYourProposal:
-      '🔒 Управлять этим предложением оплаты может только отправитель сообщения.',
-    savedForReview: '📝 Это подтверждение оплаты сохранено на проверку.',
-    duplicate: '♻️ Это подтверждение оплаты уже было обработано.'
+        : `${selected ? '☑️' : '⬜'} ${selected ? `<b>${displayName}</b>` : displayName}`,
+    multiMemberButton: (displayName, selected) => `${selected ? '☑️' : '⬜'} ${displayName}`,
+    multiRecorded: (kind, period, names) =>
+      `✅ <b>${kindTitle(kind)} за ${month(period)} записана</b>: ${names}`,
+    multiAlreadyPaid: (names) => `Уже было оплачено: ${names}`,
+    multiPartiallyRecorded: (recordedNames, failedNames) =>
+      [
+        '⚠️ <b>Записано не всё</b>',
+        ...(recordedNames ? [`Готово: ${recordedNames}`] : []),
+        ...(failedNames ? [`Не вышло: ${failedNames}`] : [])
+      ].join('\n'),
+    noMembersSelected: 'Выберите хотя бы одного',
+    cancelled: 'Отменено',
+    proposalUnavailable: 'Это предложение уже неактуально',
+    notYourProposal: '🔒 Подтвердить может только автор сообщения или тот, за кого платят',
+    multiNotYourProposal: '🔒 Менять список может только автор сообщения',
+    duplicate: 'Эта оплата уже записана'
   }
 }

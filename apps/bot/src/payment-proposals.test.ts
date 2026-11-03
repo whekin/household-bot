@@ -55,9 +55,9 @@ test('early rent targets the stated period even when default rent is settled', a
   if (result.status !== 'proposal') return
   expect(result.payload.period).toBe('2026-07')
   expect(requested).toContain('2026-07')
-  expect(formatPaymentProposalText({ locale: 'en', surface: 'topic', proposal: result })).toContain(
-    '2026-07'
-  )
+  const text = formatPaymentProposalText({ locale: 'en', surface: 'topic', proposal: result })
+  expect(text).toContain('Record rent for July?')
+  expect(text).not.toContain('2026')
 })
 
 test('settled default rent asks for a period without silently selecting another', async () => {

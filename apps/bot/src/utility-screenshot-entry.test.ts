@@ -397,7 +397,7 @@ test('ordinary Save automatically accounts for cents without selecting a payer',
     ]
   })
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
-  expect(f.messages().join()).toContain('автоматически учтём округление: Ion +0.07')
+  expect(f.messages().join()).toContain('Округление учтём при сохранении: Ion +0.07 ₾')
   const proposalId = f.pending()!.payload.proposalId as string
   await f.callback('round_0')
   expect(f.pending()?.payload.stage).toBe('review')
@@ -442,7 +442,7 @@ test('large unreported payments allow new bills without offering the rounding sh
     bills: [{ id: 'g', billName: 'Gas (Water)', amountMinor: '7230', currency: 'GEL' }]
   })
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
-  expect(f.messages().join()).toContain('Нужно сверить фактические оплаты')
+  expect(f.messages().join()).toContain('Сверьте оплаты в приложении')
   await f.callback('round_0')
   await f.callback('record')
   expect(f.roundingPayments).toEqual([])
@@ -670,7 +670,7 @@ test('changed snapshots force a refreshed review and payments block import', asy
   f.setSnapshot({ revision: 'paid', hasPayments: true })
   await f.callback('save')
   expect(f.imports).toEqual([])
-  expect(f.messages().join()).toContain('Уже записанные оплаты сохранятся')
+  expect(f.messages().join()).toContain('Записанные оплаты останутся')
 })
 
 test('two bank screenshots with matching amounts cannot duplicate charges', async () => {
@@ -678,7 +678,7 @@ test('two bank screenshots with matching amounts cannot duplicate charges', asyn
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
   await f.callback('save')
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
-  expect(f.messages().join()).toContain('Повторных начислений не будет')
+  expect(f.messages().join()).toContain('дублей не будет')
   await f.callback('save')
   expect(f.imports).toHaveLength(1)
 })
@@ -690,7 +690,8 @@ test('unknown supplier blocks save until explicit manual correction', async () =
   await f.bot.handleUpdate(photo({ reply: 'utility' }) as never)
   await f.callback('save')
   expect(f.imports).toEqual([])
-  expect(f.messages().join()).toContain('Не все строки')
+  expect(f.messages().join()).toContain('Не всё удалось разобрать')
+  expect(f.messages().join()).toContain('• Unknown — нет такого счёта')
   await f.callback('edit')
   await f.textReply('Electricity: 44.02')
   await f.callback('save')
@@ -716,15 +717,15 @@ test('an uneditable preview does not prevent refreshing cards after a successful
   expect(f.messages().join()).toContain('Счета сохранены, но')
 })
 
-test.each(['✅ Оплата коммуналки записана', '✅ Utilities payment recorded'])(
-  'a complaint replying to a completed card stays in conversation: %s',
-  async (text) => {
-    const f = setup()
-    const update = photo({ reply: 'other', caption: 'Чё за баги?' })
-    update.message.reply_to_message!.text = text
-    await f.bot.handleUpdate(update as never)
-    expect(f.metrics().passed).toBe(1)
-    expect(f.metrics().ocrCalls).toBe(0)
-    expect(f.imports).toHaveLength(0)
-  }
-)
+test.each([
+  '✅ Коммуналка за октябрь записана · 120 ₾',
+  '✅ Utilities for October recorded · 120 ₾'
+])('a complaint replying to a completed card stays in conversation: %s', async (text) => {
+  const f = setup()
+  const update = photo({ reply: 'other', caption: 'Чё за баги?' })
+  update.message.reply_to_message!.text = text
+  await f.bot.handleUpdate(update as never)
+  expect(f.metrics().passed).toBe(1)
+  expect(f.metrics().ocrCalls).toBe(0)
+  expect(f.imports).toHaveLength(0)
+})

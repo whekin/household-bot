@@ -1,5 +1,5 @@
 import type { AdHocNotificationService } from '@household/application'
-import { Temporal, nowInstant } from '@household/domain'
+import { formatDayDisplay, Temporal, nowInstant } from '@household/domain'
 import type { Logger } from '@household/observability'
 import type {
   AdHocNotificationDeliveryMode,
@@ -14,6 +14,7 @@ import type { InlineKeyboardMarkup } from 'grammy/types'
 import { parseAdHocNotificationSchedule } from './ad-hoc-notification-parser'
 import { resolveReplyLocale } from './bot-locale'
 import type { BotLocale } from './i18n'
+import { reminderCopy } from './i18n/reminders'
 
 const AD_HOC_NOTIFICATION_ACTION = 'ad_hoc_notification' as const
 const AD_HOC_NOTIFICATION_ACTION_TTL_MS = 30 * 60_000
@@ -68,14 +69,6 @@ interface NotificationActorContext {
   assistantTone: string | null
 }
 
-function cancelledDraftReply(locale: BotLocale): string {
-  return locale === 'ru' ? 'Окей, тогда не напоминаю.' : 'Okay, I will drop this reminder.'
-}
-
-function cancelledSavedReply(locale: BotLocale): string {
-  return locale === 'ru' ? 'Окей, это напоминание убираю.' : 'Okay, I will drop this reminder.'
-}
-
 function createProposalId(): string {
   return crypto.randomUUID().slice(0, 8)
 }
@@ -99,33 +92,8 @@ function escapeRegExp(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function formatScheduledFor(locale: BotLocale, scheduledForIso: string, timezone: string): string {
-  const zdt = Temporal.Instant.from(scheduledForIso).toZonedDateTimeISO(timezone)
-  const date =
-    locale === 'ru'
-      ? `${String(zdt.day).padStart(2, '0')}.${String(zdt.month).padStart(2, '0')}.${zdt.year}`
-      : `${zdt.year}-${String(zdt.month).padStart(2, '0')}-${String(zdt.day).padStart(2, '0')}`
-  const time = `${String(zdt.hour).padStart(2, '0')}:${String(zdt.minute).padStart(2, '0')}`
-  return `${date} ${time} (${timezone})`
-}
-
-function formatTimeOfDay(locale: BotLocale, hour: number, minute: number): string {
-  const exact = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-  if (locale !== 'ru' || minute !== 0) {
-    return locale === 'ru' ? `в ${exact}` : `at ${exact}`
-  }
-
-  if (hour >= 5 && hour <= 11) {
-    return `в ${hour} утра`
-  }
-  if (hour >= 12 && hour <= 16) {
-    return hour === 12 ? 'в 12 дня' : `в ${hour} дня`
-  }
-  if (hour >= 17 && hour <= 23) {
-    return hour === 18 ? 'в 6 вечера' : `в ${hour > 12 ? hour - 12 : hour} вечера`
-  }
-
-  return `в ${hour} ночи`
+function formatTimeOfDay(hour: number, minute: number): string {
+  return `${hour}:${String(minute).padStart(2, '0')}`
 }
 
 function relativeDayLabel(input: {
@@ -133,27 +101,30 @@ function relativeDayLabel(input: {
   now: Temporal.ZonedDateTime
   target: Temporal.ZonedDateTime
 }): string | null {
+  const copy = reminderCopy[input.locale]
   const targetDate = input.target.toPlainDate()
   const nowDate = input.now.toPlainDate()
   const tomorrow = nowDate.add({ days: 1 })
   const dayAfterTomorrow = nowDate.add({ days: 2 })
 
+  // Before 5am "tomorrow morning" still means the morning after the night's sleep.
   if (input.now.hour <= 4 && targetDate.equals(nowDate) && input.target.hour <= 12) {
-    return input.locale === 'ru' ? 'завтра' : 'tomorrow'
+    return copy.tomorrow
   }
   if (targetDate.equals(nowDate)) {
-    return input.locale === 'ru' ? 'сегодня' : 'today'
+    return copy.today
   }
   if (targetDate.equals(tomorrow)) {
-    return input.locale === 'ru' ? 'завтра' : 'tomorrow'
+    return copy.tomorrow
   }
   if (targetDate.equals(dayAfterTomorrow)) {
-    return input.locale === 'ru' ? 'послезавтра' : 'the day after tomorrow'
+    return copy.dayAfterTomorrow
   }
 
   return null
 }
 
+/** "завтра в 9:00" / "25 октября в 18:30" in the household timezone. */
 export function formatReminderWhen(input: {
   locale: BotLocale
   scheduledForIso: string
@@ -162,20 +133,14 @@ export function formatReminderWhen(input: {
 }): string {
   const now = (input.now ?? nowInstant()).toZonedDateTimeISO(input.timezone)
   const target = Temporal.Instant.from(input.scheduledForIso).toZonedDateTimeISO(input.timezone)
-  const relativeDay = relativeDayLabel({
-    locale: input.locale,
-    now,
-    target
-  })
-  const timeText = formatTimeOfDay(input.locale, target.hour, target.minute)
+  const day =
+    relativeDayLabel({
+      locale: input.locale,
+      now,
+      target
+    }) ?? formatDayDisplay(target.toPlainDate().toString(), input.locale)
 
-  if (relativeDay) {
-    return input.locale === 'ru' ? `${relativeDay} ${timeText}` : `${relativeDay} ${timeText}`
-  }
-
-  return input.locale === 'ru'
-    ? `${formatScheduledFor(input.locale, input.scheduledForIso, input.timezone)}`
-    : formatScheduledFor(input.locale, input.scheduledForIso, input.timezone)
+  return reminderCopy[input.locale].at(day, formatTimeOfDay(target.hour, target.minute))
 }
 
 function listedNotificationLine(input: {
@@ -183,6 +148,7 @@ function listedNotificationLine(input: {
   timezone: string
   item: Awaited<ReturnType<AdHocNotificationService['listUpcomingNotifications']>>[number]
 }): string {
+  const copy = reminderCopy[input.locale]
   const when = formatReminderWhen({
     locale: input.locale,
     scheduledForIso: input.item.scheduledFor.toString(),
@@ -191,40 +157,22 @@ function listedNotificationLine(input: {
   const details: string[] = []
 
   if (input.item.assigneeDisplayName) {
-    details.push(
-      input.locale === 'ru'
-        ? `для ${input.item.assigneeDisplayName}`
-        : `for ${input.item.assigneeDisplayName}`
-    )
+    details.push(copy.listFor(input.item.assigneeDisplayName))
   }
 
-  if (input.item.deliveryMode !== 'topic') {
-    if (input.item.deliveryMode === 'dm_all') {
-      details.push(input.locale === 'ru' ? 'всем в личку' : 'DM to everyone')
-    } else {
-      const names = input.item.dmRecipientDisplayNames.join(', ')
-      details.push(
-        input.locale === 'ru'
-          ? names.length > 0
-            ? `в личку: ${names}`
-            : 'в выбранные лички'
-          : names.length > 0
-            ? `DM: ${names}`
-            : 'DM selected members'
-      )
-    }
+  if (input.item.deliveryMode === 'dm_all') {
+    details.push(copy.listDmAll)
+  } else if (input.item.deliveryMode === 'dm_selected') {
+    const names = input.item.dmRecipientDisplayNames.join(', ')
+    details.push(names.length > 0 ? copy.listDmSelected(names) : copy.listDmSelectedUnnamed)
   }
 
   if (input.item.creatorDisplayName !== input.item.assigneeDisplayName) {
-    details.push(
-      input.locale === 'ru'
-        ? `создал ${input.item.creatorDisplayName}`
-        : `created by ${input.item.creatorDisplayName}`
-    )
+    details.push(copy.listAuthor(input.item.creatorDisplayName))
   }
 
   const suffix = details.length > 0 ? `\n${details.join(' · ')}` : ''
-  return `${when}\n${input.item.notificationText}${suffix}`
+  return `${when} · ${input.item.notificationText}${suffix}`
 }
 
 function notificationSummaryText(input: {
@@ -232,49 +180,29 @@ function notificationSummaryText(input: {
   payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>
   members: readonly HouseholdMemberRecord[]
 }): string {
-  if (input.locale === 'ru') {
-    const base = `Окей, ${formatReminderWhen({
-      locale: input.locale,
-      scheduledForIso: input.payload.scheduledForIso,
-      timezone: input.payload.timezone
-    })} напомню.`
-    if (input.payload.deliveryMode === 'topic') {
-      return base
-    }
-    if (input.payload.deliveryMode === 'dm_all') {
-      return `${base.slice(0, -1)} И всем в личку отправлю.`
-    }
-
-    const selectedRecipients = input.members.filter((member) =>
-      input.payload.dmRecipientMemberIds.includes(member.id)
-    )
-    const suffix =
-      selectedRecipients.length > 0
-        ? ` И выбранным в личку отправлю: ${selectedRecipients.map((member) => member.displayName).join(', ')}.`
-        : ' И выбранным в личку отправлю.'
-    return `${base.slice(0, -1)}${suffix}`
-  }
-
-  const base = `Okay, I’ll remind ${formatReminderWhen({
+  const copy = reminderCopy[input.locale]
+  const when = formatReminderWhen({
     locale: input.locale,
     scheduledForIso: input.payload.scheduledForIso,
     timezone: input.payload.timezone
-  })}.`
-  if (input.payload.deliveryMode === 'topic') {
-    return base
-  }
-  if (input.payload.deliveryMode === 'dm_all') {
-    return `${base.slice(0, -1)} and DM everyone too.`
-  }
+  })
+  const recipients = input.members
+    .filter((member) => input.payload.dmRecipientMemberIds.includes(member.id))
+    .map((member) => member.displayName)
+  const delivery =
+    input.payload.deliveryMode === 'topic'
+      ? copy.deliveryHere
+      : input.payload.deliveryMode === 'dm_all'
+        ? copy.deliveryDmAll
+        : recipients.length > 0
+          ? copy.deliveryDmSelected(recipients.join(', '))
+          : copy.deliveryDmNobody
 
-  const selectedRecipients = input.members.filter((member) =>
-    input.payload.dmRecipientMemberIds.includes(member.id)
-  )
-  const suffix =
-    selectedRecipients.length > 0
-      ? ` and DM the selected people too: ${selectedRecipients.map((member) => member.displayName).join(', ')}.`
-      : ' and DM the selected people too.'
-  return `${base.slice(0, -1)}${suffix}`
+  return `${copy.draft(when, input.payload.renderedNotificationText)}\n${delivery}`
+}
+
+function toggleLabel(selected: boolean, label: string): string {
+  return `${selected ? '✅' : '⬜'} ${label}`
 }
 
 function notificationDraftReplyMarkup(
@@ -282,20 +210,25 @@ function notificationDraftReplyMarkup(
   payload: Extract<NotificationDraftPayload, { stage: 'confirm' }>,
   members: readonly HouseholdMemberRecord[]
 ): InlineKeyboardMarkup {
+  const copy = reminderCopy[locale]
+  const decisionRow = [
+    {
+      text: copy.saveButton,
+      callback_data: `${AD_HOC_NOTIFICATION_CONFIRM_PREFIX}${payload.proposalId}`
+    },
+    {
+      text: copy.cancelButton,
+      callback_data: `${AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX}${payload.proposalId}`
+    }
+  ]
+
   if (payload.viewMode === 'compact') {
     return {
       inline_keyboard: [
+        decisionRow,
         [
           {
-            text: locale === 'ru' ? 'Подтвердить' : 'Confirm',
-            callback_data: `${AD_HOC_NOTIFICATION_CONFIRM_PREFIX}${payload.proposalId}`
-          },
-          {
-            text: locale === 'ru' ? 'Отменить' : 'Cancel',
-            callback_data: `${AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX}${payload.proposalId}`
-          },
-          {
-            text: locale === 'ru' ? 'Еще' : 'More',
+            text: copy.expandButton,
             callback_data: `${AD_HOC_NOTIFICATION_VIEW_PREFIX}${payload.proposalId}:expanded`
           }
         ]
@@ -303,52 +236,44 @@ function notificationDraftReplyMarkup(
     }
   }
 
-  const deliveryButtons = [
-    {
-      text: `${payload.deliveryMode === 'topic' ? '• ' : ''}${locale === 'ru' ? 'В топик' : 'Topic'}`,
-      callback_data: `${AD_HOC_NOTIFICATION_MODE_PREFIX}${payload.proposalId}:topic`
-    },
-    {
-      text: `${payload.deliveryMode === 'dm_all' ? '• ' : ''}${locale === 'ru' ? 'Всем ЛС' : 'DM all'}`,
-      callback_data: `${AD_HOC_NOTIFICATION_MODE_PREFIX}${payload.proposalId}:dm_all`
-    }
-  ]
-
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [
+    decisionRow,
     [
       {
-        text: locale === 'ru' ? 'Подтвердить' : 'Confirm',
-        callback_data: `${AD_HOC_NOTIFICATION_CONFIRM_PREFIX}${payload.proposalId}`
+        text: toggleLabel(payload.deliveryMode === 'topic', copy.modeHereButton),
+        callback_data: `${AD_HOC_NOTIFICATION_MODE_PREFIX}${payload.proposalId}:topic`
       },
       {
-        text: locale === 'ru' ? 'Отменить' : 'Cancel',
-        callback_data: `${AD_HOC_NOTIFICATION_CANCEL_DRAFT_PREFIX}${payload.proposalId}`
-      },
-      {
-        text: locale === 'ru' ? 'Скрыть' : 'Less',
-        callback_data: `${AD_HOC_NOTIFICATION_VIEW_PREFIX}${payload.proposalId}:compact`
+        text: toggleLabel(payload.deliveryMode === 'dm_all', copy.modeDmAllButton),
+        callback_data: `${AD_HOC_NOTIFICATION_MODE_PREFIX}${payload.proposalId}:dm_all`
       }
     ],
-    deliveryButtons,
     [
       {
-        text: `${payload.deliveryMode === 'dm_selected' ? '• ' : ''}${locale === 'ru' ? 'Выбрать ЛС' : 'DM selected'}`,
+        text: toggleLabel(payload.deliveryMode === 'dm_selected', copy.modeDmSelectedButton),
         callback_data: `${AD_HOC_NOTIFICATION_MODE_PREFIX}${payload.proposalId}:dm_selected`
       }
     ]
   ]
 
   if (payload.deliveryMode === 'dm_selected') {
-    const eligibleMembers = members.filter((member) => member.status === 'active')
-    for (const member of eligibleMembers) {
-      rows.push([
-        {
-          text: `${payload.dmRecipientMemberIds.includes(member.id) ? '✅ ' : ''}${member.displayName}`,
-          callback_data: `${AD_HOC_NOTIFICATION_MEMBER_PREFIX}${payload.proposalId}:${member.id}`
-        }
-      ])
+    const memberButtons = members
+      .filter((member) => member.status === 'active')
+      .map((member) => ({
+        text: toggleLabel(payload.dmRecipientMemberIds.includes(member.id), member.displayName),
+        callback_data: `${AD_HOC_NOTIFICATION_MEMBER_PREFIX}${payload.proposalId}:${member.id}`
+      }))
+    for (let index = 0; index < memberButtons.length; index += 2) {
+      rows.push(memberButtons.slice(index, index + 2))
     }
   }
+
+  rows.push([
+    {
+      text: copy.backButton,
+      callback_data: `${AD_HOC_NOTIFICATION_VIEW_PREFIX}${payload.proposalId}:compact`
+    }
+  ])
 
   return {
     inline_keyboard: rows
@@ -363,7 +288,7 @@ function buildSavedNotificationReplyMarkup(
     inline_keyboard: [
       [
         {
-          text: locale === 'ru' ? 'Отменить напоминание' : 'Cancel notification',
+          text: reminderCopy[locale].cancelSavedButton,
           callback_data: `${AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX}${notificationId}`
         }
       ]
@@ -723,14 +648,10 @@ export function registerAdHocNotifications(options: {
       viewerMemberId: notificationContext.member.id
     })
     const locale = notificationContext.locale
+    const copy = reminderCopy[locale]
 
     if (items.length === 0) {
-      await replyInTopic(
-        ctx,
-        locale === 'ru'
-          ? 'Пока будущих напоминаний нет.'
-          : 'There are no upcoming notifications yet.'
-      )
+      await replyInTopic(ctx, copy.listEmpty)
       return
     }
 
@@ -747,22 +668,20 @@ export function registerAdHocNotifications(options: {
         })}`
     )
 
-    const keyboard: InlineKeyboardMarkup = {
-      inline_keyboard: listedItems
-        .filter(({ item }) => item.canCancel)
-        .map(({ item, index }) => [
-          {
-            text: locale === 'ru' ? `Отменить ${index + 1}` : `Cancel ${index + 1}`,
-            callback_data: `${AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX}${item.id}`
-          }
-        ])
+    const cancelButtons = listedItems
+      .filter(({ item }) => item.canCancel)
+      .map(({ item, index }) => ({
+        text: copy.listCancelButton(index + 1),
+        callback_data: `${AD_HOC_NOTIFICATION_CANCEL_SAVED_PREFIX}${item.id}`
+      }))
+    const keyboard: InlineKeyboardMarkup = { inline_keyboard: [] }
+    for (let index = 0; index < cancelButtons.length; index += 2) {
+      keyboard.inline_keyboard.push(cancelButtons.slice(index, index + 2))
     }
 
     await replyInTopic(
       ctx,
-      [locale === 'ru' ? 'Ближайшие напоминания:' : 'Upcoming notifications:', '', ...lines].join(
-        '\n\n'
-      ),
+      [copy.listTitle, ...lines].join('\n\n'),
       keyboard.inline_keyboard.length > 0 ? keyboard : undefined
     )
   })
@@ -806,12 +725,15 @@ export function registerAdHocNotifications(options: {
         sourceTelegramThreadId: payload.threadId
       })
 
+      const copy = reminderCopy[notificationContext.locale]
       if (result.status !== 'scheduled') {
         await ctx.answerCallbackQuery({
           text:
-            notificationContext.locale === 'ru'
-              ? 'Не удалось сохранить напоминание.'
-              : 'Failed to save notification.',
+            result.reason === 'scheduled_for_past'
+              ? copy.saveFailedPast
+              : result.reason === 'dm_recipients_missing'
+                ? copy.saveFailedNoRecipients
+                : copy.saveFailed,
           show_alert: true
         })
         return
@@ -824,10 +746,7 @@ export function registerAdHocNotifications(options: {
       )
 
       await ctx.answerCallbackQuery({
-        text:
-          notificationContext.locale === 'ru'
-            ? 'Напоминание запланировано.'
-            : 'Notification scheduled.'
+        text: copy.savedToast
       })
       await ctx.editMessageText(
         notificationSummaryText({
@@ -869,10 +788,11 @@ export function registerAdHocNotifications(options: {
         ctx.from.id.toString(),
         AD_HOC_NOTIFICATION_ACTION
       )
+      const copy = reminderCopy[notificationContext.locale]
       await ctx.answerCallbackQuery({
-        text: cancelledDraftReply(notificationContext.locale)
+        text: copy.draftCancelledToast
       })
-      await ctx.editMessageText(cancelledDraftReply(notificationContext.locale), {
+      await ctx.editMessageText(copy.draftCancelled, {
         reply_markup: {
           inline_keyboard: []
         }
@@ -973,21 +893,19 @@ export function registerAdHocNotifications(options: {
         viewerMemberId: notificationContext.member.id
       })
 
+      const copy = reminderCopy[notificationContext.locale]
       if (result.status !== 'cancelled') {
         await ctx.answerCallbackQuery({
-          text:
-            notificationContext.locale === 'ru'
-              ? 'Не удалось отменить напоминание.'
-              : 'Could not cancel this notification.',
+          text: result.status === 'forbidden' ? copy.cancelForbidden : copy.cancelStale,
           show_alert: true
         })
         return
       }
 
       await ctx.answerCallbackQuery({
-        text: cancelledSavedReply(notificationContext.locale)
+        text: copy.savedCancelledToast
       })
-      await ctx.editMessageText(cancelledSavedReply(notificationContext.locale), {
+      await ctx.editMessageText(copy.savedCancelled(result.notification.notificationText), {
         reply_markup: {
           inline_keyboard: []
         }
@@ -997,6 +915,14 @@ export function registerAdHocNotifications(options: {
 
     await next()
   })
+}
+
+/** The DM a recipient gets when the reminder fires: plain text, framed so it reads on its own. */
+export function buildDirectNotificationText(input: {
+  notificationText: string
+  locale: BotLocale
+}): string {
+  return reminderCopy[input.locale].directMessage(input.notificationText)
 }
 
 export function buildTopicNotificationText(input: {

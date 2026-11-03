@@ -8,6 +8,9 @@ import type {
   RoutineRepository
 } from '@household/ports'
 import type { InlineKeyboardMarkup } from 'grammy/types'
+
+import type { BotLocale } from './i18n'
+import { routineCopy } from './i18n/routines'
 import { renderRoutineCard } from './routine-cards'
 
 export interface RoutineTransport {
@@ -77,7 +80,8 @@ export function createRoutineDelivery(options: {
     doc: RoutineDocument,
     message: RoutineMessage,
     activeIds: Set<string>,
-    now: string
+    now: string,
+    locale: BotLocale
   ) {
     if (['removed', 'blocked', 'unknown'].includes(message.status)) return null
     if (message.retryAt && Date.parse(message.retryAt) > Date.parse(now)) return null
@@ -104,9 +108,13 @@ export function createRoutineDelivery(options: {
           row?.dueAt &&
           Date.parse(now) - Date.parse(row.windowEndsAt ?? row.dueAt) > 15 * 60_000))
     )
-    const content = renderRoutineCard(doc, day, now, row, message.expanded ?? false)
+    const content = renderRoutineCard(doc, day, now, {
+      locale,
+      ...(row ? { reminderRow: row } : {}),
+      expanded: message.expanded ?? false
+    })
     if (retired || clean) content.reply_markup = { inline_keyboard: [] }
-    if (retired) content.text = 'Список перенесён или доступ закрыт. Откройте актуальные дела.'
+    if (retired) content.text = routineCopy[locale].retiredCard
     const fingerprint = JSON.stringify(content)
     if (message.messageId === null && (clean || retired || message.date !== today || doc.paused)) {
       return { message, clean, retired, content, fingerprint, discard: true }
@@ -134,10 +142,21 @@ export function createRoutineDelivery(options: {
         fn(doc)
       })
     try {
-      const members = await options.households.listHouseholdMembers(initial.householdId)
+      const [members, chat] = await Promise.all([
+        options.households.listHouseholdMembers(initial.householdId),
+        options.households.getHouseholdChatByHouseholdId(initial.householdId)
+      ])
       const activeIds = new Set(
         members.filter((m) => m.status === 'active').map((m) => m.telegramUserId)
       )
+      // Group cards speak the household language; a private card follows its reader.
+      const householdLocale: BotLocale =
+        chat?.defaultLocale ?? members[0]?.householdDefaultLocale ?? 'ru'
+      const localeFor = (message: RoutineMessage): BotLocale => {
+        if (message.threadId !== null) return householdLocale
+        const member = members.find((m) => m.telegramUserId === message.chatId)
+        return member?.preferredLocale ?? member?.householdDefaultLocale ?? householdLocale
+      }
       await change((doc) => {
         const now = clock()
         const date = routineDate(doc, now)
@@ -192,11 +211,15 @@ export function createRoutineDelivery(options: {
       for (const candidate of snapshot?.messages ?? []) {
         // Most historical/current cards need no IO. Check the snapshot before loading the
         // aggregate again, then recheck under the lease before any Telegram operation.
-        if (!snapshot || !deliveryWork(snapshot, candidate, activeIds, clock())) continue
+        if (
+          !snapshot ||
+          !deliveryWork(snapshot, candidate, activeIds, clock(), localeFor(candidate))
+        )
+          continue
         // Reload for each message: callbacks may have changed the desired card while IO was pending.
         const doc = await change(() => {})
         const message = doc.messages.find((m) => m.key === candidate.key)!
-        const work = message && deliveryWork(doc, message, activeIds, clock())
+        const work = message && deliveryWork(doc, message, activeIds, clock(), localeFor(message))
         if (!work) continue
         const { clean, retired, content, fingerprint } = work
         if (work.discard) {
@@ -219,7 +242,7 @@ export function createRoutineDelivery(options: {
                 continue
               }
               await transport.edit(message.chatId, message.messageId, {
-                text: 'Напоминание закрыто. Актуальные отметки — в карточке дня.',
+                text: routineCopy[localeFor(message)].closedReminder,
                 reply_markup: { inline_keyboard: [] }
               })
             }
@@ -307,7 +330,7 @@ export function createRoutineDelivery(options: {
     ) {
       const result = await repository.change(id, householdId, (doc) => {
         if (expectedRevision !== undefined && doc.revision !== expectedRevision)
-          throw new RoutineError('Список изменён. Обновите данные.', 409)
+          throw new RoutineError('Список изменён. Обновите данные.', 409, 'stale_revision')
         doc.destination = destination
         doc.topicCreation = null
         doc.revision += 1

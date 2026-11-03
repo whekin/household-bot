@@ -322,8 +322,9 @@ describe('createPaymentInstructionPublisher', () => {
 
     expect(result.status).toBe('sent')
     expect(sent[0]?.text).toContain('GE00RENT')
-    expect(sent[0]?.text).toContain('Stas')
-    expect(sent[0]?.text).toContain('1000.00 ₾')
-    expect(sent[0]?.text).toContain('Ion')
+    expect(sent[0]?.text).toContain('⏳ <b>Stas</b> · 1,000 ₾')
+    expect(sent[0]?.text).toContain('1 of 2 paid · 1,000 ₾ left')
+    expect(sent[0]?.text).toContain('✅ <s>Ion</s>')
+    expect(sent[0]?.text).not.toContain('.00')
   })
 })

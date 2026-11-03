@@ -738,7 +738,7 @@ function formatPurchaseSummary(
   const amount = Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency)
   return t.summary(
     escapeHtml(result.parsedItemDescription),
-    formatUserFacingMoney(amount.toMajorString(), result.parsedCurrency)
+    formatUserFacingMoney(amount.toMajorString(), result.parsedCurrency, locale)
   )
 }
 
@@ -773,13 +773,13 @@ function formatPurchaseParticipants(
   }
 
   const t = getBotTranslations(locale).purchase
-  const lines = participants.map((participant) =>
-    participant.included
-      ? t.participantIncluded(escapeHtml(participant.displayName))
-      : t.participantExcluded(escapeHtml(participant.displayName))
-  )
-
-  return `${t.participantsHeading}\n${lines.join('\n')}`
+  return participants
+    .map((participant) =>
+      participant.included
+        ? escapeHtml(participant.displayName)
+        : t.participantExcluded(escapeHtml(participant.displayName))
+    )
+    .join(', ')
 }
 
 function formatPurchaseCalculationNote(
@@ -801,13 +801,21 @@ function formatPurchasePayer(
   locale: BotLocale,
   result: {
     payerDisplayName?: string | null
+    participants?: readonly PurchaseProposalParticipant[]
   }
 ): string | null {
+  const t = getBotTranslations(locale).purchase
+  const includedCount = (result.participants ?? []).filter(
+    (participant) => participant.included
+  ).length
+  const split = includedCount > 0 ? t.splitEqualLine(includedCount, null) : null
+
   if (!result.payerDisplayName) {
-    return null
+    return split ? split.charAt(0).toUpperCase() + split.slice(1) : null
   }
 
-  return getBotTranslations(locale).purchase.payerLine(escapeHtml(result.payerDisplayName))
+  const payer = escapeHtml(result.payerDisplayName)
+  return split ? t.payerSplitLine(payer, split) : t.payerLine(payer)
 }
 
 export function buildPurchaseAcknowledgement(
@@ -821,14 +829,15 @@ export function buildPurchaseAcknowledgement(
     case 'ignored_not_purchase':
       return null
     case 'pending_confirmation':
+      // The participant toggles under the message already list everyone.
       return t.proposal(
         formatPurchaseSummary(locale, result),
         formatPurchasePayer(locale, result),
         formatPurchaseCalculationNote(locale, result),
-        formatPurchaseParticipants(locale, result.participants)
+        null
       )
     case 'clarification_needed':
-      return `❓ ${escapeHtml(
+      return `${escapeHtml(
         t.clarification(
           result.clarificationQuestion ??
             (result.payerCandidates && result.payerCandidates.length > 0
@@ -837,8 +846,16 @@ export function buildPurchaseAcknowledgement(
         )
       )}`
     case 'parse_failed':
-      return `🤔 ${escapeHtml(t.parseFailed)}`
+      return escapeHtml(t.parseFailed)
   }
+}
+
+function pairs<T>(items: readonly T[]): T[][] {
+  const rows: T[][] = []
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2))
+  }
+  return rows
 }
 
 function purchaseProposalReplyMarkup(
@@ -853,14 +870,14 @@ function purchaseProposalReplyMarkup(
 
   return {
     inline_keyboard: [
-      ...participants.filter(canToggleProposalParticipant).map((participant) => [
-        {
+      ...pairs(
+        participants.filter(canToggleProposalParticipant).map((participant) => ({
           text: participant.included
             ? t.participantToggleIncluded(participant.displayName)
             : t.participantToggleExcluded(participant.displayName),
           callback_data: `${PURCHASE_PARTICIPANT_CALLBACK_PREFIX}${participant.id}`
-        }
-      ]),
+        }))
+      ),
       [
         {
           text: options.amountSource === 'calculated' ? t.calculatedConfirmButton : t.confirmButton,
@@ -983,7 +1000,9 @@ function buildPurchaseActionMessage(
     'participants' in result ? formatPurchaseParticipants(locale, result.participants) : null
 
   if (result.status === 'confirmed' || result.status === 'already_confirmed') {
-    return participants ? `${t.confirmed(summary)}\n\n${participants}` : t.confirmed(summary)
+    return [t.confirmed(summary), formatPurchasePayer(locale, result), participants]
+      .filter(Boolean)
+      .join('\n')
   }
 
   return t.cancelled(summary)
@@ -997,7 +1016,7 @@ function buildPurchaseToggleMessage(
     formatPurchaseSummary(locale, result),
     formatPurchasePayer(locale, result),
     null,
-    formatPurchaseParticipants(locale, result.participants)
+    null
   )
 }
 
@@ -1044,7 +1063,11 @@ function registerPurchaseProposalCallbacks(
   resolveLocale: (householdId: string) => Promise<BotLocale>,
   logger?: Logger,
   auditNotificationService?: HouseholdAuditNotificationService,
-  purchaseTopicNoticeService?: PurchaseTopicNoticeService
+  purchaseTopicNoticeService?: PurchaseTopicNoticeService,
+  resolveMember?: (
+    householdId: string,
+    telegramUserId: string
+  ) => Promise<{ id: string; displayName: string } | null>
 ): void {
   bot.callbackQuery(
     new RegExp(`^${PURCHASE_PAYER_CALLBACK_PREFIX}([^:]+):([^:]+)$`),
@@ -1241,27 +1264,31 @@ function registerPurchaseProposalCallbacks(
     }
 
     if (result.status === 'confirmed' && auditNotificationService) {
-      const amountText =
-        result.parsedAmountMinor !== null && result.parsedCurrency
-          ? `${Money.fromMinor(result.parsedAmountMinor, result.parsedCurrency).toMajorString()} ${
-              result.parsedCurrency
-            }`
-          : ''
+      const actor = resolveMember
+        ? await resolveMember(result.householdId, actorTelegramUserId).catch(() => null)
+        : null
+      const actorDisplayName = actor?.displayName ?? ctx.from?.first_name ?? 'Someone'
       await auditNotificationService.recordEvent({
         householdId: result.householdId,
-        actorMemberId: null,
-        actorDisplayName: ctx.from?.first_name ?? 'Someone',
+        actorMemberId: actor?.id ?? null,
+        actorDisplayName,
         eventType: 'purchase.confirmed',
         category: 'purchase_events',
-        summaryText: `${ctx.from?.first_name ?? 'Someone'} confirmed purchase: ${
+        summaryText: `${actorDisplayName} confirmed purchase: ${
           result.parsedItemDescription ?? 'shared purchase'
-        } ${amountText}`.trim(),
+        }`,
         metadata: {
           purchaseMessageId: result.purchaseMessageId,
           actorTelegramUserId,
           amountMinor: result.parsedAmountMinor?.toString() ?? null,
           currency: result.parsedCurrency,
-          description: result.parsedItemDescription
+          description: result.parsedItemDescription,
+          payerDisplayName: result.payerDisplayName ?? null,
+          participants: result.participants.map((participant) => ({
+            memberId: participant.memberId,
+            displayName: participant.displayName,
+            included: participant.included
+          }))
         }
       })
     }
@@ -1413,7 +1440,9 @@ export function registerPurchaseTopicCallbacks(
     async (householdId) => resolveHouseholdLocale(householdConfigurationRepository, householdId),
     options.logger,
     options.auditNotificationService,
-    options.purchaseTopicNoticeService
+    options.purchaseTopicNoticeService,
+    (householdId, telegramUserId) =>
+      householdConfigurationRepository.getHouseholdMember(householdId, telegramUserId)
   )
 
   // Photo-only receipts cannot be routed by the text agent; ask for details directly.

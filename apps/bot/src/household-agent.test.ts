@@ -330,10 +330,11 @@ describe('registerHouseholdAgent in private chats', () => {
     expect(systemPrompt).toContain('Do not end a Russian conversational reply with a full stop')
     expect(systemPrompt).toContain('custom instructions may refine your personality')
     expect(systemPrompt).toContain('always call get_rent_settings')
-    expect(systemPrompt).toContain('Action notifications')
+    expect(systemPrompt).toContain('Notification lines such as')
+    expect(systemPrompt).toContain('describe changes that were already saved')
     expect(systemPrompt).toContain('Do not volunteer capability disclaimers')
     expect(systemPrompt).toContain('facts saved in the household system from real-world agreements')
-    expect(systemPrompt).toContain('use that person as the owner')
+    expect(systemPrompt).toContain('Treat the recorder (✍️)')
     expect(systemPrompt).toContain('prefer a fresh, specific observational or situational joke')
     expect(systemPrompt).toContain('Treat “не смешно”, “давай другой”')
     expect(systemPrompt).toContain('change both the premise and the joke structure')
@@ -422,7 +423,7 @@ describe('registerHouseholdAgent in private chats', () => {
 
     const reply = calls.find((call) => call.method === 'sendMessage')
     expect((reply?.payload as { text: string } | undefined)?.text).toBe(
-      '⚠️ Сейчас не могу ответить. Попробуйте ещё раз через минуту.'
+      '⚠️ Не могу ответить прямо сейчас. Попробуйте через минуту.'
     )
   })
 

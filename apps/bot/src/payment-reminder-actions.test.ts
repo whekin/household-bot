@@ -389,7 +389,7 @@ describe('registerPaymentReminderActions', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Payment marked as paid.'
+        text: 'Payment marked'
       }
     })
     expect(calls.some((call) => call.method === 'editMessageText')).toBe(true)
@@ -422,7 +422,7 @@ describe('registerPaymentReminderActions', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Payment marked as paid.'
+        text: 'Payment marked'
       }
     })
   })
@@ -453,7 +453,7 @@ describe('registerPaymentReminderActions', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Already marked as paid.'
+        text: 'Already paid'
       }
     })
     expect(auditEvents).toEqual([])
@@ -470,7 +470,7 @@ describe('registerPaymentReminderActions', () => {
         method: 'answerCallbackQuery',
         payload: {
           callback_query_id: 'callback-pr:p:rent:2026-05-999',
-          text: 'Reminder unavailable.',
+          text: 'This reminder is no longer available',
           show_alert: true
         }
       }

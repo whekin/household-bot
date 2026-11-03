@@ -138,8 +138,14 @@ describe('live payment cards', () => {
     })
 
     expect(edits.map((edit) => edit.messageId)).toEqual(['101', '102'])
-    expect(edits.every((edit) => edit.text.includes('полностью оплачена'))).toBe(true)
-    expect(edits.every((edit) => JSON.stringify(edit.replyMarkup).includes('GE98'))).toBe(true)
+    expect(edits.every((edit) => edit.text.startsWith('🏠 <b>Аренда за июль · оплачена'))).toBe(
+      true
+    )
+    expect(edits.every((edit) => edit.text.includes('527 ₾'))).toBe(true)
+    // A single member is not "all 1".
+    expect(edits[0]?.text).not.toContain('Все 1 ')
+    // Nothing is left to pay, so the card no longer offers the paid button.
+    expect(edits.every((edit) => !JSON.stringify(edit.replyMarkup).includes('pr:p:'))).toBe(true)
     expect(edits[0]?.text).toBe(edits[1]?.text)
     expect(edits[0]?.replyMarkup).toEqual(edits[1]?.replyMarkup)
   })

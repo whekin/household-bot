@@ -1,0 +1,2 @@
+ALTER TABLE "household_audit_events" ADD COLUMN "dedupe_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "household_audit_events_household_dedupe_unique" ON "household_audit_events" USING btree ("household_id","dedupe_key");

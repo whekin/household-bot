@@ -185,12 +185,21 @@ describe('createTelegramBot i18n', () => {
     })
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('/home открывает главное меню')
-    expect(payload?.text).toContain('Частые задачи:')
-    expect(payload?.text).toContain('Быстрые команды:')
-    expect(payload?.text).toContain('/home - Открыть центр управления домом')
-    expect(payload?.text).not.toContain('/my_bill - Показать вашу финансовую сводку')
-    expect(payload?.text).not.toContain('/anon - Отправить анонимное сообщение по дому')
+    expect(payload?.text).toBe(
+      [
+        '🏠 Что умеет бот',
+        '',
+        '🛒 Покупка — напишите в топик покупок, что купили и за сколько.',
+        '✅ Оплата — напишите в топик оплат, например «аренда оплачена».',
+        '💸 Сколько платить — /bill',
+        '',
+        'Команды:',
+        '/home — Меню дома',
+        '/bill — Сколько платить в этом месяце',
+        '/help — Что умеет бот'
+      ].join('\n')
+    )
+    expect(payload?.text).not.toContain('/anon')
     expect(payload?.text).not.toContain('/setup')
   })
 
@@ -234,9 +243,24 @@ describe('createTelegramBot i18n', () => {
     await bot.handleUpdate(helpUpdate('ru') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('/anon - Отправить анонимное сообщение по дому')
-    expect(payload?.text).toContain('/app - Открыть мини-приложение Kojori')
-    expect(payload?.text).toContain('/setup - Подключить эту группу как дом')
+    expect(payload?.text).toBe(
+      [
+        '🏠 Что умеет бот',
+        '',
+        '🛒 Покупка — напишите в топик покупок, что купили и за сколько.',
+        '✅ Оплата — напишите в топик оплат, например «аренда оплачена».',
+        '💸 Сколько платить — /bill',
+        '📱 Всё подробно — в приложении: /app',
+        '⚙️ Настройка дома — /setup, /bind, /invite',
+        '',
+        'Команды:',
+        '/home — Меню дома',
+        '/bill — Сколько платить в этом месяце',
+        '/app — Открыть приложение',
+        '/anon — Анонимное сообщение',
+        '/help — Что умеет бот'
+      ].join('\n')
+    )
   })
 
   test('shows admin commands in group help for Telegram group admins', async () => {
@@ -293,9 +317,25 @@ describe('createTelegramBot i18n', () => {
     const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
       | { text?: string }
       | undefined
-    expect(payload?.text).toContain('Common tasks:')
-    expect(payload?.text).toContain('/setup - Register this group as a household')
-    expect(payload?.text).not.toContain('/anon - Send anonymous household feedback')
+    expect(payload?.text).toBe(
+      [
+        '🏠 What the bot can do',
+        '',
+        '🛒 Purchase — write in the purchases topic what you bought and for how much.',
+        '✅ Payment — write in the payments topic, for example "rent paid".',
+        '💸 What to pay — /bill',
+        '⚙️ Household setup — /setup, /bind, /invite',
+        '',
+        'Commands:',
+        '/home — Household menu',
+        '/bill — What to pay this month',
+        '/help — What the bot can do',
+        '/setup — Connect this group',
+        '/bind — Bind this topic',
+        '/invite — Invite to the household'
+      ].join('\n')
+    )
+    expect(payload?.text).not.toContain('/anon')
   })
 
   test('falls back to non-admin help when Telegram admin lookup fails', async () => {
@@ -342,7 +382,20 @@ describe('createTelegramBot i18n', () => {
     const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
       | { text?: string }
       | undefined
-    expect(payload?.text).toContain('Common tasks:')
-    expect(payload?.text).not.toContain('/setup - Register this group as a household')
+    expect(payload?.text).toBe(
+      [
+        '🏠 What the bot can do',
+        '',
+        '🛒 Purchase — write in the purchases topic what you bought and for how much.',
+        '✅ Payment — write in the payments topic, for example "rent paid".',
+        '💸 What to pay — /bill',
+        '',
+        'Commands:',
+        '/home — Household menu',
+        '/bill — What to pay this month',
+        '/help — What the bot can do'
+      ].join('\n')
+    )
+    expect(payload?.text).not.toContain('/setup')
   })
 })

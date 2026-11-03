@@ -70,35 +70,12 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     permission: 'public',
     availability: ['private'],
     behavior: 'read',
-    telegramVisible: true,
+    telegramVisible: false,
     telegramDefaultVisible: false,
     assistantExecutable: false,
     helpVisibility: 'hidden',
     capability: 'home_menu',
     aliases: ['start']
-  },
-  {
-    command: 'help',
-    permission: 'public',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: true,
-    telegramDefaultVisible: true,
-    assistantExecutable: true,
-    helpVisibility: 'primary',
-    aliases: ['help', 'commands', 'what can you do', 'что умеешь', 'команды']
-  },
-  {
-    command: 'settings',
-    permission: 'public',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: true,
-    telegramDefaultVisible: true,
-    assistantExecutable: true,
-    helpVisibility: 'primary',
-    capability: 'home_menu',
-    aliases: ['settings', 'настройки']
   },
   {
     command: 'home',
@@ -110,121 +87,29 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     assistantExecutable: true,
     helpVisibility: 'primary',
     capability: 'home_menu',
-    aliases: ['home', 'control center', 'dashboard', 'домой', 'центр управления']
+    aliases: ['home', 'menu', 'меню', 'домой']
   },
   {
     command: 'bill',
     permission: 'member',
     availability: ['private', 'group'],
     behavior: 'read',
-    telegramVisible: false,
+    telegramVisible: true,
     telegramDefaultVisible: false,
     assistantExecutable: true,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['household bill', 'everyone bill', 'общий счет', 'общий счёт']
-  },
-  {
-    command: 'bill_full',
-    permission: 'member',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: true,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['full household bill', 'all purchase impact', 'полный счет', 'полный счёт']
-  },
-  {
-    command: 'my_bill',
-    permission: 'member',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: true,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['my bill', 'what do i owe', 'мой счет', 'мой счёт', 'сколько я должен']
-  },
-  {
-    command: 'my_bill_full',
-    permission: 'member',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: true,
-    helpVisibility: 'hidden',
+    helpVisibility: 'primary',
     capability: 'finance',
     aliases: [
-      'my full bill',
-      'my purchase impact',
-      'why do i owe zero',
-      'мой полный счет',
-      'мой полный счёт',
-      'почему я ничего не должен'
+      'bill',
+      'what do i owe',
+      'my bill',
+      'household bill',
+      'счёт',
+      'счет',
+      'мой счёт',
+      'сколько платить',
+      'сколько я должен'
     ]
-  },
-  {
-    command: 'household_status',
-    permission: 'member',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: true,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['household status', 'current status', 'статус дома']
-  },
-  {
-    command: 'balance',
-    permission: 'member',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: true,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['balances', 'purchases', 'покупки', 'балансы']
-  },
-  {
-    command: 'bill_json',
-    permission: 'admin',
-    availability: ['private', 'group'],
-    behavior: 'read',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'hidden',
-    capability: 'finance',
-    aliases: ['billing json', 'audit json']
-  },
-  {
-    command: 'anon',
-    permission: 'member',
-    availability: ['private'],
-    behavior: 'write',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'primary',
-    capability: 'anonymous_feedback',
-    aliases: ['anonymous feedback']
-  },
-  {
-    command: 'cancel',
-    permission: 'public',
-    availability: ['private'],
-    behavior: 'write',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'primary',
-    aliases: ['cancel']
   },
   {
     command: 'app',
@@ -236,43 +121,41 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     assistantExecutable: true,
     helpVisibility: 'primary',
     capability: 'mini_app',
-    aliases: ['open app', 'mini app', 'dashboard app']
+    aliases: ['open app', 'mini app', 'приложение']
   },
   {
-    command: 'dashboard',
+    command: 'anon',
     permission: 'member',
     availability: ['private'],
-    behavior: 'read',
-    telegramVisible: false,
+    behavior: 'write',
+    telegramVisible: true,
     telegramDefaultVisible: false,
-    assistantExecutable: true,
+    assistantExecutable: false,
+    helpVisibility: 'primary',
+    capability: 'anonymous_feedback',
+    aliases: ['anonymous message', 'анонимно']
+  },
+  {
+    command: 'cancel',
+    permission: 'public',
+    availability: ['private'],
+    behavior: 'write',
+    telegramVisible: true,
+    telegramDefaultVisible: false,
+    assistantExecutable: false,
     helpVisibility: 'hidden',
-    capability: 'mini_app',
-    aliases: ['dashboard']
+    aliases: ['cancel', 'отмена']
   },
   {
-    command: 'payment_add',
-    permission: 'member',
-    availability: ['group'],
-    behavior: 'write',
+    command: 'help',
+    permission: 'public',
+    availability: ['private', 'group'],
+    behavior: 'read',
     telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
+    telegramDefaultVisible: true,
+    assistantExecutable: true,
     helpVisibility: 'primary',
-    capability: 'finance',
-    aliases: ['record payment']
-  },
-  {
-    command: 'utilities',
-    permission: 'member',
-    availability: ['group'],
-    behavior: 'write',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'primary',
-    capability: 'finance',
-    aliases: ['utilities template']
+    aliases: ['help', 'what can you do', 'что умеешь', 'помощь']
   },
   {
     command: 'setup',
@@ -287,18 +170,6 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     aliases: ['setup household']
   },
   {
-    command: 'unsetup',
-    permission: 'admin',
-    availability: ['group'],
-    behavior: 'write',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'advanced',
-    capability: 'household_setup',
-    aliases: ['unsetup household']
-  },
-  {
     command: 'bind',
     permission: 'admin',
     availability: ['group'],
@@ -311,7 +182,7 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     aliases: ['bind topic']
   },
   {
-    command: 'join_link',
+    command: 'invite',
     permission: 'admin',
     availability: ['group'],
     behavior: 'read',
@@ -320,43 +191,7 @@ export const TELEGRAM_COMMAND_CATALOG: readonly TelegramCommandCatalogEntry[] = 
     assistantExecutable: false,
     helpVisibility: 'advanced',
     capability: 'household_setup',
-    aliases: ['join link']
-  },
-  {
-    command: 'pending_members',
-    permission: 'admin',
-    availability: ['group'],
-    behavior: 'read',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'advanced',
-    capability: 'household_setup',
-    aliases: ['pending members']
-  },
-  {
-    command: 'approve_member',
-    permission: 'admin',
-    availability: ['group'],
-    behavior: 'write',
-    telegramVisible: false,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'hidden',
-    capability: 'household_setup',
-    aliases: ['approve member']
-  },
-  {
-    command: 'keyboard',
-    permission: 'member',
-    availability: ['private'],
-    behavior: 'write',
-    telegramVisible: true,
-    telegramDefaultVisible: false,
-    assistantExecutable: false,
-    helpVisibility: 'primary',
-    capability: 'mini_app',
-    aliases: ['keyboard']
+    aliases: ['invite', 'join link', 'pending members', 'пригласить']
   }
 ] as const
 
@@ -525,102 +360,46 @@ export function formatTelegramHelpText(
   locale: BotLocale,
   options: TelegramHelpOptions = {}
 ): string {
-  const t = getBotTranslations(locale)
-  const includePrivateCommands = options.includePrivateCommands ?? true
-  const includeGroupCommands = options.includeGroupCommands ?? false
-  const includeAdminCommands = options.includeAdminCommands ?? false
+  const t = getBotTranslations(locale).help
   const homeMenuAvailable = options.homeMenuAvailable ?? true
+  const financeAvailable = options.financeCommandsAvailable ?? true
   const enabledCapabilities = commandCapabilitiesFromOptions({
     homeMenuAvailable,
     miniAppAvailable: options.miniAppAvailable ?? false,
     anonymousFeedbackAvailable: options.anonymousFeedbackAvailable ?? false,
-    financeCommandsAvailable: options.financeCommandsAvailable ?? true,
+    financeCommandsAvailable: financeAvailable,
     setupCommandsAvailable: options.setupCommandsAvailable ?? homeMenuAvailable
   })
-  const groupMemberCommandNames = filterTelegramCommandCatalog({
-    chatType: 'group',
-    isMember: true,
-    isAdmin: false,
-    helpVisibility: 'primary',
-    enabledCapabilities
-  }).map((entry) => entry.command)
-  const groupMemberCommandsSet = new Set<TelegramCommandName>(groupMemberCommandNames)
-  const privateCommands = includePrivateCommands
-    ? mapCommands(
-        locale,
-        filterTelegramCommandCatalog({
-          chatType: 'private',
-          isMember: true,
-          isAdmin: includeAdminCommands,
-          helpVisibility: 'primary',
-          enabledCapabilities
-        }).map((entry) => entry.command)
-      )
-    : []
-  const groupCommands = includeGroupCommands ? mapCommands(locale, groupMemberCommandNames) : []
-  const adminCommands = includeAdminCommands
-    ? mapCommands(
-        locale,
-        filterTelegramCommandCatalog({
-          chatType: 'group',
-          isMember: true,
-          isAdmin: true,
-          helpVisibility: ['primary', 'advanced'],
-          enabledCapabilities
-        }).map((entry) => entry.command)
-      ).filter(
-        (command) =>
-          !TELEGRAM_DEFAULT_COMMAND_NAMES.includes(command.command) &&
-          !groupMemberCommandsSet.has(command.command)
-      )
-    : []
-
-  const sections = [homeMenuAvailable ? t.help.intro : t.help.introWithoutHome]
-
-  sections.push(t.help.tasksHeading)
-
-  if ((options.financeCommandsAvailable ?? true) && homeMenuAvailable) {
-    sections.push(
-      t.help.checkMyBill,
-      t.help.checkHouseholdStatus,
-      t.help.checkBalances,
-      t.help.recordPurchase,
-      t.help.recordPayment
-    )
-  } else if (options.financeCommandsAvailable ?? true) {
-    sections.push(t.help.recordPurchase, t.help.recordPayment)
+  const chatTypes: ('private' | 'group')[] = [
+    ...((options.includePrivateCommands ?? true) ? (['private'] as const) : []),
+    ...(options.includeGroupCommands ? (['group'] as const) : [])
+  ]
+  const commandNames = new Set<TelegramCommandName>()
+  for (const chatType of chatTypes) {
+    for (const entry of filterTelegramCommandCatalog({
+      chatType,
+      isMember: true,
+      isAdmin: options.includeAdminCommands ?? false,
+      helpVisibility: ['primary', 'advanced'],
+      enabledCapabilities
+    })) {
+      commandNames.add(entry.command)
+    }
   }
+  const commands = mapCommands(locale, [...commandNames])
 
-  if (options.miniAppAvailable) {
-    sections.push(t.help.openDashboard)
-  }
-
-  if (includeAdminCommands) {
-    sections.push(t.help.setupHousehold, t.help.manageMembers)
-  }
-
-  sections.push('', t.help.advancedHeading)
-
-  if (privateCommands.length > 0) {
-    sections.push(
-      t.help.privateChatHeading,
-      ...privateCommands.map((command) => `/${command.command} - ${command.description}`)
-    )
-  }
-
-  if (groupCommands.length > 0) {
-    sections.push(
-      t.help.groupHeading,
-      ...groupCommands.map((command) => `/${command.command} - ${command.description}`)
-    )
-  }
-
-  if (adminCommands.length > 0) {
-    sections.push(
-      t.help.groupAdminsHeading,
-      ...adminCommands.map((command) => `/${command.command} - ${command.description}`)
-    )
-  }
-
-  return sections.join('\n')
+  return [
+    t.intro,
+    '',
+    ...(financeAvailable ? [t.purchases, t.payments, t.bill] : []),
+    ...(options.miniAppAvailable ? [t.app] : []),
+    ...(options.includeAdminCommands ? [t.setup] : []),
+    ...(commands.length > 0
+      ? [
+          '',
+          t.commandsHeading,
+          ...commands.map((command) => `/${command.command} — ${command.description}`)
+        ]
+      : [])
+  ].join('\n')
 }

@@ -49,12 +49,13 @@ export {
   AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX,
   buildAuditNotificationViewReplyMarkup,
   createHouseholdAuditNotificationService,
-  formatAuditNotificationSummary,
   getAuditNotificationDetails,
   renderAuditNotification,
   type HouseholdAuditNotificationDetails,
-  type HouseholdAuditNotificationService
+  type HouseholdAuditNotificationService,
+  type HouseholdPaymentProgressLoader
 } from './household-audit-notification-service'
+export { paymentProgressFromDashboard, type HouseholdPaymentProgress } from './payment-progress'
 export { createHouseholdAdminService, type HouseholdAdminService } from './household-admin-service'
 export { createMiniAppAdminService, type MiniAppAdminService } from './miniapp-admin-service'
 export {

@@ -1,5 +1,13 @@
-import { Money, nowInstant, type CurrencyCode, type SupportedLocale } from '@household/domain'
+import {
+  formatMoneyDisplay,
+  formatMonthDisplay,
+  nextPeriod,
+  nowInstant,
+  parseMajorToMinor,
+  type SupportedLocale
+} from '@household/domain'
 import type {
+  FinancePaymentKind,
   HouseholdAuditEventRecord,
   HouseholdAuditNotificationCategory,
   HouseholdAuditNotificationRepository,
@@ -7,11 +15,14 @@ import type {
   HouseholdNotificationSettingsRecord
 } from '@household/ports'
 
+import type { HouseholdPaymentProgress } from './payment-progress'
+
 export interface HouseholdAuditNotificationSendResult {
   telegramMessageId?: string | null
 }
 
 export interface HouseholdAuditNotificationService {
+  /** Resolves to null when `dedupeKey` was already used for this household. */
   recordEvent(input: {
     householdId: string
     actorMemberId?: string | null
@@ -24,8 +35,15 @@ export interface HouseholdAuditNotificationService {
     replyMarkup?: unknown
     preserveSummaryText?: boolean
     deliveryTopicRole?: 'notifications' | 'reminders'
-  }): Promise<HouseholdAuditEventRecord>
+    dedupeKey?: string
+  }): Promise<HouseholdAuditEventRecord | null>
 }
+
+export type HouseholdPaymentProgressLoader = (input: {
+  householdId: string
+  kind: FinancePaymentKind
+  period: string
+}) => Promise<HouseholdPaymentProgress | null>
 
 export interface HouseholdAuditNotificationDetails {
   locale: SupportedLocale
@@ -39,26 +57,114 @@ export interface HouseholdAuditNotificationLogger {
 
 export const AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX = 'audit_notice:view:'
 
-function cleanSummaryText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim().slice(0, 240)
+export const PAYMENT_FULLY_PAID_EVENT = 'payment.fully_paid'
+
+// Events that move a month closer to being paid; each one may complete it.
+const PAYMENT_PROGRESS_EVENTS = new Set([
+  'payment.recorded',
+  'payment_period.closed',
+  'utility_plan.resolved',
+  'utility_plan.settled',
+  'utility_vendor_payment.recorded'
+])
+
+// The household reads these lines in a group chat, so the copy stays gender-neutral and
+// impersonal ("аренда оплачена", never "оплатил"), and the subject comes first.
+const copy = {
+  ru: {
+    someone: 'Кто-то',
+    rent: 'аренда',
+    utilities: 'коммуналка',
+    rentGenitive: 'аренды',
+    utilitiesGenitive: 'коммуналки',
+    of: 'из',
+    paidFor: (kind: string, month: string | null) =>
+      `${kind}${month ? ` за ${month}` : ''} оплачена`,
+    paidForCapitalized: (kind: string, month: string | null) =>
+      `${capitalize(kind)}${month ? ` за ${month}` : ''} оплачена`,
+    paymentChanged: (kindGenitive: string | null) =>
+      kindGenitive ? `оплата ${kindGenitive} изменена` : 'оплата изменена',
+    paymentRemoved: (kindGenitive: string | null) =>
+      kindGenitive ? `оплата ${kindGenitive} удалена` : 'оплата удалена',
+    purchaseFallback: 'общая покупка',
+    purchaseChanged: 'покупка изменена',
+    purchaseRemoved: 'покупка удалена',
+    billAdded: 'новый счёт',
+    billChanged: 'счёт изменён',
+    billRemoved: 'счёт удалён',
+    billPaid: 'счёт оплачен',
+    billPaymentRemoved: 'оплата счёта удалена',
+    rentNow: (amount: string, fromMonth: string | null) =>
+      `аренда теперь ${amount}${fromMonth ? ` с ${fromMonth}` : ''}`,
+    monthOpened: (month: string) => `открыт месяц — ${month}`,
+    monthClosed: (month: string) => `месяц закрыт — ${month}`,
+    viaAssistant: (actor: string, summary: string) =>
+      `${actor} через ассистента: ${summary} — готово`,
+    rentFullyPaid: (month: string, members: number | null, amount: string, nextMonth: string) =>
+      `Аренда за ${month} закрыта! ${members ? `Все ${members} оплатили` : 'Все оплатили'}, ${amount} — можно выдыхать до ${nextMonth}`,
+    utilitiesFullyPaid: (month: string) =>
+      `Коммуналка за ${month} закрыта! Свет горит, вода течёт — все оплатили`,
+    detailShares: 'Доли',
+    detailExcluded: 'Не участвуют',
+    detailCustomSplit: 'Суммы указаны вручную',
+    detailAlreadyPaid: 'Уже было оплачено',
+    detailSkipped: 'Пропущены',
+    detailBills: 'Счета',
+    detailsButton: 'Подробнее',
+    hideButton: 'Свернуть'
+  },
+  en: {
+    someone: 'Someone',
+    rent: 'rent',
+    utilities: 'utilities',
+    rentGenitive: 'rent',
+    utilitiesGenitive: 'utilities',
+    of: 'of',
+    paidFor: (kind: string, month: string | null) => `${kind}${month ? ` for ${month}` : ''} paid`,
+    paidForCapitalized: (kind: string, month: string | null) =>
+      `${capitalize(kind)}${month ? ` for ${month}` : ''} paid`,
+    paymentChanged: (kind: string | null) => (kind ? `${kind} payment changed` : 'payment changed'),
+    paymentRemoved: (kind: string | null) => (kind ? `${kind} payment removed` : 'payment removed'),
+    purchaseFallback: 'shared purchase',
+    purchaseChanged: 'purchase edited',
+    purchaseRemoved: 'purchase removed',
+    billAdded: 'new bill',
+    billChanged: 'bill edited',
+    billRemoved: 'bill removed',
+    billPaid: 'bill paid',
+    billPaymentRemoved: 'bill payment removed',
+    rentNow: (amount: string, fromMonth: string | null) =>
+      `rent is now ${amount}${fromMonth ? ` from ${fromMonth}` : ''}`,
+    monthOpened: (month: string) => `opened ${month}`,
+    monthClosed: (month: string) => `closed ${month}`,
+    viaAssistant: (actor: string, summary: string) =>
+      `${actor} via the assistant: ${summary} — done`,
+    rentFullyPaid: (month: string, members: number | null, amount: string, nextMonth: string) =>
+      `${month} rent is done! ${members ? `All ${members} paid` : 'Everyone paid'}, ${amount} — breathe easy until ${nextMonth}`,
+    utilitiesFullyPaid: (month: string) =>
+      `${month} utilities are done! Lights on, water running — everyone paid`,
+    detailShares: 'Shares',
+    detailExcluded: 'Not included',
+    detailCustomSplit: 'Custom amounts',
+    detailAlreadyPaid: 'Already paid',
+    detailSkipped: 'Skipped',
+    detailBills: 'Bills',
+    detailsButton: 'More',
+    hideButton: 'Less'
+  }
+} as const
+
+type Copy = (typeof copy)[SupportedLocale]
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-export function formatAuditNotificationSummary(input: {
-  actorDisplayName: string
-  actionText: string
-  objectText?: string | null
-  amountText?: string | null
-  period?: string | null
-}): string {
-  const parts = [
-    input.actorDisplayName.trim() || 'Someone',
-    input.actionText.trim(),
-    input.objectText?.trim() || null,
-    input.amountText?.trim() || null,
-    input.period?.trim() ? `(${input.period.trim()})` : null
-  ].filter((part): part is string => Boolean(part))
-
-  return cleanSummaryText(parts.join(' '))
+function cleanText(value: string): string {
+  return value
+    .replace(/[ \t]+/g, ' ')
+    .trim()
+    .slice(0, 400)
 }
 
 function metadataString(metadata: Record<string, unknown>, key: string): string | null {
@@ -66,461 +172,325 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-function formatPeriodLabel(locale: SupportedLocale, value: string | null): string | null {
-  if (!value) {
-    return null
-  }
-
-  const match = /^(\d{4})-(\d{2})$/.exec(value)
-  if (!match) {
-    return value
-  }
-
-  const year = Number(match[1])
-  const month = Number(match[2])
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    return value
-  }
-
-  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC'
-  }).format(new Date(Date.UTC(year, month - 1, 1)))
-}
-
-function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | null {
-  const value = metadata[key]
-  return typeof value === 'boolean' ? value : null
-}
-
-function formatMoneyFromMetadata(metadata: Record<string, unknown>): string | null {
-  const amountText = metadataString(metadata, 'amountText')
-  if (amountText) {
-    return amountText
-  }
-
-  const amountMajorRaw = metadataString(metadata, 'amountMajor')
-  const amountMajorCurrency = metadataString(metadata, 'currency')
-  if (amountMajorRaw && (amountMajorCurrency === 'USD' || amountMajorCurrency === 'GEL')) {
-    if (amountMajorCurrency === 'USD') {
-      return `$${amountMajorRaw}`
-    }
-    return `${amountMajorRaw} ₾`
-  }
-
-  const amountMinorRaw = metadataString(metadata, 'amountMinor')
-  const currency = metadataString(metadata, 'currency')
-  if (!amountMinorRaw || (currency !== 'USD' && currency !== 'GEL')) {
-    return null
-  }
-
-  let amount: string
-  try {
-    amount = Money.fromMinor(BigInt(amountMinorRaw), currency as CurrencyCode).toMajorString()
-  } catch {
-    return null
-  }
-  if (currency === 'USD') {
-    return `$${amount}`
-  }
-  if (currency === 'GEL') {
-    return `${amount} ₾`
-  }
-  return `${amount} ${currency}`
-}
-
-function formatMoneyFromRecord(record: Record<string, unknown>): string | null {
-  return formatMoneyFromMetadata(record)
-}
-
-function localizedKind(locale: SupportedLocale, value: string | null): string | null {
-  if (!value) {
-    return null
-  }
-  if (locale === 'ru') {
-    if (value === 'rent') return 'аренда'
-    if (value === 'utilities') return 'коммуналка'
-  }
-  return value
-}
-
-function localizedClosedPaymentKind(locale: SupportedLocale, value: string | null): string | null {
-  if (locale === 'ru') {
-    if (value === 'rent') return 'аренды'
-    if (value === 'utilities') return 'коммуналки'
-  }
-  return localizedKind(locale, value)
-}
-
-// A leading glyph per event type. Plain text on purpose: this layer stays free of
-// Telegram markup, so the same string works on any delivery surface.
-function eventEmoji(eventType: string): string | null {
-  const byType: Record<string, string> = {
-    'cycle.opened': '📅',
-    'cycle.closed': '📦',
-    'rent.updated': '🏠',
-    'utility_bill.added': '💡',
-    'utility_bill.updated': '💡',
-    'utility_bill.deleted': '🗑',
-    'purchase.added': '🛒',
-    'purchase.updated': '✏️',
-    'purchase.confirmed': '🧾',
-    'purchase.deleted': '🗑',
-    'payment.recorded': '✅',
-    'payment.updated': '✏️',
-    'payment.deleted': '🗑',
-    'payment_period.closed': '✅',
-    'utility_plan.resolved': '✅',
-    'utility_plan.settled': '✅',
-    'utility_vendor_payment.recorded': '🏦'
-  }
-  return byType[eventType] ?? null
-}
-
-function actionText(locale: SupportedLocale, eventType: string): string | null {
-  const en: Record<string, string> = {
-    'cycle.opened': 'opened period',
-    'cycle.closed': 'closed period',
-    'rent.updated': 'updated rent:',
-    'utility_bill.added': 'added utility bill:',
-    'utility_bill.updated': 'updated utility bill:',
-    'utility_bill.deleted': 'deleted utility bill',
-    'purchase.added': 'added purchase:',
-    'purchase.updated': 'updated purchase:',
-    'purchase.confirmed': 'confirmed purchase:',
-    'purchase.deleted': 'deleted purchase',
-    'payment.recorded': 'recorded payment:',
-    'payment.updated': 'updated payment:',
-    'payment.deleted': 'deleted payment',
-    'payment_period.closed': 'marked payment as paid:',
-    'utility_plan.resolved': 'marked planned utilities paid:',
-    'utility_plan.settled': 'settled planned utilities:',
-    'utility_vendor_payment.recorded': 'recorded utility bill payment'
-  }
-  const ru: Record<string, string> = {
-    'cycle.opened': 'открытие периода',
-    'cycle.closed': 'закрытие периода',
-    'rent.updated': 'аренда обновлена:',
-    'utility_bill.added': 'добавление коммунального счёта',
-    'utility_bill.updated': 'обновление коммунального счёта',
-    'utility_bill.deleted': 'удаление коммунального счёта',
-    'purchase.added': 'добавление покупки',
-    'purchase.updated': 'обновление покупки',
-    'purchase.confirmed': 'подтверждение покупки',
-    'purchase.deleted': 'удаление покупки',
-    'payment.recorded': 'запись платежа',
-    'payment.updated': 'обновление платежа',
-    'payment.deleted': 'удаление платежа',
-    'payment_period.closed': 'отметка оплаты',
-    'utility_plan.resolved': 'отметил коммуналку по плану:',
-    'utility_plan.settled': 'закрыл коммуналку по плану:',
-    'utility_vendor_payment.recorded': 'запись оплаты коммуналки'
-  }
-  return (locale === 'ru' ? ru : en)[eventType] ?? null
-}
-
-function utilityPlanAssignmentDetails(metadata: Record<string, unknown>): Array<{
-  memberId: string | null
-  displayName: string
-  billName: string
-  amountText: string | null
-}> {
-  const raw = metadata.resolvedAssignments
-  if (!Array.isArray(raw)) {
-    return []
-  }
-
-  return raw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null
-      }
-      const record = entry as Record<string, unknown>
-      const memberId = typeof record.memberId === 'string' ? record.memberId : null
-      const displayName =
-        typeof record.displayName === 'string' && record.displayName.trim().length > 0
-          ? record.displayName.trim()
-          : memberId
-            ? `#${memberId}`
-            : null
-      const billName =
-        typeof record.billName === 'string' && record.billName.trim().length > 0
-          ? record.billName.trim()
-          : null
-      if (!displayName || !billName) {
-        return null
-      }
-
-      return {
-        memberId,
-        displayName,
-        billName,
-        amountText: formatMoneyFromRecord(record)
-      }
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-}
-
-function utilityPlanResolutionDescription(
-  locale: SupportedLocale,
-  metadata: Record<string, unknown>
-): string | null {
-  const assignments = utilityPlanAssignmentDetails(metadata)
-  if (assignments.length === 0) {
-    const member = metadataString(metadata, 'memberDisplayName')
-    if (member) {
-      return member
-    }
-
-    return metadataBoolean(metadata, 'allMembers') === true
-      ? locale === 'ru'
-        ? 'все участники'
-        : 'all members'
-      : null
-  }
-
-  const memberNames = [...new Set(assignments.map((assignment) => assignment.displayName))]
-  const totalByCurrency = new Map<string, bigint>()
-  for (const entry of (metadata.resolvedAssignments as unknown[]).filter(
-    (item): item is Record<string, unknown> =>
-      Boolean(item) && typeof item === 'object' && !Array.isArray(item)
-  )) {
-    const currency = metadataString(entry, 'currency')
-    const amountMinorRaw = metadataString(entry, 'amountMinor')
-    if ((currency !== 'USD' && currency !== 'GEL') || !amountMinorRaw) {
-      continue
-    }
-
-    try {
-      totalByCurrency.set(currency, (totalByCurrency.get(currency) ?? 0n) + BigInt(amountMinorRaw))
-    } catch {
-      // Ignore malformed amounts in notification metadata.
-    }
-  }
-
-  if (memberNames.length === 1) {
-    const billSummary = assignments
-      .map((assignment) =>
-        assignment.amountText
-          ? `${assignment.billName} ${assignment.amountText}`
-          : assignment.billName
-      )
-      .join('; ')
-    return billSummary ? `${memberNames[0]} · ${billSummary}` : memberNames[0]!
-  }
-
-  const totalText =
-    totalByCurrency.size === 1
-      ? (() => {
-          const [currency, amountMinor] = [...totalByCurrency.entries()][0]!
-          return formatMoneyFromMetadata({
-            amountMinor: amountMinor.toString(),
-            currency
-          })
-        })()
-      : null
-  const memberCountText =
-    locale === 'ru'
-      ? `${memberNames.length} участн.`
-      : `${memberNames.length} ${memberNames.length === 1 ? 'member' : 'members'}`
-
-  return totalText ? `${memberCountText} · ${totalText}` : memberCountText
-}
-
-function participantDetails(metadata: Record<string, unknown>): Array<{
-  memberId: string | null
-  displayName: string
-  included: boolean
-  shareAmountText: string | null
-}> {
-  const raw = metadata.participants
-  if (!Array.isArray(raw)) {
-    return []
-  }
-
-  return raw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null
-      }
-      const record = entry as Record<string, unknown>
-      const memberId = typeof record.memberId === 'string' ? record.memberId : null
-      const displayName =
-        typeof record.displayName === 'string' && record.displayName.trim().length > 0
-          ? record.displayName.trim()
-          : memberId
-            ? `#${memberId}`
-            : null
-      if (!displayName) {
-        return null
-      }
-      return {
-        memberId,
-        displayName,
-        included: record.included !== false,
-        shareAmountText:
-          typeof record.shareAmountText === 'string' && record.shareAmountText.trim().length > 0
-            ? record.shareAmountText.trim()
-            : null
-      }
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-}
-
-function splitModeLabel(locale: SupportedLocale, splitMode: string | null): string | null {
-  if (!splitMode) {
-    return null
-  }
-  if (splitMode === 'custom_amounts') {
-    return locale === 'ru' ? 'индивидуальные суммы' : 'custom amounts'
-  }
-  if (splitMode === 'equal') {
-    return locale === 'ru' ? 'поровну' : 'equal'
-  }
-  return splitMode
-}
-
-function paymentMemberDetails(
+function metadataRecords(
   metadata: Record<string, unknown>,
-  key: 'closedMembers' | 'skippedMembers'
-): Array<{
-  displayName: string
-  amountText: string | null
-  reason: string | null
-}> {
+  key: string
+): Record<string, unknown>[] {
   const raw = metadata[key]
-  if (!Array.isArray(raw)) {
-    return []
-  }
-
-  return raw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null
-      }
-      const record = entry as Record<string, unknown>
-      const memberId = typeof record.memberId === 'string' ? record.memberId : null
-      const displayName =
-        typeof record.displayName === 'string' && record.displayName.trim().length > 0
-          ? record.displayName.trim()
-          : memberId
-            ? `#${memberId}`
-            : null
-      if (!displayName) {
-        return null
-      }
-
-      return {
-        displayName,
-        amountText: formatMoneyFromMetadata(record),
-        reason: typeof record.reason === 'string' ? record.reason : null
-      }
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+  return Array.isArray(raw)
+    ? raw.filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry)
+      )
+    : []
 }
 
-function buildExpandedText(input: {
+function minorAmountOf(record: Record<string, unknown>): bigint | null {
+  const minor = metadataString(record, 'amountMinor')
+  if (minor) {
+    try {
+      return BigInt(minor)
+    } catch {
+      return null
+    }
+  }
+  const major = metadataString(record, 'amountMajor')
+  return major ? parseMajorToMinor(major) : null
+}
+
+function moneyOf(locale: SupportedLocale, record: Record<string, unknown>): string | null {
+  const currency = metadataString(record, 'currency')
+  const minor = minorAmountOf(record)
+  if (currency && minor !== null) {
+    return formatMoneyDisplay(minor, currency, locale)
+  }
+  return metadataString(record, 'amountText')
+}
+
+function sumMoney(locale: SupportedLocale, records: readonly Record<string, unknown>[]) {
+  const currencies = new Set(records.map((record) => metadataString(record, 'currency')))
+  if (records.length === 0 || currencies.size !== 1) {
+    return null
+  }
+  let total = 0n
+  for (const record of records) {
+    const minor = minorAmountOf(record)
+    if (minor === null) {
+      return null
+    }
+    total += minor
+  }
+  return formatMoneyDisplay(total, [...currencies][0]!, locale)
+}
+
+function nameOf(record: Record<string, unknown>): string | null {
+  return metadataString(record, 'displayName')
+}
+
+function paymentKindOf(eventType: string, metadata: Record<string, unknown>) {
+  const kind = metadataString(metadata, 'kind')
+  if (kind === 'rent' || kind === 'utilities') {
+    return kind
+  }
+  return eventType.startsWith('utility_') ? 'utilities' : null
+}
+
+function kindWord(t: Copy, kind: FinancePaymentKind | null): string | null {
+  return kind === 'rent' ? t.rent : kind === 'utilities' ? t.utilities : null
+}
+
+function kindGenitive(t: Copy, kind: FinancePaymentKind | null): string | null {
+  return kind === 'rent' ? t.rentGenitive : kind === 'utilities' ? t.utilitiesGenitive : null
+}
+
+function joinParts(parts: readonly (string | null | undefined | false)[]): string {
+  return parts.filter((part): part is string => Boolean(part)).join(' · ')
+}
+
+function progressText(t: Copy, progress: HouseholdPaymentProgress | null): string | null {
+  return progress?.paidMembers !== null &&
+    progress?.paidMembers !== undefined &&
+    progress.totalMembers
+    ? `${progress.paidMembers} ${t.of} ${progress.totalMembers}`
+    : null
+}
+
+function eventEmoji(eventType: string, kind: FinancePaymentKind | null): string | null {
+  if (eventType === PAYMENT_FULLY_PAID_EVENT) return '🎉'
+  if (eventType.startsWith('agent.')) return '🤖'
+  if (eventType.endsWith('.updated') && eventType !== 'rent.updated') return '✏️'
+  if (eventType.endsWith('.deleted')) return '🗑'
+  if (eventType === 'cycle.opened') return '📅'
+  if (eventType === 'cycle.closed') return '📦'
+  if (eventType.startsWith('purchase.')) return '🛒'
+  if (eventType === 'rent.updated' || kind === 'rent') return '🏠'
+  if (kind === 'utilities' || eventType.startsWith('utility_')) return '💡'
+  return null
+}
+
+interface RenderContext {
   locale: SupportedLocale
-  compactText: string
+  t: Copy
+  actor: string
+  eventType: string
   metadata: Record<string, unknown>
-}): string | null {
-  const lines: string[] = [input.compactText]
-  let hasMeaningfulDetail = false
-  const amountText = formatMoneyFromMetadata(input.metadata)
-  const period = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
-  const payer = metadataString(input.metadata, 'payerDisplayName')
-  const member = metadataString(input.metadata, 'memberDisplayName')
-  const kind = localizedKind(input.locale, metadataString(input.metadata, 'kind'))
-  const splitMode = splitModeLabel(input.locale, metadataString(input.metadata, 'splitMode'))
-  const participants = participantDetails(input.metadata)
-  const included = participants.filter((participant) => participant.included)
-  const excluded = participants.filter((participant) => !participant.included)
-  const closedMembers = paymentMemberDetails(input.metadata, 'closedMembers')
-  const skippedMembers = paymentMemberDetails(input.metadata, 'skippedMembers')
-  const utilityAssignments = utilityPlanAssignmentDetails(input.metadata)
+  kind: FinancePaymentKind | null
+  month: string | null
+  progress: HouseholdPaymentProgress | null
+}
 
-  // Amount, period and kind are already carried by the compact line, so they
-  // enrich the expanded view but never justify a "Details" button on their own.
-  if (amountText) {
-    lines.push(`${input.locale === 'ru' ? 'Сумма' : 'Amount'}: ${amountText}`)
-  }
-  if (period) {
-    lines.push(`${input.locale === 'ru' ? 'Период' : 'Period'}: ${period}`)
-  }
-  if (kind) {
-    lines.push(`${input.locale === 'ru' ? 'Тип' : 'Kind'}: ${kind}`)
-  }
-  if (payer) {
-    lines.push(`${input.locale === 'ru' ? 'Плательщик' : 'Payer'}: ${payer}`)
-    hasMeaningfulDetail = true
-  }
-  if (member) {
-    lines.push(`${input.locale === 'ru' ? 'Участник' : 'Member'}: ${member}`)
-    hasMeaningfulDetail = true
-  }
-  if (splitMode) {
-    lines.push(`${input.locale === 'ru' ? 'Разделение' : 'Split'}: ${splitMode}`)
-    hasMeaningfulDetail = true
-  }
-  if (included.length > 0) {
-    lines.push(
-      `${input.locale === 'ru' ? 'Участники' : 'Participants'}: ${included
-        .map((participant) =>
-          participant.shareAmountText
-            ? `${participant.displayName} ${participant.shareAmountText}`
-            : participant.displayName
-        )
-        .join(', ')}`
-    )
-    hasMeaningfulDetail = true
-  }
-  if (excluded.length > 0) {
-    lines.push(
-      `${input.locale === 'ru' ? 'Исключены' : 'Excluded'}: ${excluded
-        .map((participant) => participant.displayName)
-        .join(', ')}`
-    )
-    hasMeaningfulDetail = true
-  }
-  if (metadataBoolean(input.metadata, 'allMembers') === true) {
-    lines.push(input.locale === 'ru' ? 'Для всех участников' : 'For all members')
-    hasMeaningfulDetail = true
-  }
-  if (utilityAssignments.length > 0) {
-    lines.push(
-      `${input.locale === 'ru' ? 'Счета' : 'Bills'}: ${utilityAssignments
-        .map((assignment) =>
-          assignment.amountText
-            ? `${assignment.displayName} · ${assignment.billName} ${assignment.amountText}`
-            : `${assignment.displayName} · ${assignment.billName}`
-        )
-        .join('; ')}`
-    )
-    hasMeaningfulDetail = true
-  }
-  if (closedMembers.length > 0) {
-    lines.push(
-      `${input.locale === 'ru' ? 'Оплата отмечена для' : 'Marked paid for'}: ${closedMembers
-        .map((member) =>
-          member.amountText ? `${member.displayName} ${member.amountText}` : member.displayName
-        )
-        .join(', ')}`
-    )
-    hasMeaningfulDetail = true
-  }
-  if (skippedMembers.length > 0) {
-    lines.push(
-      `${input.locale === 'ru' ? 'Пропущены' : 'Skipped'}: ${skippedMembers
-        .map((member) =>
-          member.reason ? `${member.displayName} (${member.reason})` : member.displayName
-        )
-        .join(', ')}`
-    )
-    hasMeaningfulDetail = true
+// "Ион: аренда за октябрь оплачена · 455 ₾ · 3 из 4", with "✍️ Стас" when someone
+// else pressed the button.
+function renderPaymentLine(context: RenderContext): string {
+  const { t, actor, metadata, kind, month, locale } = context
+  const word = kindWord(t, kind) ?? t.rent
+  const closed = metadataRecords(metadata, 'closedMembers')
+  const namedMember = metadataString(metadata, 'memberDisplayName')
+  const targets =
+    closed.length > 0
+      ? closed.map((member) => ({
+          name: nameOf(member) ?? t.someone,
+          amount: moneyOf(locale, member)
+        }))
+      : [{ name: namedMember ?? actor, amount: moneyOf(locale, metadata) }]
+  const progress = progressText(t, context.progress)
+
+  if (targets.length === 1) {
+    const target = targets[0]!
+    return joinParts([
+      `${target.name}: ${t.paidFor(word, month)}`,
+      target.amount,
+      progress,
+      target.name !== actor ? `✍️ ${actor}` : null
+    ])
   }
 
-  return hasMeaningfulDetail ? lines.join('\n') : null
+  return joinParts([
+    `${t.paidForCapitalized(word, month)}: ${targets.map((target) => target.name).join(', ')}`,
+    sumMoney(locale, closed),
+    progress,
+    `✍️ ${actor}`
+  ])
+}
+
+function renderUtilityPlanLine(context: RenderContext): string {
+  const { t, actor, metadata, month, locale } = context
+  const assignments = metadataRecords(metadata, 'resolvedAssignments')
+  const members = [
+    ...new Set(assignments.map((assignment) => nameOf(assignment)).filter(Boolean))
+  ] as string[]
+  const single = members.length === 1 ? members[0]! : null
+  const subject =
+    single ?? metadataString(metadata, 'memberDisplayName') ?? (members.length === 0 ? actor : null)
+
+  if (subject) {
+    const bills = assignments
+      .map((assignment) =>
+        [metadataString(assignment, 'billName'), moneyOf(locale, assignment)]
+          .filter(Boolean)
+          .join(' ')
+      )
+      .filter(Boolean)
+      .join(', ')
+    return joinParts([
+      `${subject}: ${t.paidFor(t.utilities, month)}`,
+      bills || null,
+      subject !== actor ? `✍️ ${actor}` : null
+    ])
+  }
+
+  return joinParts([
+    `${t.paidForCapitalized(t.utilities, month)}: ${members.join(', ')}`,
+    sumMoney(locale, assignments),
+    `✍️ ${actor}`
+  ])
+}
+
+function renderFullyPaidLine(context: RenderContext): string {
+  const { t, metadata, kind, locale } = context
+  const period = metadataString(metadata, 'period') ?? ''
+  const month = formatMonthDisplay(period, locale)
+  if (kind === 'utilities') {
+    return t.utilitiesFullyPaid(month)
+  }
+  const members = metadata.totalMembers
+  return t.rentFullyPaid(
+    month,
+    typeof members === 'number' && members > 0 ? members : null,
+    moneyOf(locale, metadata) ?? '',
+    formatMonthDisplay(nextPeriod(period), locale, 'genitive')
+  )
+}
+
+function renderLine(context: RenderContext, fallback: string): string {
+  const { t, actor, eventType, metadata, kind, month, locale } = context
+  const money = moneyOf(locale, metadata)
+  const description = metadataString(metadata, 'description')
+  const billName = metadataString(metadata, 'billName')
+
+  switch (eventType) {
+    case PAYMENT_FULLY_PAID_EVENT:
+      return renderFullyPaidLine(context)
+    case 'payment.recorded':
+    case 'payment_period.closed':
+      return renderPaymentLine(context)
+    case 'utility_plan.resolved':
+    case 'utility_plan.settled':
+      return renderUtilityPlanLine(context)
+    case 'payment.updated':
+      return joinParts([
+        `${actor}: ${t.paymentChanged(kindGenitive(t, kind))}`,
+        metadataString(metadata, 'memberDisplayName'),
+        money
+      ])
+    case 'payment.deleted':
+      return joinParts([`${actor}: ${t.paymentRemoved(kindGenitive(t, kind))}`, money])
+    case 'purchase.added':
+    case 'purchase.created':
+    case 'purchase.confirmed': {
+      const payer = metadataString(metadata, 'payerDisplayName') ?? actor
+      return joinParts([
+        `${payer}: ${description ?? t.purchaseFallback}`,
+        money,
+        payer !== actor ? `✍️ ${actor}` : null
+      ])
+    }
+    case 'purchase.updated':
+      return joinParts([`${actor}: ${t.purchaseChanged}`, description, money])
+    case 'purchase.deleted':
+      return joinParts([`${actor}: ${t.purchaseRemoved}`, description, money])
+    case 'utility_bill.added':
+      return joinParts([`${actor}: ${t.billAdded}`, billName, money])
+    case 'utility_bill.updated':
+      return joinParts([`${actor}: ${t.billChanged}`, billName, money])
+    case 'utility_bill.deleted':
+      return joinParts([`${actor}: ${t.billRemoved}`, billName])
+    case 'utility_vendor_payment.recorded':
+      return joinParts([`${actor}: ${t.billPaid}`, billName, money])
+    case 'utility_vendor_payment.deleted':
+      return joinParts([`${actor}: ${t.billPaymentRemoved}`, billName])
+    case 'rent.updated': {
+      const period = metadataString(metadata, 'period')
+      return `${actor}: ${t.rentNow(
+        money ?? '',
+        period ? formatMonthDisplay(period, locale, 'genitive') : null
+      )}`
+    }
+    case 'cycle.opened':
+      return `${actor}: ${t.monthOpened(month ?? '')}`
+    case 'cycle.closed':
+      return `${actor}: ${t.monthClosed(month ?? '')}`
+  }
+
+  if (eventType.startsWith('agent.')) {
+    const summary = metadataString(metadata, 'summary')
+    return summary ? t.viaAssistant(actor, summary) : fallback
+  }
+
+  return fallback
+}
+
+function buildDetailLines(context: RenderContext): string[] {
+  const { t, metadata, locale, eventType } = context
+  const lines: string[] = []
+
+  if (eventType.startsWith('purchase.')) {
+    const participants = metadataRecords(metadata, 'participants')
+    const included = participants.filter((participant) => participant.included !== false)
+    const excluded = participants.filter((participant) => participant.included === false)
+    const customSplit = metadataString(metadata, 'splitMode') === 'custom_amounts'
+    const hasShares = included.some((participant) => metadataString(participant, 'shareAmountText'))
+    // An even split among everyone is what the household assumes; only say more otherwise.
+    if (!customSplit && !hasShares && excluded.length === 0) {
+      return lines
+    }
+    if (customSplit) {
+      lines.push(t.detailCustomSplit)
+    }
+    if (included.length > 0) {
+      lines.push(
+        `${t.detailShares}: ${included
+          .map((participant) =>
+            [nameOf(participant), metadataString(participant, 'shareAmountText')]
+              .filter(Boolean)
+              .join(' ')
+          )
+          .join(', ')}`
+      )
+    }
+    if (excluded.length > 0) {
+      lines.push(
+        `${t.detailExcluded}: ${excluded
+          .map((participant) => nameOf(participant))
+          .filter(Boolean)
+          .join(', ')}`
+      )
+    }
+  }
+
+  const skipped = metadataRecords(metadata, 'skippedMembers')
+  const alreadyPaid = skipped.filter((member) => member.reason === 'already_settled')
+  const otherSkipped = skipped.filter((member) => member.reason !== 'already_settled')
+  if (alreadyPaid.length > 0) {
+    lines.push(`${t.detailAlreadyPaid}: ${alreadyPaid.map(nameOf).filter(Boolean).join(', ')}`)
+  }
+  if (otherSkipped.length > 0) {
+    lines.push(`${t.detailSkipped}: ${otherSkipped.map(nameOf).filter(Boolean).join(', ')}`)
+  }
+
+  const assignments = metadataRecords(metadata, 'resolvedAssignments')
+  const assignedMembers = new Set(assignments.map(nameOf))
+  if (assignedMembers.size > 1) {
+    lines.push(
+      `${t.detailBills}:`,
+      ...assignments.map(
+        (assignment) =>
+          `• ${joinParts([nameOf(assignment), metadataString(assignment, 'billName'), moneyOf(locale, assignment)])}`
+      )
+    )
+  }
+
+  return lines
 }
 
 export function renderAuditNotification(input: {
@@ -529,117 +499,37 @@ export function renderAuditNotification(input: {
   eventType: string
   metadata: Record<string, unknown>
   fallbackSummaryText: string
+  progress?: HouseholdPaymentProgress | null
 }): {
   compactText: string
   details: HouseholdAuditNotificationDetails | null
 } {
-  // Milestone: every planned utility share is paid. Actor-less, celebratory.
-  if (input.eventType === 'utility_plan.fully_paid') {
-    const periodLabel = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
-    const compactText =
-      input.locale === 'ru'
-        ? `🎉 Коммуналка${periodLabel ? ` за ${periodLabel}` : ''} закрыта — все платежи внесены!`
-        : `🎉 Utilities${periodLabel ? ` for ${periodLabel}` : ''} are fully settled — everyone has paid!`
-    return {
-      compactText,
-      details: null
-    }
-  }
-
-  const actor = input.actorDisplayName.trim() || (input.locale === 'ru' ? 'Кто-то' : 'Someone')
-  const actorPrefix = input.locale === 'ru' ? `${actor}:` : actor
-  const action = actionText(input.locale, input.eventType)
-  const utilityPlanDescription =
-    input.eventType === 'utility_plan.resolved' || input.eventType === 'utility_plan.settled'
-      ? utilityPlanResolutionDescription(input.locale, input.metadata)
-      : null
-  const description =
-    utilityPlanDescription ??
-    metadataString(input.metadata, 'description') ??
-    metadataString(input.metadata, 'billName') ??
-    (input.eventType === 'purchase.confirmed'
-      ? input.locale === 'ru'
-        ? 'общая покупка'
-        : 'shared purchase'
-      : null)
-  const period = formatPeriodLabel(input.locale, metadataString(input.metadata, 'period'))
-  const amount = formatMoneyFromMetadata(input.metadata)
-  const isPaymentMark =
-    input.eventType === 'payment_period.closed' || input.eventType === 'payment.recorded'
-  const memberTargets = isPaymentMark ? paymentMemberDetails(input.metadata, 'closedMembers') : []
-  const namedMember =
-    input.eventType === 'payment.recorded'
-      ? metadataString(input.metadata, 'memberDisplayName')
-      : null
-  const paymentTargets =
-    memberTargets.length > 0
-      ? memberTargets
-          .map((member) =>
-            member.amountText ? `${member.displayName} ${member.amountText}` : member.displayName
-          )
-          .join(', ')
-      : namedMember
-        ? [namedMember, amount].filter(Boolean).join(' ')
-        : ''
-  const showPaymentTargets = input.eventType === 'payment_period.closed' || Boolean(paymentTargets)
-  const kind = showPaymentTargets
-    ? localizedClosedPaymentKind(input.locale, metadataString(input.metadata, 'kind'))
-    : localizedKind(input.locale, metadataString(input.metadata, 'kind'))
-
-  const compactText =
-    action && showPaymentTargets
-      ? cleanSummaryText(
-          [
-            actorPrefix,
-            action,
-            kind,
-            metadataString(input.metadata, 'billName'),
-            period ? `${input.locale === 'ru' ? 'за' : 'for'} ${period}` : null,
-            paymentTargets ? `— ${paymentTargets}` : null
-          ]
-            .filter((part): part is string => Boolean(part))
-            .join(' ')
-        )
-      : action
-        ? cleanSummaryText(
-            [
-              actorPrefix,
-              action,
-              description,
-              input.eventType.startsWith('payment.') || input.eventType === 'payment_period.closed'
-                ? kind
-                : null,
-              amount,
-              input.eventType === 'utility_plan.resolved' ||
-              input.eventType === 'utility_plan.settled' ||
-              input.eventType === 'cycle.opened' ||
-              input.eventType === 'cycle.closed' ||
-              input.eventType === 'payment_period.closed'
-                ? period
-                : period
-                  ? `(${period})`
-                  : null
-            ]
-              .filter((part): part is string => Boolean(part))
-              .join(' ')
-          )
-        : cleanSummaryText(input.fallbackSummaryText)
-  const emoji = eventEmoji(input.eventType)
-  const decoratedCompactText = emoji ? `${emoji} ${compactText}` : compactText
-  const expandedText = buildExpandedText({
+  const t = copy[input.locale]
+  const kind = paymentKindOf(input.eventType, input.metadata)
+  const period = metadataString(input.metadata, 'period')
+  const context: RenderContext = {
     locale: input.locale,
-    compactText: decoratedCompactText,
-    metadata: input.metadata
-  })
+    t,
+    actor: input.actorDisplayName.trim() || t.someone,
+    eventType: input.eventType,
+    metadata: input.metadata,
+    kind,
+    month: period ? formatMonthDisplay(period, input.locale) : null,
+    progress: input.progress ?? null
+  }
+  const line = cleanText(renderLine(context, input.fallbackSummaryText))
+  const emoji = eventEmoji(input.eventType, kind)
+  const compactText = emoji && !line.startsWith(emoji) ? `${emoji} ${line}` : line
+  const detailLines = buildDetailLines(context)
 
   return {
-    compactText: decoratedCompactText,
+    compactText,
     details:
-      expandedText && expandedText !== decoratedCompactText
+      detailLines.length > 0
         ? {
             locale: input.locale,
-            compactText: decoratedCompactText,
-            expandedText
+            compactText,
+            expandedText: [compactText, '', ...detailLines].join('\n')
           }
         : null
   }
@@ -673,21 +563,14 @@ export function buildAuditNotificationViewReplyMarkup(input: {
 }): {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>
 } {
+  const t = copy[input.locale]
   const nextViewMode = input.viewMode === 'compact' ? 'expanded' : 'compact'
-  const text =
-    input.viewMode === 'compact'
-      ? input.locale === 'ru'
-        ? 'Детали'
-        : 'Details'
-      : input.locale === 'ru'
-        ? 'Скрыть'
-        : 'Hide'
 
   return {
     inline_keyboard: [
       [
         {
-          text,
+          text: input.viewMode === 'compact' ? t.detailsButton : t.hideButton,
           callback_data: `${AUDIT_NOTIFICATION_VIEW_CALLBACK_PREFIX}${input.eventId}:${nextViewMode}`
         }
       ]
@@ -725,6 +608,11 @@ export function createHouseholdAuditNotificationService(input: {
     parseMode?: 'HTML'
     replyMarkup?: unknown
   }) => Promise<HouseholdAuditNotificationSendResult | void>
+  /**
+   * Reads where a payment kind stands after a payment event. With it, rent lines carry
+   * "3 из 4" and the month's "fully paid" milestone is announced exactly once.
+   */
+  paymentProgress?: HouseholdPaymentProgressLoader
   onDelivered?: (input: {
     event: HouseholdAuditEventRecord
     chatId: string
@@ -741,13 +629,50 @@ export function createHouseholdAuditNotificationService(input: {
     })
   }
 
-  return {
+  async function loadProgress(eventInput: {
+    householdId: string
+    eventType: string
+    metadata: Record<string, unknown>
+  }): Promise<HouseholdPaymentProgress | null> {
+    const kind = paymentKindOf(eventInput.eventType, eventInput.metadata)
+    const period = metadataString(eventInput.metadata, 'period')
+    if (!input.paymentProgress || !kind || !period) {
+      return null
+    }
+    if (!PAYMENT_PROGRESS_EVENTS.has(eventInput.eventType)) {
+      return null
+    }
+    try {
+      return await input.paymentProgress({ householdId: eventInput.householdId, kind, period })
+    } catch (error) {
+      input.logger?.warn(
+        {
+          event: 'household.audit_notification.payment_progress_failed',
+          householdId: eventInput.householdId,
+          kind,
+          period,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        'Failed to load payment progress for audit notification'
+      )
+      return null
+    }
+  }
+
+  const service: HouseholdAuditNotificationService = {
     async recordEvent(eventInput) {
       const chatForLocale = await input.householdConfigurationRepository
         .getHouseholdChatByHouseholdId(eventInput.householdId)
         .catch(() => null)
       const locale = chatForLocale?.defaultLocale ?? 'en'
       const baseMetadata = eventInput.metadata ?? {}
+      const progress = eventInput.preserveSummaryText
+        ? null
+        : await loadProgress({
+            householdId: eventInput.householdId,
+            eventType: eventInput.eventType,
+            metadata: baseMetadata
+          })
       const rendered = eventInput.preserveSummaryText
         ? {
             compactText: eventInput.summaryText,
@@ -758,7 +683,8 @@ export function createHouseholdAuditNotificationService(input: {
             actorDisplayName: eventInput.actorDisplayName,
             eventType: eventInput.eventType,
             metadata: baseMetadata,
-            fallbackSummaryText: eventInput.summaryText
+            fallbackSummaryText: eventInput.summaryText,
+            progress
           })
       const metadata = rendered.details
         ? {
@@ -774,8 +700,12 @@ export function createHouseholdAuditNotificationService(input: {
         category: eventInput.category,
         summaryText: rendered.compactText,
         metadata,
+        dedupeKey: eventInput.dedupeKey ?? null,
         createdAt: nowInstant()
       })
+      if (!event) {
+        return null
+      }
 
       try {
         const settings = await input.repository.getNotificationSettings(event.householdId)
@@ -875,7 +805,28 @@ export function createHouseholdAuditNotificationService(input: {
         })
       }
 
+      // The milestone follows the payment line that completed the month, once per month.
+      if (progress?.fullyPaid) {
+        await service.recordEvent({
+          householdId: event.householdId,
+          actorDisplayName: 'System',
+          eventType: PAYMENT_FULLY_PAID_EVENT,
+          category: 'payment_events',
+          summaryText: `${progress.kind} for ${progress.period} is fully paid`,
+          metadata: {
+            kind: progress.kind,
+            period: progress.period,
+            amountMinor: progress.totalDueMinor.toString(),
+            currency: progress.currency,
+            totalMembers: progress.totalMembers
+          },
+          dedupeKey: `${PAYMENT_FULLY_PAID_EVENT}:${progress.kind}:${progress.period}`
+        })
+      }
+
       return event
     }
   }
+
+  return service
 }

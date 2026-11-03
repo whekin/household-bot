@@ -11,38 +11,32 @@ import type {
 import { createTelegramBot } from './bot'
 import { createFinanceCommandsService } from './finance-commands'
 import type { LivePaymentCardService } from './live-payment-cards'
-import { registerReminderTopicUtilities } from './reminder-topic-utilities'
 
-function householdStatusUpdate(languageCode: string) {
-  return {
-    update_id: 9100,
-    message: {
-      message_id: 10,
-      date: Math.floor(Date.now() / 1000),
-      chat: {
-        id: -100123456,
-        type: 'supergroup',
-        title: 'Kojori'
-      },
-      from: {
-        id: 123456,
-        is_bot: false,
-        first_name: 'Stan',
-        language_code: languageCode
-      },
-      text: '/household_status',
-      entities: [
-        {
-          offset: 0,
-          length: 17,
-          type: 'bot_command'
-        }
-      ]
-    }
+type SentMessagePayload = {
+  text?: string
+  parse_mode?: string
+  reply_markup?: {
+    inline_keyboard?: Array<
+      Array<{
+        text: string
+        callback_data?: string
+        url?: string
+        web_app?: { url: string }
+        copy_text?: { text: string }
+      }>
+    >
   }
 }
 
-function privateHouseholdStatusUpdate(text: string, languageCode: string) {
+/** The first message the bot sent or edited, skipping callback acknowledgements. */
+function firstMessagePayload(
+  calls: ReadonlyArray<{ method: string; payload: unknown }>
+): SentMessagePayload | undefined {
+  return calls.find((call) => call.method === 'sendMessage' || call.method === 'editMessageText')
+    ?.payload as SentMessagePayload | undefined
+}
+
+function privateCommandUpdate(text: string, languageCode: string) {
   return {
     update_id: 9101,
     message: {
@@ -128,61 +122,6 @@ function billUpdate(text: string, languageCode: string) {
           type: 'bot_command'
         }
       ]
-    }
-  }
-}
-
-function topicCommandUpdate(text: string, languageCode: string) {
-  return {
-    update_id: 9300,
-    message: {
-      message_id: 12,
-      date: Math.floor(Date.now() / 1000),
-      message_thread_id: 555,
-      is_topic_message: true,
-      chat: {
-        id: -100123456,
-        type: 'supergroup',
-        title: 'Kojori'
-      },
-      from: {
-        id: 123456,
-        is_bot: false,
-        first_name: 'Stan',
-        language_code: languageCode
-      },
-      text,
-      entities: [
-        {
-          offset: 0,
-          length: text.split(' ')[0]?.length ?? text.length,
-          type: 'bot_command'
-        }
-      ]
-    }
-  }
-}
-
-function topicMessageUpdate(text: string, languageCode: string) {
-  return {
-    update_id: 9301,
-    message: {
-      message_id: 13,
-      date: Math.floor(Date.now() / 1000),
-      message_thread_id: 555,
-      is_topic_message: true,
-      chat: {
-        id: -100123456,
-        type: 'supergroup',
-        title: 'Kojori'
-      },
-      from: {
-        id: 123456,
-        is_bot: false,
-        first_name: 'Stan',
-        language_code: languageCode
-      },
-      text
     }
   }
 }
@@ -738,36 +677,32 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(householdStatusUpdate('ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:status', 'ru', 'supergroup') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
     const text = payload?.text ?? ''
-    expect(text).toContain('🏠 Kojori House · май 2026')
-    expect(text).toContain('💡 Сейчас: коммуналка · до 6 мая')
-    expect(text).toContain('🏡 Аренда: $700.00 (~1890.00 ₾)')
-    expect(text).toContain('💡 Коммуналка: 312.69 ₾ · до 6 мая · сейчас 312.69 ₾')
-    expect(text).toContain('📊 Итого осталось: 2195.62 ₾')
-    expect(text).toContain('🛒 Покупки → коммуналка')
-    expect(text).toContain('🧾 Последнее')
-    expect(text).toContain('Покупки:')
-    expect(text).toContain('• 2 мая · Стас: Не показывать как начисление · 407.50 ₾')
-    expect(text).toContain('Оплаты:')
-    expect(text).toContain('• 4 мая · Ион: коммуналка · 50.00 ₾')
-    expect(text).toContain('👥 Участники: 4 активн.')
-    expect(text).toContain('• Ион: 608.15 ₾')
-    expect(text).toContain('• Дима: 570.83 ₾')
-    expect(text).toContain('• Алиса: 568.84 ₾')
-    expect(text).toContain('• Стас: 447.80 ₾')
-    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
-      { text: 'Детали', callback_data: 'status:details:current' },
-      { text: 'Балансы', callback_data: 'status:balances:current' }
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('🏠 Kojori House · май')
+    expect(lines[1]).toBe('Осталось 2 195.62 ₾ · коммуналка до 6 мая')
+    expect(text).toContain('Аренда: $700 (~1 890 ₾)')
+    expect(text).toContain('Коммуналка: 312.69 ₾ · до 6 мая · осталось 312.69 ₾')
+    expect(text).toContain('Покупки идут в счёт коммуналки')
+    expect(text).toContain('\nПоследнее:\n')
+    expect(text).toContain('• Стас: Не показывать как начисление · 407.50 ₾ · 2 мая')
+    expect(text).toContain('• Ион: оплата коммуналки · 50 ₾ · 4 мая')
+    expect(text).toContain('\nУчастники:\n')
+    // Largest remaining balance first.
+    expect(text).toContain(
+      '• Ион — 608.15 ₾\n• Дима — 570.83 ₾\n• Алиса — 568.84 ₾\n• Стас — 447.80 ₾'
+    )
+    expect(text).not.toContain('2026')
+    expect(text).not.toContain('.00 ₾')
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        { text: 'Подробнее', callback_data: 'status:details:current' },
+        { text: 'Покупки', callback_data: 'status:balances:current' }
+      ],
+      [{ text: '‹ Меню', callback_data: 'home:menu' }]
     ])
     expect(text).not.toContain('Начисления')
     expect(text).not.toContain('Кто платит')
@@ -868,15 +803,15 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(householdStatusUpdate('ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:status', 'ru', 'supergroup') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('🏡 Сейчас: аренда · до 20 мая')
-    expect(text).toContain('🏡 Аренда: $700.00 (~1890.00 ₾) · до 20 мая · осталось 608.15 ₾')
-    expect(text).toContain('• Ион: 608.15 ₾')
-    expect(text).toContain('• Стас: 447.80 ₾')
-    expect(text).toContain('🛒 Покупки → аренда')
-    expect(text).toContain('💡 Коммуналка:')
+    const text = firstMessagePayload(calls)?.text ?? ''
+    expect(text.split('\n')[1]).toEndWith(' · аренда до 20 мая')
+    expect(text).toContain('\nАренда: $700 (~1 890 ₾) · до 20 мая · осталось 608.15 ₾\n')
+    expect(text).toContain('• Ион — 608.15 ₾')
+    expect(text).toContain('• Стас — 447.80 ₾')
+    expect(text).toContain('Покупки идут в счёт аренды')
+    expect(text).toContain('\nКоммуналка:')
   })
 
   test('omits recent activity when there are no recent purchases or payments', async () => {
@@ -941,10 +876,11 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(householdStatusUpdate('ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:status', 'ru', 'supergroup') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).not.toContain('🧾 Последнее')
+    const text = firstMessagePayload(calls)?.text ?? ''
+    expect(text).toContain('🏠 Kojori House · март')
+    expect(text).not.toContain('Последнее:')
   })
 
   test('renders private household status with read-only actions and mini app button', async () => {
@@ -1000,27 +936,23 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(privateHouseholdStatusUpdate('/household_status', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:status', 'ru', 'private') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          reply_markup?: {
-            inline_keyboard?: Array<
-              Array<{ text: string; callback_data?: string; web_app?: { url: string } }>
-            >
-          }
+    const payload = firstMessagePayload(calls)
+    expect(payload?.text?.split('\n')[0]).toBe('🏠 Kojori House · март')
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        { text: 'Подробнее', callback_data: 'status:details:current' },
+        { text: 'Покупки', callback_data: 'status:balances:current' }
+      ],
+      [
+        {
+          text: '📱 Приложение',
+          web_app: { url: 'https://app.example/mini?bot=household_test_bot' }
         }
-      | undefined
-    expect(payload?.text).toContain('🏠 Kojori House · март 2026')
-    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
-      { text: 'Детали', callback_data: 'status:details:current' },
-      { text: 'Балансы', callback_data: 'status:balances:current' }
+      ],
+      [{ text: '‹ Меню', callback_data: 'home:menu' }]
     ])
-    expect(payload?.reply_markup?.inline_keyboard?.[1]?.[0]).toEqual({
-      text: '📱 Открыть мини-приложение',
-      web_app: { url: 'https://app.example/mini?bot=household_test_bot' }
-    })
     expect(promptRepository.current()?.payload).toMatchObject({
       kind: 'status_action',
       householdId: 'household-1',
@@ -1073,7 +1005,7 @@ describe('createFinanceCommandsService', () => {
     const messagePayload = calls.find((call) => call.method === 'editMessageText')?.payload as
       | { text?: string }
       | undefined
-    expect(messagePayload?.text).toContain('🛒 <b>Покупки')
+    expect(messagePayload?.text).toContain('🛒 <b>Покупки за март</b>')
     expect(calls.some((call) => call.method === 'answerCallbackQuery')).toBe(true)
   })
 
@@ -1153,42 +1085,36 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(privateHouseholdStatusUpdate('/household_status 2026-05', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:status', 'ru', 'private') as never)
 
-    const chooserPayload = calls[0]?.payload as
-      | {
-          text?: string
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
-          }
-        }
-      | undefined
-    expect(chooserPayload?.text).toBe('Выберите дом для статуса:')
+    const chooserPayload = firstMessagePayload(calls)
+    expect(chooserPayload?.text).toBe('Какой дом показать?')
     expect(chooserPayload?.reply_markup?.inline_keyboard).toEqual([
       [{ text: 'Kojori House', callback_data: 'status:show:0' }],
       [{ text: 'City Flat', callback_data: 'status:show:1' }],
-      [{ text: '🏡 Меню', callback_data: 'home:menu' }]
+      [{ text: '‹ Меню', callback_data: 'home:menu' }]
     ])
     expect(promptRepository.current()?.payload).toMatchObject({
       kind: 'status_choose',
-      periodArg: '2026-05'
+      choices: [
+        { householdId: 'household-1', memberId: 'member-1' },
+        { householdId: 'household-2', memberId: 'member-2' }
+      ]
     })
 
+    const callsBeforeChoice = calls.length
     await bot.handleUpdate(callbackUpdate('status:show:1', 'ru', 'private') as never)
 
-    const editPayload = calls.find((call) => call.method === 'editMessageText')?.payload as
-      | { text?: string }
-      | undefined
-    expect(editPayload?.text).toContain('🏠 City Flat')
+    const statusPayload = firstMessagePayload(calls.slice(callsBeforeChoice))
+    expect(statusPayload?.text?.split('\n')[0]).toBe('🏠 City Flat · март')
     expect(promptRepository.current()?.payload).toMatchObject({
       kind: 'status_action',
       householdId: 'household-2',
-      memberId: 'member-2',
-      periodArg: '2026-05'
+      memberId: 'member-2'
     })
   })
 
-  test('status quick actions preserve the requested period', async () => {
+  test('status quick actions honour a period carried in the callback data', async () => {
     const repository = createRepository()
     const dashboardPeriods: Array<string | undefined> = []
     const billPlanPeriods: Array<string | undefined> = []
@@ -1264,17 +1190,10 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate({
-      ...householdStatusUpdate('ru'),
-      message: {
-        ...householdStatusUpdate('ru').message,
-        text: '/household_status 2026-05'
-      }
-    } as never)
     await bot.handleUpdate(callbackUpdate('status:details:2026-05', 'ru', 'supergroup') as never)
     await bot.handleUpdate(callbackUpdate('status:balances:2026-05', 'ru', 'supergroup') as never)
 
-    expect(dashboardPeriods).toEqual(['2026-05', '2026-05'])
+    expect(dashboardPeriods).toEqual(['2026-05'])
     expect(billPlanPeriods).toEqual(['2026-05'])
   })
 
@@ -1381,25 +1300,25 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/balance', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:balances', 'ru', 'supergroup') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    const payload = firstMessagePayload(calls)
+    const text = payload?.text ?? ''
     const lines = text.split('\n')
-    const stasIndex = lines.indexOf('👤 <b>Стас</b>')
-    const dimaIndex = lines.indexOf('👤 <b>Дима</b>')
-    expect(text).toContain('🛒 <b>Покупки · май 2026</b>')
+    const stasIndex = lines.indexOf('<b>Стас</b> · долг 15 ₾')
+    const dimaIndex = lines.indexOf('<b>Дима</b> · в плюсе 15 ₾')
+    expect(payload?.parse_mode).toBe('HTML')
+    expect(lines[0]).toBe('🛒 <b>Покупки за май</b>')
     expect(stasIndex).toBeGreaterThanOrEqual(0)
-    expect(lines[stasIndex + 1]).toBe('Покупки: остаток 15.00 ₾')
+    // Стас paid for nothing, so no purchase line sits under his name.
+    expect(lines[stasIndex + 1]).toBe('')
     expect(dimaIndex).toBeGreaterThanOrEqual(0)
-    expect(lines[dimaIndex + 1]).toBe('Покупки: в плюсе 15.00 ₾')
-    expect(text).not.toContain('👤 Стас ·')
-    expect(text).not.toContain('👤 Дима ·')
-    expect(text).not.toContain('По покупкам к доплате')
-    expect(text).not.toContain('По покупкам в плюсе')
-    expect(text).toContain('  • Корм: -30.00 ₾ 👥')
+    expect(lines[dimaIndex + 1]).toBe('• Корм · 30 ₾ · на всех')
+    expect(text.match(/Корм/g)?.length ?? 0).toBe(1)
+    expect(text).not.toContain('👥')
   })
 
-  test('renders English purchase balance wording through a command path', async () => {
+  test('renders English purchase balance wording from the home purchases button', async () => {
     const repository = createEnglishRepository()
     const financeService: FinanceCommandService = {
       ...createFinanceService(),
@@ -1442,13 +1361,15 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(privateHouseholdStatusUpdate('/balance', 'en') as never)
+    await bot.handleUpdate(callbackUpdate('home:balances', 'en', 'private') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('Purchases: credit 10.00 ₾')
-    expect(text).toContain('Purchases: remaining 10.00 ₾')
+    const text = firstMessagePayload(calls)?.text ?? ''
+    expect(text).toContain('🛒 <b>Purchases for March</b>')
+    expect(text).toContain('\n<b>Стас</b> · 10 ₾ in credit\n')
+    expect(text).toContain('\n<b>Ион</b> · 10 ₾ owed')
     expect(text).not.toContain('Purchase credit:')
     expect(text).not.toContain('Purchase due:')
+    expect(text).not.toMatch(/Покупки|в плюсе|долг/)
   })
 
   test('renders the utility bill plan and quick action button for assigned members', async () => {
@@ -1530,34 +1451,32 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill_full', 'ru', 'supergroup') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
+    const text = payload?.text ?? ''
 
-    expect(payload?.text).toContain('Коммуналка')
-    expect(payload?.text).toContain('👤 Стас')
-    expect(payload?.text).toContain('К оплате: 300.00 ₾')
-    expect(payload?.text).not.toContain('Gas: 300.00 ₾')
-    expect(payload?.text).toContain('Детали: /bill_full')
+    expect(text.split('\n')[0]).toBe('💡 Коммуналка за апрель, подробно · до 4 апреля')
+    expect(text).toContain('Осталось оплатить: 300 ₾')
+    expect(text).toContain('• Gas — 300 ₾')
+    expect(text).not.toContain('Gas: 300')
+    expect(text).not.toContain('/bill_full')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [{ text: '✅ Оплачено', callback_data: 'bill:resolve:current' }],
       [
-        {
-          text: 'Оплачено по плану',
-          callback_data: 'bill:resolve:current'
-        }
+        { text: 'Общий счёт', callback_data: 'bill:view:household' },
+        { text: 'Мой счёт', callback_data: 'bill:view:mine' }
       ]
     ])
     expect(promptRepository.current()?.action).toBe('bill_command')
+    expect(promptRepository.current()?.payload).toMatchObject({
+      kind: 'resolve',
+      householdId: 'household-1',
+      viewerMemberId: 'member-1'
+    })
   })
 
-  test('renders plain /my_bill as a personal finance summary with navigation buttons', async () => {
+  test('renders the home my bill button as a personal summary with navigation buttons', async () => {
     const repository = createRepository()
     const financeService: FinanceCommandService = {
       ...createFinanceService(),
@@ -1601,47 +1520,35 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(privateHouseholdStatusUpdate('/my_bill', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill', 'ru', 'private') as never)
 
-    const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
-      | {
-          text?: string
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
-          }
-        }
-      | undefined
-    expect(payload?.text).toContain('💸 Мой счёт')
-    expect(payload?.text).toContain('Остаток: 110.00 ₾')
-    expect(payload?.text).not.toContain('К оплате: 110.00 ₾')
-    expect(payload?.text).toContain('Начислено: 210.00 ₾')
-    expect(payload?.text).toContain('Покупки: в плюсе 10.00 ₾')
-    expect(payload?.text).toContain('\nАренда: 200.00 ₾\nКоммуналка: 20.00 ₾')
+    const payload = firstMessagePayload(calls)
+    const text = payload?.text ?? ''
+    const [title, leadLine] = text.split('\n')
+    expect(title).toStartWith('⏳ ')
+    expect(title).toMatch(/мой счёт за март$/i)
+    expect(leadLine).toBe('Осталось оплатить: 110 ₾')
+    expect(text).toContain('\nЗа месяц: 210 ₾ · оплачено 100 ₾\n')
+    expect(text).toContain('\nАренда: 200 ₾\nКоммуналка: 20 ₾\n')
+    expect(text).toContain('Покупки: в плюсе 10 ₾, вернётся следующими коммуналками')
+    expect(text).not.toContain('.00 ₾')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
       [
-        {
-          text: '🔎 Весь счёт',
-          callback_data: 'home:my_bill_full'
-        },
-        {
-          text: '🛒 Балансы',
-          callback_data: 'home:balances'
-        }
+        { text: 'Общий счёт', callback_data: 'bill:view:household' },
+        { text: 'Подробнее', callback_data: 'home:my_bill_full' }
       ],
       [
-        {
-          text: '🏠 Статус',
-          callback_data: 'home:status'
-        },
-        {
-          text: '🏡 Меню',
-          callback_data: 'home:menu'
-        }
-      ]
+        { text: 'Покупки', callback_data: 'home:balances' },
+        { text: 'Сводка', callback_data: 'home:status' }
+      ],
+      [{ text: '‹ Меню', callback_data: 'home:menu' }]
     ])
+    // The household chat lookup returns nothing here; the title must not fall back to
+    // the internal household id.
+    expect(title).not.toContain('household-1')
   })
 
-  test('renders plain /my_bill in English with neutral summary wording', async () => {
+  test('renders the home my bill summary in English with neutral wording', async () => {
     const repository = createEnglishRepository()
     const financeService: FinanceCommandService = {
       ...createFinanceService(),
@@ -1685,19 +1592,25 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(privateHouseholdStatusUpdate('/my_bill', 'en') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill', 'en', 'private') as never)
 
-    const payload = calls.find((call) => call.method === 'sendMessage')?.payload as
-      | {
-          text?: string
-        }
-      | undefined
-    expect(payload?.text).toContain('💸 My bill')
-    expect(payload?.text).toContain('Remaining: 110.00 ₾')
-    expect(payload?.text).not.toContain('To pay: 110.00 ₾')
-    expect(payload?.text).toContain('Total due: 210.00 ₾')
-    expect(payload?.text).toContain('Purchases: credit 10.00 ₾')
-    expect(payload?.text).toContain('\nRent: 200.00 ₾\nUtilities: 20.00 ₾')
+    const payload = firstMessagePayload(calls)
+    const text = payload?.text ?? ''
+    const [title, leadLine] = text.split('\n')
+    expect(title).toStartWith('⏳ ')
+    expect(title).toMatch(/my bill for March$/i)
+    expect(leadLine).toBe('Left to pay: 110 ₾')
+    expect(text).toContain('\nThis month: 210 ₾ · paid 100 ₾\n')
+    expect(text).toContain('\nRent: 200 ₾\nUtilities: 20 ₾\n')
+    expect(text).toContain('Purchases: 10 ₾ in credit, comes back through the next utilities bills')
+    expect(text).not.toMatch(/[А-Яа-яЁё]/)
+    expect(payload?.reply_markup?.inline_keyboard?.flat().map((button) => button.text)).toEqual([
+      'Household bill',
+      'Details',
+      'Purchases',
+      'Overview',
+      '‹ Menu'
+    ])
   })
 
   test('falls back to a reply when editing the home my bill result fails', async () => {
@@ -1926,34 +1839,23 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(billUpdate('/bill', 'ru') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          parse_mode?: string
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>>
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
     const text = payload?.text ?? ''
     expect(payload?.parse_mode).toBe('HTML')
-    expect(text).toContain('💡 <b>Коммуналка к оплате</b>')
+    expect(text.split('\n')[0]).toBe('💡 <b>Коммуналка за апрель · до 4 апреля</b>')
+    expect(text).toContain('\nОсталось 380 ₾\n')
     expect(text.indexOf('<b>Стас</b>')).toBeLessThan(text.indexOf('<b>Ион</b>'))
-    expect(text).toContain('<b>Стас</b> — 300.00 ₾')
-    expect(text).toContain('Gas · 300.00 ₾')
-    expect(text).toContain('Подробности и история платежей — в дашборде.')
+    expect(text).toContain('⏳ <b>Стас</b> · 300 ₾\n   • Gas · 300 ₾')
+    expect(text).toContain('⏳ <b>Ион</b> · 80 ₾\n   • Internet · 80 ₾')
+    // No "details in the app" filler next to the app button.
+    expect(text).not.toContain('дашборд')
+    expect(text).not.toContain('приложени')
     expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [{ text: '✅ Отметить оплату', callback_data: 'pr:p:utilities:2026-04' }],
+      [{ text: '📱 Приложение', url: 'https://t.me/household_test_bot?start=dashboard' }],
       [
-        {
-          text: 'Я оплатил свои счета',
-          callback_data: 'pr:p:utilities:2026-04'
-        }
-      ],
-      [
-        {
-          text: 'Открыть дашборд',
-          url: 'https://t.me/household_test_bot?start=dashboard'
-        }
+        { text: 'Мой счёт', callback_data: 'bill:view:mine' },
+        { text: 'Подробнее', callback_data: 'bill:view:full' }
       ]
     ])
     expect(registeredCards).toMatchObject([
@@ -2054,11 +1956,23 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+    await bot.handleUpdate(privateCommandUpdate('/bill utilities', 'ru') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('В этом цикле платить не нужно')
-    expect(text).not.toContain('Уже оплачено')
+    const householdText = firstMessagePayload(calls)?.text ?? ''
+    expect(householdText).toContain(
+      '\n• Ион — платить не нужно\n  Покупки: долг 11.25 ₾, войдёт в следующую коммуналку'
+    )
+    expect(householdText).not.toContain('оплачено')
+    // No bills entered yet, so there is no zero total above the members.
+    expect(householdText).not.toContain('Счета:')
+
+    // The viewer's own detailed bill, reached from the /home menu.
+    const callsBeforeViewer = calls.length
+    await bot.handleUpdate(callbackUpdate('home:my_bill_full', 'ru', 'supergroup') as never)
+
+    const viewerText = firstMessagePayload(calls.slice(callsBeforeViewer))?.text ?? ''
+    expect(viewerText).toContain('\nВ этом месяце платить не нужно.')
+    expect(viewerText).not.toContain('Уже оплачено')
   })
 
   test('renders utility totals and balance-covered members transparently', async () => {
@@ -2273,29 +2187,42 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/bill full utilities', 'ru') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('💰 Счета: 310.19 ₾')
-    expect(text).toContain('доля 103.40 ₾')
-    expect(text).toContain('\n👤 Дима\n')
-    expect(text).toContain('Осталось оплатить: 77.17 ₾')
-    expect(text).toContain('Electricity — 56.86 ₾')
-    expect(text).toContain('Gas (Water) — 20.31 ₾ из 253.33 ₾')
-    expect(text).toContain('Покупки: в плюсе 1.00 ₾')
+    const text = firstMessagePayload(calls)?.text ?? ''
+    const blocks = text.split('\n\n')
+    expect(blocks[0]).toBe(
+      '💡 Коммуналка за май, подробно · до 6 мая\nСчета: 310.19 ₾ · по 103.40 ₾ на человека'
+    )
+    // Members who still owe come first.
+    expect(blocks[1]).toBe(
+      [
+        'Дима — осталось 77.17 ₾',
+        'Доля: 78.17 ₾ · Покупки: в плюсе 1 ₾, вернётся следующими коммуналками',
+        'По покупкам: Tea −73 ₾; Groceries +72 ₾',
+        '• Electricity — 56.86 ₾',
+        '• Gas (Water) — 20.31 ₾ из 253.33 ₾'
+      ].join('\n')
+    )
+    expect(blocks[2]).toBe(
+      [
+        'Стас — закрыто покупками',
+        'Доля: 78.17 ₾ · Покупки: в плюсе 101.10 ₾, вернётся следующими коммуналками',
+        'После коммуналки в плюсе 22.93 ₾',
+        'По покупкам: Groceries −72 ₾; Soap −29.10 ₾'
+      ].join('\n')
+    )
+    expect(blocks[3]).toBe(
+      [
+        'Ион — платить не нужно',
+        'Доля: 78.17 ₾',
+        'По покупкам: Four +4 ₾; Three +3 ₾; Two +2 ₾; One +1 ₾'
+      ].join('\n')
+    )
     expect(text).not.toContain('Electricity: 56.86 ₾')
     expect(text).not.toContain('Gas (Water): 20.31 ₾')
-    expect(text).toContain('\n👤 Стас\n')
-    expect(text).toContain('Закрыто твоим плюсом')
-    expect(text).toContain('В плюсе после коммуналки: 22.93 ₾')
-    expect(text).toContain('\n👤 Ион\n')
-    expect(text).toContain('Платить не нужно.')
-
-    const fullText = text
-    expect(fullText).toContain('Electricity — 56.86 ₾')
-    expect(fullText).toContain('Gas (Water) — 20.31 ₾ из 253.33 ₾')
-    expect(fullText).toContain('Покупки: Four +4.00 ₾; Three +3.00 ₾; Two +2.00 ₾; One +1.00 ₾')
-    expect(fullText).not.toContain('ещё 1')
+    expect(text).not.toContain('ещё 1')
+    expect(text).not.toContain('твоим')
   })
 
   test('renders the member utility balance breakdown in plan details', async () => {
@@ -2393,14 +2320,16 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/bill full utilities', 'ru') as never)
 
-    const fullText = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
+    const fullText = firstMessagePayload(calls)?.text ?? ''
     expect(fullText).toContain(
-      'Доля: 63.05 ₾ · Покупки: в плюсе 12.00 ₾, вернётся следующими коммуналками'
+      [
+        'Стас — осталось 28.12 ₾',
+        'Доля: 63.05 ₾ · Покупки: в плюсе 12 ₾, вернётся следующими коммуналками',
+        '• Internet — 28.12 ₾ из 35 ₾'
+      ].join('\n')
     )
-    expect(fullText).toContain('Осталось оплатить: 28.12 ₾')
-    expect(fullText).toContain('Internet — 28.12 ₾ из 35.00 ₾')
   })
 
   test('detailed utility bill does not describe recorded planned payments as balance-covered', async () => {
@@ -2498,14 +2427,14 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill_full utilities', 'ru') as never)
+    await bot.handleUpdate(billUpdate('/bill full utilities', 'ru') as never)
 
-    const text = (calls[0]?.payload as { text?: string } | undefined)?.text ?? ''
-    expect(text).toContain('\n👤 Дима\n')
-    expect(text).toContain('Уже оплачено.')
-    expect(text).toContain('Покупки: в плюсе 18.00 ₾')
-    expect(text).not.toContain('Закрыто твоим плюсом')
-    expect(text).not.toContain('После коммуналки к доплате')
+    const text = firstMessagePayload(calls)?.text ?? ''
+    expect(text).toContain(
+      '\nДима — оплачено\nДоля: 63.06 ₾ · Покупки: в плюсе 18 ₾, вернётся следующими коммуналками'
+    )
+    expect(text).not.toContain('закрыто покупками')
+    expect(text).not.toMatch(/после коммуналки/i)
   })
 
   test('renders rent as short payment instructions with destinations', async () => {
@@ -2610,33 +2539,28 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/my_bill rent', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill_full', 'ru', 'supergroup') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          parse_mode?: string
-          reply_markup?: {
-            inline_keyboard?: Array<
-              Array<{ text: string; copy_text?: { text: string }; callback_data?: string }>
-            >
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
     const text = payload?.text ?? ''
     expect(payload?.parse_mode).toBe('HTML')
-    expect(text).toContain('🏠 <b>Аренда · апрель 2026</b>')
-    expect(text).toContain('💱 Курс: 1 USD = 2.7000 GEL · на 17 апреля')
-    expect(text).toContain('💰 <b>К оплате:</b> 500.00 ₾')
-    expect(text).toContain('💳 <b>Куда переводить</b>')
-    expect(text).toContain('🏦 <b>TBC · Landlord &amp; Co</b>')
-    expect(text).toContain('Получатель: Nino &lt;Owner&gt;')
-    expect(text).toContain('Счёт: <code>GE00TB123</code>')
-    expect(text).toContain('Примечание: April &lt;rent&gt;')
+    expect(text).toBe(
+      [
+        '🏠 <b>Аренда за апрель</b> · до 20 апреля',
+        'К оплате: <b>500 ₾</b>',
+        'Курс: 1 USD = 2.7000 GEL на 17 апреля',
+        '',
+        '<b>Куда переводить</b>',
+        '<b>TBC · Landlord &amp; Co</b>',
+        'Получатель: Nino &lt;Owner&gt;',
+        'Счёт: <code>GE00TB123</code>',
+        'Примечание: April &lt;rent&gt;'
+      ].join('\n')
+    )
     expect(text).not.toContain('Nino <Owner>')
     expect(text).not.toContain('Осталось оплатить')
     expect(payload?.reply_markup?.inline_keyboard?.[0]?.[0]).toEqual({
-      text: '📋 Скопировать счёт · TBC',
+      text: '📋 TBC',
       copy_text: { text: 'GE00TB123' }
     })
   })
@@ -2833,29 +2757,23 @@ describe('createFinanceCommandsService', () => {
 
     await bot.handleUpdate(billUpdate('/bill rent', 'ru') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          text?: string
-          parse_mode?: string
-          reply_markup?: {
-            inline_keyboard?: Array<
-              Array<{ text: string; callback_data?: string; url?: string; copy_text?: unknown }>
-            >
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
     const text = payload?.text ?? ''
     expect(payload?.parse_mode).toBe('HTML')
-    expect(text).toContain('<b>К оплате</b>')
-    expect(text).toContain('✅ <b>Стас</b> — оплачено')
-    expect(text).toContain('👤 <b>Алиса</b> — 472.00 ₾')
-    expect(text).toContain('<b>Куда переводить</b>')
+    expect(text.split('\n')[0]).toBe('🏠 <b>Аренда за апрель · до 20 апреля</b>')
+    expect(text).toContain('\nОплатили 1 из 2 · осталось 472 ₾\n')
+    expect(text).toContain('\n✅ <s>Стас</s>\n⏳ <b>Алиса</b> · 472 ₾\n')
+    expect(text).toContain('\n🏦 TBC · Аренда дома\n')
     expect(text.match(/Получатель: Magda C\./g)?.length ?? 0).toBe(1)
-    expect(text).toContain('Счёт: <code>GE86TB7298445064300062</code>')
-    expect(text).toContain('Подробности и история платежей — в дашборде.')
+    expect(text).toContain('\n<code>GE86TB7298445064300062</code>')
+    expect(text).not.toContain('дашборд')
     expect(text).not.toContain('Осталось оплатить')
     expect(text).not.toContain('💱')
-    expect(JSON.stringify(payload?.reply_markup)).toContain('pr:p:rent:2026-04')
+    expect(text).not.toContain('оплатил ')
+    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
+      { text: '✅ Отметить оплату', callback_data: 'pr:p:rent:2026-04' },
+      { text: '📋 TBC', copy_text: { text: 'GE86TB7298445064300062' } }
+    ])
     expect(JSON.stringify(payload?.reply_markup)).toContain('start=dashboard')
     expect(JSON.stringify(payload?.reply_markup)).not.toContain('home:menu')
   })
@@ -2959,22 +2877,15 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill_full', 'ru', 'supergroup') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>
-          }
-        }
-      | undefined
+    const buttons = firstMessagePayload(calls)?.reply_markup?.inline_keyboard?.flat() ?? []
 
-    expect(
-      payload?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data.length
-    ).toBeLessThanOrEqual(64)
-    expect(payload?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data).toBe(
-      'bill:resolve:current'
-    )
+    expect(buttons[0]?.callback_data).toBe('bill:resolve:current')
+    expect(buttons.length).toBeGreaterThan(0)
+    for (const button of buttons) {
+      expect(button.callback_data?.length ?? 0).toBeLessThanOrEqual(64)
+    }
   })
 
   test('omits planned utility resolve button when the viewer has no unresolved plan amount', async () => {
@@ -3065,22 +2976,18 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/my_bill utilities', 'ru') as never)
+    await bot.handleUpdate(callbackUpdate('home:my_bill_full', 'ru', 'supergroup') as never)
 
-    const payload = calls[0]?.payload as
-      | {
-          reply_markup?: {
-            inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>>
-          }
-        }
-      | undefined
+    const payload = firstMessagePayload(calls)
     const buttons = payload?.reply_markup?.inline_keyboard?.flat() ?? []
 
+    expect(payload?.text).toContain('\nУже оплачено.')
+    expect(buttons.length).toBeGreaterThan(0)
     expect(buttons.some((button) => button.callback_data === 'bill:resolve:current')).toBe(false)
     expect(promptRepository.current()).toBeNull()
   })
 
-  test('does not handle removed /bill_all command', async () => {
+  test('does not answer removed finance commands', async () => {
     const repository = createRepository()
     const bot = createTelegramBot('000000:test-token', undefined, repository)
     createFinanceCommandsService({
@@ -3111,350 +3018,26 @@ describe('createFinanceCommandsService', () => {
       } as never
     })
 
-    await bot.handleUpdate(billUpdate('/bill_all', 'ru') as never)
+    for (const command of [
+      '/bill_all',
+      '/bill_full',
+      '/my_bill',
+      '/my_bill_full',
+      '/bill_json',
+      '/household_status',
+      '/balance',
+      '/cycle_open 2026-05',
+      '/cycle_close',
+      '/rent_set 700 USD',
+      '/utility_add Gas 30',
+      '/payment_add rent',
+      '/statement',
+      '/utilities'
+    ]) {
+      await bot.handleUpdate(billUpdate(command, 'ru') as never)
+      await bot.handleUpdate(privateCommandUpdate(command, 'ru') as never)
+    }
 
     expect(calls).toHaveLength(0)
-  })
-
-  test('arms the template reply flow for /utilities in the reminders topic', async () => {
-    const promptRepository = createPromptRepository()
-    const repository: HouseholdConfigurationRepository = {
-      ...createRepository(),
-      findHouseholdTopicByTelegramContext: async () => ({
-        householdId: 'household-1',
-        role: 'reminders',
-        telegramThreadId: '555',
-        topicName: 'Напоминания'
-      }),
-      listHouseholdUtilityCategories: async () => [
-        {
-          id: 'cat-1',
-          householdId: 'household-1',
-          slug: 'internet',
-          name: 'Internet',
-          sortOrder: 1,
-          isActive: true
-        },
-        {
-          id: 'cat-2',
-          householdId: 'household-1',
-          slug: 'gas-water',
-          name: 'Gas (Water)',
-          sortOrder: 2,
-          isActive: true
-        },
-        {
-          id: 'cat-3',
-          householdId: 'household-1',
-          slug: 'cleaning',
-          name: 'Cleaning',
-          sortOrder: 3,
-          isActive: true
-        },
-        {
-          id: 'cat-4',
-          householdId: 'household-1',
-          slug: 'electricity',
-          name: 'Electricity',
-          sortOrder: 4,
-          isActive: true
-        }
-      ]
-    }
-    const addedUtilityBills: Array<{ billName: string; amountMajor: string }> = []
-    const financeService: FinanceCommandService = {
-      ...createFinanceService(),
-      addUtilityBill: async (billName, amountMajor) => {
-        addedUtilityBills.push({ billName, amountMajor })
-        return null
-      }
-    }
-    const bot = createTelegramBot('000000:test-token', undefined, repository)
-    createFinanceCommandsService({
-      householdConfigurationRepository: repository,
-      financeServiceForHousehold: () => financeService,
-      promptRepository
-    }).register(bot)
-    registerReminderTopicUtilities({
-      bot,
-      householdConfigurationRepository: repository,
-      promptRepository,
-      financeServiceForHousehold: () => financeService
-    })
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: false
-    }
-
-    const calls: Array<{ method: string; payload: unknown }> = []
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-      return {
-        ok: true,
-        result: {
-          message_id: calls.length,
-          date: Math.floor(Date.now() / 1000),
-          chat: {
-            id: -100123456,
-            type: 'supergroup'
-          },
-          text: 'ok'
-        }
-      } as never
-    })
-
-    await bot.handleUpdate(topicCommandUpdate('/utilities', 'ru') as never)
-
-    const pendingPayload = promptRepository.current()?.payload as
-      | {
-          stage?: string
-          categories?: string[]
-        }
-      | undefined
-    expect(pendingPayload?.stage).toBe('template')
-    expect(pendingPayload?.categories).toEqual([
-      'Internet',
-      'Gas (Water)',
-      'Cleaning',
-      'Electricity'
-    ])
-
-    calls.length = 0
-    await bot.handleUpdate(
-      topicMessageUpdate(
-        'Internet:\nGas (Water): 321.07\nCleaning: 2.50\nElectricity: 83.09',
-        'ru'
-      ) as never
-    )
-
-    const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('- Gas (Water): 321.07 ₾')
-    expect(payload?.text).toContain('- Cleaning: 2.50 ₾')
-    expect(payload?.text).toContain('- Electricity: 83.09 ₾')
-    expect(addedUtilityBills).toEqual([])
-  })
-
-  test('exports billing audit json as a document for admins', async () => {
-    const repository = createRepository()
-    const financeService: FinanceCommandService = {
-      ...createFinanceService(),
-      generateBillingAuditExport: async () => ({
-        meta: {
-          exportVersion: 'billing-audit/v1',
-          exportedAt: '2026-04-02T12:00:00.000Z',
-          period: '2026-04',
-          billingStage: 'utilities',
-          adjustmentPolicy: 'utilities',
-          householdId: 'household-1',
-          currency: 'GEL',
-          timezone: 'Asia/Tbilisi'
-        },
-        descriptions: {
-          sections: {
-            meta: 'Meta',
-            warnings: 'Warnings',
-            settings: 'Settings',
-            rawInputs: 'Raw inputs',
-            derived: 'Derived',
-            utilityPlan: 'Plan',
-            rentState: 'Rent',
-            dashboard: 'Dashboard'
-          },
-          adjustmentPolicies: {
-            utilities: 'Utilities mode',
-            rent: 'Rent mode',
-            separate: 'Manual mode'
-          },
-          derivedFields: {
-            purchaseOffset: 'offset',
-            rawUtilityFairShare: 'share',
-            adjustedUtilityTarget: 'adjusted utility',
-            rawRentShare: 'rent share',
-            adjustedRentTarget: 'adjusted rent',
-            assignedThisCycle: 'assigned',
-            projectedDeltaAfterPlan: 'delta',
-            remaining: 'remaining'
-          },
-          snapshotSemantics: {
-            settlementSnapshotLines: 'Frozen historical snapshot.',
-            utilityPlanPayloadFairShareByMember: 'Plan input semantics.'
-          }
-        },
-        warnings: [],
-        household: {
-          householdId: 'household-1'
-        },
-        settings: {
-          settlementCurrency: 'GEL',
-          timezone: 'Asia/Tbilisi',
-          rentDueDay: 20,
-          rentWarningDay: 17,
-          utilitiesDueDay: 4,
-          utilitiesReminderDay: 3,
-          preferredUtilityPayerMemberId: null,
-          paymentBalanceAdjustmentPolicy: 'utilities',
-          rentAmount: {
-            amountMinor: '241500',
-            amountMajor: '2415.00',
-            currency: 'GEL',
-            display: '2415.00 ₾'
-          },
-          rentPaymentDestinations: null,
-          utilityCategories: []
-        },
-        cycle: {
-          openCycle: {
-            id: 'cycle-1',
-            period: '2026-04',
-            currency: 'GEL'
-          },
-          selectedCycle: {
-            id: 'cycle-1',
-            period: '2026-04',
-            currency: 'GEL'
-          },
-          rentRule: null,
-          rentFx: {
-            sourceAmount: {
-              amountMinor: '70000',
-              amountMajor: '700.00',
-              currency: 'USD',
-              display: '$700.00'
-            },
-            settlementAmount: {
-              amountMinor: '241500',
-              amountMajor: '2415.00',
-              currency: 'GEL',
-              display: '2415.00 ₾'
-            },
-            rateMicros: '3450000',
-            effectiveDate: '2026-04-01'
-          }
-        },
-        members: [],
-        presenceDays: [],
-        rawInputs: {
-          utilityBills: [],
-          parsedPurchases: [],
-          paymentRecords: [],
-          utilityVendorPaymentFacts: [],
-          utilityReimbursementFacts: [],
-          paymentPurchaseAllocations: [],
-          utilityPlanVersions: [],
-          settlementSnapshot: {
-            isFrozenHistoricalSnapshot: true,
-            description: 'Frozen historical snapshot.',
-            lines: []
-          }
-        },
-        derived: {
-          totals: {
-            totalDue: {
-              amountMinor: '0',
-              amountMajor: '0.00',
-              currency: 'GEL',
-              display: '0.00 ₾'
-            },
-            totalPaid: {
-              amountMinor: '0',
-              amountMajor: '0.00',
-              currency: 'GEL',
-              display: '0.00 ₾'
-            },
-            totalRemaining: {
-              amountMinor: '0',
-              amountMajor: '0.00',
-              currency: 'GEL',
-              display: '0.00 ₾'
-            }
-          },
-          members: [],
-          paymentPeriods: []
-        },
-        utilityPlan: {
-          explanation: 'Utility explanation',
-          fieldSemantics: {
-            rawCycleFairShareByMember: 'raw',
-            adjustedTargetByMember: 'adjusted',
-            planPayloadFairShareByMember: 'input'
-          },
-          rawCycleFairShareByMember: [],
-          adjustedTargetByMember: [],
-          plan: null
-        },
-        rentState: {
-          explanation: 'Rent explanation',
-          state: {
-            dueDate: '2026-04-20',
-            memberSummaries: [],
-            paymentDestinations: null
-          }
-        },
-        dashboard: {
-          snapshot: {
-            period: '2026-04'
-          }
-        }
-      })
-    }
-    const bot = createTelegramBot('000000:test-token', undefined, repository)
-    createFinanceCommandsService({
-      householdConfigurationRepository: repository,
-      financeServiceForHousehold: () => financeService
-    }).register(bot)
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: false
-    }
-
-    const calls: Array<{ method: string; payload: unknown }> = []
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-      return {
-        ok: true,
-        result: {
-          message_id: calls.length,
-          date: Math.floor(Date.now() / 1000),
-          chat: {
-            id: -100123456,
-            type: 'supergroup'
-          },
-          document: {
-            file_id: 'doc-1',
-            file_unique_id: 'doc-unique',
-            file_name: 'billing-audit-2026-04.json',
-            file_size: 1024
-          }
-        }
-      } as never
-    })
-
-    await bot.handleUpdate(billUpdate('/bill_json', 'ru') as never)
-
-    const call = calls[0]
-    expect(call?.method).toBe('sendDocument')
-    const payload = call?.payload as { caption?: string; document?: { filename?: string } }
-    expect(payload?.caption).toContain('Аудит расчётов')
-    expect(payload?.document).toBeTruthy()
   })
 })

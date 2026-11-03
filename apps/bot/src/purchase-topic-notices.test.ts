@@ -155,6 +155,16 @@ function callbackUpdate(data: string) {
   }
 }
 
+function participantButton(rendered: ReturnType<typeof renderPurchaseTopicNotice>, id: string) {
+  const button = rendered.replyMarkup?.inline_keyboard
+    .flat()
+    .find((candidate) => candidate.callback_data === `purchase_saved:part:${id}`)
+  if (!button) {
+    throw new Error(`No toggle button for ${id}`)
+  }
+  return button
+}
+
 describe('renderPurchaseTopicNotice', () => {
   test('renders saved purchase cards in English and Russian', () => {
     const en = renderPurchaseTopicNotice({
@@ -162,28 +172,40 @@ describe('renderPurchaseTopicNotice', () => {
       purchase: purchase(),
       members
     })
-    expect(en.text).toContain('🧾 <b>Pizza</b> — <b>30.00 ₾</b>')
-    expect(en.text).toContain('💳 Paid by: <b>Стас</b>')
-    expect(en.text).toContain('• <s>Дима</s> · excluded')
+    const [enHeadline, enPayer, ...enRest] = en.text.split('\n')
+    expect(enHeadline).toBe('🛒 <b>Pizza · 30 ₾</b>')
+    expect(enPayer).toStartWith('💳 Стас · ')
+    expect(enRest).toEqual(['', 'Стас 0 ₾ · <s>Дима</s>'])
     expect(en.parseMode).toBe('HTML')
-    expect(en.replyMarkup?.inline_keyboard.length).toBe(2)
+    // Toggles sit two per row.
+    expect(en.replyMarkup?.inline_keyboard).toEqual([
+      [
+        { text: '✅ Стас', callback_data: 'purchase_saved:part:participant-1' },
+        { text: '⬜ Дима', callback_data: 'purchase_saved:part:participant-2' }
+      ]
+    ])
 
     const ru = renderPurchaseTopicNotice({
       locale: 'ru',
       purchase: purchase(),
       members
     })
-    expect(ru.text).toContain('🧾 <b>Pizza</b> — <b>30.00 ₾</b>')
-    expect(ru.text).toContain('💳 Плательщик: <b>Стас</b>')
-    expect(ru.text).toContain('• <s>Дима</s> · не участвует')
+    const [ruHeadline, ruPayer, ...ruRest] = ru.text.split('\n')
+    expect(ruHeadline).toBe('🛒 <b>Pizza · 30 ₾</b>')
+    expect(ruPayer).toStartWith('💳 Стас · ')
+    expect(ruRest).toEqual(['', 'Стас 0 ₾ · <s>Дима</s>'])
 
     const ruWithFemininePayer = renderPurchaseTopicNotice({
       locale: 'ru',
       purchase: purchase({ payerMemberId: 'member-3' }),
       members
     })
-    expect(ruWithFemininePayer.text).toContain('💳 Плательщик: <b>Алиса</b>')
-    expect(ruWithFemininePayer.text).not.toContain('Оплатил: Алиса')
+    expect(ruWithFemininePayer.text).toContain('\n💳 Алиса · ')
+    expect(ruWithFemininePayer.text).not.toMatch(/[Оо]платил|[Кк]упил/)
+
+    // Source bug: one included participant renders "split 1 ways" / "поровну на 1".
+    expect(enPayer).not.toContain('1 ways')
+    expect(ruPayer).not.toBe('💳 Стас · поровну на 1')
   })
 
   test('omits participant buttons for custom amount purchases', () => {
@@ -203,8 +225,7 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
 
-    expect(rendered.text).toContain('🧮 Индивидуальные суммы')
-    expect(rendered.text).toContain('• Стас · 0.00 ₾')
+    expect(rendered.text).toBe('🛒 <b>Pizza · 30 ₾</b>\n💳 Стас · свои суммы\n\nСтас 0 ₾')
     expect(rendered.replyMarkup).toBeUndefined()
   })
 
@@ -222,11 +243,14 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
 
-    expect(rendered.text).toContain('➗ Поровну · по 7.00 ₾')
-    expect(rendered.text).toContain(
-      ['👥 <b>Участники</b>', '• Алиса · −7.00 ₾', '• Дима · −7.00 ₾', '• Стас · +14.00 ₾'].join(
-        '\n'
-      )
+    expect(rendered.text).toBe(
+      [
+        '🛒 <b>Pizza · 21 ₾</b>',
+        '💳 Стас · поровну на 3, по 7 ₾',
+        '',
+        'Алиса −7 ₾ · Дима −7 ₾',
+        'Стас +14 ₾'
+      ].join('\n')
     )
   })
 
@@ -245,10 +269,10 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
 
-    expect(rendered.text).toContain('➗ Split equally\n')
-    expect(rendered.text).toContain('• Стас · +$6.66')
-    expect(rendered.text).toContain('• Дима · −$3.33')
-    expect(rendered.text).toContain('• Алиса · −$3.33')
+    // No single per-head figure when the cents do not divide evenly.
+    expect(rendered.text).toContain('💳 Стас · split 3 ways\n')
+    expect(rendered.text).not.toContain(' each')
+    expect(rendered.text).toEndWith('\n\nСтас +$6.66 · Дима −$3.33\nАлиса −$3.33')
   })
 
   test('uses custom shares for the balance change', () => {
@@ -265,8 +289,7 @@ describe('renderPurchaseTopicNotice', () => {
       members
     })
 
-    expect(rendered.text).toContain('• Стас · +13.00 ₾')
-    expect(rendered.text).toContain('• Алиса · −13.00 ₾')
+    expect(rendered.text).toEndWith('\n\nСтас +13 ₾ · Алиса −13 ₾')
   })
 
   test('credits a payer who does not share the purchase', () => {
@@ -280,8 +303,7 @@ describe('renderPurchaseTopicNotice', () => {
       }),
       members
     })
-    expect(excludedPayer.text).toContain('• Стас · +30.00 ₾ · без доли')
-    expect(excludedPayer.text).toContain('• Дима · −30.00 ₾')
+    expect(excludedPayer.text).toEndWith('\n\nСтас +30 ₾ (без доли) · Дима −30 ₾')
 
     const unlistedPayer = renderPurchaseTopicNotice({
       locale: 'en',
@@ -292,7 +314,7 @@ describe('renderPurchaseTopicNotice', () => {
       }),
       members
     })
-    expect(unlistedPayer.text).toContain('• Дима · −30.00 ₾\n• Стас · +30.00 ₾ · no share')
+    expect(unlistedPayer.text).toEndWith('\n\nДима −30 ₾ · Стас +30 ₾ (no share)')
   })
 
   test('does not offer excluded inactive participants as toggle targets', () => {
@@ -304,8 +326,10 @@ describe('renderPurchaseTopicNotice', () => {
       )
     })
 
-    expect(rendered.text).toContain('• <s>Дима</s> · не участвует')
-    expect(rendered.replyMarkup?.inline_keyboard.length).toBe(1)
+    expect(rendered.text).toEndWith('\n\nСтас 0 ₾ · <s>Дима</s>')
+    expect(rendered.replyMarkup?.inline_keyboard).toEqual([
+      [{ text: '✅ Стас', callback_data: 'purchase_saved:part:participant-1' }]
+    ])
     expect(JSON.stringify(rendered.replyMarkup)).not.toContain('participant-2')
   })
 })
@@ -362,19 +386,25 @@ describe('createPurchaseTopicNoticeService', () => {
         }) as never
     })
 
-    const button = renderPurchaseTopicNotice({
-      locale: 'ru',
-      purchase: purchase(),
-      members
-    }).replyMarkup!.inline_keyboard[1]![0]!
+    const button = participantButton(
+      renderPurchaseTopicNotice({
+        locale: 'ru',
+        purchase: purchase(),
+        members
+      }),
+      'participant-2'
+    )
+    expect(button.text).toBe('⬜ Дима')
 
     await bot.handleUpdate(callbackUpdate(button.callback_data) as never)
 
     expect(calls[0]).toMatchObject({
       method: 'editMessageText',
       payload: {
+        chat_id: -100123,
+        message_id: 9001,
         parse_mode: 'HTML',
-        text: expect.stringContaining('• Дима')
+        text: expect.stringContaining('\n\nСтас +15 ₾ · Дима −15 ₾')
       }
     })
     expect(JSON.stringify(calls[0]?.payload)).toContain('✅ Дима')
@@ -402,20 +432,25 @@ describe('createPurchaseTopicNoticeService', () => {
           }) as never
       })
 
-      const button = renderPurchaseTopicNotice({
-        locale: 'ru',
-        purchase: purchase(),
-        members
-      }).replyMarkup!.inline_keyboard[1]![0]!
+      const button = participantButton(
+        renderPurchaseTopicNotice({
+          locale: 'ru',
+          purchase: purchase(),
+          members
+        }),
+        'participant-2'
+      )
 
       await bot.handleUpdate(callbackUpdate(button.callback_data) as never)
 
       expect(calls.map((call) => call.method)).toEqual(['answerCallbackQuery'])
-      expect(JSON.stringify(calls[0]?.payload)).toContain(
-        status === 'forbidden'
-          ? 'Подтвердить или отменить'
-          : 'должен остаться хотя бы один участник'
-      )
+      expect(calls[0]?.payload).toMatchObject({
+        show_alert: true,
+        text:
+          status === 'forbidden'
+            ? 'Менять это могут только участники дома'
+            : 'Кто-то должен остаться в доле'
+      })
     }
   })
 })
@@ -439,8 +474,8 @@ test('uneven purchase card balances do not depend on database participant row or
       }),
       members
     })
-    expect(rendered.text).toContain('• Стас · +$6.66')
-    expect(rendered.text).toContain('• Дима · −$3.33')
-    expect(rendered.text).toContain('• Алиса · −$3.33')
+    // Lines follow the row order; the amounts must not.
+    const changes = rendered.text.split('\n\n')[1]!.split(/ · |\n/)
+    expect([...changes].sort()).toEqual(['Алиса −$3.33', 'Дима −$3.33', 'Стас +$6.66'])
   }
 })

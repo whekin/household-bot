@@ -577,12 +577,12 @@ describe('registerHouseholdSetupCommands', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: '📱 Open the mini app from the button below.',
+      text: '📱 The app opens with the button below.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: '📱 Open mini app',
+              text: '📱 Open the app',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot'
               }
@@ -648,24 +648,25 @@ describe('registerHouseholdSetupCommands', () => {
           }
         }
       | undefined
-    expect(payload?.text).toContain('Household control center')
-    expect(payload?.reply_markup?.inline_keyboard?.[0]).toEqual([
-      { text: '💸 My bill', callback_data: 'home:my_bill' },
-      { text: '🏠 Status', callback_data: 'home:status' }
-    ])
-    expect(payload?.reply_markup?.inline_keyboard?.[1]).toEqual([
-      { text: '🛒 Balances', callback_data: 'home:balances' },
-      { text: '🔎 Full bill', callback_data: 'home:my_bill_full' }
-    ])
-    expect(payload?.reply_markup?.inline_keyboard?.[2]).toEqual([
-      { text: '☑️ Routines', callback_data: 'home:routines' }
-    ])
-    expect(payload?.reply_markup?.inline_keyboard?.[3]?.[0]).toEqual({
-      text: '📱 Mini app',
-      web_app: { url: 'https://miniapp.example.app/?bot=household_test_bot' }
-    })
-    expect(payload?.reply_markup?.inline_keyboard?.[4]).toEqual([
-      { text: '❔ Help', callback_data: 'home:help' }
+    expect(payload?.text).toBe('🏠 <b>Household menu</b>\nWhat would you like to see?')
+    expect(calls[0]?.payload).toMatchObject({ parse_mode: 'HTML' })
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        { text: '💸 My bill', callback_data: 'home:my_bill' },
+        { text: '🏠 Household', callback_data: 'home:status' }
+      ],
+      [
+        { text: '🛒 Purchases', callback_data: 'home:balances' },
+        { text: '🔎 Details', callback_data: 'home:my_bill_full' }
+      ],
+      [
+        { text: '🧹 Chores', callback_data: 'home:routines' },
+        {
+          text: '📱 App',
+          web_app: { url: 'https://miniapp.example.app/?bot=household_test_bot' }
+        }
+      ],
+      [{ text: '❔ Help', callback_data: 'home:help' }]
     ])
   })
 
@@ -720,13 +721,25 @@ describe('registerHouseholdSetupCommands', () => {
           }
         }
       | undefined
-    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
-      { text: '🕶 Anonymous note', callback_data: 'home:feedback' }
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        { text: '💸 My bill', callback_data: 'home:my_bill' },
+        { text: '🏠 Household', callback_data: 'home:status' }
+      ],
+      [
+        { text: '🛒 Purchases', callback_data: 'home:balances' },
+        { text: '🔎 Details', callback_data: 'home:my_bill_full' }
+      ],
+      [
+        { text: '🧹 Chores', callback_data: 'home:routines' },
+        { text: '🕶 Anonymous', callback_data: 'home:feedback' }
+      ],
+      [{ text: '❔ Help', callback_data: 'home:help' }]
     ])
-    expect(JSON.stringify(payload?.reply_markup)).not.toContain('Mini app')
+    expect(JSON.stringify(payload?.reply_markup)).not.toContain('📱')
   })
 
-  test('opens the same task menu from /settings', async () => {
+  test('opens the same task menu from /home in private chat', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
 
@@ -768,10 +781,10 @@ describe('registerHouseholdSetupCommands', () => {
       anonymousFeedbackAvailable: true
     })
 
-    await bot.handleUpdate(startUpdate('/settings') as never)
+    await bot.handleUpdate(startUpdate('/home') as never)
 
     const payload = calls[0]?.payload as { text?: string } | undefined
-    expect(payload?.text).toContain('Household control center')
+    expect(payload?.text).toBe('🏠 <b>Household menu</b>\nWhat would you like to see?')
   })
 
   test('renders group home with setup action for Telegram admins', async () => {
@@ -841,13 +854,26 @@ describe('registerHouseholdSetupCommands', () => {
           }
         }
       | undefined
-    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
-      { text: '📱 Mini app', url: 'https://t.me/household_test_bot/app' }
+    expect(payload?.reply_markup?.inline_keyboard).toEqual([
+      [
+        { text: '💸 My bill', callback_data: 'home:my_bill' },
+        { text: '🏠 Household', callback_data: 'home:status' }
+      ],
+      [
+        { text: '🛒 Purchases', callback_data: 'home:balances' },
+        { text: '🔎 Details', callback_data: 'home:my_bill_full' }
+      ],
+      [
+        { text: '📱 App', url: 'https://t.me/household_test_bot/app' },
+        { text: '⚙️ Setup', callback_data: 'home:setup' }
+      ],
+      [{ text: '❔ Help', callback_data: 'home:help' }]
     ])
-    expect(payload?.reply_markup?.inline_keyboard).toContainEqual([
-      { text: '🧰 Setup/Admin', callback_data: 'home:setup' }
-    ])
+    expect(
+      (calls.find((call) => call.method === 'sendMessage')?.payload as { text?: string })?.text
+    ).toBe('🏠 <b>Household menu</b>\nBills, payments and purchases — all in one place.')
     expect(JSON.stringify(payload?.reply_markup)).not.toContain('home:feedback')
+    expect(JSON.stringify(payload?.reply_markup)).not.toContain('home:routines')
   })
 
   test('offers an Open mini app button after a DM join request', async () => {
@@ -924,12 +950,13 @@ describe('registerHouseholdSetupCommands', () => {
     expect(calls[0]?.method).toBe('sendMessage')
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: '📨 Join request sent for <b>Kojori House</b>. Wait for a household admin to confirm you.',
+      parse_mode: 'HTML',
+      text: '⏳ Request to join <b>Kojori House</b> sent — now an admin just needs to approve it.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: '📱 Open mini app',
+              text: '📱 Open the app',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
@@ -1012,12 +1039,13 @@ describe('registerHouseholdSetupCommands', () => {
 
     expect(calls[0]?.payload).toMatchObject({
       chat_id: 123456,
-      text: '📨 Заявка на вступление в <b>Kojori House</b> отправлена. Дождитесь подтверждения от админа дома.',
+      parse_mode: 'HTML',
+      text: '⏳ Заявка в <b>Kojori House</b> отправлена — осталось дождаться админа.',
       reply_markup: {
         inline_keyboard: [
           [
             {
-              text: '📱 Открыть мини-приложение',
+              text: '📱 Открыть приложение',
               web_app: {
                 url: 'https://miniapp.example.app/?bot=household_test_bot&join=join-token'
               }
@@ -1134,15 +1162,39 @@ describe('registerHouseholdSetupCommands', () => {
         chat_id: -100123456
       }
     })
-    expect(sendPayload.text).toContain('🏡 <b>New household: Kojori House</b>')
-    expect(sendPayload.text).toContain('🧩 <b>Setup progress: 0/5</b>')
-    expect(sendPayload.text).toContain('⚪ Purchases')
-    expect(sendPayload.text).toContain('⚪ Payments')
-    expect(sendPayload.text).toContain('⚪ Notifications')
-    // Check that join household button exists
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('Join household')
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('➕ Purchases')
-    expect(JSON.stringify(sendPayload.reply_markup)).toContain('setup_topic:create:purchase')
+    expect(sendPayload.text).toBe(
+      [
+        '🎉 <b>Kojori House</b> — your new household is ready!',
+        '',
+        'Next, give each conversation its topic.',
+        '',
+        '<b>Topics: 0 of 5</b>',
+        'Create the missing ones below or bind your own: /bind inside a topic.',
+        '⬜ Purchases  ⬜ Anonymous',
+        '⬜ Reminders  ⬜ Payments',
+        '⬜ Notifications'
+      ].join('\n')
+    )
+    expect(calls[1]?.payload).toMatchObject({ parse_mode: 'HTML' })
+    expect(sendPayload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: '+ Purchases', callback_data: 'setup_topic:create:purchase' },
+          { text: '+ Anonymous', callback_data: 'setup_topic:create:feedback' },
+          { text: '+ Reminders', callback_data: 'setup_topic:create:reminders' }
+        ],
+        [
+          { text: '+ Payments', callback_data: 'setup_topic:create:payments' },
+          { text: '+ Notifications', callback_data: 'setup_topic:create:notifications' }
+        ],
+        [
+          {
+            text: 'Join the household',
+            url: 'https://t.me/household_test_bot?start=join_join-token'
+          }
+        ]
+      ]
+    })
   })
 
   test('creates and binds a missing setup topic from callback', async () => {
@@ -1259,17 +1311,19 @@ describe('registerHouseholdSetupCommands', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: '✅ Purchases topic created and bound: Shared purchases.'
+        text: '✅ Topic "Shared purchases" created: Purchases.'
       }
     })
+    const editedText = (calls[3]?.payload as { text?: string } | undefined)?.text
     expect(calls[3]).toMatchObject({
       method: 'editMessageText',
       payload: {
         chat_id: -100123456,
-        message_id: 91,
-        text: expect.stringContaining('✅ Purchases')
+        message_id: 91
       }
     })
+    expect(editedText).toContain('<b>Topics: 1 of 5</b>')
+    expect(editedText).toContain('✅ Purchases  ⬜ Anonymous')
 
     expect(await repository.getHouseholdTopicBinding('household-1', 'purchase')).toMatchObject({
       telegramThreadId: '77',
@@ -1277,235 +1331,7 @@ describe('registerHouseholdSetupCommands', () => {
     })
   })
 
-  test('resets setup state with /unsetup and clears pending setup bindings', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const repository = createHouseholdConfigurationRepository()
-    const promptRepository = createPromptRepository()
-    const householdOnboardingService: HouseholdOnboardingService = {
-      async ensureHouseholdJoinToken() {
-        return {
-          householdId: 'household-1',
-          householdName: 'Kojori House',
-          token: 'join-token'
-        }
-      },
-      async getMiniAppAccess() {
-        return {
-          status: 'open_from_group'
-        }
-      },
-      async joinHousehold() {
-        return {
-          status: 'pending',
-          household: {
-            id: 'household-1',
-            name: 'Kojori House',
-            defaultLocale: 'en'
-          }
-        }
-      }
-    }
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-
-      if (method === 'getChatMember') {
-        return {
-          ok: true,
-          result: {
-            status: 'administrator',
-            user: {
-              id: 123456,
-              is_bot: false,
-              first_name: 'Stan'
-            }
-          }
-        } as never
-      }
-
-      if (method === 'sendMessage') {
-        return {
-          ok: true,
-          result: {
-            message_id: calls.length,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: -100123456,
-              type: 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      return {
-        ok: true,
-        result: true
-      } as never
-    })
-
-    const householdSetupService = createHouseholdSetupService(repository)
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService,
-      householdOnboardingService,
-      householdAdminService: createHouseholdAdminService(),
-      householdConfigurationRepository: repository,
-      promptRepository
-    })
-
-    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
-    await householdSetupService.bindTopic({
-      actorIsAdmin: true,
-      telegramChatId: '-100123456',
-      role: 'purchase',
-      telegramThreadId: '777',
-      topicName: 'Shared purchases'
-    })
-    await promptRepository.upsertPendingAction({
-      telegramUserId: '123456',
-      telegramChatId: '-100123456',
-      action: 'setup_topic_binding',
-      payload: {
-        role: 'payments'
-      },
-      expiresAt: nowInstant().add({ minutes: 10 })
-    })
-
-    calls.length = 0
-    await bot.handleUpdate(groupCommandUpdate('/unsetup') as never)
-
-    expect(calls[1]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -100123456,
-        text: '🧹 Setup state reset for <b>Kojori House</b>. Run /setup again to configure topics from scratch.'
-      }
-    })
-    expect(await repository.listHouseholdTopicBindings('household-1')).toEqual([])
-    expect(await repository.getTelegramHouseholdChat('-100123456')).toMatchObject({
-      householdId: 'household-1'
-    })
-    expect(await promptRepository.getPendingAction('-100123456', '123456')).toBeNull()
-  })
-
-  test('treats repeated /unsetup as a safe no-op', async () => {
-    const bot = createTelegramBot('000000:test-token')
-    const calls: Array<{ method: string; payload: unknown }> = []
-    const repository = createHouseholdConfigurationRepository()
-
-    bot.botInfo = {
-      id: 999000,
-      is_bot: true,
-      first_name: 'Household Test Bot',
-      username: 'household_test_bot',
-      can_join_groups: true,
-      can_read_all_group_messages: false,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      has_topics_enabled: true,
-      allows_users_to_create_topics: true
-    }
-
-    bot.api.config.use(async (_prev, method, payload) => {
-      calls.push({ method, payload })
-
-      if (method === 'getChatMember') {
-        return {
-          ok: true,
-          result: {
-            status: 'administrator',
-            user: {
-              id: 123456,
-              is_bot: false,
-              first_name: 'Stan'
-            }
-          }
-        } as never
-      }
-
-      if (method === 'sendMessage') {
-        return {
-          ok: true,
-          result: {
-            message_id: calls.length,
-            date: Math.floor(Date.now() / 1000),
-            chat: {
-              id: -100123456,
-              type: 'supergroup'
-            },
-            text: (payload as { text?: string }).text ?? 'ok'
-          }
-        } as never
-      }
-
-      return {
-        ok: true,
-        result: true
-      } as never
-    })
-
-    registerHouseholdSetupCommands({
-      bot,
-      householdSetupService: createHouseholdSetupService(repository),
-      householdOnboardingService: {
-        async ensureHouseholdJoinToken() {
-          return {
-            householdId: 'household-1',
-            householdName: 'Kojori House',
-            token: 'join-token'
-          }
-        },
-        async getMiniAppAccess() {
-          return {
-            status: 'open_from_group'
-          }
-        },
-        async joinHousehold() {
-          return {
-            status: 'pending',
-            household: {
-              id: 'household-1',
-              name: 'Kojori House',
-              defaultLocale: 'en'
-            }
-          }
-        }
-      },
-      householdAdminService: createHouseholdAdminService(),
-      householdConfigurationRepository: repository,
-      promptRepository: createPromptRepository()
-    })
-
-    await bot.handleUpdate(groupCommandUpdate('/unsetup') as never)
-
-    expect(calls[1]).toMatchObject({
-      method: 'sendMessage',
-      payload: {
-        chat_id: -100123456,
-        text: 'ℹ️ Nothing to reset for this group yet. Run /setup when you are ready.'
-      }
-    })
-  })
-
-  test('generates a join link with /join_link command', async () => {
+  test('sends the invite link with no pending requests via /invite', async () => {
     const bot = createTelegramBot('000000:test-token')
     const calls: Array<{ method: string; payload: unknown }> = []
     const repository = createHouseholdConfigurationRepository()
@@ -1599,21 +1425,165 @@ describe('registerHouseholdSetupCommands', () => {
     await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
     calls.length = 0
 
-    await bot.handleUpdate(groupCommandUpdate('/join_link') as never)
+    await bot.handleUpdate(groupCommandUpdate('/invite') as never)
+
+    expect(calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1)
+    expect(calls[1]).toMatchObject({
+      method: 'sendMessage',
+      payload: {
+        chat_id: -100123456,
+        parse_mode: 'HTML',
+        text: '🔗 <b>Invite to Kojori House</b>\n<code>https://t.me/household_test_bot?start=join_test-join-token</code>\n\nNo new requests.',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Join the household',
+                url: 'https://t.me/household_test_bot?start=join_test-join-token'
+              }
+            ]
+          ]
+        }
+      }
+    })
+  })
+
+  test('lists pending requests with approve buttons in the /invite message', async () => {
+    const bot = createTelegramBot('000000:test-token')
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const repository = createHouseholdConfigurationRepository()
+
+    bot.botInfo = {
+      id: 999000,
+      is_bot: true,
+      first_name: 'Household Test Bot',
+      username: 'household_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: true
+    }
+
+    bot.api.config.use(async (_prev, method, payload) => {
+      calls.push({ method, payload })
+
+      if (method === 'getChatMember') {
+        return {
+          ok: true,
+          result: {
+            status: 'administrator',
+            user: {
+              id: 123456,
+              is_bot: false,
+              first_name: 'Stan'
+            }
+          }
+        } as never
+      }
+
+      return {
+        ok: true,
+        result: {
+          message_id: 500,
+          date: Math.floor(Date.now() / 1000),
+          chat: {
+            id: -100123456,
+            type: 'supergroup'
+          },
+          text: (payload as { text?: string }).text ?? 'ok'
+        }
+      } as never
+    })
+
+    const pendingMember = (
+      telegramUserId: string,
+      displayName: string,
+      username: string | null
+    ): HouseholdPendingMemberRecord => ({
+      householdId: 'household-1',
+      householdName: 'Kojori House',
+      telegramUserId,
+      displayName,
+      username,
+      languageCode: 'en',
+      householdDefaultLocale: 'en'
+    })
+
+    registerHouseholdSetupCommands({
+      bot,
+      householdSetupService: createHouseholdSetupService(repository),
+      householdOnboardingService: {
+        async ensureHouseholdJoinToken() {
+          return {
+            householdId: 'household-1',
+            householdName: 'Kojori House',
+            token: 'test-join-token'
+          }
+        },
+        async getMiniAppAccess() {
+          return {
+            status: 'open_from_group'
+          }
+        },
+        async joinHousehold() {
+          throw new Error('not used')
+        }
+      },
+      householdAdminService: {
+        async listPendingMembers() {
+          return {
+            status: 'ok',
+            householdName: 'Kojori House',
+            members: [
+              pendingMember('201', 'Ion <Admin>', 'ion'),
+              pendingMember('202', 'Dima', null),
+              pendingMember('203', 'Nika', 'nika')
+            ]
+          }
+        },
+        async approvePendingMember() {
+          throw new Error('not used')
+        }
+      },
+      householdConfigurationRepository: repository,
+      promptRepository: createPromptRepository()
+    })
+
+    await bot.handleUpdate(groupCommandUpdate('/setup Kojori House') as never)
+    calls.length = 0
+
+    await bot.handleUpdate(groupCommandUpdate('/invite') as never)
 
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
         chat_id: -100123456,
-        text: '🔗 <b>Join link · Kojori House</b>\n\n<code>https://t.me/household_test_bot?start=join_test-join-token</code>\n\n<i>Anyone with this link can join the household. Share it carefully.</i>',
+        parse_mode: 'HTML',
+        text: [
+          '🔗 <b>Invite to Kojori House</b>',
+          '<code>https://t.me/household_test_bot?start=join_test-join-token</code>',
+          '',
+          'Waiting for approval:',
+          '• <b>Ion &lt;Admin&gt;</b> · @ion',
+          '• <b>Dima</b>',
+          '• <b>Nika</b> · @nika'
+        ].join('\n'),
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: '🤝 Join household',
+                text: 'Join the household',
                 url: 'https://t.me/household_test_bot?start=join_test-join-token'
               }
-            ]
+            ],
+            [
+              { text: '✅ Ion <Admin>', callback_data: 'approve_member:201' },
+              { text: '✅ Dima', callback_data: 'approve_member:202' }
+            ],
+            [{ text: '✅ Nika', callback_data: 'approve_member:203' }]
           ]
         }
       }

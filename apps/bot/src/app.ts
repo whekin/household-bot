@@ -4,6 +4,7 @@ import { webhookCallback } from 'grammy'
 import {
   createAdHocNotificationService,
   createHouseholdAuditNotificationService,
+  paymentProgressFromDashboard,
   createHouseholdAdminService,
   createHouseholdOnboardingService,
   createHouseholdSetupService,
@@ -230,6 +231,15 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           sendTopicMessage: async (input) => {
             return telegramTransport.sendTopicMessage(input)
           },
+          ...(financeServiceRegistry
+            ? {
+                paymentProgress: async ({ householdId, kind, period }) => {
+                  const dashboard =
+                    await financeServiceForHousehold(householdId).generateDashboard(period)
+                  return dashboard ? paymentProgressFromDashboard(dashboard, kind, period) : null
+                }
+              }
+            : {}),
           ...(livePaymentCardService
             ? {
                 onDelivered: async ({ event, chatId, threadId, messageId }) => {

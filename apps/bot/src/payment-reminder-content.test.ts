@@ -193,8 +193,9 @@ describe('payment reminder content', () => {
         }
       }
     })
-    expect(content.text).toContain('Electricity · 15.64 ₾ осталось · 11.70 ₾ уже оплачено')
-    expect(content.text).toContain('<b>Кто сколько платит</b>\n\n')
+    // 27.34 assigned, 15.64 still open: the 11.70 already paid is shown beside it.
+    expect(content.text).toContain('   • Electricity · 15.64 ₾ осталось · 11.70 ₾ уже оплачено')
+    expect(content.text).toContain('Осталось 120 ₾\n\n⏳ <b>Alice &lt;A&gt;</b> · 120 ₾\n')
   })
   test('keeps bulk admin actions out of every public payment card', () => {
     for (const buildContent of [
@@ -226,8 +227,8 @@ describe('payment reminder content', () => {
   })
 
   test('formats month names instead of raw periods', () => {
-    expect(formatBillingMonth('en', '2026-05')).toBe('May 2026')
-    expect(formatBillingMonth('ru', '2026-05')).toContain('2026')
+    expect(formatBillingMonth('en', '2026-05')).toBe('May')
+    expect(formatBillingMonth('ru', '2026-05')).toBe('май')
   })
 
   test('renders rent details with escaped member names and requisites', () => {
@@ -241,12 +242,16 @@ describe('payment reminder content', () => {
     })
 
     expect(content.parseMode).toBe('HTML')
-    expect(content.text).toContain('May 2026')
-    expect(content.text).toContain('May 15')
-    expect(content.text).toContain('Alice &lt;A&gt;')
-    expect(content.text).toContain('GE00&lt;123&gt;')
-    expect(content.text).toContain('Amount due')
+    expect(content.text).toContain('🏠 <b>May rent · due May 15</b>')
+    expect(content.text).toContain('1 of 2 paid · 350 ₾ left')
+    expect(content.text).toContain('⏳ <b>Alice &lt;A&gt;</b> · 350 ₾')
+    expect(content.text).toContain('✅ <s>Bob</s>')
+    expect(content.text).toContain('🏦 Bank · Main &lt;rent&gt;')
+    expect(content.text).toContain('Recipient: Landlord &amp; Co')
+    expect(content.text).toContain('<code>GE00&lt;123&gt;</code>')
     expect(content.text).not.toContain('<b>Status</b>')
+    expect(content.text).not.toContain('2026')
+    expect(content.text).not.toContain('.00')
     expect(JSON.stringify(content.replyMarkup)).toContain('"copy_text":{"text":"GE00<123>"}')
     expect(content.text).not.toContain('2026-05-15')
     expect(content.text).not.toContain('2026-05 · due')
@@ -282,8 +287,8 @@ describe('payment reminder content', () => {
       viewMode: 'details'
     })
 
-    expect(content.text).toContain('План коммуналки пока не готов.')
-    expect(content.text).not.toContain('No utility plan is ready yet.')
+    expect(content.text).toContain('• План коммуналки ещё не готов.')
+    expect(content.text).not.toContain('The utilities plan is not ready yet.')
   })
 
   test('renders utility provider assignments and action buttons', () => {
@@ -296,13 +301,13 @@ describe('payment reminder content', () => {
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('Who pays what')
     // Grouped by member: the assignee heading, then their bill nested beneath.
-    expect(content.text).toContain('Alice &lt;A&gt;')
-    expect(content.text).toContain('Gas &lt;main&gt;')
+    expect(content.text).toContain(
+      '⏳ <b>Alice &lt;A&gt;</b> · 120 ₾\n   • Gas &lt;main&gt; · 120 ₾'
+    )
     expect(content.text).not.toContain('Gas &lt;main&gt; → ')
     expect(JSON.stringify(content.replyMarkup)).toContain('pr:p:utilities:2026-05')
-    expect(JSON.stringify(content.replyMarkup)).toContain('I paid my bills')
+    expect(JSON.stringify(content.replyMarkup)).toContain('✅ Mark as paid')
   })
 
   test('reads a covered member as paid rather than as another amount to hand over', () => {
@@ -361,8 +366,9 @@ describe('payment reminder content', () => {
 
     // Her own money covered it, so the figure beside her name would otherwise be
     // added to the running total by anyone reading down the list.
-    expect(content.text).toContain('<b>Alice &lt;A&gt;</b> — оплачено')
-    expect(content.text).toContain('✅ Gas · 120.00 ₾')
+    expect(content.text).toContain('✅ <s>Alice &lt;A&gt;</s>\n')
+    expect(content.text).not.toContain('<b>Alice &lt;A&gt;</b> ·')
+    expect(content.text).toContain('   ✅ Gas · 120 ₾')
   })
 
   test('says a purchase balance settles through utilities, not between people', () => {
@@ -458,8 +464,8 @@ describe('payment reminder content', () => {
 
     // Bob's line is ticked, Alice's is not — the bill total says 100.00 is paid,
     // but none of it came from her.
-    expect(content.text).toContain('✅ Gas · 100.00 ₾')
-    expect(content.text).toContain('• Gas · 20.00 ₾')
+    expect(content.text).toContain('✅ <s>Bob</s>\n   ✅ Gas · 100 ₾')
+    expect(content.text).toContain('<b>Alice &lt;A&gt;</b> · 120 ₾\n   • Gas · 20 ₾')
   })
 
   test('flags a shared-purchase balance once nothing is left to pay on the plan', () => {
@@ -550,7 +556,7 @@ describe('payment reminder content', () => {
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('120.00 ₾')
+    expect(content.text).toContain('⏳ <b>Alice &lt;A&gt;</b> · 120 ₾')
     expect(content.text).toContain('32.25 ₾ долг по покупкам')
   })
 
@@ -574,7 +580,7 @@ describe('payment reminder content', () => {
       viewMode: 'compact'
     })
 
-    expect(content.text).toContain('Покупок сверх счетов: 50.00 ₾')
+    expect(content.text).toContain('Покупок сверх счетов: 50 ₾')
   })
 
   test('lists a member who holds a purchase balance but no plan assignment', () => {
@@ -631,9 +637,13 @@ describe('payment reminder content', () => {
     })
 
     const markup = JSON.stringify(content.replyMarkup)
-    expect(content.text).toContain('Подробности и история платежей — в дашборде.')
+    // The app button is enough; no filler line pointing at it.
+    expect(content.text).not.toContain('приложени')
+    expect(content.text).toContain('Счета можно внести ответом на это сообщение')
     expect(markup).toContain('pr:p:utilities:2026-05')
-    expect(markup).toContain('start=dashboard')
+    expect(markup).toContain(
+      '"text":"📱 Приложение","url":"https://t.me/household_test_bot?start=dashboard"'
+    )
     expect(markup).not.toContain('pr:d:')
     expect(markup).not.toContain('pr:c:')
     expect(markup).not.toContain('reminder_util:guided')
@@ -667,9 +677,14 @@ describe('payment reminder content', () => {
     })
 
     const markup = JSON.stringify(content.replyMarkup)
-    expect(content.text).toContain('Details and payment history are available in the dashboard.')
+    // The app button is enough; no filler line pointing at it, and no
+    // screenshot hint outside the reminders topic.
+    expect(content.text).not.toContain('dashboard')
+    expect(content.text).not.toContain('screenshot')
     expect(markup).toContain('pr:p:utilities:2026-05')
-    expect(markup).toContain('start=dashboard')
+    expect(markup).toContain(
+      '"text":"📱 App","url":"https://t.me/household_test_bot?start=dashboard"'
+    )
     expect(markup).not.toContain('pr:d:')
     expect(markup).not.toContain('reminder_util:guided')
     expect(markup).not.toContain('reminder_util:template')

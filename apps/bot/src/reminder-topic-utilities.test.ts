@@ -410,7 +410,7 @@ describe('registerReminderTopicUtilities', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'Пошаговый ввод коммуналки запущен.'
+        text: 'Вводим по шагам.'
       }
     })
     expect(calls[1]).toMatchObject({
@@ -430,13 +430,13 @@ describe('registerReminderTopicUtilities', () => {
       method: 'answerCallbackQuery',
       payload: {
         callback_query_id: 'callback-1',
-        text: 'Пошаговый ввод коммуналки запущен.'
+        text: 'Вводим по шагам.'
       }
     })
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('Electricity'),
+        text: 'Electricity (1 из 2): сумма в лари? Нет счёта — отправьте 0.',
         message_thread_id: 555
       }
     })
@@ -446,7 +446,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('Water')
+        text: expect.stringContaining('Water (2 из 2)')
       }
     })
 
@@ -455,16 +455,16 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('Коммунальные начисления за 2026-03'),
+        text: '💡 Коммуналка за март\n\nElectricity: 55 ₾\nWater: 12.50 ₾\n\nВсего: 67.50 ₾',
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: 'Сохранить коммуналку',
+                text: '✅ Сохранить',
                 callback_data: expect.stringMatching(/^reminder_util:confirm:[^:]+$/)
               },
               {
-                text: 'Отменить',
+                text: 'Отмена',
                 callback_data: expect.stringMatching(/^reminder_util:cancel:[^:]+$/)
               }
             ]
@@ -501,7 +501,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Сохранено 2 начислений коммуналки за 2026-03.'
+        text: '✅ Коммуналка за март сохранена — 2 счёта.'
       }
     })
   })
@@ -514,7 +514,15 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[1]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('<pre>Electricity: \nWater: </pre>'),
+        text: [
+          '💡 <b>Коммуналка за март</b>',
+          '',
+          'Впишите суммы в лари и отправьте сюда:',
+          '<pre>Electricity: \nWater: </pre>',
+          'Пусто или 0 — счёт пропустим.',
+          '',
+          'Или ответьте на напоминание скриншотом из Credo или TBC.'
+        ].join('\n'),
         parse_mode: 'HTML',
         message_thread_id: 555
       }
@@ -526,7 +534,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 ₾')
+        text: expect.stringContaining('Electricity: 22 ₾')
       }
     })
     expect(
@@ -584,7 +592,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 ₾')
+        text: expect.stringContaining('Electricity: 22 ₾')
       }
     })
 
@@ -596,7 +604,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'sendMessage',
       payload: {
-        text: expect.stringContaining('- Electricity: 22.00 ₾')
+        text: expect.stringContaining('Electricity: 22 ₾')
       }
     })
   })
@@ -621,7 +629,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Это предложение по коммуналке уже недоступно.',
+        text: 'Это уже неактуально.',
         show_alert: true
       }
     })
@@ -647,7 +655,7 @@ describe('registerReminderTopicUtilities', () => {
     expect(calls[0]).toMatchObject({
       method: 'answerCallbackQuery',
       payload: {
-        text: 'Это предложение по коммуналке уже недоступно.',
+        text: 'Это уже неактуально.',
         show_alert: true
       }
     })
@@ -693,16 +701,14 @@ describe('registerReminderTopicUtilities', () => {
       calls.filter(
         (call) =>
           call.method === 'answerCallbackQuery' &&
-          (call.payload as { text?: string }).text ===
-            'Сохранено 1 начисление коммуналки за 2026-03.'
+          (call.payload as { text?: string }).text === '✅ Коммуналка за март сохранена — 1 счёт.'
       )
     ).toHaveLength(1)
     expect(
       calls.filter(
         (call) =>
           call.method === 'answerCallbackQuery' &&
-          (call.payload as { text?: string }).text ===
-            'Это предложение по коммуналке уже недоступно.'
+          (call.payload as { text?: string }).text === 'Это уже неактуально.'
       )
     ).toHaveLength(1)
   })

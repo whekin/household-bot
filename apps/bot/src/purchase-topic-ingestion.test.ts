@@ -221,15 +221,14 @@ describe('buildPurchaseAcknowledgement', () => {
       participants: participants()
     })
 
-    expect(result).toBe(`🛒 <b>Looks like a shared purchase</b>
-
-🧾 <b>toilet paper</b> — <b>30.00 ₾</b>
-
-👥 <b>Participants</b>
-• Mia
-• <s>Dima</s> · excluded
-
-<i>Confirm or cancel below 👇</i>`)
+    // Participants are no longer listed in the text: the toggle buttons under the
+    // proposal already show everyone.
+    const [headline, split, ...rest] = result!.split('\n')
+    expect(headline).toBe('🛒 <b>toilet paper · 30 ₾</b>')
+    expect(rest).toEqual([])
+    expect(result).not.toContain('Dima')
+    // Source bug: one included participant renders "Split 1 ways".
+    expect(split).not.toContain('1 ways')
   })
 
   test('shows a calculation note when the llm computed the total', () => {
@@ -246,17 +245,11 @@ describe('buildPurchaseAcknowledgement', () => {
       participants: participants()
     })
 
-    expect(result).toBe(`🛒 <b>Looks like a shared purchase</b>
-
-🧾 <b>water bottles</b> — <b>30.00 ₾</b>
-
-🤔 I calculated the total as 5 x 6 lari = 30 lari. Is that right?
-
-👥 <b>Participants</b>
-• Mia
-• <s>Dima</s> · excluded
-
-<i>Confirm or cancel below 👇</i>`)
+    const [headline, split, ...rest] = result!.split('\n')
+    expect(headline).toBe('🛒 <b>water bottles · 30 ₾</b>')
+    expect(rest).toEqual(['', 'Total worked out as 5 x 6 lari = 30 lari. Right?'])
+    // Source bug: one included participant renders "Split 1 ways".
+    expect(split).not.toContain('1 ways')
   })
 
   test('returns explicit clarification text from the interpreter', () => {
@@ -273,7 +266,7 @@ describe('buildPurchaseAcknowledgement', () => {
       parserMode: 'llm'
     })
 
-    expect(result).toBe('❓ Which currency was this purchase in?')
+    expect(result).toBe('Which currency was this purchase in?')
   })
 
   test('returns fallback clarification when the interpreter question is missing', () => {
@@ -290,7 +283,7 @@ describe('buildPurchaseAcknowledgement', () => {
       parserMode: 'llm'
     })
 
-    expect(result).toBe('❓ What amount and currency should I record for this shared purchase?')
+    expect(result).toBe('How much was it, and in which currency?')
   })
 
   test('returns parse failure acknowledgement without guessing values', () => {
@@ -300,7 +293,7 @@ describe('buildPurchaseAcknowledgement', () => {
     })
 
     expect(result).toBe(
-      "🤔 I couldn't understand this as a shared purchase yet. Please restate it with item, amount, and currency."
+      'Could not read that as a purchase. Write what you bought, the amount and the currency.'
     )
   })
 
@@ -336,15 +329,12 @@ describe('buildPurchaseAcknowledgement', () => {
       'ru'
     )
 
-    expect(result).toBe(`🛒 <b>Похоже, это общая покупка</b>
-
-🧾 <b>туалетная бумага</b> — <b>30.00 ₾</b>
-
-👥 <b>Участники</b>
-• Mia
-• <s>Dima</s> · не участвует
-
-<i>Подтвердите или отмените ниже 👇</i>`)
+    const [headline, split, ...rest] = result!.split('\n')
+    expect(headline).toBe('🛒 <b>туалетная бумага · 30 ₾</b>')
+    expect(rest).toEqual([])
+    expect(split).toMatch(/^[А-ЯЁ]/)
+    // Source bug: one included participant renders "Поровну на 1".
+    expect(split).not.toBe('Поровну на 1')
   })
 })
 

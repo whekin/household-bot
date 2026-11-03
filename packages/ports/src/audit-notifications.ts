@@ -49,6 +49,8 @@ export interface CreateHouseholdAuditEventInput {
   summaryText: string
   metadata?: Record<string, unknown>
   deliveryStatus?: HouseholdAuditDeliveryStatus
+  /** At most one event per household and key; a repeat insert is dropped. */
+  dedupeKey?: string | null
   createdAt: Instant
 }
 
@@ -71,7 +73,8 @@ export interface UpdateHouseholdAuditEventDeliveryInput {
 }
 
 export interface HouseholdAuditNotificationRepository {
-  createAuditEvent(input: CreateHouseholdAuditEventInput): Promise<HouseholdAuditEventRecord>
+  /** Resolves to null when `dedupeKey` was already used for the household. */
+  createAuditEvent(input: CreateHouseholdAuditEventInput): Promise<HouseholdAuditEventRecord | null>
   getAuditEventById(eventId: string): Promise<HouseholdAuditEventRecord | null>
   getNotificationSettings(householdId: string): Promise<HouseholdNotificationSettingsRecord>
   updateNotificationSettings(

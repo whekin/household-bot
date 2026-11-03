@@ -94,6 +94,9 @@ describe('createDbAuditNotificationRepository', () => {
       },
       deliveryStatus: 'pending'
     })
+    if (!event) {
+      throw new Error('Expected the audit event to be created')
+    }
     await expect(repositoryClient.repository.getAuditEventById(event.id)).resolves.toMatchObject({
       id: event.id,
       summaryText: 'Alex added purchase: groceries 42 GEL'
@@ -116,6 +119,22 @@ describe('createDbAuditNotificationRepository', () => {
 
     const events = await repositoryClient.repository.listAuditEventsForHousehold(householdId!, 10)
     expect(events.map((event) => event.id)).toEqual([event.id])
+
+    const milestone = {
+      householdId: householdId!,
+      actorMemberId: null,
+      actorDisplayName: 'System',
+      eventType: 'payment.fully_paid',
+      category: 'payment_events',
+      summaryText: 'rent for 2026-03 is fully paid',
+      metadata: { kind: 'rent', period: '2026-03' },
+      dedupeKey: 'payment.fully_paid:rent:2026-03',
+      createdAt: Temporal.Instant.from('2026-03-25T12:00:00Z')
+    } as const
+    await expect(repositoryClient.repository.createAuditEvent(milestone)).resolves.toMatchObject({
+      eventType: 'payment.fully_paid'
+    })
+    await expect(repositoryClient.repository.createAuditEvent(milestone)).resolves.toBeNull()
 
     await repositoryClient.close()
   })

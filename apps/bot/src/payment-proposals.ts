@@ -4,7 +4,7 @@ import {
   type FinanceCommandService,
   type MemberPaymentGuidance
 } from '@household/application'
-import { BillingPeriod, convertMoney, Money, Temporal } from '@household/domain'
+import { BillingPeriod, convertMoney, formatDayDisplay, Money, Temporal } from '@household/domain'
 import type {
   FinanceMemberRecord,
   FinancePaymentKind,
@@ -222,28 +222,7 @@ function isMemberUnpaidForKind(input: {
 }
 
 function formatDateLabel(locale: BotLocale, rawDate: string): string {
-  const [yearRaw, monthRaw, dayRaw] = rawDate.split('-')
-  const year = Number(yearRaw)
-  const month = Number(monthRaw)
-  const day = Number(dayRaw)
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return rawDate
-  }
-
-  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'UTC'
-  }).format(new Date(Date.UTC(year, month - 1, day)))
+  return formatDayDisplay(rawDate, locale)
 }
 
 function formatPaymentBreakdown(locale: BotLocale, breakdown: PaymentProposalBreakdown): string {
@@ -353,33 +332,18 @@ export function formatPaymentProposalText(input: {
     BigInt(input.proposal.payload.amountMinor),
     input.proposal.payload.currency
   )
-  const intro =
-    input.surface === 'assistant'
-      ? getBotTranslations(input.locale).assistant.paymentProposal(
-          input.proposal.payload.kind,
-          amount.toMajorString(),
-          amount.currency
-        )
-      : input.proposal.payload.isThirdParty && input.proposal.payload.reportedDisplayName
-        ? getBotTranslations(input.locale).payments.proposalReported(
-            escapeHtml(input.proposal.payload.reportedDisplayName),
-            input.proposal.payload.kind,
-            amount.toMajorString(),
-            amount.currency
-          )
-        : getBotTranslations(input.locale).payments.proposal(
-            input.proposal.payload.kind,
-            amount.toMajorString(),
-            amount.currency
-          )
-
-  const billLine = input.proposal.payload.utilityBillName
-    ? `\n💡 ${escapeHtml(input.proposal.payload.utilityBillName)}`
-    : ''
-  const periodLine =
-    billLine +
-    (input.proposal.payload.period ? `\n📅 ${escapeHtml(input.proposal.payload.period)}` : '')
-  const confirmHint = getBotTranslations(input.locale).payments.confirmHint
+  const payload = input.proposal.payload
+  const intro = getBotTranslations(input.locale).payments.proposal({
+    kind: payload.kind,
+    amount: amount.toMajorString(),
+    currency: amount.currency,
+    period: payload.period ?? null,
+    displayName:
+      payload.isThirdParty && payload.reportedDisplayName
+        ? escapeHtml(payload.reportedDisplayName)
+        : null,
+    billName: payload.utilityBillName ? escapeHtml(payload.utilityBillName) : null
+  })
 
   if (
     shouldUseCompactTopicProposal({
@@ -387,16 +351,10 @@ export function formatPaymentProposalText(input: {
       breakdown: input.proposal.breakdown
     })
   ) {
-    return `${intro}${periodLine}\n\n${confirmHint}`
+    return intro
   }
 
-  return [
-    intro + periodLine,
-    '',
-    formatPaymentBreakdown(input.locale, input.proposal.breakdown),
-    '',
-    confirmHint
-  ].join('\n')
+  return [intro, '', formatPaymentBreakdown(input.locale, input.proposal.breakdown)].join('\n')
 }
 
 export type AgentPaymentProposalResult =

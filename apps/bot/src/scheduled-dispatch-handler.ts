@@ -345,7 +345,7 @@ export function createScheduledDispatchHandler(options: {
               }
             : {})
         })
-        if (event.deliveredTelegramChatId && event.deliveredTelegramMessageId) {
+        if (event?.deliveredTelegramChatId && event.deliveredTelegramMessageId) {
           deliveredMessage = {
             chatId: event.deliveredTelegramChatId,
             threadId: event.deliveredTelegramThreadId,

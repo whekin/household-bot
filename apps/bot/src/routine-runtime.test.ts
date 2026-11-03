@@ -52,6 +52,8 @@ function fixture() {
     getHouseholdMember: async (householdId: string, userId: string) =>
       members.find((m) => m.householdId === householdId && m.telegramUserId === userId) ?? null,
     getHouseholdChatByHouseholdId: async () => chat,
+    getTelegramHouseholdChat: async (telegramChatId: string) =>
+      telegramChatId === chat.telegramChatId ? chat : null,
     listHouseholdMembers: async () => members,
     listHouseholdMembersByTelegramUserId: async (userId: string) =>
       members.filter((m) => m.telegramUserId === userId),
@@ -332,18 +334,26 @@ test('expanding a day card is shared on that message and only for household memb
   expect(
     (await f.repository.get(routineInput.id))!.messages.find((m) => m.key === message.key)?.expanded
   ).toBe(true)
-  const edits = f.calls.filter((c) => c.method === 'editMessageText')
-  expect(String(edits.at(-1)?.payload.text)).toContain('☑️')
+  const lastCardButtons = () => {
+    const edit = f.calls.filter((c) => c.method === 'editMessageText').at(-1)
+    const markup = edit?.payload.reply_markup as
+      | { inline_keyboard: Array<Array<{ text: string }>> }
+      | undefined
+    return markup?.inline_keyboard.flat().map((button) => button.text)
+  }
+  expect(lastCardButtons()).toEqual(['⬜ 09:00 · Вода', '⬜ 13:00 · Вода', 'Свернуть'])
   await toggle(200)
   expect(
     (await f.repository.get(routineInput.id))!.messages.find((m) => m.key === message.key)?.expanded
   ).toBe(false)
+  expect(lastCardButtons()).toContain('Все дела · 0 из 2')
+  expect(lastCardButtons()).not.toContain('Свернуть')
   await toggle(999)
   expect(
     f.calls.some(
       (c) =>
         c.method === 'answerCallbackQuery' &&
-        String(c.payload.text).includes('Доступ только участникам дома')
+        String(c.payload.text) === '🔒 Только для участников дома'
     )
   ).toBe(true)
 })

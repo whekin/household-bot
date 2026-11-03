@@ -429,7 +429,15 @@ export function registerAgentActionCallbacks(
               ? 'payment_events'
               : 'purchase_events',
         summaryText: resultText,
-        metadata: { actionId: payload.actionId, params: payload.params }
+        metadata: {
+          actionId: payload.actionId,
+          // The group sees this line even when the request came from a private chat,
+          // so a remembered fact is named by its title only.
+          summary:
+            payload.actionType === 'set_household_fact' && typeof payload.params.title === 'string'
+              ? t.summarizeSetHouseholdFact(payload.params.title, null, null)
+              : payload.summaryText
+        }
       })
     }
   })
