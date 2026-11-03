@@ -1434,7 +1434,7 @@ export function agentToolDefinitions(input: {
         'covered_member_ids: additional members whose shares the payer covered (e.g. "paid for me and Alisa" → sender is payer, Alisa in covered_member_ids; "paid for everyone" / "за всех" → every other member id here). Amounts default to each member\'s billed share.',
         'amount_major: only if the sender explicitly wrote the amount in THIS message.',
         'For a payment to a named utility provider, get_payment_instructions supplies utilityBillId; pass it as utility_bill_id. This includes partial payments and additional top-ups. If the member says a payment was already made or already counted, inspect list_ledger before proposing another payment; ask whether it is additional if unclear.',
-        'period: YYYY-MM for the billing period the member identifies, including an advance payment. Paying early does not necessarily mean next month: use the due date and get_bill_status. If the default period is settled, ask which period the new payment covers; never silently advance it or change rent to utilities.',
+        'period: YYYY-MM for the billing period the member identifies, including an advance payment. Paying early does not necessarily mean next month: use the due date and get_bill_status. If the default period is settled, ask which period the new payment covers; never silently advance it or change rent to utilities. The one exception is a rent payment the member explicitly calls advance ("заранее", "вперёд", "in advance") without naming a month: use the first following month whose rent is still unpaid, since the confirmation card shows the month before anything is recorded.',
         MEMBER_ID_NOTE
       ].join(' '),
       parameters: {
