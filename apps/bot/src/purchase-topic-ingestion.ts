@@ -1,5 +1,6 @@
 import { instantFromEpochSeconds, Money, type Instant } from '@household/domain'
 import type { Bot, Context } from 'grammy'
+import type { Message } from 'grammy/types'
 import type { Logger } from '@household/observability'
 import type { HouseholdAuditNotificationService } from '@household/application'
 import type {
@@ -203,6 +204,16 @@ export interface PurchaseMessageIngestionRepository {
     record: PurchaseTopicRecord,
     interpretation: PurchaseInterpretation
   ): Promise<PurchaseMessageIngestionResult>
+  /** Where the bot posted the proposal, so it can be edited after an auto-confirm. */
+  recordProposalMessage?(
+    purchaseMessageId: string,
+    message: {
+      householdId: string
+      telegramChatId: string
+      telegramThreadId: string
+      telegramMessageId: string
+    }
+  ): Promise<void>
   confirm(
     purchaseMessageId: string,
     actorTelegramUserId: string
@@ -581,10 +592,10 @@ async function replyToPurchaseMessage(
     repository: TopicMessageHistoryRepository | undefined
     record: PurchaseTopicRecord
   }
-): Promise<void> {
+): Promise<Message | null> {
   const message = ctx.msg
   if (!message) {
-    return
+    return null
   }
 
   const reply = await ctx.reply(text, {
@@ -612,6 +623,8 @@ async function replyToPurchaseMessage(
     rawText: text,
     messageSentAt: telegramMessageSentAtFromMessage(reply)
   })
+
+  return reply
 }
 
 function isPhotoOnlyPurchaseMessage(record: PurchaseTopicRecord): boolean {
@@ -646,12 +659,12 @@ async function finalizePurchaseReply(
     repository: TopicMessageHistoryRepository | undefined
     record: PurchaseTopicRecord
   }
-): Promise<void> {
+): Promise<Message | null> {
   if (!text) {
-    return
+    return null
   }
 
-  await replyToPurchaseMessage(ctx, text, replyMarkup, history)
+  return replyToPurchaseMessage(ctx, text, replyMarkup, history)
 }
 
 function toCandidateFromContext(ctx: Context): PurchaseTopicCandidate | null {
@@ -834,7 +847,7 @@ export function buildPurchaseAcknowledgement(
         formatPurchaseSummary(locale, result),
         formatPurchasePayer(locale, result),
         formatPurchaseCalculationNote(locale, result),
-        null
+        t.autoConfirmNote
       )
     case 'clarification_needed':
       return `${escapeHtml(
@@ -919,7 +932,8 @@ export async function handlePurchaseMessageResult(
   result: PurchaseMessageIngestionResult,
   locale: BotLocale,
   logger: Logger | undefined,
-  historyRepository?: TopicMessageHistoryRepository
+  historyRepository?: TopicMessageHistoryRepository,
+  proposalRepository?: Pick<PurchaseMessageIngestionRepository, 'recordProposalMessage'>
 ): Promise<void> {
   if (result.status !== 'duplicate') {
     logger?.info(
@@ -938,7 +952,7 @@ export async function handlePurchaseMessageResult(
   }
 
   const acknowledgement = buildPurchaseAcknowledgement(result, locale)
-  await finalizePurchaseReply(
+  const reply = await finalizePurchaseReply(
     ctx,
     acknowledgement,
     result.status === 'pending_confirmation'
@@ -964,6 +978,28 @@ export async function handlePurchaseMessageResult(
         }
       : undefined
   )
+
+  // Remember where the proposal sits so it can still be confirmed, and edited into
+  // the saved card, if nobody answers it.
+  if (
+    reply &&
+    result.status === 'pending_confirmation' &&
+    proposalRepository?.recordProposalMessage
+  ) {
+    await proposalRepository
+      .recordProposalMessage(result.purchaseMessageId, {
+        householdId: record.householdId,
+        telegramChatId: record.chatId,
+        telegramThreadId: record.threadId,
+        telegramMessageId: String(reply.message_id)
+      })
+      .catch((error) => {
+        logger?.warn(
+          { event: 'purchase.proposal_message_not_recorded', error },
+          'Could not record the purchase proposal message'
+        )
+      })
+  }
 }
 
 function emptyInlineKeyboard() {
@@ -1016,7 +1052,7 @@ function buildPurchaseToggleMessage(
     formatPurchaseSummary(locale, result),
     formatPurchasePayer(locale, result),
     null,
-    null
+    getBotTranslations(locale).purchase.autoConfirmNote
   )
 }
 
@@ -1028,7 +1064,7 @@ function buildPurchasePayerSelectionMessage(
     formatPurchaseSummary(locale, result),
     formatPurchasePayer(locale, result),
     null,
-    formatPurchaseParticipants(locale, result.participants)
+    getBotTranslations(locale).purchase.autoConfirmNote
   )
 }
 
@@ -1488,7 +1524,8 @@ export function registerPurchaseTopicCallbacks(
         result,
         locale,
         options.logger,
-        options.historyRepository
+        options.historyRepository,
+        repository
       )
     } catch (error) {
       options.logger?.error(

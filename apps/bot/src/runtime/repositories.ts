@@ -20,10 +20,10 @@ interface RepositoryClient<T> {
 }
 
 // Timed at the adapter boundary so the per-request log reflects real database work.
-function instrumented<T extends object>(
+function instrumented<C extends RepositoryClient<object>>(
   label: string,
-  client: RepositoryClient<T> | null
-): RepositoryClient<T> | null {
+  client: C | null
+): C | null {
   return client ? { ...client, repository: instrumentRepository(label, client.repository) } : null
 }
 

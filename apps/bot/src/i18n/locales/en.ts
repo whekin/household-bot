@@ -227,13 +227,14 @@ export const enBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'shared purchase',
     clarificationPhotoOnly: 'Got the photo — what did you buy and for how much?',
-    proposal: (summary, payer, calculationNote, participants) =>
+    proposal: (summary, payer, calculationNote, footer) =>
       [
         `🛒 ${summary}`,
         ...(payer ? [payer] : []),
         ...(calculationNote ? ['', calculationNote] : []),
-        ...(participants ? ['', participants] : [])
+        ...(footer ? ['', footer] : [])
       ].join('\n'),
+    autoConfirmNote: 'Confirms itself in a day if nobody answers',
     calculatedAmountNote: (explanation) =>
       explanation
         ? `Total worked out as ${explanation}. Right?`

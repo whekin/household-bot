@@ -830,7 +830,8 @@ async function proposePurchase(
     result,
     context.locale,
     context.logger,
-    context.historyRepository
+    context.historyRepository,
+    context.purchaseRepository
   )
 
   return {

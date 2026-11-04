@@ -5,6 +5,7 @@ import { createTelegramBot } from './bot'
 
 import {
   buildPurchaseAcknowledgement,
+  handlePurchaseMessageResult,
   registerPurchaseTopicCallbacks,
   canConfirmActivePurchaseProposal,
   explicitPurchaseParticipantMemberIds,
@@ -225,10 +226,9 @@ describe('buildPurchaseAcknowledgement', () => {
     // proposal already show everyone.
     const [headline, split, ...rest] = result!.split('\n')
     expect(headline).toBe('🛒 <b>toilet paper · 30 ₾</b>')
-    expect(rest).toEqual([])
+    expect(split).toBe('For one person')
+    expect(rest).toEqual(['', 'Confirms itself in a day if nobody answers'])
     expect(result).not.toContain('Dima')
-    // Source bug: one included participant renders "Split 1 ways".
-    expect(split).not.toContain('1 ways')
   })
 
   test('shows a calculation note when the llm computed the total', () => {
@@ -247,9 +247,13 @@ describe('buildPurchaseAcknowledgement', () => {
 
     const [headline, split, ...rest] = result!.split('\n')
     expect(headline).toBe('🛒 <b>water bottles · 30 ₾</b>')
-    expect(rest).toEqual(['', 'Total worked out as 5 x 6 lari = 30 lari. Right?'])
-    // Source bug: one included participant renders "Split 1 ways".
-    expect(split).not.toContain('1 ways')
+    expect(split).toBe('For one person')
+    expect(rest).toEqual([
+      '',
+      'Total worked out as 5 x 6 lari = 30 lari. Right?',
+      '',
+      'Confirms itself in a day if nobody answers'
+    ])
   })
 
   test('returns explicit clarification text from the interpreter', () => {
@@ -331,10 +335,8 @@ describe('buildPurchaseAcknowledgement', () => {
 
     const [headline, split, ...rest] = result!.split('\n')
     expect(headline).toBe('🛒 <b>туалетная бумага · 30 ₾</b>')
-    expect(rest).toEqual([])
-    expect(split).toMatch(/^[А-ЯЁ]/)
-    // Source bug: one included participant renders "Поровну на 1".
-    expect(split).not.toBe('Поровну на 1')
+    expect(split).toBe('На одного')
+    expect(rest).toEqual(['', 'Без ответа подтвердится через сутки'])
   })
 })
 
@@ -879,5 +881,110 @@ describe('registerPurchaseTopicCallbacks', () => {
     await bot.handleUpdate(callbackUpdate('purchase:confirm:pm-1') as never)
 
     expect(repository.confirmed).toEqual(['pm-1'])
+  })
+})
+
+describe('handlePurchaseMessageResult', () => {
+  const record = { ...candidate(), householdId: config.householdId }
+
+  function fakeContext() {
+    const replies: string[] = []
+    const ctx = {
+      msg: { message_id: 10 },
+      me: { id: 1 },
+      async reply(text: string) {
+        replies.push(text)
+        return { message_id: 777, date: 1_700_000_000 }
+      }
+    }
+    return { ctx: ctx as never, replies }
+  }
+
+  const proposal = {
+    status: 'pending_confirmation' as const,
+    purchaseMessageId: 'pm-1',
+    parsedAmountMinor: 1700n,
+    parsedCurrency: 'GEL' as const,
+    parsedItemDescription: 'washing powder',
+    payerMemberId: 'member-1',
+    payerDisplayName: 'Стас',
+    amountSource: null,
+    calculationExplanation: null,
+    parserConfidence: 90,
+    parserMode: 'llm' as const,
+    participants: [
+      {
+        id: 'p1',
+        memberId: 'member-1',
+        displayName: 'Стас',
+        included: true,
+        memberStatus: 'active' as const
+      }
+    ]
+  }
+
+  test('remembers the proposal message so it can be auto-confirmed later', async () => {
+    const { ctx, replies } = fakeContext()
+    const recorded: unknown[] = []
+
+    await handlePurchaseMessageResult(ctx, record, proposal, 'ru', undefined, undefined, {
+      async recordProposalMessage(purchaseMessageId, message) {
+        recorded.push({ purchaseMessageId, ...message })
+      }
+    })
+
+    expect(replies).toHaveLength(1)
+    expect(replies[0]).toContain('Без ответа подтвердится через сутки')
+    expect(recorded).toEqual([
+      {
+        purchaseMessageId: 'pm-1',
+        householdId: config.householdId,
+        telegramChatId: '-10012345',
+        telegramThreadId: '777',
+        telegramMessageId: '777'
+      }
+    ])
+  })
+
+  test('does not record a message for questions that are not proposals', async () => {
+    const { ctx } = fakeContext()
+    const recorded: unknown[] = []
+
+    await handlePurchaseMessageResult(
+      ctx,
+      record,
+      {
+        status: 'clarification_needed',
+        purchaseMessageId: 'pm-2',
+        clarificationQuestion: 'Сколько?',
+        parsedAmountMinor: null,
+        parsedCurrency: null,
+        parsedItemDescription: null,
+        parserConfidence: 40,
+        parserMode: 'llm'
+      },
+      'ru',
+      undefined,
+      undefined,
+      {
+        async recordProposalMessage(purchaseMessageId) {
+          recorded.push(purchaseMessageId)
+        }
+      }
+    )
+
+    expect(recorded).toEqual([])
+  })
+
+  test('a failure to record does not break the reply', async () => {
+    const { ctx, replies } = fakeContext()
+
+    await handlePurchaseMessageResult(ctx, record, proposal, 'en', undefined, undefined, {
+      async recordProposalMessage() {
+        throw new Error('db down')
+      }
+    })
+
+    expect(replies).toHaveLength(1)
   })
 })

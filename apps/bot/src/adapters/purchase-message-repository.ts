@@ -1,6 +1,6 @@
 import { instantToDate, nowInstant, type Instant } from '@household/domain'
 import { createDbClient, schema } from '@household/db'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm'
 
 import type { PurchaseInterpretation } from '../openai-purchase-interpreter'
 import {
@@ -215,8 +215,26 @@ function toProposalParticipants(rows: readonly StoredPurchaseParticipantRow[]) {
   }))
 }
 
+export type AutoConfirmedPurchase = Extract<
+  PurchaseProposalActionResult,
+  { status: 'confirmed' | 'already_confirmed' | 'cancelled' | 'already_cancelled' }
+>
+
+export interface PurchaseAutoConfirmRepository {
+  /**
+   * Confirms proposals that nobody answered between `notOlderThan` and `olderThan`.
+   * Only proposals the bot posted a chat message for qualify, so rows from before
+   * that message was recorded are never confirmed on someone's behalf.
+   */
+  autoConfirmStale(input: {
+    olderThan: Instant
+    notOlderThan: Instant
+  }): Promise<readonly AutoConfirmedPurchase[]>
+}
+
 export function createPurchaseMessageRepository(databaseUrl: string): {
   repository: PurchaseMessageIngestionRepository
+  autoConfirm: PurchaseAutoConfirmRepository
   close: () => Promise<void>
 } {
   const { db, close: closeDbClient } = createDbClient(databaseUrl)
@@ -397,48 +415,11 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     })
   }
 
-  async function mutateProposalStatus(
+  async function applyProposalStatus(
+    existing: NonNullable<Awaited<ReturnType<typeof getStoredMessage>>>,
     purchaseMessageId: string,
-    actorTelegramUserId: string,
     targetStatus: 'confirmed' | 'cancelled'
   ): Promise<PurchaseProposalActionResult> {
-    const existing = await getStoredMessage(purchaseMessageId)
-    if (!existing) {
-      return {
-        status: 'not_found'
-      }
-    }
-
-    const actorRows = await db
-      .select({
-        memberId: schema.members.id,
-        isAdmin: schema.members.isAdmin,
-        lifecycleStatus: schema.members.lifecycleStatus
-      })
-      .from(schema.members)
-      .where(
-        and(
-          eq(schema.members.householdId, existing.householdId),
-          eq(schema.members.telegramUserId, actorTelegramUserId)
-        )
-      )
-      .limit(1)
-
-    const actor = actorRows[0]
-    const actorIsActiveAdmin =
-      actor?.isAdmin === 1 && normalizeLifecycleStatus(actor.lifecycleStatus) === 'active'
-    const actorIsAllowed =
-      existing.senderTelegramUserId === actorTelegramUserId ||
-      actorIsActiveAdmin ||
-      (actor?.memberId !== undefined && actor.memberId === existing.payerMemberId)
-
-    if (!actorIsAllowed) {
-      return {
-        status: 'forbidden',
-        householdId: existing.householdId
-      }
-    }
-
     if (existing.processingStatus === targetStatus) {
       return {
         status: targetStatus === 'confirmed' ? 'already_confirmed' : 'already_cancelled',
@@ -549,6 +530,51 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
       participants: toProposalParticipants(await getStoredParticipants(stored.id)),
       ...toProposalFields(stored)
     }
+  }
+
+  async function mutateProposalStatus(
+    purchaseMessageId: string,
+    actorTelegramUserId: string,
+    targetStatus: 'confirmed' | 'cancelled'
+  ): Promise<PurchaseProposalActionResult> {
+    const existing = await getStoredMessage(purchaseMessageId)
+    if (!existing) {
+      return {
+        status: 'not_found'
+      }
+    }
+
+    const actorRows = await db
+      .select({
+        memberId: schema.members.id,
+        isAdmin: schema.members.isAdmin,
+        lifecycleStatus: schema.members.lifecycleStatus
+      })
+      .from(schema.members)
+      .where(
+        and(
+          eq(schema.members.householdId, existing.householdId),
+          eq(schema.members.telegramUserId, actorTelegramUserId)
+        )
+      )
+      .limit(1)
+
+    const actor = actorRows[0]
+    const actorIsActiveAdmin =
+      actor?.isAdmin === 1 && normalizeLifecycleStatus(actor.lifecycleStatus) === 'active'
+    const actorIsAllowed =
+      existing.senderTelegramUserId === actorTelegramUserId ||
+      actorIsActiveAdmin ||
+      (actor?.memberId !== undefined && actor.memberId === existing.payerMemberId)
+
+    if (!actorIsAllowed) {
+      return {
+        status: 'forbidden',
+        householdId: existing.householdId
+      }
+    }
+
+    return applyProposalStatus(existing, purchaseMessageId, targetStatus)
   }
 
   const repository: PurchaseMessageIngestionRepository = {
@@ -709,6 +735,20 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
             purchaseMessageId: insertedRow.id
           }
       }
+    },
+
+    async recordProposalMessage(purchaseMessageId, message) {
+      await db
+        .insert(schema.purchaseTopicMessages)
+        .values({
+          purchaseMessageId,
+          householdId: message.householdId,
+          telegramChatId: message.telegramChatId,
+          telegramThreadId: message.telegramThreadId,
+          telegramMessageId: message.telegramMessageId,
+          status: 'sent'
+        })
+        .onConflictDoNothing({ target: schema.purchaseTopicMessages.purchaseMessageId })
     },
 
     async confirm(purchaseMessageId, actorTelegramUserId) {
@@ -1018,8 +1058,50 @@ export function createPurchaseMessageRepository(databaseUrl: string): {
     }
   }
 
+  const autoConfirm: PurchaseAutoConfirmRepository = {
+    async autoConfirmStale({ olderThan, notOlderThan }) {
+      const candidates = await db
+        .select({ id: schema.purchaseMessages.id })
+        .from(schema.purchaseMessages)
+        .innerJoin(
+          schema.purchaseTopicMessages,
+          eq(schema.purchaseTopicMessages.purchaseMessageId, schema.purchaseMessages.id)
+        )
+        .where(
+          and(
+            eq(schema.purchaseMessages.processingStatus, 'pending_confirmation'),
+            lt(schema.purchaseMessages.ingestedAt, instantToDate(olderThan)),
+            gt(schema.purchaseMessages.ingestedAt, instantToDate(notOlderThan))
+          )
+        )
+        .orderBy(schema.purchaseMessages.ingestedAt)
+
+      const confirmed: AutoConfirmedPurchase[] = []
+      for (const { id } of candidates) {
+        const existing = await getStoredMessage(id)
+        if (!existing) {
+          continue
+        }
+        const result = await applyProposalStatus(existing, id, 'confirmed')
+        if (result.status === 'confirmed') {
+          const payerRows = result.payerMemberId
+            ? await db
+                .select({ displayName: schema.members.displayName })
+                .from(schema.members)
+                .where(eq(schema.members.id, result.payerMemberId))
+                .limit(1)
+            : []
+          confirmed.push({ ...result, payerDisplayName: payerRows[0]?.displayName ?? null })
+        }
+      }
+
+      return confirmed
+    }
+  }
+
   return {
     repository,
+    autoConfirm,
     close: async () => {
       await closeDbClient()
     }

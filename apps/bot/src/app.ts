@@ -77,6 +77,7 @@ import { createNotificationDraftPublisher } from './ad-hoc-notifications'
 import { registerAgentActionCallbacks } from './agent-confirmations'
 import { registerHouseholdAgent } from './household-agent'
 import { registerPurchaseTopicCallbacks } from './purchase-topic-ingestion'
+import { createPurchaseAutoConfirmSweeper } from './purchase-auto-confirm'
 import { createPurchaseTopicNoticeService } from './purchase-topic-notices'
 import { registerPaymentTopicCallbacks } from './payment-topic-ingestion'
 import { createOpenAiWakeClassifier } from './wake-gate'
@@ -333,6 +334,19 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('purchase-topic-notices')
         })
       : null
+
+  const purchaseAutoConfirmSweeper = purchaseRepositoryClient
+    ? createPurchaseAutoConfirmSweeper({
+        repository: purchaseRepositoryClient.autoConfirm,
+        ...(purchaseTopicNoticeService ? { purchaseTopicNoticeService } : {}),
+        ...(auditNotificationService ? { auditNotificationService } : {}),
+        logger: getLogger('purchase-auto-confirm')
+      })
+    : null
+  const runBackgroundTick = async () => {
+    await routineRuntime?.delivery.tick()
+    await purchaseAutoConfirmSweeper?.sweep()
+  }
 
   if (purchaseRepositoryClient && householdConfigurationRepositoryClient) {
     registerPurchaseTopicCallbacks(
@@ -1095,7 +1109,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
             }).authorize,
             handler: async (request, jobPath) => {
               if (jobPath === 'dispatch-due') {
-                await routineRuntime?.delivery.tick()
+                await runBackgroundTick()
                 return scheduledDispatchHandler
                   ? scheduledDispatchHandler.handleDueDispatches(request)
                   : new Response('Not Found', { status: 404 })
@@ -1118,7 +1132,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
               }).authorize,
               handler: async (request, jobPath) => {
                 if (jobPath === 'dispatch-due') {
-                  await routineRuntime?.delivery.tick()
+                  await runBackgroundTick()
                   return scheduledDispatchHandler
                     ? scheduledDispatchHandler.handleDueDispatches(request)
                     : new Response('Not Found', { status: 404 })
@@ -1151,7 +1165,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
 
     const tick = async () => {
       try {
-        await routineRuntime?.delivery.tick()
+        await runBackgroundTick()
         await scheduledDispatchHandler.handleDueDispatches(
           new Request('http://internal/jobs/dispatch-due?limit=25')
         )
@@ -1232,7 +1246,7 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
     },
     runtime,
     runRoutineTick: async () => {
-      await routineRuntime?.delivery.tick()
+      await runBackgroundTick()
     },
     shutdown: async () => {
       await Promise.allSettled(shutdownTasks.map((close) => close()))

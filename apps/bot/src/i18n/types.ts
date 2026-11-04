@@ -178,8 +178,9 @@ export interface BotTranslationCatalog {
       summary: string,
       payer: string | null,
       calculationNote: string | null,
-      participants: string | null
+      footer: string | null
     ) => string
+    autoConfirmNote: string
     calculatedAmountNote: (explanation: string | null) => string
     clarification: (question: string) => string
     clarificationMissingAmountAndCurrency: string

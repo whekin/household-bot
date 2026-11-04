@@ -224,13 +224,14 @@ export const ruBotTranslations: BotTranslationCatalog = {
   purchase: {
     sharedPurchaseFallback: 'общая покупка',
     clarificationPhotoOnly: 'Фото есть, но нужны детали: что купили и за сколько?',
-    proposal: (summary, payer, calculationNote, participants) =>
+    proposal: (summary, payer, calculationNote, footer) =>
       [
         `🛒 ${summary}`,
         ...(payer ? [payer] : []),
         ...(calculationNote ? ['', calculationNote] : []),
-        ...(participants ? ['', participants] : [])
+        ...(footer ? ['', footer] : [])
       ].join('\n'),
+    autoConfirmNote: 'Без ответа подтвердится через сутки',
     calculatedAmountNote: (explanation) =>
       explanation
         ? `Итог посчитан так: ${explanation}. Верно?`
