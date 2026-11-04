@@ -22,12 +22,21 @@ const ru = {
   nothingToPayNow: 'сейчас ничего',
   alreadyPaid: (amount: string) => `${amount} уже оплачено`,
   left: 'осталось',
-  owesOnPurchases: (amount: string, viaUtilities: boolean) =>
-    `↩ ${amount} долг по покупкам${viaUtilities ? ' — войдёт в следующую коммуналку' : ''}`,
-  creditOnPurchases: (amount: string, viaUtilities: boolean) =>
-    `↩ ${amount} в плюсе по покупкам${viaUtilities ? ' — вернётся следующими коммуналками' : ''}`,
-  unroutable: (amount: string) =>
-    `Покупок сверх счетов: ${amount} — в этом месяце их не закрыть, перейдут дальше`,
+  purchasesExplained: 'Суммы уже учитывают общие покупки: кто покупал больше, тот платит меньше.',
+  shareWithPurchases: (share: string, sign: '+' | '−', amount: string) =>
+    `🛒 Доля ${share} ${sign} ${amount} за покупки`,
+  restNextMonth: (target: string, now: string) =>
+    `= ${target}. Сейчас ${now}, остальное — в следующем месяце`,
+  extraReturnsNextMonth: (target: string, now: string) =>
+    `= ${target}. Сейчас ${now}, лишнее вернётся в следующем месяце`,
+  shareCoveredByPurchases: (share: string) => `🛒 Долю ${share} покрыли покупки`,
+  restReturns: (amount: string) => `остальные ${amount} вернутся в следующем месяце`,
+  restReturnsUnknown: 'остальное вернётся в следующем месяце',
+  purchasesDueNextMonth: (amount: string) => `🛒 Ещё ${amount} за покупки — в следующем месяце`,
+  purchasesCreditNextMonth: (amount: string) =>
+    `🛒 ${amount} за покупки вернётся в следующем месяце`,
+  purchasesDueViaRent: (amount: string) => `🛒 ${amount} за покупки — добавится к аренде`,
+  purchasesCreditViaRent: (amount: string) => `🛒 ${amount} за покупки — вычтется из аренды`,
   recipient: (name: string) => `Получатель: ${name}`,
   copyAccount: (bank: string) => `📋 ${bank}`,
   screenshotHint: 'Счета можно внести ответом на это сообщение — скриншотом из Credo или TBC.'
@@ -47,12 +56,18 @@ const en: typeof ru = {
   nothingToPayNow: 'nothing now',
   alreadyPaid: (amount) => `${amount} already paid`,
   left: 'left',
-  owesOnPurchases: (amount, viaUtilities) =>
-    `↩ ${amount} owed on purchases${viaUtilities ? ' — goes into the next utilities bill' : ''}`,
-  creditOnPurchases: (amount, viaUtilities) =>
-    `↩ ${amount} in credit on purchases${viaUtilities ? ' — comes back through the next utilities bills' : ''}`,
-  unroutable: (amount) =>
-    `Purchases beyond the bills: ${amount} — no bill left to cover them this month`,
+  purchasesExplained: 'Amounts already include shared purchases: whoever bought more pays less.',
+  shareWithPurchases: (share, sign, amount) => `🛒 Share ${share} ${sign} ${amount} for purchases`,
+  restNextMonth: (target, now) => `= ${target}. ${now} now, the rest next month`,
+  extraReturnsNextMonth: (target, now) =>
+    `= ${target}. ${now} now, the extra comes back next month`,
+  shareCoveredByPurchases: (share) => `🛒 Purchases covered the ${share} share`,
+  restReturns: (amount) => `the other ${amount} comes back next month`,
+  restReturnsUnknown: 'the rest comes back next month',
+  purchasesDueNextMonth: (amount) => `🛒 ${amount} more for purchases — next month`,
+  purchasesCreditNextMonth: (amount) => `🛒 ${amount} for purchases comes back next month`,
+  purchasesDueViaRent: (amount) => `🛒 ${amount} for purchases — added to rent`,
+  purchasesCreditViaRent: (amount) => `🛒 ${amount} for purchases — taken off rent`,
   recipient: (name) => `Recipient: ${name}`,
   copyAccount: (bank) => `📋 ${bank}`,
   screenshotHint: 'Reply to this message with a Credo or TBC screenshot to enter bills.'

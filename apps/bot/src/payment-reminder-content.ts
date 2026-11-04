@@ -119,6 +119,9 @@ function utilitiesByMemberLines(input: {
   const purchaseBalanceById = new Map(
     input.dashboard.members.map((member) => [member.memberId, member.purchaseOffset])
   )
+  const utilityShareById = new Map(
+    input.dashboard.members.map((member) => [member.memberId, member.utilityShare])
+  )
   const categoriesByMember = new Map<string, (typeof categories)[number][]>()
   for (const category of categories) {
     categoriesByMember.set(category.assignedMemberId, [
@@ -148,7 +151,11 @@ function utilitiesByMemberLines(input: {
   // empties their plan row. Without this they drop out of the list entirely and
   // their balance is never stated.
   for (const member of input.dashboard.members) {
-    if (!orderedMemberIds.includes(member.memberId) && member.purchaseOffset.amountMinor !== 0n) {
+    const planTarget = planSummaryById.get(member.memberId)?.fairShare.amountMinor
+    const shapedByPurchases =
+      member.purchaseOffset.amountMinor !== 0n ||
+      (planTarget !== undefined && planTarget !== member.utilityShare.amountMinor)
+    if (!orderedMemberIds.includes(member.memberId) && shapedByPurchases) {
       orderedMemberIds.push(member.memberId)
       nameById.set(member.memberId, member.displayName)
     }
@@ -215,67 +222,123 @@ function utilitiesByMemberLines(input: {
         )}${partial ? ` ${copy.left}${partial}` : ''}`
       )
     }
-    // Nothing left to pay on the plan does not mean nothing is owed: shared
-    // purchases can leave a balance no bill was able to carry. Read the live
-    // offset rather than the plan's projected delta, which freezes with the plan
-    // and stops tracking purchases once it locks.
-    // Shown for everyone, including members who still owe on the plan: the two
-    // are separate debts and the shared-purchase one is the part that outlives
-    // the cycle.
-    const purchaseBalance = purchaseBalanceById.get(memberId)
-    if (purchaseBalance && purchaseBalance.amountMinor !== 0n) {
-      // Both directions matter. Without the credit side the member the household
-      // owes the most is the one shown nothing at all, because their plan row is
-      // the first to close. Wording stays in the third person: these lines are
-      // printed for every member, not only for whoever is reading.
-      const owes = purchaseBalance.amountMinor > 0n
-      const amount = moneyText(
-        Money.fromMinor(
-          owes ? purchaseBalance.amountMinor : -purchaseBalance.amountMinor,
-          input.dashboard.currency
-        ),
-        input.locale
-      )
-      // Nobody transfers this to anybody. It is settled through the next cycle's
-      // utility share, and without saying so the line reads as a debt to a
-      // housemate that someone should go and pay off right now.
-      const throughUtilities = input.dashboard.paymentBalanceAdjustmentPolicy === 'utilities'
-      lines.push(
-        `   ${escapeHtml(
-          owes
-            ? copy.owesOnPurchases(amount, throughUtilities)
-            : copy.creditOnPurchases(amount, throughUtilities)
-        )}`
-      )
+    const purchaseLine = purchaseBalanceLine({
+      dashboard: input.dashboard,
+      locale: input.locale,
+      planSummary: planSummaryById.get(memberId) ?? null,
+      utilityShare: utilityShareById.get(memberId) ?? null,
+      liveOffset: purchaseBalanceById.get(memberId) ?? null,
+      nothingPaidYet: (summary?.totalPaid.amountMinor ?? 0n) === 0n
+    })
+    if (purchaseLine) {
+      lines.push(`   ${escapeHtml(purchaseLine)}`)
     }
   }
 
   return lines
 }
 
+// Below a whole lari a carry is rounding between shares, not something to tell people about.
+const PURCHASE_TAIL_MIN_MINOR = 100n
+
 /**
- * How much of what members owe this cycle has no bill left to travel through.
+ * How shared purchases shaped this member's utilities amount.
  *
- * A member owed money is repaid by not being charged utilities, so at most their
- * own share can come back to them per cycle. Once shared purchases outgrow the
- * bills, the difference cannot be settled now however the plan is drawn, and
- * saying so up front beats leaving people to wonder why the numbers look short.
+ * In utilities mode the plan already folds purchases in: a member's target is
+ * their utility share plus what they owe on purchases (or minus what they are
+ * owed). The line spells that sum out, so the amount beside the name reads as
+ * arithmetic instead of a separate debt. It is read from the plan, not the live
+ * balance, because the live balance moves every time someone else pays.
+ *
+ * Wording stays in the third person: the card is read by the whole household.
  */
-function unroutableThisCycle(input: { dashboard: FinanceDashboard; period: string }): Money | null {
-  const utilityTotal = input.dashboard.paymentPeriods?.find(
-    (summary) => summary.period === input.period
-  )?.utilityTotal
-  if (!utilityTotal || utilityTotal.amountMinor <= 0n) {
+function purchaseBalanceLine(input: {
+  dashboard: FinanceDashboard
+  locale: BotLocale
+  planSummary: NonNullable<FinanceDashboard['utilityBillingPlan']>['memberSummaries'][number] | null
+  utilityShare: Money | null
+  liveOffset: Money | null
+  nothingPaidYet: boolean
+}): string | null {
+  const copy = paymentCardCopy[input.locale]
+  const currency = input.dashboard.currency
+  const money = (minor: bigint) =>
+    moneyText(Money.fromMinor(minor < 0n ? -minor : minor, currency), input.locale)
+  const liveMinor = input.liveOffset?.amountMinor ?? 0n
+
+  if (input.dashboard.paymentBalanceAdjustmentPolicy !== 'utilities') {
+    if (liveMinor === 0n) {
+      return null
+    }
+    return liveMinor > 0n
+      ? copy.purchasesDueViaRent(money(liveMinor))
+      : copy.purchasesCreditViaRent(money(liveMinor))
+  }
+
+  if (!input.planSummary || !input.utilityShare) {
+    if (liveMinor === 0n) {
+      return null
+    }
+    return liveMinor > 0n
+      ? copy.purchasesDueNextMonth(money(liveMinor))
+      : copy.purchasesCreditNextMonth(money(liveMinor))
+  }
+
+  const shareMinor = input.utilityShare.amountMinor
+  const targetMinor = input.planSummary.fairShare.amountMinor
+
+  // The target clamps at zero: purchases covered the whole share and the
+  // household still owes this member the rest, which only a later cycle can repay.
+  if (targetMinor === 0n && shareMinor > 0n) {
+    const covered = copy.shareCoveredByPurchases(money(shareMinor))
+    // Before anyone pays, the live balance is still the plan's input, so the
+    // remainder is exact. Afterwards payments are clearing it piece by piece.
+    const restMinor = input.nothingPaidYet ? -liveMinor - shareMinor : null
+    if (restMinor === null) {
+      return `${covered}, ${copy.restReturnsUnknown}`
+    }
+    return restMinor >= PURCHASE_TAIL_MIN_MINOR
+      ? `${covered}, ${copy.restReturns(money(restMinor))}`
+      : covered
+  }
+
+  const purchasesMinor = targetMinor - shareMinor
+  if (purchasesMinor === 0n) {
     return null
   }
 
-  const targetTotalMinor = input.dashboard.members.reduce((sum, member) => {
-    const targetMinor = member.utilityShare.amountMinor + member.purchaseOffset.amountMinor
-    return sum + (targetMinor > 0n ? targetMinor : 0n)
-  }, 0n)
+  const base = copy.shareWithPurchases(
+    money(shareMinor),
+    purchasesMinor > 0n ? '+' : '−',
+    money(purchasesMinor)
+  )
+  // The plan routes whole bills, so a member can be handed less or more than
+  // their target. The gap carries into the next cycle.
+  const deltaMinor = input.planSummary.projectedDeltaAfterPlan.amountMinor
+  if (deltaMinor > -PURCHASE_TAIL_MIN_MINOR && deltaMinor < PURCHASE_TAIL_MIN_MINOR) {
+    return base
+  }
+  const nowMinor =
+    input.planSummary.vendorPaid.amountMinor + input.planSummary.assignedThisCycle.amountMinor
+  return `${base} ${
+    deltaMinor < 0n
+      ? copy.restNextMonth(money(targetMinor), money(nowMinor))
+      : copy.extraReturnsNextMonth(money(targetMinor), money(nowMinor))
+  }`
+}
 
-  const overflowMinor = targetTotalMinor - utilityTotal.amountMinor
-  return overflowMinor > 0n ? Money.fromMinor(overflowMinor, input.dashboard.currency) : null
+/** Whether any member's utilities amount this cycle was moved by shared purchases. */
+function planIncludesPurchases(dashboard: FinanceDashboard): boolean {
+  if (dashboard.paymentBalanceAdjustmentPolicy !== 'utilities' || !dashboard.utilityBillingPlan) {
+    return false
+  }
+  const shareById = new Map(
+    dashboard.members.map((member) => [member.memberId, member.utilityShare.amountMinor])
+  )
+  return dashboard.utilityBillingPlan.memberSummaries.some((summary) => {
+    const shareMinor = shareById.get(summary.memberId)
+    return shareMinor !== undefined && summary.fairShare.amountMinor !== shareMinor
+  })
 }
 
 function isKindFullyPaid(summary: FinanceDashboardPaymentKindSummary | null): boolean {
@@ -389,9 +452,8 @@ export function buildPaymentReminderMessageContentForSurface(
         copy.utilitiesTitle(input.period, dueDate),
         escapeHtml(copy.remaining(moneyText(summary!.totalRemaining, input.locale)))
       )
-      const unroutable = unroutableThisCycle({ dashboard: input.dashboard, period: input.period })
-      if (unroutable) {
-        lines.push(escapeHtml(copy.unroutable(moneyText(unroutable, input.locale))))
+      if (planIncludesPurchases(input.dashboard)) {
+        lines.push(escapeHtml(copy.purchasesExplained))
       }
       lines.push(
         '',

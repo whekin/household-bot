@@ -371,39 +371,6 @@ describe('payment reminder content', () => {
     expect(content.text).toContain('   ✅ Gas · 120 ₾')
   })
 
-  test('says a purchase balance settles through utilities, not between people', () => {
-    const baseDashboard = dashboard()
-    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
-      (summary) => summary.period === '2026-05'
-    )!
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        members: baseDashboard.members.map((member) =>
-          member.memberId === 'alice'
-            ? { ...member, purchaseOffset: Money.fromMajor('11.25', 'GEL') }
-            : { ...member, purchaseOffset: Money.fromMajor('-11.25', 'GEL') }
-        ),
-        paymentPeriods: [
-          {
-            ...utilitiesPeriod,
-            kinds: utilitiesPeriod.kinds.map((kind) =>
-              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
-            )
-          }
-        ]
-      },
-      viewMode: 'compact'
-    })
-
-    expect(content.text).toContain('11.25 ₾ долг по покупкам — войдёт в следующую коммуналку')
-    expect(content.text).toContain('11.25 ₾ в плюсе по покупкам — вернётся следующими коммуналками')
-  })
-
   test('does not tick a split bill as paid for the member who did not pay it', () => {
     const baseDashboard = dashboard()
     const gel = (major: string) => Money.fromMajor(major, 'GEL')
@@ -468,161 +435,137 @@ describe('payment reminder content', () => {
     expect(content.text).toContain('<b>Alice &lt;A&gt;</b> · 120 ₾\n   • Gas · 20 ₾')
   })
 
-  test('flags a shared-purchase balance once nothing is left to pay on the plan', () => {
-    const baseDashboard = dashboard()
-    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
-      (summary) => summary.period === '2026-05'
-    )!
-    const content = buildScheduledPaymentReminderContent({
+  function purchaseCard(input: {
+    alice: { share: string; target: string; assigned?: string; offset: string }
+    bob?: { share: string; target?: string; offset: string }
+    totalPaid?: string
+    policy?: 'utilities' | 'rent'
+  }) {
+    const gel = (major: string) => Money.fromMajor(major, 'GEL')
+    const base = dashboard()
+    const summary = (memberId: string, displayName: string, target: string, assigned: string) => ({
+      memberId,
+      displayName,
+      fairShare: gel(target),
+      vendorPaid: gel('0'),
+      assignedThisCycle: gel(assigned),
+      projectedDeltaAfterPlan: Money.fromMinor(
+        gel(assigned).amountMinor - gel(target).amountMinor,
+        'GEL'
+      )
+    })
+    const bob = input.bob
+
+    return buildScheduledPaymentReminderContent({
       locale: 'ru',
       kind: 'utilities',
       dispatchKind: 'utilities',
       period: '2026-05',
+      viewMode: 'compact',
       dashboard: {
-        ...baseDashboard,
-        // Alice covered every bill routed to her, but shared purchases left her
-        // owing the household 34.78 that no bill could carry.
-        members: baseDashboard.members.map((member) =>
+        ...base,
+        paymentBalanceAdjustmentPolicy: input.policy ?? 'utilities',
+        members: base.members.map((member) =>
           member.memberId === 'alice'
-            ? { ...member, purchaseOffset: Money.fromMajor('34.78', 'GEL') }
-            : member
+            ? {
+                ...member,
+                utilityShare: gel(input.alice.share),
+                purchaseOffset: gel(input.alice.offset)
+              }
+            : bob
+              ? { ...member, utilityShare: gel(bob.share), purchaseOffset: gel(bob.offset) }
+              : member
         ),
-        paymentPeriods: [
-          {
-            ...utilitiesPeriod,
-            kinds: utilitiesPeriod.kinds.map((kind) =>
-              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
-            )
-          }
-        ]
-      },
-      viewMode: 'compact'
+        utilityBillingPlan: {
+          ...base.utilityBillingPlan!,
+          memberSummaries: [
+            summary('alice', 'Alice <A>', input.alice.target, input.alice.assigned ?? '120'),
+            ...(bob?.target !== undefined ? [summary('bob', 'Bob', bob.target, '0')] : [])
+          ]
+        },
+        paymentPeriods: base.paymentPeriods!.map((period) => ({
+          ...period,
+          kinds: period.kinds.map((kind) =>
+            kind.kind === 'utilities' ? { ...kind, totalPaid: gel(input.totalPaid ?? '0') } : kind
+          )
+        }))
+      }
     })
+  }
 
-    expect(content.text).toContain('34.78 ₾ долг по покупкам')
+  test('spells out the purchases already folded into a member amount', () => {
+    // Alice's 120.00 is her 87.75 utility share plus 32.25 she owes on purchases:
+    // paying it settles both, so nothing is said about a later month.
+    const content = purchaseCard({ alice: { share: '87.75', target: '120', offset: '32.25' } })
+
+    expect(content.text).toContain(
+      'Суммы уже учитывают общие покупки: кто покупал больше, тот платит меньше.'
+    )
+    expect(content.text).toContain(
+      '⏳ <b>Alice &lt;A&gt;</b> · 120 ₾\n   • Gas &lt;main&gt; · 120 ₾\n   🛒 Доля 87.75 ₾ + 32.25 ₾ за покупки'
+    )
+    expect(content.text).not.toContain('следующ')
   })
 
-  test('states the credit side when the household owes the member instead', () => {
-    const baseDashboard = dashboard()
-    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
-      (summary) => summary.period === '2026-05'
-    )!
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        members: baseDashboard.members.map((member) =>
-          member.memberId === 'alice'
-            ? { ...member, purchaseOffset: Money.fromMajor('-46.28', 'GEL') }
-            : member
-        ),
-        paymentPeriods: [
-          {
-            ...utilitiesPeriod,
-            kinds: utilitiesPeriod.kinds.map((kind) =>
-              kind.kind === 'utilities' ? { ...kind, unresolvedMembers: [] } : kind
-            )
-          }
-        ]
-      },
-      viewMode: 'compact'
+  test('says purchases covered a whole share and how much comes back later', () => {
+    // Bob is owed 80.00, more than his 50.00 share: he pays nothing and the other
+    // 30.00 can only come back through a later cycle.
+    const content = purchaseCard({
+      alice: { share: '120', target: '120', offset: '0' },
+      bob: { share: '50', target: '0', offset: '-80' }
     })
 
-    // Shown absolute, not as a negative debt.
-    expect(content.text).toContain('46.28 ₾ в плюсе по покупкам')
-    expect(content.text).not.toContain('-46.28')
+    expect(content.text).toContain(
+      '✅ <b>Bob</b> · сейчас ничего\n   🛒 Долю 50 ₾ покрыли покупки, остальные 30 ₾ вернутся в следующем месяце'
+    )
+    expect(content.text).not.toContain('-80')
   })
 
-  test('states a purchase balance next to a member who still owes on the plan', () => {
-    const baseDashboard = dashboard()
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        // Alice owes 120.00 on the plan and 32.25 on shared purchases. They are
-        // separate debts, and only the second one outlives the cycle.
-        members: baseDashboard.members.map((member) =>
-          member.memberId === 'alice'
-            ? { ...member, purchaseOffset: Money.fromMajor('32.25', 'GEL') }
-            : member
-        )
-      },
-      viewMode: 'compact'
+  test('drops the exact remainder once payments start clearing it', () => {
+    // After someone pays, the live balance is being cleared piece by piece and no
+    // longer gives the remainder.
+    const content = purchaseCard({
+      alice: { share: '120', target: '120', offset: '0' },
+      bob: { share: '50', target: '0', offset: '-40' },
+      totalPaid: '20'
     })
 
-    expect(content.text).toContain('⏳ <b>Alice &lt;A&gt;</b> · 120 ₾')
-    expect(content.text).toContain('32.25 ₾ долг по покупкам')
+    expect(content.text).toContain(
+      '🛒 Долю 50 ₾ покрыли покупки, остальное вернётся в следующем месяце'
+    )
   })
 
-  test('says up front how much of the cycle no bill can carry', () => {
-    const baseDashboard = dashboard()
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        // Targets come to 170.00 against 120.00 of bills: Alice 120.00 + 50.00,
-        // Bob clamped to zero by being owed. 50.00 has nowhere to go this cycle.
-        members: baseDashboard.members.map((member) =>
-          member.memberId === 'alice'
-            ? { ...member, purchaseOffset: Money.fromMajor('50.00', 'GEL') }
-            : { ...member, purchaseOffset: Money.fromMajor('-50.00', 'GEL') }
-        )
-      },
-      viewMode: 'compact'
+  test('names the gap when whole bills leave a member short of the target', () => {
+    const content = purchaseCard({
+      alice: { share: '100', target: '140', assigned: '120', offset: '40' }
     })
 
-    expect(content.text).toContain('Покупок сверх счетов: 50 ₾')
+    expect(content.text).toContain(
+      '🛒 Доля 100 ₾ + 40 ₾ за покупки = 140 ₾. Сейчас 120 ₾, остальное — в следующем месяце'
+    )
   })
 
-  test('lists a member who holds a purchase balance but no plan assignment', () => {
-    const baseDashboard = dashboard()
-    const utilitiesPeriod = baseDashboard.paymentPeriods!.find(
-      (summary) => summary.period === '2026-05'
-    )!
-    const content = buildScheduledPaymentReminderContent({
-      locale: 'ru',
-      kind: 'utilities',
-      dispatchKind: 'utilities',
-      period: '2026-05',
-      dashboard: {
-        ...baseDashboard,
-        // Bob is owed, so he has nothing to pay and no bill assigned to him. He
-        // reaches the list through the balance alone.
-        members: baseDashboard.members.map((member) =>
-          member.memberId === 'bob'
-            ? { ...member, purchaseOffset: Money.fromMajor('-46.28', 'GEL') }
-            : member
-        ),
-        paymentPeriods: [
-          {
-            ...utilitiesPeriod,
-            kinds: utilitiesPeriod.kinds.map((kind) =>
-              kind.kind === 'utilities'
-                ? {
-                    ...kind,
-                    unresolvedMembers: kind.unresolvedMembers.filter(
-                      (member) => member.memberId !== 'bob'
-                    )
-                  }
-                : kind
-            )
-          }
-        ]
-      },
-      viewMode: 'compact'
+  test('carries a purchase balance the plan does not cover into next month', () => {
+    // Bob is outside the plan (it locked before his purchase), so his balance can
+    // only be settled through the next cycle.
+    const content = purchaseCard({
+      alice: { share: '120', target: '120', offset: '0' },
+      bob: { share: '0', offset: '-46.28' }
     })
 
     expect(content.text).toContain('<b>Bob</b>')
-    expect(content.text).toContain('46.28 ₾ в плюсе по покупкам')
+    expect(content.text).toContain('🛒 46.28 ₾ за покупки вернётся в следующем месяце')
+    expect(content.text).not.toContain('Суммы уже учитывают')
+  })
+
+  test('points purchases at rent when the household settles them there', () => {
+    const content = purchaseCard({
+      alice: { share: '120', target: '120', offset: '32.25' },
+      policy: 'rent'
+    })
+
+    expect(content.text).toContain('🛒 32.25 ₾ за покупки — добавится к аренде')
+    expect(content.text).not.toContain('Суммы уже учитывают')
   })
 
   test('keeps only shared actions on scheduled reminder cards', () => {

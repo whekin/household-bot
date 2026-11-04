@@ -63,7 +63,13 @@ path. The command menu shrinks from 25 commands to the handful people actually u
   ⚙️ setup, ❔ help). Cancel is always «Отмена» / "Cancel"; back is «Назад» / "Back" (the menu
   return button is «‹ Меню»). Short buttons sit two per row.
 - Inside a card, lines may start with a status marker (✅ paid, ⏳ owes, • bill, 🏦 bank,
-  💳 payer, ↩ purchase balance); these are list markers, not decoration.
+  💳 payer, 🛒 purchase balance); these are list markers, not decoration.
+- In utilities mode the utilities card states purchases as arithmetic on the member's amount,
+  read from the plan: `🛒 Доля 67.72 ₾ + 48.49 ₾ за покупки`. A tail appears only when part
+  of it moves to the next month (`= 62.27 ₾. Сейчас 42.45 ₾, остальное — в следующем месяце`,
+  `🛒 Долю 67.72 ₾ покрыли покупки, остальные 19.81 ₾ вернутся в следующем месяце`). One line
+  under the title says the amounts already include purchases. Never "долг/в плюсе по
+  покупкам": it does not say who owes whom or when.
 - Toasts (`answerCallbackQuery`) are plain text, no HTML, one short phrase.
 - Errors name the problem and the fix in one sentence.
 - No filler: no "Подтвердите или отмените ниже 👇", no "подробности — в приложении" next to an
