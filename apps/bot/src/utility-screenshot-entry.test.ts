@@ -512,6 +512,16 @@ test('random group photos and replies to humans do not call OCR or save', async 
   }
 })
 
+test('photos in a bot-created forum topic are not treated as replies to the bot', async () => {
+  const f = setup()
+  const update = photo({ reply: 'other', caption: 'Я убрал на кухне' })
+  update.message.reply_to_message!.message_id = update.message.message_thread_id!
+  await f.bot.handleUpdate(update as never)
+  expect(f.metrics().ocrCalls).toBe(0)
+  expect(f.messages()).toEqual([])
+  expect(f.metrics().passed).toBe(1)
+})
+
 test('addressed random screenshot and rent reminder reply give instructions without OCR', async () => {
   for (const update of [
     photo({ caption: '@household_test_bot что тут?' }),

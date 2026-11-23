@@ -52,6 +52,28 @@ export function hasTelegramMessageAttachment(ctx: TelegramMessageContext): boole
   return telegramMessageAttachmentCount(ctx) > 0
 }
 
+/**
+ * The message the user actually replied to. In forum topics Telegram fills
+ * `reply_to_message` with the topic's creation message even when the user did
+ * not reply, so that implicit target is ignored.
+ */
+export function explicitReplyTarget(message: Context['msg']) {
+  const reply = message?.reply_to_message
+  if (!reply) {
+    return undefined
+  }
+
+  if (
+    'is_topic_message' in message &&
+    message.is_topic_message === true &&
+    reply.message_id === message.message_thread_id
+  ) {
+    return undefined
+  }
+
+  return reply
+}
+
 export function isReplyToCurrentBotMessage(ctx: BotReplyContext): boolean {
-  return ctx.msg?.reply_to_message?.from?.id === ctx.me.id
+  return explicitReplyTarget(ctx.msg)?.from?.id === ctx.me.id
 }

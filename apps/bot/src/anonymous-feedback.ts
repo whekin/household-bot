@@ -428,6 +428,31 @@ async function relayAnonymousTopicMessage(options: {
   return true
 }
 
+/**
+ * Must be registered before every other message handler: posts in the
+ * feedback topic are re-sent by the bot and the original deleted, so no
+ * feature may react to them first.
+ */
+export function registerAnonymousTopicRelay(options: {
+  bot: Bot
+  householdConfigurationRepository: HouseholdConfigurationRepository
+  logger?: Logger
+}): void {
+  options.bot.on('message', async (ctx, next) => {
+    if (
+      await relayAnonymousTopicMessage({
+        ctx,
+        householdConfigurationRepository: options.householdConfigurationRepository,
+        logger: options.logger
+      })
+    ) {
+      return
+    }
+
+    await next()
+  })
+}
+
 export function registerAnonymousFeedback(options: {
   bot: Bot
   anonymousFeedbackServiceForHousehold: (householdId: string) => AnonymousFeedbackService
@@ -491,20 +516,6 @@ export function registerAnonymousFeedback(options: {
       logger: options.logger,
       rawText
     })
-  })
-
-  options.bot.on('message', async (ctx, next) => {
-    if (
-      await relayAnonymousTopicMessage({
-        ctx,
-        householdConfigurationRepository: options.householdConfigurationRepository,
-        logger: options.logger
-      })
-    ) {
-      return
-    }
-
-    await next()
   })
 
   options.bot.on('message:text', async (ctx, next) => {

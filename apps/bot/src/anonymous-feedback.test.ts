@@ -9,7 +9,7 @@ import type {
 } from '@household/ports'
 
 import { createTelegramBot } from './bot'
-import { registerAnonymousFeedback } from './anonymous-feedback'
+import { registerAnonymousFeedback, registerAnonymousTopicRelay } from './anonymous-feedback'
 
 function anonUpdate(params: {
   updateId: number
@@ -616,21 +616,9 @@ describe('registerAnonymousFeedback', () => {
       } as never
     })
 
-    const submit = mock(async () => ({
-      status: 'accepted' as const,
-      submissionId: 'submission-1',
-      sanitizedText: 'unused'
-    }))
-
-    registerAnonymousFeedback({
+    registerAnonymousTopicRelay({
       bot,
-      anonymousFeedbackServiceForHousehold: () => ({
-        submit,
-        markPosted: mock(async () => {}),
-        markFailed: mock(async () => {})
-      }),
-      householdConfigurationRepository: repository,
-      promptRepository: createPromptRepository()
+      householdConfigurationRepository: repository
     })
 
     await bot.handleUpdate(
@@ -640,7 +628,6 @@ describe('registerAnonymousFeedback', () => {
       }) as never
     )
 
-    expect(submit).toHaveBeenCalledTimes(0)
     expect(calls).toHaveLength(2)
     expect(calls[0]?.method).toBe('copyMessage')
     expect(calls[0]?.payload).toMatchObject({
@@ -702,19 +689,9 @@ describe('registerAnonymousFeedback', () => {
       } as never
     })
 
-    registerAnonymousFeedback({
+    registerAnonymousTopicRelay({
       bot,
-      anonymousFeedbackServiceForHousehold: () => ({
-        submit: mock(async () => ({
-          status: 'accepted' as const,
-          submissionId: 'submission-1',
-          sanitizedText: 'unused'
-        })),
-        markPosted: mock(async () => {}),
-        markFailed: mock(async () => {})
-      }),
-      householdConfigurationRepository: repository,
-      promptRepository: createPromptRepository()
+      householdConfigurationRepository: repository
     })
 
     await bot.handleUpdate(
@@ -776,19 +753,9 @@ describe('registerAnonymousFeedback', () => {
       } as never
     })
 
-    registerAnonymousFeedback({
+    registerAnonymousTopicRelay({
       bot,
-      anonymousFeedbackServiceForHousehold: () => ({
-        submit: mock(async () => ({
-          status: 'accepted' as const,
-          submissionId: 'submission-1',
-          sanitizedText: 'unused'
-        })),
-        markPosted: mock(async () => {}),
-        markFailed: mock(async () => {})
-      }),
-      householdConfigurationRepository: repository,
-      promptRepository: createPromptRepository()
+      householdConfigurationRepository: repository
     })
     bot.on('message', async (ctx) => {
       await ctx.reply('downstream handler reached')

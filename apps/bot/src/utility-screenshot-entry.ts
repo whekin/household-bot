@@ -26,7 +26,10 @@ import type { BotLocale } from './i18n'
 import { utilityEntryCopy } from './i18n/utility-entry'
 import type { LivePaymentCardService } from './live-payment-cards'
 import { downloadTelegramUtilityImage, utilityImageFile } from './telegram-utility-image'
-import { readTelegramMessageText } from './topic-ingestion/topic-message-primitives'
+import {
+  explicitReplyTarget,
+  readTelegramMessageText
+} from './topic-ingestion/topic-message-primitives'
 import { buildBotStartDeepLink } from './telegram-deep-links'
 
 export const UTILITY_SCREENSHOT_ACTION = 'utility_screenshot'
@@ -62,7 +65,7 @@ function threadId(ctx: Context): string | null {
 
 /** Only bot-owned keyboards are evidence of billing context; never inspect arbitrary image text. */
 export function utilityReminderReplyPeriod(ctx: Context): string | null {
-  const reply = ctx.message?.reply_to_message
+  const reply = explicitReplyTarget(ctx.message)
   if (reply?.from?.id !== ctx.me.id) return null
   const callbacks =
     reply.reply_markup?.inline_keyboard
@@ -85,7 +88,7 @@ export function utilityReminderReplyPeriod(ctx: Context): string | null {
 }
 
 function addressed(ctx: Context): boolean {
-  if (ctx.chat?.type === 'private' || ctx.message?.reply_to_message?.from?.id === ctx.me.id)
+  if (ctx.chat?.type === 'private' || explicitReplyTarget(ctx.message)?.from?.id === ctx.me.id)
     return true
   const username = ctx.me.username
   const text = readTelegramMessageText(ctx) ?? ''
@@ -647,8 +650,9 @@ export function registerUtilityScreenshotEntry(options: {
     const text = readTelegramMessageText(ctx)?.trim() ?? ''
     const file = utilityImageFile(ctx)
     const hasAttachment = 'photo' in ctx.message || 'document' in ctx.message
+    const replyTo = explicitReplyTarget(ctx.message)
     if (!hasAttachment) {
-      if (!text || !ctx.from || !ctx.message.reply_to_message) {
+      if (!text || !ctx.from || !replyTo) {
         await next()
         return
       }
@@ -661,7 +665,7 @@ export function registerUtilityScreenshotEntry(options: {
       if (
         !draft ||
         (draft.stage !== 'edit' && draft.stage !== 'month') ||
-        draft.inputMessageId !== ctx.message.reply_to_message.message_id ||
+        draft.inputMessageId !== replyTo.message_id ||
         draft.threadId !== threadId(ctx)
       ) {
         await next()
@@ -711,10 +715,10 @@ export function registerUtilityScreenshotEntry(options: {
       await review(ctx, draft, target.locale)
       return
     }
-    const replyIsBot = ctx.message.reply_to_message?.from?.id === ctx.me.id
+    const replyIsBot = replyTo?.from?.id === ctx.me.id
     const paymentProposalReply =
       replyIsBot &&
-      ctx.message.reply_to_message?.reply_markup?.inline_keyboard?.some((row) =>
+      replyTo?.reply_markup?.inline_keyboard?.some((row) =>
         row.some(
           (button) =>
             'callback_data' in button &&
@@ -724,7 +728,7 @@ export function registerUtilityScreenshotEntry(options: {
     const savedPaymentReply =
       replyIsBot &&
       /(?:(?:аренда|коммуналка)(?: за \S+)? записана|(?:rent|utilities)(?: for \S+)? recorded)/iu.test(
-        ctx.message.reply_to_message?.text ?? ''
+        replyTo?.text ?? ''
       )
     if (paymentProposalReply || savedPaymentReply) {
       await next()
@@ -734,7 +738,7 @@ export function registerUtilityScreenshotEntry(options: {
     if (!period && replyIsBot) {
       const card = await options.paymentCardRepository.findPaymentCard({
         telegramChatId: ctx.chat.id.toString(),
-        telegramMessageId: ctx.message.reply_to_message!.message_id.toString()
+        telegramMessageId: replyTo!.message_id.toString()
       })
       if (card?.kind === 'utilities' && card.telegramThreadId === threadId(ctx))
         period = card.period

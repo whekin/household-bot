@@ -15,7 +15,7 @@ import { configureLogger, getLogger, withQueryMetrics } from '@household/observa
 
 import { registerAdHocNotifications } from './ad-hoc-notifications'
 import { registerAuditNotificationCallbacks } from './audit-notifications'
-import { registerAnonymousFeedback } from './anonymous-feedback'
+import { registerAnonymousFeedback, registerAnonymousTopicRelay } from './anonymous-feedback'
 import {
   createInMemoryAssistantConversationMemoryStore,
   createInMemoryAssistantRateLimiter,
@@ -273,6 +273,13 @@ export async function createBotRuntimeApp(): Promise<BotRuntimeApp> {
           logger: getLogger('audit-notifications')
         })
       : null
+  if (runtime.anonymousFeedbackEnabled && householdConfigurationRepositoryClient) {
+    registerAnonymousTopicRelay({
+      bot,
+      householdConfigurationRepository: householdConfigurationRepositoryClient.repository,
+      logger: getLogger('anonymous-feedback')
+    })
+  }
   if (auditNotificationRepositoryClient) {
     registerAuditNotificationCallbacks({
       bot,
